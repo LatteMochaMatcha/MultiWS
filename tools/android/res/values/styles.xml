@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 跟着系统的浅色 / 深色走；没有标题栏，整屏都给网页。状态栏、导航栏的颜色照着网页的顶和底 -->
+    <style name="App" parent="@android:style/Theme.DeviceDefault.DayNight">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">@color/page</item>
+        <item name="android:statusBarColor">@color/bar_top</item>
+        <item name="android:navigationBarColor">@color/bar_bottom</item>
+        <item name="android:windowLightStatusBar">@bool/light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/light_bars</item>
+    </style>
+</resources>

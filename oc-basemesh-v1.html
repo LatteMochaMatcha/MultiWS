@@ -1,0 +1,668 @@
+<title>OC 白模工坊</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+SC:wght@400;500;700&family=ZCOOL+QingKe+HuangYou&display=swap">
+<style>
+/* Layout: one-screen workbench. The clay stage fills the left; a narrow spec-sheet panel on the right holds description, counts, body shape and export. Stacks on phones. */
+:root{
+  --bg:#eef2f2; --panel:#f8fafa; --ink:#13232a; --muted:#5b6e75; --line:#d3dde0;
+  --accent:#0d7883; --accent-ink:#ffffff; --chip:#e2eced; --stage-top:#e3eaeb; --stage-bot:#b6c4c8; --warn:#9a5200;
+  --f-display:"ZCOOL QingKe HuangYou","Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --f-body:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1618; --panel:#131d20; --ink:#e2ebed; --muted:#91a5ab; --line:#25353a;
+    --accent:#4dc4cd; --accent-ink:#052a2d; --chip:#1c2a2e; --stage-top:#1d2a2e; --stage-bot:#0a1113; --warn:#f0a845;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1618; --panel:#131d20; --ink:#e2ebed; --muted:#91a5ab; --line:#25353a;
+  --accent:#4dc4cd; --accent-ink:#052a2d; --chip:#1c2a2e; --stage-top:#1d2a2e; --stage-bot:#0a1113; --warn:#f0a845;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.55}
+.app{display:grid;grid-template-columns:minmax(0,1fr) 392px;height:100%}
+.stage{position:relative;min-width:0;overflow:hidden;background:radial-gradient(120% 90% at 50% 18%,var(--stage-top),var(--stage-bot))}
+.stage canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}
+.stage-msg[hidden]{display:none}
+.stage-msg{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:14px;padding-inline:24px;text-align:center}
+.readout{position:absolute;top:14px;left:16px;right:16px;display:flex;flex-wrap:wrap;gap:6px;pointer-events:none}
+.readout span{font-family:var(--f-mono);font-size:12px;font-variant-numeric:tabular-nums;padding:3px 8px;border-radius:6px;background:color-mix(in srgb,var(--panel) 80%,transparent);color:var(--ink)}
+.views{position:absolute;left:16px;bottom:14px;display:flex;gap:4px;padding:3px;border-radius:9px;background:color-mix(in srgb,var(--panel) 82%,transparent)}
+.views button{font:inherit;font-size:12px;border:0;background:transparent;color:var(--ink);padding:5px 10px;border-radius:6px;cursor:pointer}
+.views button:hover{background:var(--chip)}
+.views button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.hint{position:absolute;right:16px;bottom:18px;font-size:12px;color:var(--muted)}
+
+.panel{background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;padding-block:22px 32px;padding-inline:20px;display:flex;flex-direction:column;gap:24px;min-width:0}
+header h1{font-family:var(--f-display);font-weight:400;font-size:32px;line-height:1.1;margin:0;letter-spacing:.02em;text-wrap:balance}
+header p{margin:6px 0 0;color:var(--muted);font-size:13px}
+section{display:flex;flex-direction:column;gap:10px;min-width:0}
+h2{margin:0;font-size:12px;font-weight:500;letter-spacing:.12em;color:var(--muted)}
+textarea{width:100%;box-sizing:border-box;min-height:76px;resize:vertical;font:inherit;font-size:15px;line-height:1.5;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
+.note{margin:0;font-size:12px;color:var(--muted)}
+.note code{font-family:var(--f-mono);font-size:11.5px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-family:var(--f-mono);font-size:12px;font-variant-numeric:tabular-nums;padding:2px 9px;border-radius:999px;background:var(--chip);color:var(--muted)}
+.chip.hit{background:var(--accent);color:var(--accent-ink)}
+.presets{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:6px}
+.btn{font:inherit;font-size:13px;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:8px;padding:6px 8px;cursor:pointer}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn:focus-visible,.stepper button:focus-visible,.seg label:focus-within{outline:2px solid var(--accent);outline-offset:1px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:500}
+.btn.primary:hover{filter:brightness(1.08);color:var(--accent-ink)}
+.btn:disabled{opacity:.45;cursor:not-allowed;filter:none}
+.rows{display:flex;flex-direction:column}
+.row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px;padding-block:6px;border-bottom:1px dashed var(--line)}
+.row:last-child{border-bottom:0}
+.row label{display:flex;align-items:baseline;gap:6px}
+.row small{color:var(--muted);font-size:12px}
+.stepper{display:flex;align-items:center;gap:2px}
+.stepper button{width:30px;height:30px;font:inherit;font-size:16px;line-height:1;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:7px;cursor:pointer}
+.stepper button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.stepper button:disabled{opacity:.35;cursor:default}
+.stepper output{min-width:2.4ch;text-align:center;font-family:var(--f-mono);font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:3px;border-radius:9px;background:var(--bg);border:1px solid var(--line)}
+.seg label{text-align:center;padding:5px 6px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--muted)}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label:has(input:checked){background:var(--panel);color:var(--ink);box-shadow:0 1px 2px color-mix(in srgb,var(--ink) 18%,transparent)}
+.slider{display:grid;grid-template-columns:5.5em 1fr 3.2em;align-items:center;gap:10px}
+.slider input{width:100%;accent-color:var(--accent);min-width:0}
+.slider output{font-family:var(--f-mono);font-size:12px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.actions .wide{grid-column:1/-1}
+.status{min-height:1.4em;font-size:12px;color:var(--muted)}
+.status.warn{color:var(--warn)}
+@media (max-width:820px){
+  html,body{height:auto}
+  .app{display:block;height:auto}
+  .stage{height:58svh;min-height:340px}
+  .panel{border-left:0;border-top:1px solid var(--line);overflow:visible}
+  .hint{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="app">
+  <div class="stage" id="stage">
+    <div class="stage-msg" id="stageMsg">正在载入 3D 引擎…</div>
+    <div class="readout" id="readout" aria-live="polite"></div>
+    <div class="views" role="group" aria-label="视角">
+      <button type="button" data-view="front">正面</button>
+      <button type="button" data-view="side">侧面</button>
+      <button type="button" data-view="back">背面</button>
+      <button type="button" data-view="three">斜侧</button>
+    </div>
+    <div class="hint">拖动旋转 · 滚轮缩放 · 右键平移</div>
+  </div>
+
+  <aside class="panel">
+    <header>
+      <h1>OC 白模工坊</h1>
+      <p>写下身体设定，实时生成白模，导出后可直接拖进 Blender。</p>
+    </header>
+
+    <section>
+      <h2>身体描述</h2>
+      <textarea id="desc" spellcheck="false" aria-label="身体描述"></textarea>
+      <div class="chips" id="chips"></div>
+      <p class="note">认得：头、手/臂、胸、腿/脚、尾巴、翅膀/翼、角、眼睛；量词 个、对、条、只；「没有尾巴」「平胸」「三头六臂」「九尾」也行。英文标签如 <code>four_arms</code> <code>multiple_tails</code> <code>centaur</code> 同样识别。</p>
+    </section>
+
+    <section>
+      <h2>预设</h2>
+      <div class="presets" id="presets"></div>
+    </section>
+
+    <section>
+      <h2>部件数量</h2>
+      <div class="rows" id="counts"></div>
+      <div class="seg" role="radiogroup" aria-label="多对手臂的排布">
+        <label><input type="radio" name="layout" id="lay-stack" value="stack" checked>沿躯干上下排</label>
+        <label><input type="radio" name="layout" id="lay-shoulder" value="shoulder">肩部扇形聚拢</label>
+      </div>
+      <p class="note">腿设为 2 对是人马下身，3 对以上是蛛形下身。多对手臂或胸时，躯干会自动加长。</p>
+    </section>
+
+    <section>
+      <h2>体型</h2>
+      <div id="shapes" style="display:flex;flex-direction:column;gap:8px"></div>
+    </section>
+
+    <section>
+      <h2>导出</h2>
+      <div class="actions">
+        <button type="button" class="btn primary wide" id="btnGlb" disabled>下载白模（GLB，zip 打包）</button>
+        <button type="button" class="btn" id="btnPng" disabled>截图 PNG</button>
+        <button type="button" class="btn" id="btnJson" disabled>保存配置</button>
+        <label class="btn wide" for="fileJson" style="text-align:center">载入配置文件…<input type="file" id="fileJson" accept=".json,application/json" hidden></label>
+      </div>
+      <div class="status" id="status" role="status"></div>
+      <p class="note">Blender：文件 → 导入 → glTF 2.0，选压缩包里的 .glb。每个部件是独立物体；想合成一整块，全选后 Ctrl+J 合并，再加「体素重构网格」(Voxel Remesh) 修改器融成一体，方便雕刻。</p>
+    </section>
+  </aside>
+</div>
+
+<script>
+  setTimeout(function(){ if(!window.__ocReady){ var m=document.getElementById('stageMsg'); if(m){ m.textContent='3D 引擎没能载入。请检查网络后刷新页面。'; } } }, 12000);
+</script>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+
+/* ---------------- spec ---------------- */
+const COUNTS=[
+  {k:'heads',label:'头',unit:'个',min:1,max:5,def:1},
+  {k:'arms',label:'手臂',unit:'对',min:0,max:4,def:1},
+  {k:'chest',label:'胸',unit:'对',min:0,max:4,def:1},
+  {k:'legs',label:'腿',unit:'对',min:1,max:4,def:1},
+  {k:'tails',label:'尾巴',unit:'条',min:0,max:9,def:0},
+  {k:'wings',label:'翅膀',unit:'对',min:0,max:3,def:0},
+  {k:'horns',label:'角',unit:'只 / 每个头',min:0,max:4,def:0},
+  {k:'eyes',label:'眼睛',unit:'只 / 每个头',min:1,max:6,def:2},
+];
+const SHAPES=[
+  {k:'build',label:'体格',min:.8,max:1.3,step:.01,def:1},
+  {k:'shoulders',label:'肩宽',min:.85,max:1.3,step:.01,def:1},
+  {k:'bust',label:'胸部大小',min:.3,max:1.6,step:.01,def:1},
+  {k:'hips',label:'胯宽',min:.8,max:1.4,step:.01,def:1},
+  {k:'fluff',label:'尾巴蓬松',min:0,max:2,step:.01,def:.4},
+];
+const DEF_COUNTS=Object.fromEntries(COUNTS.map(d=>[d.k,d.def]));
+const DEF_SHAPE=Object.fromEntries(SHAPES.map(d=>[d.k,d.def]));
+const PRESETS=[
+  {n:'标准人形',c:{}},
+  {n:'双头',c:{heads:2}},
+  {n:'四臂',c:{arms:2}},
+  {n:'两对胸',c:{chest:2}},
+  {n:'阿修罗',c:{heads:3,arms:3},layout:'shoulder'},
+  {n:'半人马',c:{legs:2}},
+  {n:'蜘蛛女',c:{legs:4}},
+  {n:'九尾狐',c:{tails:9},shape:{fluff:1.4}},
+  {n:'六翼天使',c:{wings:3}},
+  {n:'三眼',c:{eyes:3}},
+  {n:'龙娘',c:{horns:2,wings:1,tails:1},shape:{fluff:.2}},
+];
+const LABEL=Object.fromEntries(COUNTS.map(d=>[d.k,d]));
+
+const state={counts:{...DEF_COUNTS},shape:{...DEF_SHAPE},layout:'stack',text:'两个头，两对手，两对胸',hit:new Set()};
+try{ const s=JSON.parse(localStorage.getItem('oc-basemesh-v1')||'null'); if(s){ Object.assign(state.counts,s.counts||{}); Object.assign(state.shape,s.shape||{}); state.layout=s.layout||'stack'; if(typeof s.text==='string') state.text=s.text; } }catch(e){}
+
+/* ---------------- text parsing ---------------- */
+const CN={'零':0,'〇':0,'一':1,'二':2,'两':2,'俩':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9};
+function cnNum(s){
+  if(/^\d+$/.test(s)) return +s;
+  if(s==='没有'||s==='无') return 0;
+  if(s.includes('十')){ const [a,b]=s.split('十'); return (a?(CN[a]??NaN):1)*10+(b?(CN[b]??NaN):0); }
+  let n=0; for(const ch of s){ if(!(ch in CN)) return NaN; n=n*10+CN[ch]; } return n;
+}
+const PARTS=[['脑袋','heads'],['手臂','arms'],['胳膊','arms'],['胸部','chest'],['乳房','chest'],['翅膀','wings'],['尾巴','tails'],['眼睛','eyes'],['头','heads'],['手','arms'],['臂','arms'],['胸','chest'],['乳','chest'],['腿','legs'],['脚','legs'],['足','legs'],['尾','tails'],['翼','wings'],['角','horns'],['眼','eyes']];
+const PART_MAP=Object.fromEntries(PARTS);
+const PAIRED={arms:1,chest:1,legs:1,wings:1};
+const NUMCH='零〇一二两俩三四五六七八九十';
+const CN_RE=new RegExp(`(没有|无|\\d+|[${NUMCH}]+)\\s*(对|双|副|个|只|条|根|片|颗|张)?[^，,。；;、\\s\\d${NUMCH}]{0,4}?(${PARTS.map(p=>p[0]).join('|')})`,'g');
+const EN_NUM={two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9};
+const EN_PART={head:'heads',heads:'heads',headed:'heads',arm:'arms',arms:'arms',breast:'chest',breasts:'chest',leg:'legs',legs:'legs',tail:'tails',tails:'tails',wing:'wings',wings:'wings',eye:'eyes',eyes:'eyes',horn:'horns',horns:'horns'};
+const EN_MULTI={heads:2,arms:2,chest:2,legs:2,tails:3,wings:2,eyes:3,horns:2};
+const EN_RE=/(\d+|two|three|four|five|six|seven|eight|nine|multiple|extra)[\s_-]*(headed|heads?|arms?|breasts?|legs?|tails?|wings?|eyes?|horns?)\b/gi;
+const KEYWORDS=[
+  [/平胸|无胸|没有胸|flat[\s_-]?chest/i,c=>{c.chest=0},['chest']],
+  [/阿修罗|asura/i,c=>{c.heads=3;c.arms=3},['heads','arms']],
+  [/半人马|人马|\bcentaur\b|\btaur\b/i,c=>{c.legs=2},['legs']],
+  [/蜘蛛|蛛女|arachne|drider/i,c=>{c.legs=4},['legs']],
+  [/kitsune/i,c=>{c.tails=9},['tails']],
+  [/seraph|六翼/i,c=>{c.wings=3},['wings']],
+  [/third[\s_-]?eye/i,c=>{c.eyes=3},['eyes']],
+  [/独角|unicorn|single[\s_-]?horn/i,c=>{c.horns=1},['horns']],
+];
+function clampCounts(c){ for(const d of COUNTS){ c[d.k]=Math.max(d.min,Math.min(d.max,Math.round(c[d.k]))); } return c; }
+function parseText(txt){
+  const c={...DEF_COUNTS}, hit=new Set(), t=txt.trim();
+  for(const [re,fn,keys] of KEYWORDS){ if(re.test(t)){ fn(c); keys.forEach(k=>hit.add(k)); } }
+  for(const m of t.matchAll(EN_RE)){
+    const key=EN_PART[m[2].toLowerCase()]; if(!key) continue;
+    const w=m[1].toLowerCase(); let v;
+    if(w==='multiple'||w==='extra') v=EN_MULTI[key];
+    else { const n=/^\d+$/.test(w)?+w:EN_NUM[w]; v=PAIRED[key]?Math.ceil(n/2):n; }
+    c[key]=v; hit.add(key);
+  }
+  for(const m of t.matchAll(CN_RE)){
+    const n=cnNum(m[1]); if(Number.isNaN(n)) continue;
+    const key=PART_MAP[m[3]]; const pair=['对','双','副'].includes(m[2]);
+    c[key]=PAIRED[key]?(pair?n:Math.ceil(n/2)):(pair?n*2:n); hit.add(key);
+  }
+  const layout=/聚拢|肩部|阿修罗|asura/i.test(t)?'shoulder':'stack';
+  return {counts:clampCounts(c),hit,layout};
+}
+const ZH=['零','一','两','三','四','五','六','七','八','九'];
+function describe(c,layout){
+  const p=[`${ZH[c.heads]}个头`, c.arms?`${ZH[c.arms]}对手臂`:'没有手臂', c.chest?`${ZH[c.chest]}对胸`:'平胸', `${ZH[c.legs]}对腿`];
+  if(c.tails) p.push(`${ZH[c.tails]}条尾巴`);
+  if(c.wings) p.push(`${ZH[c.wings]}对翅膀`);
+  if(c.horns) p.push(`每个头${ZH[c.horns]}只角`);
+  if(c.eyes!==2) p.push(`每个头${ZH[c.eyes]}只眼睛`);
+  if(layout==='shoulder'&&c.arms>1) p.push('手臂肩部聚拢');
+  return p.join('，');
+}
+
+/* ---------------- UI ---------------- */
+const $=id=>document.getElementById(id);
+const desc=$('desc'), chips=$('chips'), statusEl=$('status');
+desc.value=state.text;
+
+COUNTS.forEach(d=>{
+  const row=document.createElement('div'); row.className='row';
+  row.innerHTML=`<label for="n-${d.k}">${d.label}<small>${d.unit}</small></label>
+  <div class="stepper"><button type="button" data-k="${d.k}" data-d="-1" aria-label="减少${d.label}">−</button><output id="n-${d.k}"></output><button type="button" data-k="${d.k}" data-d="1" aria-label="增加${d.label}">+</button></div>`;
+  $('counts').appendChild(row);
+});
+SHAPES.forEach(d=>{
+  const row=document.createElement('div'); row.className='slider';
+  row.innerHTML=`<label for="s-${d.k}">${d.label}</label><input type="range" id="s-${d.k}" min="${d.min}" max="${d.max}" step="${d.step}"><output id="o-${d.k}" for="s-${d.k}"></output>`;
+  $('shapes').appendChild(row);
+  row.querySelector('input').addEventListener('input',e=>{ state.shape[d.k]=+e.target.value; syncUI(); schedule(); });
+});
+PRESETS.forEach(p=>{
+  const b=document.createElement('button'); b.type='button'; b.className='btn'; b.textContent=p.n;
+  b.addEventListener('click',()=>{
+    state.counts={...DEF_COUNTS,...p.c}; state.layout=p.layout||'stack';
+    if(p.shape) Object.assign(state.shape,p.shape);
+    fromCounts();
+  });
+  $('presets').appendChild(b);
+});
+$('counts').addEventListener('click',e=>{
+  const b=e.target.closest('button[data-k]'); if(!b) return;
+  const k=b.dataset.k; state.counts[k]+= +b.dataset.d; clampCounts(state.counts); fromCounts();
+});
+document.querySelectorAll('input[name=layout]').forEach(r=>r.addEventListener('change',()=>{ state.layout=r.value; fromCounts(); }));
+
+function fromCounts(){
+  state.text=describe(state.counts,state.layout); desc.value=state.text;
+  state.hit=parseText(state.text).hit; syncUI(); schedule();
+}
+let typeTimer=0;
+desc.addEventListener('input',()=>{ clearTimeout(typeTimer); typeTimer=setTimeout(()=>{
+  state.text=desc.value; const r=parseText(desc.value);
+  state.counts=r.counts; state.hit=r.hit; state.layout=r.layout; syncUI(); schedule();
+},300); });
+
+function syncUI(){
+  for(const d of COUNTS){
+    $('n-'+d.k).textContent=state.counts[d.k];
+    document.querySelector(`button[data-k="${d.k}"][data-d="-1"]`).disabled=state.counts[d.k]<=d.min;
+    document.querySelector(`button[data-k="${d.k}"][data-d="1"]`).disabled=state.counts[d.k]>=d.max;
+  }
+  for(const d of SHAPES){ $('s-'+d.k).value=state.shape[d.k]; $('o-'+d.k).textContent=(+state.shape[d.k]).toFixed(2); }
+  $(state.layout==='shoulder'?'lay-shoulder':'lay-stack').checked=true;
+  const c=state.counts;
+  const items=[['heads',`头 ${c.heads}`],['arms',`手臂 ${c.arms} 对`],['chest',c.chest?`胸 ${c.chest} 对`:'平胸'],['legs',c.legs===1?'双足':c.legs===2?'人马下身':`蛛形 ${c.legs*2} 足`],['tails',`尾 ${c.tails}`],['wings',`翼 ${c.wings} 对`],['horns',`角 ${c.horns}`],['eyes',`眼 ${c.eyes}`]];
+  chips.innerHTML='';
+  if(desc.value.trim() && state.hit.size===0){ const s=document.createElement('span'); s.className='chip'; s.textContent='没认出部件，试试「三对手」「九条尾巴」'; chips.appendChild(s); }
+  for(const [k,t] of items){ const s=document.createElement('span'); s.className='chip'+(state.hit.has(k)?' hit':''); s.textContent=t; chips.appendChild(s); }
+  try{ localStorage.setItem('oc-basemesh-v1',JSON.stringify({counts:state.counts,shape:state.shape,layout:state.layout,text:desc.value})); }catch(e){}
+}
+{
+  const r=parseText(state.text); state.hit=r.hit;
+  let saved=false; try{ saved=!!localStorage.getItem('oc-basemesh-v1'); }catch(e){}
+  if(!saved){ state.counts=r.counts; state.layout=r.layout; }
+}
+syncUI();
+
+/* ---------------- three.js scene ---------------- */
+const stage=$('stage');
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+stage.prepend(renderer.domElement);
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(32,1,.05,50);
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true; controls.dampingFactor=.08; controls.minDistance=.6; controls.maxDistance=12;
+
+scene.add(new THREE.HemisphereLight(0xffffff,0x7d8a8e,1.7));
+const key=new THREE.DirectionalLight(0xffffff,2.1); key.position.set(2.2,4.2,3.2); key.castShadow=true;
+key.shadow.mapSize.set(2048,2048); Object.assign(key.shadow.camera,{left:-2.2,right:2.2,top:3.2,bottom:-1,near:.5,far:12}); key.shadow.bias=-.0005; key.shadow.normalBias=.02;
+scene.add(key);
+const rim=new THREE.DirectionalLight(0xdbe8ff,.7); rim.position.set(-3,2.5,-2.5); scene.add(rim);
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(10,10),new THREE.ShadowMaterial({opacity:.2}));
+ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; scene.add(ground);
+const ring=new THREE.Mesh(new THREE.RingGeometry(.995,1.005,128),new THREE.MeshBasicMaterial({color:0x6f8389,transparent:true,opacity:.45}));
+ring.rotation.x=-Math.PI/2; ring.position.y=.001; scene.add(ring);
+
+const MAT=new THREE.MeshStandardMaterial({color:0xe7eaeb,roughness:.78,metalness:0,name:'Clay'});
+const EYE=new THREE.MeshStandardMaterial({color:0x283034,roughness:.35,name:'Eye'});
+const WINGMAT=new THREE.MeshStandardMaterial({color:0xe7eaeb,roughness:.8,side:THREE.DoubleSide,name:'ClayWing'});
+
+let body=new THREE.Group(); body.name='OC_BaseMesh'; scene.add(body);
+const V=(x,y,z)=>new THREE.Vector3(x,y,z);
+const UP=V(0,1,0);
+function mk(geo,name,m=MAT){ const o=new THREE.Mesh(geo,m); o.name=name; o.castShadow=true; o.receiveShadow=true; return o; }
+function ball(r,p,name='Joint',m=MAT){ const o=mk(new THREE.SphereGeometry(1,28,18),name,m); o.scale.setScalar(r); o.position.copy(p); return o; }
+function seg(a,b,r1,r2,name='Segment'){
+  const d=new THREE.Vector3().subVectors(b,a); const len=d.length();
+  const o=mk(new THREE.CylinderGeometry(r2,r1,len,22,1,true),name);
+  o.position.copy(a).addScaledVector(d,.5); o.quaternion.setFromUnitVectors(UP,d.normalize()); return o;
+}
+function taper(points,r0,r1,bulge,name){
+  const g=new THREE.Group(); g.name=name;
+  const curve=new THREE.CatmullRomCurve3(points,false,'centripetal'); const ts=56, rs=16;
+  const geo=new THREE.TubeGeometry(curve,ts,1,rs,false); const pos=geo.attributes.position; const v=new THREE.Vector3();
+  for(let i=0;i<=ts;i++){
+    const u=i/ts, c=curve.getPointAt(u);
+    const r=r0+(r1-r0)*u+bulge*Math.sin(Math.PI*Math.min(1,u*1.12));
+    for(let j=0;j<=rs;j++){ const k=i*(rs+1)+j; v.fromBufferAttribute(pos,k).sub(c).multiplyScalar(r).add(c); pos.setXYZ(k,v.x,v.y,v.z); }
+  }
+  geo.computeVertexNormals();
+  g.add(mk(geo,name+'_Tube'), ball(r0,points[0],name+'_Base'), ball(Math.max(r1,.003),curve.getPointAt(1),name+'_Tip'));
+  return g;
+}
+// Catmull-Rom smoothing of torso cross-section keys
+function smoothRings(keys){
+  const ch=['y','w','d','z'], out=[];
+  const cr=(a,b,c,d,t)=>.5*(2*b+(-a+c)*t+(2*a-5*b+4*c-d)*t*t+(-a+3*b-3*c+d)*t*t*t);
+  for(let i=0;i<keys.length-1;i++){
+    const p0=keys[Math.max(0,i-1)],p1=keys[i],p2=keys[i+1],p3=keys[Math.min(keys.length-1,i+2)];
+    const n=Math.max(2,Math.ceil((p2.y-p1.y)/.012));
+    for(let s=0;s<n;s++){ const t=s/n, r={}; ch.forEach(k=>r[k]=cr(p0[k],p1[k],p2[k],p3[k],t)); out.push(r); }
+  }
+  out.push({...keys[keys.length-1]});
+  for(let i=1;i<out.length;i++) if(out[i].y<=out[i-1].y) out[i].y=out[i-1].y+.001;
+  return out;
+}
+function loft(rings,name,segs=44){
+  const pos=[], idx=[];
+  rings.forEach(r=>{ for(let j=0;j<=segs;j++){ const t=-Math.PI/2+j/segs*Math.PI*2; pos.push(r.w*Math.cos(t),r.y,r.z+r.d*Math.sin(t)); } });
+  for(let i=0;i<rings.length-1;i++) for(let j=0;j<segs;j++){ const a=i*(segs+1)+j,b=a+segs+1; idx.push(a,b,a+1,b,b+1,a+1); }
+  const r0=rings[0], rn=rings[rings.length-1], c0=pos.length/3; pos.push(0,r0.y-.004,r0.z); const c1=pos.length/3; pos.push(0,rn.y+.004,rn.z);
+  const top=(rings.length-1)*(segs+1);
+  for(let j=0;j<segs;j++){ idx.push(c0,j,j+1); idx.push(c1,top+j+1,top+j); }
+  const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); g.setIndex(idx); g.computeVertexNormals();
+  return mk(g,name);
+}
+function lookup(rings,y){
+  if(y<=rings[0].y) return rings[0]; if(y>=rings[rings.length-1].y) return rings[rings.length-1];
+  let i=1; while(rings[i].y<y) i++; const a=rings[i-1],b=rings[i],t=(y-a.y)/(b.y-a.y);
+  return {y,w:a.w+(b.w-a.w)*t,d:a.d+(b.d-a.d)*t,z:a.z+(b.z-a.z)*t};
+}
+function headMesh(){
+  const geo=new THREE.SphereGeometry(1,40,28); const p=geo.attributes.position;
+  for(let i=0;i<p.count;i++){ let x=p.getX(i),y=p.getY(i),z=p.getZ(i);
+    if(y<0){ x*=1+.3*y; z=z>0?z*(1+.08*y)+.06*(-y):z*(1+.25*y); }
+    p.setXYZ(i,x*.088,y*.115,z*.098); }
+  geo.computeVertexNormals(); return mk(geo,'Skull');
+}
+const HR={x:.088,y:.115,z:.098};
+const surfZ=(x,y)=>HR.z*Math.sqrt(Math.max(0,1-(x/HR.x)**2-(y/HR.y)**2));
+const surfY=(x,z)=>HR.y*Math.sqrt(Math.max(0,1-(x/HR.x)**2-(z/HR.z)**2));
+function eyeSpots(E){
+  if(E===1) return [[0,.012]];
+  const s=[], pairs=Math.floor(E/2);
+  for(let p=0;p<pairs;p++){ const y=.005+p*.034, x=.037-p*.006; s.push([x,y],[-x,y]); }
+  if(E%2) s.push([0,.005+pairs*.034]);
+  return s;
+}
+function makeHead(n,E,N){
+  const g=new THREE.Group(); g.name='Head_'+n; g.add(headMesh());
+  eyeSpots(E).forEach(([x,y],i)=>{ const e=ball(1,V(x,y,surfZ(x,y)-.004),'Eye_'+(i+1),EYE); e.scale.set(.012,.0095,.006); e.lookAt(V(x*2.2,y,1)); g.add(e); });
+  const spots=[]; const pairs=Math.floor(N/2);
+  if(N%2) spots.push([0,.035,true]);
+  for(let p=0;p<pairs;p++) spots.push([.042+p*.018,-.012-p*.03,false]);
+  let hi=0;
+  spots.forEach(([x,z,center])=>{
+    const sides=center?[0]:[1,-1];
+    sides.forEach(s=>{
+      const bx=x*(s||1)*(center?0:1), base=V(bx,surfY(bx,z)-.012,z);
+      const pts=center
+        ?[base,base.clone().add(V(0,.06,.035)),base.clone().add(V(0,.13,.06))]
+        :[base,base.clone().add(V(s*.025,.06,-.025)),base.clone().add(V(s*.05,.1,-.09)),base.clone().add(V(s*.055,.12,-.15))];
+      g.add(taper(pts,.017,.002,0,'Horn_'+(++hi)));
+    });
+  });
+  return g;
+}
+function makeArm(S,side,theta,phi,b,tag){
+  const g=new THREE.Group(); g.name=`Arm_${side>0?'L':'R'}${tag}`;
+  const dir=V(side*Math.sin(theta)*Math.cos(phi),-Math.cos(theta),Math.sin(theta)*Math.sin(phi)+.15*Math.sin(phi)).normalize();
+  const E=S.clone().addScaledVector(dir,.28);
+  const d2=dir.clone().add(V(0,.12,.32)).normalize();
+  const W=E.clone().addScaledVector(d2,.25);
+  g.add(ball(.055*b,S,'Shoulder'),seg(S,E,.046*b,.037*b,'UpperArm'),ball(.037*b,E,'Elbow'),seg(E,W,.036*b,.026*b,'Forearm'),ball(.027*b,W,'Wrist'));
+  const h=ball(1,W.clone().addScaledVector(d2,.072),'Hand'); h.quaternion.setFromUnitVectors(UP,d2); h.scale.set(.04*b,.074,.022*b); g.add(h);
+  const td=d2.clone().multiplyScalar(.5).add(V(0,0,1)).normalize(), tb=W.clone().addScaledVector(d2,.03), tt=tb.clone().addScaledVector(td,.05);
+  g.add(seg(tb,tt,.014,.011,'Thumb'),ball(.011,tt,'ThumbTip'));
+  return g;
+}
+const WP=[[0,0],[.12,.10],[.32,.24],[.55,.38],[.86,.52],[.80,.40],[.70,.31],[.66,.22],[.56,.20],[.50,.08],[.40,.10],[.34,-.02],[.24,.02],[.17,-.07],[.07,-.04]];
+function makeWing(side,s,name){
+  const sh=new THREE.Shape(); WP.forEach(([x,y],i)=>{ const X=x*s*side,Y=y*s; i?sh.lineTo(X,Y):sh.moveTo(X,Y); }); sh.closePath();
+  const geo=new THREE.ExtrudeGeometry(sh,{depth:.012,bevelEnabled:true,bevelThickness:.004,bevelSize:.004,bevelSegments:1,curveSegments:4});
+  geo.translate(0,0,-.006); geo.computeVertexNormals(); return mk(geo,name,WINGMAT);
+}
+
+function dispose(g){ g.traverse(o=>{ if(o.geometry) o.geometry.dispose(); }); }
+
+function build(){
+  scene.remove(body); dispose(body);
+  body=new THREE.Group(); body.name='OC_BaseMesh'; scene.add(body);
+  const c=state.counts, sh=state.shape, b=sh.build, gap=.17;
+  const taur=c.legs>=2, spider=c.legs>=3;
+  const up=new THREE.Group(); up.name='UpperBody'; body.add(up);
+  if(taur) up.position.set(0,.22,spider?.06:.14);
+
+  const rowsN=Math.max(state.layout==='stack'?c.arms:1,c.chest,1);
+  const extra=gap*(rowsN-1);
+  const shoulderY=1.42+extra, chestTop=1.29+extra;
+  const neckSpread=(c.heads-1)*.075;
+
+  const keys=[];
+  if(!taur){ keys.push({y:.84,w:.06*sh.hips,d:.055,z:0},{y:.885,w:.13*sh.hips*b,d:.10*b,z:-.005},{y:.96,w:.172*sh.hips*b,d:.122*b,z:-.012},{y:1.04,w:.152*b*(.5+.5*sh.hips),d:.108*b,z:-.004}); }
+  else { keys.push({y:.95,w:.13*b,d:.10*b,z:0},{y:1.03,w:.138*b,d:.103*b,z:0}); }
+  keys.push({y:1.11,w:.127*b,d:.094*b,z:.004},{y:1.20,w:.141*b,d:.10*b,z:.006});
+  for(let y=1.20+gap;y<chestTop-.05;y+=gap) keys.push({y,w:.15*b,d:.105*b,z:.008});
+  keys.push({y:chestTop,w:.157*b,d:.11*b,z:.01});
+  keys.push({y:shoulderY-.06,w:.168*b*sh.shoulders+neckSpread*.6,d:.104*b,z:.004});
+  keys.push({y:shoulderY,w:Math.max(.183*sh.shoulders*b,neckSpread+.11),d:.088*b,z:-.006});
+  keys.push({y:shoulderY+.035,w:Math.max(.12,neckSpread+.08),d:.068,z:-.012});
+  keys.push({y:shoulderY+.06,w:neckSpread+.05,d:.05,z:-.012});
+  const rings=smoothRings(keys);
+  up.add(loft(rings,'Torso'));
+  const at=y=>lookup(rings,y);
+
+  // heads & necks
+  for(let k=0;k<c.heads;k++){
+    const x=(k-(c.heads-1)/2)*.15, tilt=c.heads>1?x*2.8:0;
+    const base=V(x,shoulderY+.04,-.012), dir=V(Math.sin(tilt),Math.cos(tilt),.06).normalize();
+    const nt=base.clone().addScaledVector(dir,.085);
+    const neck=new THREE.Group(); neck.name='Neck_'+(k+1);
+    neck.add(seg(base,nt,.05*Math.sqrt(b),.045,'NeckTube'),ball(.045,nt,'NeckTop'));
+    up.add(neck);
+    const h=makeHead(k+1,c.eyes,c.horns);
+    h.position.copy(nt).addScaledVector(dir,.1); h.rotation.z=-tilt; up.add(h);
+  }
+
+  // arms
+  for(let i=0;i<c.arms;i++){
+    let y,z=-.004,theta,phi;
+    if(state.layout==='stack'){ y=shoulderY-.035-i*gap; theta=(48-i*6)*Math.PI/180; phi=(i-(c.arms-1)/2)*.25; }
+    else { y=shoulderY-.035-i*.045; z=(i-(c.arms-1)/2)*.055; theta=(c.arms===1?48:125-i*80/(c.arms-1))*Math.PI/180; phi=(i-(c.arms-1)/2)*.35; }
+    const r=at(y);
+    for(const side of [1,-1]) up.add(makeArm(V(side*(r.w-.006),y,r.z+z),side,theta,phi,b,i+1));
+  }
+
+  // chest rows
+  for(let j=0;j<c.chest;j++){
+    const y=chestTop-.02-j*gap, r=at(y), s=.056*sh.bust*(1-.1*j)*Math.sqrt(b);
+    for(const side of [1,-1]){
+      const x=side*(.068*b+s*.3), zf=r.z+r.d*Math.sqrt(Math.max(0,1-(x/r.w)**2));
+      const m=ball(1,V(x,y-s*.12,zf-s*.35),`Chest_${j+1}${side>0?'L':'R'}`); m.scale.set(s,s*.94,s*.9); m.rotation.y=side*.22; up.add(m);
+    }
+  }
+
+  // wings
+  const elevs=[[.35],[.5,-.1],[.75,.2,-.35]][Math.max(0,c.wings-1)];
+  for(let i=0;i<c.wings;i++){
+    const y=shoulderY-.07-i*.13, r=at(y), zb=r.z-r.d+.015;
+    for(const side of [1,-1]){
+      const w=makeWing(side,1-.15*i,`Wing_${i+1}${side>0?'L':'R'}`);
+      w.position.set(side*.05,y,zb); w.rotation.set(0,side*.55,side*elevs[i]); up.add(w);
+    }
+  }
+
+  // lower body
+  let tailO;
+  if(!taur){
+    const hx=.088*sh.hips;
+    for(const side of [1,-1]){
+      const g=new THREE.Group(); g.name='Leg_'+(side>0?'L':'R');
+      const H=V(side*hx,.90,0),K=V(side*hx*.85,.49,.02),A=V(side*hx*.8,.085,-.01);
+      g.add(ball(.085*b,H,'Hip'),seg(H,K,.085*b,.052*b,'Thigh'),ball(.052*b,K,'Knee'),seg(K,A,.05*b,.034*b,'Shin'),ball(.034*b,A,'Ankle'));
+      const f=ball(1,V(A.x,.036,A.z+.065),'Foot'); f.scale.set(.042*b,.036,.11); g.add(f);
+      body.add(g);
+    }
+    tailO=V(0,.99,-.11*b);
+  } else if(!spider){
+    const len=.8, front=.30, zc=front-len/2;
+    const barrel=ball(1,V(0,1.03,zc),'LowerBody'); barrel.scale.set(.21*b,.23*b,len/2); body.add(barrel);
+    const zs=[front-.13,front-len+.13];
+    zs.forEach((z,k)=>{ for(const side of [1,-1]){
+      const g=new THREE.Group(); g.name=`Leg_${k?'Hind':'Fore'}${side>0?'L':'R'}`;
+      const H=V(side*.11*b,.98,z),K=V(side*.115*b,.52,z+(k?-.05:.03)),F=V(side*.115*b,.13,z);
+      g.add(ball(.08*b,H,'Hip'),seg(H,K,.078*b,.048*b,'Upper'),ball(.046*b,K,'Knee'),seg(K,F,.044*b,.034*b,'Cannon'),ball(.036*b,F,'Fetlock'));
+      const hoof=ball(1,V(F.x,.045,z+.02),'Hoof'); hoof.scale.set(.05*b,.045,.06); g.add(hoof);
+      body.add(g);
+    }});
+    tailO=V(0,1.13,zc-len/2+.05);
+  } else {
+    const thorax=ball(1,V(0,1.0,.02),'Cephalothorax'); thorax.scale.set(.19*b,.19*b,.28); body.add(thorax);
+    const abd=ball(1,V(0,1.1,-.56),'Abdomen'); abd.scale.set(.30*b,.27*b,.38); body.add(abd);
+    for(let k=0;k<c.legs;k++){
+      const t=c.legs===1?0:k/(c.legs-1), z=.2-t*.38, a=(55-t*120)*Math.PI/180;
+      for(const side of [1,-1]){
+        const g=new THREE.Group(); g.name=`Leg_${k+1}${side>0?'L':'R'}`;
+        const u=V(side*Math.cos(a),0,Math.sin(a));
+        const H=V(side*.14*b,.98,z),K=H.clone().addScaledVector(u,.36).add(V(0,.3,0)),F=H.clone().addScaledVector(u,.88).setY(.02);
+        const mid=K.clone().lerp(F,.45).addScaledVector(u,.06).add(V(0,.1,0));
+        g.add(ball(.045*b,H,'Coxa'),seg(H,K,.042*b,.032*b,'Femur'),ball(.032*b,K,'Knee'),seg(K,mid,.032*b,.024*b,'Tibia'),ball(.024*b,mid,'Joint'),seg(mid,F,.024*b,.01,'Tarsus'),ball(.01,F,'Tip'));
+        body.add(g);
+      }
+    }
+    tailO=V(0,1.18,-.9);
+  }
+
+  // tails
+  const T=c.tails;
+  for(let i=0;i<T;i++){
+    const spread=T>1?Math.min(1.25,.22*(T-1)):0, yaw=T>1?-spread+2*spread*i/(T-1):0;
+    const lift=T>3?(i%2?.12:-.04):0, dir=V(Math.sin(yaw),0,-Math.cos(yaw)), o=tailO;
+    const pts=[o.clone(),o.clone().addScaledVector(dir,.12).add(V(0,-.06,0)),o.clone().addScaledVector(dir,.35).add(V(0,.02+lift,0)),o.clone().addScaledVector(dir,.55).add(V(0,.25+lift*1.5,0)),o.clone().addScaledVector(dir,.58).add(V(0,.45+lift*2,0))];
+    body.add(taper(pts,.042*b,.008,.05*sh.fluff,'Tail_'+(i+1)));
+  }
+
+  body.updateMatrixWorld(true);
+  const box=new THREE.Box3().setFromObject(body);
+  lastBox=box;
+  let tris=0; body.traverse(o=>{ if(o.isMesh){ const g=o.geometry; tris+=(g.index?g.index.count:g.attributes.position.count)/3; } });
+  const H=box.max.y;
+  $('readout').innerHTML=`<span>身高 ${H.toFixed(2)} m</span><span>约 ${(H/.23).toFixed(1)} 头身</span><span>${Math.round(tris).toLocaleString('zh-CN')} 三角面</span>`;
+  const cy=(box.min.y+box.max.y)/2;
+  controls.target.y+= (cy-controls.target.y);
+}
+let lastBox=null;
+function frame(view='three'){
+  const box=lastBox||new THREE.Box3(V(-.5,0,-.5),V(.5,1.8,.5));
+  const size=box.getSize(new THREE.Vector3()), ctr=box.getCenter(new THREE.Vector3());
+  const dist=Math.max(size.y,size.x*.9,size.z*.9)*2.1+.4;
+  const dirs={front:V(0,.08,1),side:V(1,.08,0),back:V(0,.08,-1),three:V(.62,.18,1)};
+  const d=dirs[view].normalize();
+  controls.target.copy(ctr); camera.position.copy(ctr).addScaledVector(d,dist); controls.update();
+}
+document.querySelectorAll('[data-view]').forEach(btn=>btn.addEventListener('click',()=>frame(btn.dataset.view)));
+
+let pending=false;
+function schedule(){ if(pending) return; pending=true; requestAnimationFrame(()=>{ pending=false; build(); }); }
+
+function resize(){ const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h,false); camera.aspect=w/Math.max(h,1); camera.updateProjectionMatrix(); }
+new ResizeObserver(resize).observe(stage); resize();
+build(); frame('three');
+(function loop(){ controls.update(); renderer.render(scene,camera); requestAnimationFrame(loop); })();
+$('stageMsg').hidden=true; window.__ocReady=true;
+
+/* ---------------- export ---------------- */
+let downloads=null;
+const btns=['btnGlb','btnPng','btnJson'].map($);
+function setStatus(t,warn){ statusEl.textContent=t; statusEl.classList.toggle('warn',!!warn); }
+(async()=>{
+  try{ downloads=window.claude?.use?await window.claude.use('downloads'):null; }catch(e){ downloads=null; }
+  if(downloads){ btns.forEach(b=>b.disabled=false); }
+  else setStatus('当前查看环境不支持保存文件。在 claude.ai 中打开这个页面即可导出。',true);
+})();
+async function offer(filename,data,okText){
+  if(!downloads) return;
+  try{ await downloads.save({filename,data}); setStatus(okText); }
+  catch(e){
+    const m={declined:'已取消保存。',rate_limited:'已经有一个保存提示开着，处理完再试。',too_large:'文件太大，没能保存。'};
+    setStatus(m[e?.code]||'保存没有成功，请稍后再试。',e?.code!=='declined');
+  }
+}
+const CRC=(()=>{ const t=new Uint32Array(256); for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c=c&1?0xEDB88320^(c>>>1):c>>>1; t[n]=c>>>0; } return t; })();
+function crc32(u8){ let c=0xFFFFFFFF; for(let i=0;i<u8.length;i++) c=CRC[(c^u8[i])&255]^(c>>>8); return (c^0xFFFFFFFF)>>>0; }
+function zip(files){
+  const enc=new TextEncoder(), parts=[], cen=[]; let off=0;
+  for(const f of files){
+    const name=enc.encode(f.name), data=f.data, crc=crc32(data);
+    const lh=new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true); lh.setUint16(4,20,true); lh.setUint16(6,0x0800,true); lh.setUint16(8,0,true);
+    lh.setUint16(10,0,true); lh.setUint16(12,33,true); lh.setUint32(14,crc,true); lh.setUint32(18,data.length,true); lh.setUint32(22,data.length,true);
+    lh.setUint16(26,name.length,true); lh.setUint16(28,0,true);
+    parts.push(lh.buffer,name,data);
+    const ch=new DataView(new ArrayBuffer(46));
+    ch.setUint32(0,0x02014b50,true); ch.setUint16(4,20,true); ch.setUint16(6,20,true); ch.setUint16(8,0x0800,true); ch.setUint16(10,0,true);
+    ch.setUint16(12,0,true); ch.setUint16(14,33,true); ch.setUint32(16,crc,true); ch.setUint32(20,data.length,true); ch.setUint32(24,data.length,true);
+    ch.setUint16(28,name.length,true); ch.setUint16(30,0,true); ch.setUint16(32,0,true); ch.setUint16(34,0,true); ch.setUint16(36,0,true); ch.setUint32(38,0,true); ch.setUint32(42,off,true);
+    cen.push(ch.buffer,name);
+    off+=30+name.length+data.length;
+  }
+  const cenSize=cen.reduce((s,p)=>s+(p.byteLength??p.length),0);
+  const end=new DataView(new ArrayBuffer(22));
+  end.setUint32(0,0x06054b50,true); end.setUint16(8,files.length,true); end.setUint16(10,files.length,true); end.setUint32(12,cenSize,true); end.setUint32(16,off,true);
+  return new Blob([...parts,...cen,end.buffer],{type:'application/zip'});
+}
+$('btnGlb').addEventListener('click',async()=>{
+  setStatus('正在打包…');
+  try{
+    const glb=await new GLTFExporter().parseAsync(body,{binary:true});
+    const readme=`OC 白模工坊导出\n\n描述：${desc.value}\n单位：米，人物面朝 +Y（Blender 导入后面朝 -Y 前视图方向）。\n\n导入：Blender → 文件 → 导入 → glTF 2.0，选择 oc_basemesh.glb。\n合成一体：全选部件 → Ctrl+J 合并 → 添加「重构网格」修改器，模式选「体素」，体素大小约 0.01 → 应用。\n之后可以进雕刻模式继续塑形。\n`;
+    const blob=zip([{name:'oc_basemesh.glb',data:new Uint8Array(glb)},{name:'导入说明.txt',data:new TextEncoder().encode(readme)}]);
+    await offer('oc_basemesh.zip',blob,'已保存 oc_basemesh.zip。');
+  }catch(e){ setStatus('导出失败：'+(e?.message||e),true); }
+});
+$('btnPng').addEventListener('click',()=>{
+  renderer.render(scene,camera);
+  renderer.domElement.toBlob(b=>{ if(b) offer('oc_basemesh.png',b,'已保存截图（透明背景）。'); },'image/png');
+});
+$('btnJson').addEventListener('click',()=>{
+  const data=JSON.stringify({app:'oc-basemesh',version:1,text:desc.value,counts:state.counts,shape:state.shape,layout:state.layout},null,2);
+  offer('oc_config.json',data,'已保存配置。');
+});
+$('fileJson').addEventListener('change',async e=>{
+  const f=e.target.files?.[0]; if(!f) return;
+  try{
+    const s=JSON.parse(await f.text());
+    state.counts=clampCounts({...DEF_COUNTS,...(s.counts||{})}); Object.assign(state.shape,s.shape||{}); state.layout=s.layout==='shoulder'?'shoulder':'stack';
+    if(typeof s.text==='string'){ desc.value=s.text; state.hit=parseText(s.text).hit; } else fromCounts();
+    syncUI(); schedule(); setStatus('已载入 '+f.name+'。');
+  }catch(err){ setStatus('这个文件不是有效的配置文件。',true); }
+  e.target.value='';
+});
+</script>

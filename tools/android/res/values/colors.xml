@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 和 src/style.css 里浅色主题的 bg、stage-top、panel 一样 -->
+    <color name="page">#eef2f2</color>
+    <color name="bar_top">#e3eaeb</color>
+    <color name="bar_bottom">#f8fafa</color>
+    <!-- 图标的底色：就是界面上的青色 -->
+    <color name="icon_back">#0d7883</color>
+    <bool name="light_bars">true</bool>
+</resources>

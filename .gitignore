@@ -1,0 +1,12 @@
+node_modules
+dist
+release
+*.local
+.vite
+
+# 打 apk 的签名钥匙：公开了别人就能冒充你签安装包
+tools/android/sign.keystore
+
+# 角色、动作素材的原件（约 450 MB），只在重新加工时用；下载地址和校验见 assets/source/README.md
+assets/source/*
+!assets/source/README.md

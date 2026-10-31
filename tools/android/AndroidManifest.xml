@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- OC 白模工坊的安卓外壳。没有申请任何权限：不联网，文件只往「下载」「图片」里自己的文件夹写。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="app.ocbasemesh.workshop">
+
+    <application
+        android:allowBackup="false"
+        android:hardwareAccelerated="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:theme="@style/App">
+        <!-- configChanges：转屏、分屏时不重开页面。windowSoftInputMode：键盘弹出来时页面跟着变矮，输入框和模型都还看得见 -->
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|density|fontScale"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OC 白模工坊 v2</title>
+</head>
+<body>
+  <div class="app" data-mode="shape">
+    <main class="stage" id="stage">
+      <div class="stage-msg" id="stageMsg" hidden></div>
+      <div class="mode" role="group" aria-label="现在做什么">
+        <button type="button" data-go="shape" aria-pressed="true" title="定身体：部件数量、体型、微调">造型</button>
+        <button type="button" data-go="pose" aria-pressed="false" title="拖关节上的圆点摆姿势">摆姿势</button>
+      </div>
+      <div class="readout" id="readout" aria-live="polite"></div>
+      <button type="button" class="zoom" id="btnZoom" aria-pressed="false" title="把 3D 视图放大到整屏，设定面板先收起来">放大</button>
+      <div class="stage-foot">
+        <div class="picked" id="picked" hidden>
+          <span id="pickedName"></span>
+          <button type="button" id="pickedClear" title="取消选择（Esc）" aria-label="取消选择">✕</button>
+        </div>
+        <div class="dock">
+          <div class="views" role="group" aria-label="视角">
+            <button type="button" data-view="front">正面</button>
+            <button type="button" data-view="side">侧面</button>
+            <button type="button" data-view="back">背面</button>
+            <button type="button" data-view="three">斜侧</button>
+          </div>
+          <div class="views" role="group" aria-label="撤销和重做">
+            <button type="button" id="btnUndo" title="撤销（Ctrl+Z）">撤销</button>
+            <button type="button" id="btnRedo" title="重做（Ctrl+Y）">重做</button>
+          </div>
+          <div class="views" role="group" aria-label="显示">
+            <button type="button" id="btnBones" aria-pressed="false" title="显示或隐藏骨架">骨骼</button>
+          </div>
+        </div>
+      </div>
+      <div class="hint" id="hint">拖动旋转 · 滚轮缩放 · 右键平移 · 点一下部件单独调整</div>
+    </main>
+
+    <aside class="panel">
+      <nav class="jump" id="jump" aria-label="跳到某一栏"></nav>
+      <div class="panel-scroll" id="panelScroll">
+        <header>
+          <div class="title">
+            <h1>OC 白模工坊 <small>v2</small></h1>
+            <button type="button" class="btn ghost" id="btnTheme"></button>
+          </div>
+          <div class="sub">
+            <p>写下身体设定，生成能导进 Blender 的白模。</p>
+            <button type="button" class="btn ghost" id="btnTour" title="再看一遍新手引导">新手引导</button>
+          </div>
+        </header>
+
+        <section data-key="desc" data-mode="shape">
+          <h2><button type="button" class="fold">身体描述</button></h2>
+          <div class="body">
+            <textarea id="desc" spellcheck="false" aria-label="身体描述"></textarea>
+            <div class="chips" id="chips"></div>
+            <details class="detail">
+              <summary>能认哪些写法</summary>
+              <p class="note">头、手 / 臂、胸、腿 / 脚、尾巴、翅膀 / 翼、角、眼睛、兽耳，配上数字和量词（个、对、条、只）。「没有尾巴」「平胸」「三头六臂」「九尾」「八头身」「身高 165」「男性」「T-pose」也认；发型（「双马尾」「长直发」「波波头」）也认，发色（「金发」「黑长直」）只有成品角色用得上；英文标签如 <code>four_arms</code> <code>multiple_tails</code> <code>centaur</code> 一样。亮起的标签是从这句话里认出来的。</p>
+              <p class="echo" id="echo"></p>
+              <ul class="legend" aria-label="图例">
+                <li><mark data-tier="number">中文带数字的描述</mark></li>
+                <li><mark data-tier="tag">英文标签</mark></li>
+                <li><mark data-tier="keyword">关键词</mark></li>
+                <li><mark data-tier="measure">身高 / 头身比</mark></li>
+              </ul>
+            </details>
+          </div>
+        </section>
+
+        <section data-key="presets" data-mode="shape">
+          <h2><button type="button" class="fold">预设</button></h2>
+          <div class="body">
+            <div class="presets" id="presets"></div>
+          </div>
+        </section>
+
+        <section data-key="counts" data-mode="shape">
+          <h2><button type="button" class="fold">部件数量</button></h2>
+          <div class="body">
+            <div class="rows" id="counts"></div>
+          </div>
+        </section>
+
+        <section data-key="layout" data-mode="shape">
+          <h2><button type="button" class="fold">排布</button></h2>
+          <div class="body">
+            <div class="field">
+              <span>多个头</span>
+              <div class="seg" id="segHead" role="radiogroup" aria-label="多个头怎么长"></div>
+            </div>
+            <div class="field">
+              <span>多对手臂</span>
+              <div class="seg" id="segArm" role="radiogroup" aria-label="多对手臂的排布"></div>
+            </div>
+            <div class="field">
+              <span>三条以上的腿</span>
+              <div class="seg grid3" id="segLeg" role="radiogroup" aria-label="三条以上的腿怎么排"></div>
+            </div>
+            <div class="field" id="hipLegsField" hidden>
+              <span>每副胯上几条腿（人腿人马、前后串联）</span>
+              <div class="stepper" id="hipLegs"></div>
+            </div>
+            <div class="field">
+              <span>兽耳形状</span>
+              <div class="seg" id="segEar" role="radiogroup" aria-label="兽耳形状"></div>
+            </div>
+            <div class="field">
+              <span>手</span>
+              <div class="seg" id="segHand" role="radiogroup" aria-label="手的样式"></div>
+            </div>
+            <p class="note">头选「一个头几张脸」：只有一个头、一根脖子，多出来的脸朝着两边和后面（阿修罗的三面）。腿选「自动」：4 条是人马下身，6 条以上是蛛形，单数是左右并排。人马、蛛形的腿只能成对，单数时多补一条。「人腿人马」就是 humantaur：像人马，但身后不是马身，是横着的一截人的腰，接着又一副人的胯和腿；人腿人马和前后串联每副胯上可以并排好几条（比如 6 条腿、每副 3 条就是「前三后三」），总数不够时最后那副少几条。「胯部聚拢」像手臂肩部聚拢：几副胯一副紧贴一副，每副一对腿，腿往下一对比一对往外散开，正面看像一把扇子，胯还是一个人那么宽。单数条人腿的，多出来的那条长在中线上：并排的在正中，前后排、聚拢的在最后那副胯的正中。分指的手在预览里会粘在一起，导出以后才分得开。</p>
+          </div>
+        </section>
+
+        <section data-key="hair" data-mode="shape">
+          <h2><button type="button" class="fold">头发</button></h2>
+          <div class="body">
+            <div class="field">
+              <span>发型</span>
+              <div class="seg grid3" id="segHair" role="radiogroup" aria-label="发型"></div>
+            </div>
+            <div class="field">
+              <span>发色</span>
+              <div class="dye" id="hairDye">
+                <div class="swatches" id="hairSwatches" role="group" aria-label="常用发色"></div>
+                <label class="pick" title="自己挑一个颜色"><input type="color" id="hairColor" aria-label="自己挑发色"><span>自选</span></label>
+                <button type="button" class="btn ghost" id="btnHairColor">恢复本色</button>
+              </div>
+            </div>
+            <div class="field" id="hairHeadsField" hidden>
+              <span>染哪个头（正面看）</span>
+              <div class="seg heads" id="segHairHead" role="radiogroup" aria-label="染哪个头"></div>
+            </div>
+            <div class="sliders" id="hairSliders"></div>
+            <p class="note" id="hairNote"></p>
+          </div>
+        </section>
+
+        <section data-key="shape" data-mode="shape">
+          <h2><button type="button" class="fold">体型</button></h2>
+          <div class="body">
+            <div class="field">
+              <span>身体样式</span>
+              <div class="seg" id="segBody" role="radiogroup" aria-label="身体样式"></div>
+            </div>
+            <div class="field" id="characterRow" hidden>
+              <span>角色</span>
+              <div class="roster" id="characterPick" role="radiogroup" aria-label="角色"></div>
+              <label class="btn file" for="fileVrm" title="选一个自己的 VRM 文件（VRoid Studio 导出的最好）：文件只存在这台设备的浏览器里">载入自己的 VRM…<input type="file" id="fileVrm" accept=".vrm,.glb,model/gltf-binary" hidden></label>
+            </div>
+            <p class="note" id="characterNote" hidden></p>
+            <p class="note" id="bodyNote" hidden>头、躯干、手臂、腿的形状来自 VRoid Studio 旧版的女性素体（CC0）。它只有一种体型：性别、体格、肩宽、腰宽、胯宽、四肢粗细、手的样式对它不起作用。</p>
+            <div class="field">
+              <span>性别</span>
+              <div class="seg" id="segGender" role="radiogroup" aria-label="性别"></div>
+            </div>
+            <div class="field">
+              <span>姿势</span>
+              <div class="seg" id="segPose" role="radiogroup" aria-label="姿势"></div>
+            </div>
+            <div class="sliders" id="shapes"></div>
+            <p class="note">身高、头身比按标准人形算；多排手臂、人马、蛛形会更高，以左上角的读数为准。</p>
+          </div>
+        </section>
+
+        <section data-key="tweak" data-mode="shape">
+          <h2><button type="button" class="fold">手动微调</button></h2>
+          <div class="body">
+            <div class="field">
+              <label for="tweakPart">选中的部件</label>
+              <select id="tweakPart"></select>
+            </div>
+            <div class="tweak" id="tweakBody" hidden>
+              <div class="field">
+                <span>在模型上拖动</span>
+                <div class="seg" id="segGizmo" role="radiogroup" aria-label="操纵杆的模式"></div>
+              </div>
+              <div class="triples" id="tweakFields"></div>
+              <label class="check"><input type="checkbox" id="tweakLock"> 大小锁定比例</label>
+              <label class="check" id="tweakMirrorRow"><input type="checkbox" id="tweakMirror"> <span id="tweakMirrorText"></span></label>
+              <div class="actions">
+                <button type="button" class="btn" id="btnTweakReset">还原这个部件</button>
+                <button type="button" class="btn" id="btnTweakDone">取消选择</button>
+              </div>
+            </div>
+            <p class="note" id="tweakNote"></p>
+            <div class="tweaked" id="tweaked" hidden></div>
+          </div>
+        </section>
+
+        <section data-key="mesh" data-mode="shape">
+          <h2><button type="button" class="fold">网格</button></h2>
+          <div class="body">
+            <div class="seg" id="segMesh" role="radiogroup" aria-label="网格模式"></div>
+            <div class="slider">
+              <label for="s-blend">融合圆角</label>
+              <input type="range" id="s-blend">
+              <output id="o-blend" for="s-blend"></output>
+            </div>
+            <p class="note" id="meshNote"></p>
+          </div>
+        </section>
+
+        <section data-key="pose" data-mode="pose">
+          <h2><button type="button" class="fold">姿势</button></h2>
+          <div class="body">
+            <p class="note" id="poseNote"></p>
+            <div class="tweak" id="poseJoint" hidden>
+              <div class="field">
+                <span>选中的关节</span>
+                <strong id="poseJointName"></strong>
+              </div>
+              <label class="check" id="posePinRow"><input type="checkbox" id="posePin"> 拖别处的时候，这里留在原地</label>
+              <div class="actions">
+                <button type="button" class="btn" id="btnPoseJointReset">还原这个关节</button>
+                <button type="button" class="btn" id="btnPoseJointDone">取消选择</button>
+              </div>
+            </div>
+            <div class="field">
+              <span>显示哪些圆点</span>
+              <div class="checks" id="poseGroups"></div>
+            </div>
+            <div class="field">
+              <span>拖别处的时候留在原地的</span>
+              <div class="checks">
+                <label class="check"><input type="checkbox" id="posePinFeet"> 脚</label>
+                <label class="check"><input type="checkbox" id="posePinHands"> 手</label>
+              </div>
+            </div>
+            <div class="actions">
+              <button type="button" class="btn" id="btnPoseL2R" title="把左半边的姿势照到右半边">左边 → 右边</button>
+              <button type="button" class="btn" id="btnPoseR2L" title="把右半边的姿势照到左半边">右边 → 左边</button>
+              <button type="button" class="btn" id="btnPoseFlip" title="整个姿势照镜子">左右翻转</button>
+              <button type="button" class="btn" id="btnPoseGround" title="整个人上下挪一下，最低的地方正好贴着地面">落到地面</button>
+              <button type="button" class="btn wide" id="btnPoseReset">还原成静止姿势</button>
+              <button type="button" class="btn" id="btnPoseSave" title="把现在的姿势（连同看的角度）存成一个文件">保存姿势</button>
+              <label class="btn file" for="filePose" title="读一个姿势文件，套到现在这个角色身上">载入姿势…<input type="file" id="filePose" accept=".json,application/json" hidden></label>
+            </div>
+            <p class="note">在这一页里，导出和截图出来的是摆好的样子；切回「造型」导出的是静止姿势。姿势跟着配置一起存；「保存姿势」单独存成一个文件，可以套到别的角色身上，对不上的骨骼跳过。</p>
+          </div>
+        </section>
+
+        <section data-key="hand" data-mode="pose">
+          <h2><button type="button" class="fold">手势</button></h2>
+          <div class="body">
+            <div id="handBody">
+              <div class="field">
+                <span>摆哪只手</span>
+                <div class="seg" id="segHandSide" role="radiogroup" aria-label="摆哪只手"></div>
+              </div>
+              <div class="field" id="handPairRow">
+                <span>哪一对手臂</span>
+                <div class="seg" id="segHandPair" role="radiogroup" aria-label="哪一对手臂"></div>
+              </div>
+              <div class="presets" id="handGestures"></div>
+              <div class="sliders" id="handSliders"></div>
+            </div>
+            <p class="note" id="handNote"></p>
+          </div>
+        </section>
+
+        <section data-key="face" data-mode="pose">
+          <h2><button type="button" class="fold">表情和视线</button></h2>
+          <div class="body">
+            <div id="faceBody">
+              <div class="field" id="faceWhichRow">
+                <span>哪张脸</span>
+                <div class="presets" id="faceWhich"></div>
+              </div>
+              <div class="field">
+                <span>表情</span>
+                <div class="presets" id="faceMoods"></div>
+              </div>
+              <div class="sliders" id="faceSliders"></div>
+              <div class="field">
+                <span>嘴型</span>
+                <div class="presets" id="faceMouths"></div>
+              </div>
+              <div class="sliders" id="mouthSliders"></div>
+              <div class="field" id="gazeRow">
+                <span>视线</span>
+                <div class="sliders" id="gazeSliders"></div>
+              </div>
+              <div class="actions">
+                <button type="button" class="btn" id="btnGazeCamera" title="眼睛看向现在的镜头">看镜头</button>
+                <button type="button" class="btn" id="btnGazeReset">视线回正</button>
+                <button type="button" class="btn wide" id="btnFaceReset">这张脸还原</button>
+              </div>
+            </div>
+            <p class="note" id="faceNote"></p>
+          </div>
+        </section>
+
+        <section data-key="poses" data-mode="pose">
+          <h2><button type="button" class="fold">现成的姿势</button></h2>
+          <div class="body">
+            <div class="presets" id="poseLibrary"></div>
+            <div class="actions">
+              <button type="button" class="btn wide" id="btnPoseRandom">随便来一个</button>
+            </div>
+            <p class="note" id="poseLibraryNote"></p>
+          </div>
+        </section>
+
+        <section data-key="view">
+          <h2><button type="button" class="fold">镜头和灯光</button></h2>
+          <div class="body">
+            <div class="field">
+              <span>从哪边看</span>
+              <div class="presets" id="viewButtons"></div>
+            </div>
+            <div class="sliders">
+              <div class="slider">
+                <label for="s-fov">透视</label>
+                <input type="range" id="s-fov">
+                <output id="o-fov" for="s-fov"></output>
+              </div>
+              <div class="slider">
+                <label for="s-lightTurn">灯光左右</label>
+                <input type="range" id="s-lightTurn">
+                <output id="o-lightTurn" for="s-lightTurn"></output>
+              </div>
+              <div class="slider">
+                <label for="s-lightLift">灯光高低</label>
+                <input type="range" id="s-lightLift">
+                <output id="o-lightLift" for="s-lightLift"></output>
+              </div>
+            </div>
+            <label class="check"><input type="checkbox" id="viewGround"> 显示地面的影子和参照圈</label>
+            <div class="actions">
+              <button type="button" class="btn wide" id="btnViewReset">透视和灯光恢复原样</button>
+            </div>
+            <p class="note">「透视」越大，近大远小越夸张（像广角镜头）；越小越平（像长焦）。这一栏只影响屏幕上和截图里的样子，不影响导出的模型。</p>
+          </div>
+        </section>
+
+        <section data-key="config">
+          <h2><button type="button" class="fold">配置</button></h2>
+          <div class="body">
+            <div class="actions">
+              <button type="button" class="btn" id="btnJson">保存配置</button>
+              <label class="btn file" for="fileJson">载入配置…<input type="file" id="fileJson" accept=".json,application/json" hidden></label>
+            </div>
+            <p class="note">所有设定自动存在这个浏览器里，下次打开还在。「保存配置」另存成一个文件，换电脑或留底时用。</p>
+          </div>
+        </section>
+      </div>
+
+      <footer class="panel-foot">
+        <div class="export">
+          <button type="button" class="btn primary" id="btnGlb" title="一整块网格，拿去雕刻">导出白模（GLB）</button>
+          <button type="button" class="btn" id="btnRig" title="网格 + 骨架 + 权重">带骨骼 GLB</button>
+          <button type="button" class="btn" id="btnObj" title="保留四边面">OBJ</button>
+          <button type="button" class="btn" id="btnStl" title="3D 打印用">STL</button>
+          <button type="button" class="btn" id="btnPng" title="透明背景">截图</button>
+        </div>
+        <div class="status" id="status" role="status" data-idle>Blender：文件 → 导入 → glTF 2.0，选下载的文件。</div>
+      </footer>
+    </aside>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

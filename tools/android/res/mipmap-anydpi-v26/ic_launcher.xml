@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 图标：青色的底，上面是白色的 OC（那张字是 tools/apk.ps1 打包时画的） -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/icon_back" />
+    <foreground android:drawable="@drawable/ic_launcher_front" />
+</adaptive-icon>
