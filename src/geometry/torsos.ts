@@ -14,12 +14,11 @@
  * 纯函数，不依赖浏览器。
  */
 import { castRay, compileField } from '../sdf/field';
-import { animeCaps } from '../anime/body';
 import { getGrid } from '../sdf/grids';
-import { type BoneHint, type Figure, type Fork, type Graft, type GridShape, type Part, type Prim, type WidenBand, nthName, shapeInverse, shapeMatrix, worldTransforms } from './figure';
+import { type BoneHint, type Figure, type Fork, type Graft, type GridShape, type Part, type Prim, type WidenBand, nthName, shapeMatrix } from './figure';
 import { HEAD_HALF_WIDTH } from './head';
 import { ringAt } from './torso';
-import { type Mat3, type Quat, type V3, Q_ID, add, len, mat3Apply, mat3Mul, norm, quatBetween, quatConj, quatEuler, quatMat3, quatMul, rotate, sub } from './vec';
+import { type Mat3, type Quat, type V3, Q_ID, add, len, mat3Apply, norm, quatBetween, quatConj, quatEuler, quatMul, rotate, sub } from './vec';
 
 /** 最多几个上半身 */
 export const MAX_TORSOS = 3;
@@ -95,8 +94,6 @@ const INNER_BIND_LIFT = 90 * (Math.PI / 180) - INNER_ARM_DROP;
 /** 里侧一个肩膀上最多留几条聚拢的手臂，肩关节离多近算同一个肩膀 */
 const INNER_FAN_MAX = 2;
 const SAME_SHOULDER = 0.08;
-/** 胸根连接区沿素材封口的中心、半径定义，随胸一起缩放；前半球和上缘保持原样。 */
-const BUST_ROOT = animeCaps('bust')[0];
 
 /**
  * 两边的上半身往外歪多少（弧度）：歪到相邻两个的肩膀、头之间都空出 gap（缺省 SHOULDER_GAP）。
@@ -166,7 +163,7 @@ export function splitTorsos(figure: Figure, count: number): Figure {
   const forkFrom = Math.min(cutY, Math.max(hipY, ...torso.prims.map(influence)));
   // 躯干过渡的上限：拼的胸、手臂根、翅膀根以下。采样胸单独接在胸壁上，保留较长的躯干过渡。
   const rigid = upper.filter(
-    (p) => p.parent === 'Torso' && (p.type === 'chest' ? !p.prims.some((q) => q.kind === 'grid') : sampled && (p.type === 'arm' || p.type === 'wing')),
+    (p) => p.parent === 'Torso' && (p.type === 'chest' ? !p.prims.some((q) => q.kind === 'grid' || q.kind === 'chest') : sampled && (p.type === 'arm' || p.type === 'wing')),
   );
   const rigidLow = Math.min(...rigid.map(partBottom));
   const forkTo = Math.max(cutY + FORK_ABOVE, Math.min(cutY + FORK_MAX, rigidLow - FORK_UNDER_CHEST));
@@ -472,7 +469,11 @@ function placed(parts: readonly Part[]): Map<string, { pos: V3; quat: Quat }> {
 
 /** 部件大概多大（离它自己的原点多远以内有东西）：胸、手臂根、翅膀根用 */
 const bulk = (p: Part) =>
-  Math.max(0.02, ...p.prims.map((q) => (q.kind === 'ellipsoid' ? Math.max(...q.radii) : q.kind === 'cone' ? Math.max(q.ra, q.rb) : 0.03))) * (p.scale ?? 1);
+  Math.max(
+    0.02,
+    // 二次元素体的胸（ChestShape）不缩放部件，大小在基本体里：和以前照胸的大小缩放那一块一样量
+    ...p.prims.map((q) => (q.kind === 'ellipsoid' ? Math.max(...q.radii) : q.kind === 'cone' ? Math.max(q.ra, q.rb) : q.kind === 'chest' ? 0.03 * Math.max(1, q.size) : 0.03)),
+  ) * (p.scale ?? 1);
 /** 离分界面至少留多远 */
 const CROWD_MARGIN = 0.01;
 
@@ -566,47 +567,14 @@ export function refork(figure: Figure): Figure {
     });
     return { ...p, prims };
   });
-  // 胸已经挂在对应上半身上，位置、转动和用户的大小微调会自然跟随。
-  // 不把躯干的非线性 fork 再套到胸上，否则大胸跨过过渡区时被剪切、拉成长条。
-  const walls = new Map(pelvised.filter((p) => forks.has(p.name)).map((p) => [p.name, { part: p, grid: p.prims.find((q): q is GridShape => q.kind === 'grid') }]));
-  const world = worldTransforms({ parts: pelvised, scale: 1 });
+  // 二次元素体的胸（ChestShape）贴着的那块躯干，换成它挂着的那个上半身的躯干（带着从胯上分出去的那一段，不要切口）：
+  // 胸部件不转不缩放，它的坐标挪回 origin 就是上半身的坐标
+  const bodiesOf = new Map(pelvised.filter((p) => forks.has(p.name)).map((p) => [p.name, p.prims.find((q): q is GridShape => q.kind === 'grid')]));
   const parts = pelvised.map((p): Part => {
-    const wall = p.parent ? walls.get(p.parent) : undefined;
-    if (p.type !== 'chest' || !wall?.grid) return p;
-    const shape = shapeMatrix(p), inverse = shapeInverse(p);
-    const parentInverse = shapeInverse(wall.part);
-    const turn = quatMat3(p.quat);
-    const fromChest = shape ? mat3Mul(turn, shape) : turn;
-    const frame = parentInverse
-      ? { pos: mat3Apply(parentInverse, p.pos), quat: Q_ID, scale: p.scale ?? 1, shape: mat3Mul(parentInverse, fromChest) }
-      : { pos: p.pos, quat: p.quat, scale: p.scale ?? 1, ...(shape && inverse ? { shape, inverse } : {}) };
-    const top = Math.max(...pelvised.filter(c => c.type === 'chest' && c.parent === p.parent).map(c => c.pos[1]));
-    const lowerRow = p.pos[1] < top - 1e-5;
-    const prims = p.prims.map((q): Prim => {
-      if (q.kind !== 'grid') return q;
-      const shape = getGrid(q.grid);
-      const ceiling = Math.max(shape.bounds.max[1], q.morph ? getGrid(q.morph[0]).bounds.max[1] : -Infinity) + shape.cell;
-      const large = q.morph?.[1] ?? 0;
-      const rootDepth = BUST_ROOT.radius * (lowerRow ? 0.5 + 0.5 * large : 0.5);
-      const gravity = rotate(quatConj(world.get(p.name)!.quat), [0, -BUST_ROOT.radius*0.2*large, 0]);
-      const weight = add(gravity, [p.side*BUST_ROOT.radius*0.12*large, 0, 0]);
-      const drape = inverse ? mat3Apply(inverse, weight) : weight;
-      return { ...q,
-      // 大胸的圆角在真实胸壁交线上计算，覆盖整圈根部，替代仅在一个固定球形区域生效的圆角。
-      ...(large>0 ? { soft: undefined, fade: undefined, fadeAt: undefined } : {}),
-      // 素材的封口在原胸壁内；胸放大、胸壁分叉后它可能露到肋部外面。
-      // 第一排保留上胸斜面；下排随大胸形态渐渐修整更深的封口，前方胸型不参与分叉拉伸。
-      rootFit: {
-        body: wall.grid!, frame,
-        back: BUST_ROOT.center[2], front: BUST_ROOT.center[2] + rootDepth,
-        // 只有第一排需要保留通向锁骨的上胸斜面。下排整圈背面都贴回胸壁，不带进一片上胸封口。
-        vertical: lowerRow ? [ceiling, ceiling + shape.cell] : [BUST_ROOT.center[1] - BUST_ROOT.radius, BUST_ROOT.center[1]], inset: 0.003,
-        ...(large>0 ? { blend: BUST_ROOT.radius*0.25*large, drape, reach: BUST_ROOT.center[2]+BUST_ROOT.radius,
-          anchor: [p.side*BUST_ROOT.center[0], BUST_ROOT.center[1]-BUST_ROOT.radius/4, BUST_ROOT.center[2]] as V3 } : {}),
-      },
-      };
-    });
-    return { ...p, prims };
+    const body = p.parent ? bodiesOf.get(p.parent) : undefined;
+    if (p.type !== 'chest' || !body) return p;
+    const own: GridShape = { ...body, name: 'Torso', clipBelow: undefined, clipAbove: undefined, clipRound: undefined, twin: undefined };
+    return { ...p, prims: p.prims.map((q): Prim => (q.kind === 'chest' ? { ...q, body: own } : q)) };
   });
   return { ...figure, parts };
 }

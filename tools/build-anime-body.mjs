@@ -698,7 +698,6 @@ const specs = [
   },
   { name: 'head', mesh: capped(triangles.filter((t) => (weights[t[0]][1] + weights[t[1]][1] + weights[t[2]][1]) / 3 >= 0.5), 0.004), origin: headOrigin, cell: 0.004 },
   { name: 'neck', mesh: piece(['neck'], 0.25), origin: J('J_Bip_C_Neck'), cell: 0.004 },
-  { name: 'bust', mesh: piece(['bustL'], 0.2), origin: J('J_Sec_L_Bust1'), cell: 0.004 },
   { name: 'arm', mesh: piece(['armL'], 0.4), origin: J('J_Bip_L_UpperArm'), cell: 0.004 },
   { name: 'leg', mesh: piece(['legL'], 0.3), origin: J('J_Bip_L_UpperLeg'), cell: 0.005 },
 ];

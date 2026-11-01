@@ -16,6 +16,7 @@ import {
   worldTransforms,
 } from './figure';
 import { getGrid } from '../sdf/grids';
+import { chestBulk } from '../anime/chest';
 import { sampleTube } from './shapes';
 import { type V3, add, dot, lerp, mat3Apply, mul, rotate, sub } from './vec';
 
@@ -138,6 +139,13 @@ function primRods(p: Prim): Rod[] {
       a[axis] = (axis === 0 ? flip : 1) * (min[axis] + r);
       b[axis] = (axis === 0 ? flip : 1) * (max[axis] - r) + (axis === 1 ? (p.stretchY?.[2] ?? 0) : 0);
       return [{ a, b, ra: r, rb: r }];
+    }
+    case 'chest': {
+      // 胸：从胸根中心（部件的原点，在平胸表面上）往前放一根短圆棒，粗细取胸根半径的一半多一点（宁小勿大）
+      const { radius, depth } = chestBulk(p.size);
+      const r = radius * 0.6;
+      if (depth < r) return [];
+      return [{ a: [0, -0.2 * radius, r * 0.5], b: [0, -0.2 * radius, depth - r], ra: r, rb: r }];
     }
   }
 }

@@ -8,7 +8,8 @@
  * 手臂是直的：A-pose 就是整条手臂绕肩关节放下来。
  * 调用之前素体的数据要先登记好（animeReady()）。
  */
-import { ANIME_HEAD, ANIME_HEIGHT, BUST_LARGE, animeBounds, animeCaps, animeGrid, animeJoint, animeOrigin } from '../anime/body';
+import { ANIME_HEAD, ANIME_HEIGHT, animeBounds, animeGrid, animeJoint, animeOrigin } from '../anime/body';
+import { CHEST_FLAT, chestCenter, chestFrame, chestReach, surfacePoint } from '../anime/chest';
 import { FOOT_ANKLE, FOOT_CUFF, FOOT_SOLE, FOOT_STUMP, FOOT_TOE, FOOT_TOE_END, footGraft } from '../anime/foot';
 import { FINGER_JOINTS, HAND_STUMP, handGraft } from '../anime/hand';
 import { type BodySpec, legPlan } from '../model/spec';
@@ -68,9 +69,8 @@ const FOOT_LIFT = FOOT_SOLE - SOLE;
 /** 腿的距离场在脚踝以下切掉（多留一小截伸进脚里），脚另外用现成的网格接；切口那一圈在脚踝往上这么高的地方 */
 const LEG_CLIP = ANKLE[1] - HIP[1] - FOOT_STUMP;
 const FOOT_RIM: V3 = [ANKLE[0], ANKLE[1] + FOOT_CUFF, ANKLE[2]];
-const BUST = animeOrigin('bust');
-/** 「胸」那一块背面的切口：中心离中线多远、相对胸关节靠前多少 */
-const BUST_CAP = animeCaps('bust')[0].center;
+/** 素体的胸骨（VRoid 的 J_Sec_L_Bust1）：加宽肩膀从它下面一点开始 */
+const BUST = animeJoint('L_Bust1');
 const HEAD_ORIGIN = animeOrigin('head');
 
 /** 头的半高、半宽 */
@@ -116,8 +116,6 @@ const STRETCH: [number, number] = [0.99, 1.23];
  */
 const ROW_TUCK = 0.5;
 const ROW_ROOM = 0.01;
-/** 下排胸贴着胸口摆时，除了胸根中心再往外、往下各量多远（胸这一块的坐标，跟着胸放大） */
-const ROW_REACH = 0.03;
 /** 腰最细的地方大概多高（人腿人马后面接的那截腰照这里的粗细） */
 const WAIST_Y = 1.0;
 /** 这一块就摆在素体原来的位置上时，和躯干直接取并集，接缝处还原成素体本来的样子 */
@@ -218,8 +216,6 @@ function animeHead(ears: HumanEars): CustomHead {
  */
 const ELBOW_BEND = (16 * Math.PI) / 180;
 const ELBOW_WIDTH = 0.04;
-/** 胸部大小调到多少算全平 */
-const BUST_FLAT = 0.3;
 /**
  * 肩部聚拢：几条手臂挤在一个肩膀上。
  * inset —— 最靠后的那个肩关节也要留在身体里面，离后背表面至少这么深（不然肩头整个悬在背后）；
@@ -249,29 +245,6 @@ const RAISED_CAP = { center: [0.03, -0.013, 0.004] as V3, radius: 0.037 };
 const NECK_THICK = 1.15;
 /** 手臂变细时手跟着缩小的比例（细到四成粗时，手缩到原来的七成六） */
 const HAND_SHRINK = 0.4;
-/**
- * 胸放大到 LARGE_FROM 以上，渐渐换成大胸的胸型（anime/body.ts 的 BUST_LARGE），再大 LARGE_EASE 换足：
- * 素体自带的是小胸，照原样放大像一个放大的尖圆锥，背面那块薄盖子还从锁骨上、腋下支出来（看着是空壳）。
- * 大胸的胸型下半截饱满、往下坠，背面是实心的。原样大小、往小调的时候不换
- */
-const LARGE_FROM = 1.1;
-const LARGE_EASE = 0.5;
-/** 胸那一块放大 size 倍（调大了渐渐换成大胸的胸型）以后，从它的原点往上、往下各伸多远 */
-function bustReach(size: number): [up: number, down: number] {
-  const large = Math.min(1, Math.max(0, (size - LARGE_FROM) / LARGE_EASE));
-  const a = animeBounds('bustReference');
-  const b = animeBounds('bustLarge');
-  return [(a.max[1] + (b.max[1] - a.max[1]) * large) * size, -(a.min[1] + (b.min[1] - a.min[1]) * large) * size];
-}
-/** 第一排胸往小调到底（平胸）时往胸口里沉多深（米）：默认的胸（连胸尖）凸出胸口三厘米半，沉这么多正好平 */
-const BUST_SINK = 0.035;
-/** 胸和身体之间只留这么一点圆角（米）：胸根不是一道锋利的折线，又不至于把挨着的几个胸粘成一团（见下面第一排胸） */
-const BUST_ROOT = 0.005;
-/**
- * 胸根外下侧「贴肉」：以胸这一块里外下方胸根上的一点（at，胸自己的坐标，跟着胸放大）为中心，near 以内按 soft 的圆角融进躯干，
- * 到 far 渐渐回到 BUST_ROOT。胸调大时胸的外侧和腋下、肋骨之间是一道折线，像贴上去的；内侧、上缘离这一点远，两个胸照样分得开
- */
-const FLESH = { soft: 0.009, near: 0.025, far: 0.055, at: [0.035, -0.035, 0] as V3 };
 /**
  * 两个人从肩到胯并成一个宽躯干（横排两副胯、一个上半身、两个头，照他给的参考图）：素体在两个头底下各放一份，离中线 d
  * （一副胯半宽的 span 倍：不到 1，两副胯稍微叠着）。胯和脖子两份各是各的——两副胯（各有屁股、胯下）、两根脖子，正中一道沟；
@@ -347,7 +320,7 @@ export function layoutAnime(spec: BodySpec): Figure {
   /** 每排胸照设定多大：往小调时不缩小，整个往胸口里沉（见下面胸）。下排和第一排一比一（以前往下每排小一成） */
   const rowSize = Math.max(1, sh.bust);
   /** 相邻两排隔多远（手臂沿躯干上下排时也照它排）：胸大了上下排要放得下（见 ROW_TUCK） */
-  const gap = c.chestPairs > 1 ? Math.max(GAP, bustReach(rowSize)[1] + ROW_TUCK * bustReach(rowSize)[0] + ROW_ROOM) : GAP;
+  const gap = c.chestPairs > 1 ? Math.max(GAP, chestReach(rowSize)[1] + ROW_TUCK * chestReach(rowSize)[0] + ROW_ROOM) : GAP;
   const extra = gap * (rows - 1);
   const shoulderY = SHOULDER[1] + extra;
   // 多个头：凑成一簇，脸贴着脸；脖子根并排挤在肩膀中间（见 bodyPlan.ts）。
@@ -383,7 +356,7 @@ export function layoutAnime(spec: BodySpec): Figure {
   const lift = beastLift(form);
 
   // 胸部大小往小调：躯干在「原样」和「平胸」两份形状之间混合
-  const flat = Math.min(1, Math.max(0, (1 - sh.bust) / (1 - BUST_FLAT)));
+  const flat = Math.min(1, Math.max(0, (1 - sh.bust) / (1 - CHEST_FLAT)));
   // 两种原素材的胸都接在平胸躯干上，避免原 VRoid 胸型从下面顶出来改变轮廓。
   const plain = grid('Torso', 'torso', 1, {
     ...(extra ? { stretchY: [STRETCH[0], STRETCH[1], extra] as [number, number, number] } : {}),
@@ -429,14 +402,19 @@ export function layoutAnime(spec: BodySpec): Figure {
   const frontAt = (x: number, y: number) => 0.5 - castRay(probe, [x, y, 0.5], [0, 0, -1], 0.5);
   const backAt = (x: number, y: number) => -0.5 + castRay(probe, [x, y, -0.5], [0, 0, 1], 0.5);
   /**
-   * 每排胸摆在哪、多大：下排和第一排一模一样（一样大、离中线一样远），只是往下挪。
-   * 第一排：肩膀加宽时躯干上自带的胸跟着往两边挪了一点，这一块也跟着挪（下面几排在加宽的范围以外）
+   * 每排胸（见 anime/chest.ts）：下排和第一排一模一样（一样大、离中线一样远），只是往下挪 gap。
+   * 胸中心在平胸表面上的哪一点（+X 那边、素体自己的坐标）；肩膀加宽时那里往外挪了多少（x）；胸腔加长以后第一排跟着上移多少（lift）
    */
+  const [chestU, chestV] = chestCenter(sh.bust);
+  const chestAt = surfacePoint(chestFrame(), chestU, chestV);
   const chestRows = Array.from({ length: c.chestPairs }, (_, j) => ({
-    y: BUST[1] + extra - j * gap,
-    x: BUST[0] + (j ? 0 : pushed(BUST[0], BUST[1])),
+    y: raised(chestV) - j * gap,
+    x: chestAt[0] + pushed(chestAt[0], chestAt[1]),
+    z: chestAt[2],
+    lift: raised(chestV) - chestV - j * gap,
     size: rowSize,
   }));
+
   // 屁股缝：素体自己的屁股上有一道浅的，照着挖深（多出来的胯、加宽的胯上的屁股见 lowerParts）。
   // 照一瓣屁股的正中往下找最鼓的那一圈，缝就开在那个高度的正中
   // 并成一个宽躯干的：两副胯各一道；各坐一副胯的也是（这时躯干还是一份，照它量好挪到两份上）
@@ -709,11 +687,11 @@ export function layoutAnime(spec: BodySpec): Figure {
     }
   }
 
-  /* ---- 胸：第一排就是素体自带的（躯干上本来就有，这一块叠在原位，放大时才看得出来）；
-          往下每排小一点，背面的切口埋进加长的胸腔前面一点点 ---- */
+  /* ---- 胸：贴在躯干表面上的一层（见 anime/chest.ts、ChestShape），和躯干取并集 ---- */
+  // 胸贴着的那块躯干和躯干一样加宽、加长；并成一个宽躯干的不带那两份（胸照一个人的躯干贴好，挪到那一份上）
+  const chestBody: GridShape = { ...plain, name: 'Torso' };
   for (let j = 0; j < c.chestPairs; j++) {
-    // 第一排往小调时胸不缩小（整个缩小的话底座也缩成一小圈，像个疙瘩），而是整个往胸口里沉（见下面 z）；下排见 chestRows
-    const { y, x, size } = chestRows[j];
+    const { y, x, z, lift } = chestRows[j];
     // 并成一个宽躯干的：两份各一对（一排四个），外侧的那对照本来的起名，里侧的那对（那一份另一边的胸）排在后面几对
     const spots = twinned
       ? SIDES.flatMap((side) => [
@@ -722,44 +700,36 @@ export function layoutAnime(spec: BodySpec): Figure {
         ])
       : SIDES.map((side) => ({ side, at: side * x, flip: side, index: j }));
     for (const { side, at, flip, index } of spots) {
-      // 第一排往小调时，躯干上自带的胸已经在变平了：这一块跟着缩小、往里收，不要反过来顶出一个小包
-      // 往大调时这一块的边沿会从胸口支出来一圈：放大多少就往里收一点，让边沿留在皮肤下面
-      // 第一排：躯干是平胸。往大调时胸那一块照胸根（胸口表面，在这一块原点往前 3 厘米）放大，胸根始终贴在胸口上；
-      // 往小调时整个往胸口里沉 BUST_SINK，露在外面的越来越矮、底座越来越小，调到最小时全沉进去（平胸）
-      // 下排贴着它那里的胸口摆（胸腔加长过，前后不一定和第一排那里一样），往小调时和第一排一样往里沉。
-      // 胸口除了胸根中心那一点，再量外侧、下侧两点，照最靠后的摆：下排落在腰上时腰是圆的、往两边往下都往后收，
-      // 只照中心摆的话胸根外下侧（大胸往外下方坠，胸根那一圈也往外摊）离开身体，胸飘在外面
-      const capX = Math.abs(at + flip * BUST_CAP[0] * size);
-      const capY = y + BUST_CAP[1] * size;
-      // 外侧那一点不超出这个高度上躯干的侧面（往里 1 厘米）：出了侧面射线打不着
-      const outer = Math.min(capX + ROW_REACH * size, sideAt(capY, 0) - 0.01);
-      const wall = Math.min(frontAt(capX, capY), ...(outer > capX ? [frontAt(outer, capY)] : []), frontAt(capX, capY - ROW_REACH * size));
-      const z = j
-        ? wall - BUST_CAP[2] * size - 0.008 - BUST_SINK * flat
-        : BUST[2] - 0.03 * (size - 1) - BUST_SINK * flat;
       const name = `Chest_${pad(index + 1)}_${tag(side)}`;
-      // 胸不和身体圆滑地融（不照融合的圆角），当成躯干的一部分取并集，只留 BUST_ROOT 那么一点圆角：胸就是取下来的那个形状，
-      // 和胸口相交的地方是胸根的一道折痕。照融合的圆角（一两厘米）的话，两个上半身挨着的那一侧两个胸被抹成一大团横在中间，
-      // 胸根外面一圈也被鼓起来，胸型跟着走样
-      const large = Math.min(1, Math.max(0, (size - LARGE_FROM) / LARGE_EASE));
+      // 手动微调不挪这个部件（Part.surface），换算成沿表面的：往外（离正中线）、往上、往前挪，沿表面横、竖、往外放大，转
+      const o = spec.overrides[name];
+      const move = o?.position ?? O;
+      // 部件摆在胸中心（手动微调的操纵杆在这里），胸的距离场照躯干的坐标求：并成一个宽躯干的先挪回一个人的躯干上
+      const pos: V3 = [at + move[0], y + move[1], z + move[2]];
+      const origin: V3 = [pos[0] - at + flip * x, pos[1], pos[2]];
       parts.push({
         name,
         type: 'chest',
         side,
         parent: TORSO,
-        pos: [at, y, z],
+        pos,
         quat: Q_ID,
-        scale: size,
         material: 'clay',
         fuseAs: 'torso',
-        // 外下侧（往腋下、肋骨那边）圆滑地融进躯干，有「贴肉」的过渡；内侧、上缘还是只留 BUST_ROOT（见 FLESH）
+        surface: true,
         prims: [
-          grid('Breast', 'bustReference', flip, {
-            soft: FLESH.soft,
-            fade: [FLESH.near, FLESH.far, BUST_ROOT / size],
-            fadeAt: [flip * FLESH.at[0], FLESH.at[1], FLESH.at[2]],
-            ...(large > 0 ? { morph: [BUST_LARGE, large] as [string, number] } : {}),
-          }),
+          {
+            kind: 'chest',
+            name: 'Breast',
+            body: chestBody,
+            origin,
+            side: flip as 1 | -1,
+            size: sh.bust,
+            lift,
+            ...(o?.position ? { shift: [move[0] * flip, move[1], move[2]] as V3 } : {}),
+            ...(o?.scale ? { scale: o.scale } : {}),
+            ...(o?.rotation ? { tilt: o.rotation } : {}),
+          },
         ],
       });
     }

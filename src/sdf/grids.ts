@@ -4,8 +4,9 @@
  *
  * 纯计算，在主线程、Web Worker 和单元测试里都能用；数据由外面读进来再登记。
  */
-import type { Fork, GridShape, SpreadX, Thicken, Twin, WidenBand } from '../geometry/figure';
-import { type V3, mat3Mul, quatMat3 } from '../geometry/vec';
+import type { ChestShape, Fork, SpreadX, Thicken, Twin, WidenBand } from '../geometry/figure';
+import { type V3, sub } from '../geometry/vec';
+import { chestRegion, chestSkin } from '../anime/chest';
 import type { Dist } from './field';
 import { forkWarp } from './fork';
 
@@ -39,6 +40,15 @@ export function getGrid(name: string): Grid {
   const grid = grids.get(name);
   if (!grid) throw new Error(`格子 ${name} 还没有载入`);
   return grid;
+}
+
+/**
+ * 求出格子的距离以后再换成别的（胸，见 anime/chest.ts 的 chestSkin）。先 prepare：传进去的是退回各种变形以后的点、退回加长之前的高度，
+ * 离得肯定够远的话返回一个正数（不用再查格子，就用它），不然返回 0 或负数；再 finish：传进去那里格子的距离，返回换过以后的
+ */
+export interface Skin {
+  prepare(x: number, y: number, z: number, yp: number): number;
+  finish(d: number): number;
 }
 
 export interface GridUse {
@@ -111,85 +121,10 @@ export interface GridUse {
    * 加长（stretchY）、加宽这些照常管用。
    */
   shell?: number;
-  /** 胸部后下方的封口连续收回到实际胸壁，前方胸型不参与躯干变形。 */
-  rootFit?: GridShape['rootFit'];
-}
-
-/** 后方封口修整、贴入胸壁的圆滑附着体和前方悬垂体积共用一个距离场。 */
-function fitRoot(one: Dist, root: NonNullable<GridShape['rootFit']>): { fn: Dist; bounds?: { min: V3; max: V3 } } {
-  const body = gridDist(getGrid(root.body.grid), root.body).fn;
-  const { frame, front, back, vertical: [full, free], inset, drape, blend = 0, reach = front } = root;
-  const rotation = quatMat3(frame.quat);
-  const m = frame.shape ? mat3Mul(rotation, frame.shape) : rotation;
-  const scale = frame.scale;
-  const lip = frame.shape ? Math.max(1, Math.hypot(...frame.shape)) : 1;
-  const [px, py, pz] = frame.pos;
-  const weightLength=drape?Math.hypot(...drape):0;
-  const ramp = (z: number) => {
-    const t = Math.max(0, Math.min(1, (z - back) / (reach - back)));
-    return t*t*t*(t*(6*t-15)+10);
-  };
-  const slope = (z: number) => {
-    const t = (z-back)/(reach-back);
-    return t<=0 || t>=1 ? 0 : 30*t*t*(1-t)*(1-t)/(reach-back);
-  };
-  const volume: Dist = !drape ? one : (x,y,z) => {
-    // 位移沿前后深度渐增；反解原深度，使布局中歪斜的上半身仍沿世界重力下垂。
-    let original=z;
-    if (drape[2]) for(let i=0;i<6;i++) original-=(original+drape[2]*ramp(original)-z)/(1+drape[2]*slope(original));
-    const w=ramp(original), lip=1+weightLength*slope(original)/Math.max(0.1,1+drape[2]*slope(original));
-    return one(x-drape[0]*w,y-drape[1]*w,original)/lip;
-  };
-  const wallAt: Dist = (x,y,z) => body(px+scale*(m[0]*x+m[1]*y+m[2]*z),py+scale*(m[3]*x+m[4]*y+m[5]*z),pz+scale*(m[6]*x+m[7]*y+m[8]*z))/(scale*lip);
-  // 肉垫的后端实测贴入胸壁，前端伸进胸部中后段；用圆滑椭球连接，避免把截面向后直挤成板。
-  let support: Dist | undefined, bounds: { min: V3; max: V3 } | undefined;
-  if (blend>0 && root.anchor) {
-    const [ax,ay]=root.anchor, extent=reach-back, start=reach+extent*2, end=back-extent*3;
-    let previous=start, hit: number | undefined;
-    for(let z=start;z>=end;z-=extent/24) {
-      if(wallAt(ax,ay,z)<=0) {
-        let lo=z,hi=previous;
-        for(let n=0;n<12;n++) { const mid=(lo+hi)/2; if(wallAt(ax,ay,mid)>0)hi=mid;else lo=mid; }
-        hit=(lo+hi)/2; break;
-      }
-      previous=z;
-    }
-    if(hit!==undefined) {
-      const frontZ=(back+reach)/2+blend, rearZ=hit-blend;
-      const center: V3=[ax+(drape?.[0]??0)*0.25,ay+(drape?.[1]??0)*0.25,(frontZ+rearZ)/2];
-      const radius: V3=[extent*0.65,extent*0.65,Math.max(blend,(frontZ-rearZ)/2)];
-      support=(x,y,z)=>{
-        const ux=(x-center[0])/radius[0],uy=(y-center[1])/radius[1],uz=(z-center[2])/radius[2];
-        const k0=Math.hypot(ux,uy,uz),k1=Math.hypot(ux/radius[0],uy/radius[1],uz/radius[2]);
-        return k1>1e-9?k0*(k0-1)/k1:-Math.min(...radius);
-      };
-      bounds={min:center.map((v,k)=>v-radius[k]-blend) as V3,max:center.map((v,k)=>v+radius[k]+blend) as V3};
-    }
-  }
-  const fn: Dist = (x, y, z) => {
-    const d = volume(x, y, z);
-    const clip = z < front && y < free;
-    const k = blend*(1-ramp(z));
-    if (!clip && k<=0) return d;
-    const bx=px+scale*(m[0]*x+m[1]*y+m[2]*z), by=py+scale*(m[3]*x+m[4]*y+m[5]*z), bz=pz+scale*(m[6]*x+m[7]*y+m[8]*z);
-    const skin = body(bx,by,bz) / (scale * lip);
-    const wall = skin + inset/(scale*lip);
-    const t = Math.max(0, (z - back) / (front - back));
-    const a = 1 - t * t * t * (t * (6 * t - 15) + 10);
-    const u = Math.min(1, (free - y) / (free - full));
-    const b = u * u * u * (u * (6 * u - 15) + 10);
-    const dz = 30 * t * t * (1 - t) * (1 - t) / (front - back);
-    const dy = 30 * u * u * (1 - u) * (1 - u) / (free - full);
-    // 只收回超出胸壁的封口，不添加新体积。过渡引入的梯度计入距离上界，避免采样越过表面。
-    const fitted = clip ? Math.max(d, (d + a * b * (wall - d)) / (1 + Math.hypot(dz * b, dy * a) * Math.abs(d - wall))) : d;
-    if (k<=0) return fitted;
-    const rawPad=support?support(x,y,z):skin;
-    const edge=support?Math.max(0,k-Math.abs(rawPad-skin)):0;
-    const pad=support?Math.max(Math.min(rawPad,skin)-edge*edge/(4*k),rawPad-k/2):skin;
-    const h=Math.max(0,k-Math.abs(fitted-pad));
-    return support ? Math.min(fitted,pad)-h*h/(4*k) : Math.max(Math.min(fitted,pad)-h*h/(4*k),fitted-k/2);
-  };
-  return {fn,bounds};
+  /** 胸（见 Skin）：求出这块格子的距离以后再换成它 */
+  skin?: Skin;
+  /** 占的范围不照格子的表面，照这个（这块格子自己的坐标，变形之前）：胸只占躯干格子里的一小片 */
+  region?: { min: V3; max: V3 };
 }
 
 /**
@@ -314,7 +249,7 @@ function spreadBack(twin: Twin, far: number, y: number, z: number): void {
 
 /** 在一块格子里求距离的函数，以及它在自己坐标里占的范围（outer：连四周的留白，整块格子占的范围） */
 export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; max: V3; outer: { min: V3; max: V3 } } {
-  const { dims, cell, data } = grid;
+  const { dims, cell } = grid;
   const [nx, ny, nz] = dims;
   const [x0, y0, z0] = grid.min;
   const inv = 1 / cell;
@@ -347,12 +282,15 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
   const tSpan = thick ? Math.hypot(thick.to[0] - tx0, thick.to[1] - ty0, thick.to[2] - tz0) : 0;
   const [tux, tuy, tuz] = thick ? [0, 1, 2].map((k) => (thick.to[k] - thick.from[k]) / (tSpan || 1)) : [0, 0, 0];
   const shell = use.shell ?? 0;
+  const skin = use.skin;
   const mix = use.morph?.[1] ?? 0;
   const other = mix ? getGrid(use.morph![0]) : null;
   if (other && (other.dims.some((n, k) => n !== dims[k]) || other.cell !== cell || other.min.some((v, k) => v !== grid.min[k]))) {
     throw new Error(`格子 ${use.morph![0]} 和要混合的那一块尺寸不一样`);
   }
-  const data2 = other?.data;
+  // 整个换成另一块（平胸的躯干）：只读那一块
+  const data2 = mix === 1 ? undefined : other?.data;
+  const data = mix === 1 ? other!.data : grid.data;
 
   /** 每一段加宽在当前这个高度上挪了多少（求值时用，免得每次新建数组） */
   const aNow = new Float64Array(bands.length);
@@ -525,6 +463,11 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
       clip /= lip;
     }
     if (fork && forked[3] > clip) clip = forked[3];
+    if (skin) {
+      // 胸：离这一块肯定还远的地方不用再查格子
+      const far = skin.prepare(lx, y, lz, ly);
+      if (far > 0) return far / squeeze > clip ? far / squeeze : clip;
+    }
     let fx = (lx - x0) * inv;
     let fy = (y - y0) * inv;
     let fz = (lz - z0) * inv;
@@ -579,6 +522,7 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
     }
     d = d * unit - shell;
     if (out > 0) d += Math.sqrt(out) * cell;
+    if (skin) d = skin.finish(d);
     if (squeeze !== 1) d /= squeeze;
     if (cutTo !== undefined && along - cutTo > d) d = along - cutTo;
     if (round > 0) {
@@ -590,8 +534,7 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
   };
   const twin = use.twin;
   const shaped: Dist = twin ? twinned(one, twin) : one;
-  const fitted = use.rootFit ? fitRoot(shaped, use.rootFit) : undefined;
-  const fn: Dist = fitted?.fn ?? shaped;
+  const fn: Dist = shaped;
 
   /** 一个盒子（这块格子自己的坐标）加宽、加长、加厚、弯过以后占多大，镜像过来 */
   const placed = (lo: V3, hi: V3): { min: V3; max: V3 } => {
@@ -664,18 +607,12 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
       box.min[0] -= most;
       box.max[0] += most;
     }
-    if (use.rootFit?.drape || use.rootFit?.blend) {
-      const shift=use.rootFit.drape ?? [0,0,0];
-      const pad=(use.rootFit.blend ?? 0)*2;
-      for(let k=0;k<3;k++) { box.min[k]+=Math.min(0,shift[k])-pad; box.max[k]+=Math.max(0,shift[k])+pad; }
-    }
-    if(fitted?.bounds) for(let k=0;k<3;k++) { box.min[k]=Math.min(box.min[k],fitted.bounds.min[k]); box.max[k]=Math.max(box.max[k],fitted.bounds.max[k]); }
     return box;
   };
   // 占的范围按表面实际占的地方算，不算四周的留白（再留一个格子）：留白里只有离表面更远的值，
   // 那么远的地方这块格子本来就影响不到融合出来的表面（见 surfaceNets.ts 里 reach），包进来只是让附近的小块白算它。
   // 切掉的那几边也收到切口为止。和另一块混合的，两块的范围都算上
-  const bounds = other ? { min: grid.bounds.min.map((v, k) => Math.min(v, other.bounds.min[k])), max: grid.bounds.max.map((v, k) => Math.max(v, other.bounds.max[k])) } : grid.bounds;
+  const bounds = use.region ?? (other ? { min: grid.bounds.min.map((v, k) => Math.min(v, other.bounds.min[k])), max: grid.bounds.max.map((v, k) => Math.max(v, other.bounds.max[k])) } : grid.bounds);
   const lo: V3 = [bounds.min[0] - cell, bounds.min[1] - cell, bounds.min[2] - cell];
   const hi: V3 = [bounds.max[0] + cell, bounds.max[1] + cell, bounds.max[2] + cell];
   if (cut !== undefined && cut > lo[0]) lo[0] = cut;
@@ -684,6 +621,100 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
   if (cutTo !== undefined && cutTo < hi[0]) hi[0] = cutTo;
   const tight = placed(lo, hi);
   // 整块格子（连留白）占的范围：融合时整个场的格点从哪里排起是照它算的（见 Draft.span）
-  const outer = placed([x0, y0, z0], [x0 + (nx - 1) * cell, y0 + (ny - 1) * cell, z0 + (nz - 1) * cell]);
+  const outer = use.region
+    ? placed([lo[0] - cell, lo[1] - cell, lo[2] - cell], [hi[0] + cell, hi[1] + cell, hi[2] + cell])
+    : placed([x0, y0, z0], [x0 + (nx - 1) * cell, y0 + (ny - 1) * cell, z0 + (nz - 1) * cell]);
   return { fn, min: tight.min, max: tight.max, outer };
+}
+
+/**
+ * 胸（见 anime/chest.ts）：躯干那一块格子（body，带着和躯干一样的加宽、加长）的距离换成贴好胸的、只取这一边胸那一片的。
+ * 胸这个部件不转不缩放，它的原点在躯干里的 origin：先挪回躯干的坐标再求。piece：分部件用，只取胸根以内。
+ * 融合时一个点要求好几次（分块、找表面、算法线），胸现算又慢：融合用的先烤成 BAKE 一格的格子（同一个胸几档精细度之间共用），
+ * 分部件只网格化一次，现算
+ */
+export function chestDist(p: ChestShape, piece = false): { fn: Dist; min: V3; max: V3; outer: { min: V3; max: V3 } } {
+  const key = piece ? '' : JSON.stringify(p);
+  const known = key ? BAKED.get(key) : undefined;
+  if (known) {
+    BAKED.delete(key);
+    BAKED.set(key, known);
+    return known;
+  }
+  const region = chestRegion(p) ?? { min: [0, 0, 0] as V3, max: [0, 0, 0] as V3 };
+  const d = gridDist(getGrid(p.body.grid), { ...p.body, skin: chestSkin(p, piece), region });
+  const [ox, oy, oz] = p.origin;
+  const exact = {
+    fn: (x: number, y: number, z: number) => d.fn(x + ox, y + oy, z + oz),
+    min: sub(d.min, p.origin),
+    max: sub(d.max, p.origin),
+    outer: { min: sub(d.outer.min, p.origin), max: sub(d.outer.max, p.origin) },
+  };
+  if (piece) return exact;
+  // 框的范围是照躯干的加宽、加长、胯宽一起放大的，比胸大好几倍：粗扫一遍，只框到里面和离表面不到一个粗格的地方
+  const step = BAKE * 3;
+  const lo: V3 = [Infinity, Infinity, Infinity];
+  const hi: V3 = [-Infinity, -Infinity, -Infinity];
+  for (let x = exact.min[0]; x <= exact.max[0] + step; x += step) {
+    for (let y = exact.min[1]; y <= exact.max[1] + step; y += step) {
+      for (let z = exact.min[2]; z <= exact.max[2] + step; z += step) {
+        if (exact.fn(x, y, z) > step * 1.2) continue;
+        const q = [x, y, z];
+        for (let k = 0; k < 3; k++) {
+          lo[k] = Math.min(lo[k], q[k] - step);
+          hi[k] = Math.max(hi[k], q[k] + step);
+        }
+      }
+    }
+  }
+  if (!Number.isFinite(lo[0])) return exact;
+  const baked = { ...exact, min: lo, max: hi, fn: bake(exact.fn, lo, hi, BAKE) };
+  BAKED.set(key, baked);
+  if (BAKED.size > 12) BAKED.delete(BAKED.keys().next().value!);
+  return baked;
+}
+
+/** 胸烤成的格子每格多大：和躯干的格子（5 毫米）、胸型放大以后的格子差不多（融合最细的一档体素 6 毫米） */
+const BAKE = 0.004;
+/** 烤好的胸，最近用过的排在后面 */
+const BAKED = new Map<string, { fn: Dist; min: V3; max: V3; outer: { min: V3; max: V3 } }>();
+
+/** 把一个距离场在 [min, max] 里每 cell 采一个点存起来，求值时三线性插值；出了范围照边上的值加上到边的距离 */
+function bake(fn: Dist, min: V3, max: V3, cell: number): Dist {
+  const [x0, y0, z0] = min;
+  const nx = Math.max(2, Math.ceil((max[0] - x0) / cell) + 1);
+  const ny = Math.max(2, Math.ceil((max[1] - y0) / cell) + 1);
+  const nz = Math.max(2, Math.ceil((max[2] - z0) / cell) + 1);
+  const nxy = nx * ny;
+  const data = new Float32Array(nxy * nz);
+  let o = 0;
+  for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) data[o++] = fn(x0 + i * cell, y0 + j * cell, z0 + k * cell);
+  const inv = 1 / cell;
+  return (x, y, z) => {
+    let fx = (x - x0) * inv;
+    let fy = (y - y0) * inv;
+    let fz = (z - z0) * inv;
+    let out = 0;
+    if (fx < 0) (out += fx * fx), (fx = 0);
+    else if (fx > nx - 1) (out += (fx - nx + 1) ** 2), (fx = nx - 1);
+    if (fy < 0) (out += fy * fy), (fy = 0);
+    else if (fy > ny - 1) (out += (fy - ny + 1) ** 2), (fy = ny - 1);
+    if (fz < 0) (out += fz * fz), (fz = 0);
+    else if (fz > nz - 1) (out += (fz - nz + 1) ** 2), (fz = nz - 1);
+    const i = Math.min(fx | 0, nx - 2);
+    const j = Math.min(fy | 0, ny - 2);
+    const k = Math.min(fz | 0, nz - 2);
+    const tx = fx - i;
+    const ty = fy - j;
+    const tz = fz - k;
+    const q = i + nx * j + nxy * k;
+    const c00 = data[q] + (data[q + 1] - data[q]) * tx;
+    const c10 = data[q + nx] + (data[q + nx + 1] - data[q + nx]) * tx;
+    const c01 = data[q + nxy] + (data[q + nxy + 1] - data[q + nxy]) * tx;
+    const c11 = data[q + nxy + nx] + (data[q + nxy + nx + 1] - data[q + nxy + nx]) * tx;
+    const c0 = c00 + (c10 - c00) * ty;
+    const c1 = c01 + (c11 - c01) * ty;
+    const d = c0 + (c1 - c0) * tz;
+    return out > 0 ? d + Math.sqrt(out) * cell : d;
+  };
 }

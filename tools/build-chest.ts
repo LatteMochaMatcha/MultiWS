@@ -1,26 +1,30 @@
-// 胸的新做法（docs/rework-plan.md 第 2 期，只离线试，不接进工坊）：
-//   node tools/run.mjs tools/build-chest.ts <输出目录> [--debug]
+// 二次元素体的胸（见 src/anime/chest.ts、docs/rework-plan.md）：从参考模型上采胸的格子，连同平胸躯干的展开图写进 body.bin。
+//   node tools/run.mjs tools/build-chest.ts --write        写进 public/anime/body.bin、src/anime/bodyMeta.json
+//   node tools/run.mjs tools/build-chest.ts <输出目录>     不写，出滑块各个大小的渲染图、剖面看看
+//   node tools/run.mjs tools/build-chest.ts <输出目录> --debug   只出展开图上胸那一片的调试图
+// 重新跑 tools/build-anime-body.mjs（重写整个 body.bin）、tools/build-torso.ts 以后要再跑一遍 --write。
 //
-// 胸不再是拼到躯干上的一块，而是「贴着躯干表面的一层形状」：
-// 1. 躯干按「高度 × 绕竖轴的角度」展开：每个高度上从前后正中往外量到表面多远（半径），沿截面从正中线量过去多长（弧长）。
-//    这样躯干附近的一点就有三个坐标：u 沿表面离正中线多远、v 多高、h 离表面往外多远（沿半径量）。
-// 2. 参考模型（DJP Sculpt 的中胸、DJP 01 的大胸）先照素体的躯干长短（裆到腋下）等比缩放、腋下对齐；
+// 1. 素体的平胸躯干按「高度 × 绕竖轴的角度」展开：每个高度上前后正中、往各个角度量到表面的半径、沿截面从正中线量过去的弧长。
+// 2. 参考模型（DJP Sculpt 的中胸、DJP 01 的大胸，都是 CC0）照素体的躯干长短（裆到腋下）等比缩放、腋下对齐；
 //    再算它「把胸抹平」的样子：胸那一片（往外扩一厘米）的半径照边上的原样用双调和插值补平，以外照原样。
-//    在它自己的 u、v、h 坐标里把它原样（距离场）采成一块格子——胸根的过渡、胸底和肚子之间的缝都在里面。
-// 3. 用的时候把这块格子按同样的三个坐标贴到素体的平胸躯干上：胸那一片以外就是平胸的躯干，边上两者是同一张表面。
-//    放大缩小：左右照正中线（乳沟跟着等比变），上下照胸中心偏上一点（大胸主要往下长）。
-//    滑块（chestAt）：0.3 以下平胸，往上是中胸，中胸到大胸两种胸型渐变，再往上照大胸放大；两种胸型在滑块上算多大照体积和工坊现在的做法对齐。
-//    素体自己的原装胸（躯干 torso 对平胸 torsoFlat）也走一遍，应该和原样的躯干一样（检查这套坐标对不对）。
-// 输出（都在输出目录里）：滑块各个大小的渲染图、工坊现在的做法同样大小的渲染图、参考模型摆好的样子、从胸正中切一刀的剖面，
-// 胸的格子 chest-*.bin / .json；--debug 只出展开图上胸那一片的调试图。
+//    在它自己的 u（沿表面离正中线多远）、v（多高）、h（离抹平的表面往外多远）里把它原样（距离场）采成一块格子——
+//    胸根的过渡、胸底和肚子之间的缝都在里面。
+// 3. 贴到素体上、大小怎么随滑块变，都在 src/anime/chest.ts 里（这里出的预览图用的也是它）。
+// 两种胸型在滑块上算多大（NATURAL）是第 2 期照体积和以前的做法对齐定下来的（以前的做法已经拆掉了，量不了了）。
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { animeGrid, installAnimeBody } from '../src/anime/body';
-import { buildFigure } from '../src/geometry/layout';
-import { defaultSpec, normalizeSpec } from '../src/model/spec';
-import { getGrid, gridDist } from '../src/sdf/grids';
-import { runJob } from '../src/sdf/job';
+import { type ChestFrame, type ChestKind, type ChestPatch, angleAt, lookup, registerChest, zcOf } from '../src/anime/chest';
+import type { ChestShape } from '../src/geometry/figure';
+import { chestDist, getGrid, gridDist } from '../src/sdf/grids';
 import { type V3, png, render } from './softRender';
+
+const BIN = 'public/anime/body.bin';
+const META = 'src/anime/bodyMeta.json';
+/** 两种胸型原样大小时在滑块上算多少 */
+const NATURAL: Record<ChestKind, number> = { reference: 1.1, large: 1.63 };
+/** 展开图存成 16 位整数时一格代表多少米 */
+const FRAME_UNIT = 2e-5;
 
 /* ---------------- 展开图的范围 ---------------- */
 
@@ -43,59 +47,13 @@ const DILATE = 5;
 /** 调试图（展开图上凸出多少、胸那一片） */
 let DEBUG: Uint8Array[] | null = null;
 
-/** 一个躯干的展开：每行前后正中 zc，每格半径 r、从正中线量过来的弧长 s */
-export interface Frame {
-  zc: Float64Array;
-  r: Float64Array;
-  s: Float64Array;
-  /** 腋下多高（对齐参考模型用） */
+/** 一个躯干的展开（见 ChestFrame），再加上腋下、裆多高（对齐参考模型用） */
+export interface Frame extends ChestFrame {
   armpit: number;
   crotch: number;
 }
 
-const rowOf = (y: number) => Math.max(0, Math.min(ROWS - 1.000001, (y - Y0) / DY));
-
-export function lookup(map: Float64Array, y: number, a: number): number {
-  const fi = rowOf(y);
-  const fj = Math.max(0, Math.min(COLS - 1.000001, a / DA));
-  const i = Math.floor(fi);
-  const j = Math.floor(fj);
-  const u = fi - i;
-  const w = fj - j;
-  const at = (ii: number, jj: number) => map[ii * COLS + jj];
-  return (at(i, j) * (1 - w) + at(i, j + 1) * w) * (1 - u) + (at(i + 1, j) * (1 - w) + at(i + 1, j + 1) * w) * u;
-}
-
-function zcOf(f: Frame, y: number): number {
-  const fi = rowOf(y);
-  const i = Math.floor(fi);
-  return f.zc[i] + (f.zc[i + 1] - f.zc[i]) * (fi - i);
-}
-
-/** 弧长换成角度（上下两行各换一次再插值，不然每行一个台阶） */
-function angleAt(f: Frame, y: number, s: number): number {
-  if (s <= 0) return 0;
-  const fi = rowOf(y);
-  const i = Math.floor(fi);
-  const inRow = (ii: number) => {
-    const row = f.s.subarray(ii * COLS, ii * COLS + COLS);
-    let j = 1;
-    while (j < COLS - 1 && row[j] < s) j++;
-    const a = row[j - 1];
-    const b = row[j];
-    return (j - 1 + (b > a ? Math.min(1, (s - a) / (b - a)) : 0)) * DA;
-  };
-  return inRow(i) + (inRow(i + 1) - inRow(i)) * (fi - i);
-}
-
-/** 一点在这个躯干上的 u（照 |x| 量，左右对称）、h */
-export function shell(f: Frame, x: number, y: number, z: number): { u: number; h: number; a: number } {
-  const dz = z - zcOf(f, y);
-  const ax = Math.abs(x);
-  const a = Math.atan2(ax, dz);
-  const r = Math.hypot(ax, dz);
-  return { u: lookup(f.s, y, a), h: r - lookup(f.r, y, a), a };
-}
+const GRID = { y0: Y0, dy: DY, rows: ROWS, cols: COLS };
 
 /** 照半径图把弧长算出来 */
 function arcs(r: Float64Array): Float64Array {
@@ -179,7 +137,7 @@ export function vroidFrame(flat: (x: number, y: number, z: number) => number): F
     const y = Y0 + i * DY;
     if (y > 1.05 && y < 1.27 && half[i] > best) [best, armpit] = [half[i], y];
   }
-  return { zc: zs, r: fillHoles(r), s: arcs(fillHoles(r)), armpit, crotch };
+  return { ...GRID, zc: zs, r: fillHoles(r), s: arcs(fillHoles(r)), armpit, crotch };
 }
 
 /** 半径图里量不到的格子（NaN）照同一列上下的补上 */
@@ -400,7 +358,7 @@ export function loadReference(name: string, file: string, target: Frame, tune: {
   }
   const filled = fillHoles(raw);
   const flatR = flatten(filled, fillHoles(far), target);
-  const frame: Frame = { zc: zcs, r: flatR.r, s: arcs(flatR.r), armpit: target.armpit, crotch: target.crotch };
+  const frame: Frame = { ...GRID, zc: zcs, r: flatR.r, s: arcs(flatR.r), armpit: target.armpit, crotch: target.crotch };
   console.log(`${name}：缩放 ${s.toFixed(3)}，腋下 ${marks.armpit.toFixed(3)} → ${target.armpit.toFixed(3)}，胸那一片 u ${flatR.breast.u.toFixed(3)}±${flatR.breast.ru.toFixed(3)} v ${flatR.breast.v.toFixed(3)}±${flatR.breast.rv.toFixed(3)}`);
   return { name, mesh, frame, raw: fillHoles(far), breast: flatR.breast };
 }
@@ -705,7 +663,7 @@ export function samplePatch(name: string, frame: Frame, breast: Reference['breas
     const zc = zcOf(frame, y);
     for (let iu = 0; iu < nu; iu++) {
       const a = angleAt(frame, y, iu * CELL);
-      const r0 = lookup(frame.r, y, a);
+      const r0 = lookup(frame, frame.r, y, a);
       const sa = Math.sin(a);
       const ca = Math.cos(a);
       for (let ih = 0; ih < nh; ih++) {
@@ -714,54 +672,48 @@ export function samplePatch(name: string, frame: Frame, breast: Reference['breas
       }
     }
   }
-  console.log(`${name}：胸的格子 ${nu}×${nv}×${nh}，${Math.round(performance.now() - t0)} ms`);
+  console.log(`${name}：胸的格子 ${nu}×${nv}×${nh}，${Math.round(performance.now() - t0)} ms，堵掉的小气泡 ${closePockets(data, nu, nv, nh)} 格`);
   return { name, nu, nv, nh, v0, data, center: [breast.u, breast.v], ru: breast.ru, rv: breast.rv };
 }
 
-export function patchAt(p: Patch, u: number, v: number, h: number): number {
-  const fu = u / CELL;
-  const fv = (v - p.v0) / CELL;
-  const fh = (h + H_IN) / CELL;
-  if (fu < 0 || fv < 0 || fh < 0 || fu >= p.nu - 1 || fv >= p.nv - 1 || fh >= p.nh - 1) return NaN;
-  const i = Math.floor(fu);
-  const j = Math.floor(fv);
-  const k = Math.floor(fh);
-  const a = fu - i;
-  const b = fv - j;
-  const c = fh - k;
-  const at = (di: number, dj: number, dk: number) => p.data[((k + dk) * p.nv + j + dj) * p.nu + i + di];
-  const x00 = at(0, 0, 0) * (1 - a) + at(1, 0, 0) * a;
-  const x10 = at(0, 1, 0) * (1 - a) + at(1, 1, 0) * a;
-  const x01 = at(0, 0, 1) * (1 - a) + at(1, 0, 1) * a;
-  const x11 = at(0, 1, 1) * (1 - a) + at(1, 1, 1) * a;
-  return (x00 * (1 - b) + x10 * b) * (1 - c) + (x01 * (1 - b) + x11 * b) * c;
-}
-
-/** 放大缩小时上下照胸的哪个高度（中心往上胸那一片半高的多少）：大胸主要往下长 */
-const PIVOT = 0.4;
-
 /**
- * 素体平胸躯干上贴一对胸（照 |x| 左右对称）以后的距离场。k：放大几倍；dv：整个往上挪多少（下排胸用）。
- * 左右照正中线放大（胸离正中线的远近、乳沟跟着等比变），上下照 PIVOT 那个高度放大；高低照参考模型对齐以后原来的高度。
- * 胸那一片的椭圆（放大 1.35 倍）里用胸的格子，椭圆边上一圈渐渐换回平胸的距离场（两者在表面上是同一张）
+ * 胸底的缝收到缝尖比一格还窄，那里的格子正负交替，插值出来是一串小气泡（网格上是身体里一个个小空泡）。
+ * 从格子外面几个面（正中线那面除外，那面左右镜像）的空气往里连，连不到的空气格算身体里，改成刚好在里面
  */
-export function withChest(flat: (x: number, y: number, z: number) => number, frame: Frame, patch: Patch, k: number, dv = 0) {
-  const pivot = patch.center[1] + PIVOT * patch.rv;
-  return (x: number, y: number, z: number): number => {
-    const g = flat(x, y, z);
-    if (k <= 0) return g;
-    const { u, h } = shell(frame, x, y, z);
-    // 胸自己的坐标
-    const pu = u / k;
-    const pv = pivot + (y - dv - pivot) / k;
-    const e = Math.hypot((pu - patch.center[0]) / patch.ru, (pv - patch.center[1]) / patch.rv);
-    if (e >= 1.35) return g;
-    const d = patchAt(patch, pu, pv, h / k);
-    if (Number.isNaN(d)) return g;
-    const t = Math.min(1, Math.max(0, (e - 1.1) / 0.25));
-    const w = t * t * (3 - 2 * t);
-    return d * k * (1 - w) + g * w;
+function closePockets(data: Float32Array, nu: number, nv: number, nh: number): number {
+  const seen = new Uint8Array(data.length);
+  const stack: number[] = [];
+  const idx = (iu: number, iv: number, ih: number) => (ih * nv + iv) * nu + iu;
+  const push = (k: number) => {
+    if (seen[k] || data[k] < 0) return;
+    seen[k] = 1;
+    stack.push(k);
   };
+  for (let ih = 0; ih < nh; ih++) {
+    for (let iv = 0; iv < nv; iv++) {
+      for (let iu = 0; iu < nu; iu++) if (iu === nu - 1 || iv === 0 || iv === nv - 1 || ih === 0 || ih === nh - 1) push(idx(iu, iv, ih));
+    }
+  }
+  while (stack.length) {
+    const k = stack.pop()!;
+    const iu = k % nu;
+    const iv = Math.floor(k / nu) % nv;
+    const ih = Math.floor(k / (nu * nv));
+    if (iu > 0) push(k - 1);
+    if (iu < nu - 1) push(k + 1);
+    if (iv > 0) push(k - nu);
+    if (iv < nv - 1) push(k + nu);
+    if (ih > 0) push(k - nu * nv);
+    if (ih < nh - 1) push(k + nu * nv);
+  }
+  let n = 0;
+  for (let k = 0; k < data.length; k++) {
+    if (data[k] >= 0 && !seen[k]) {
+      data[k] = -CELL * 0.25;
+      n++;
+    }
+  }
+  return n;
 }
 
 /* ---------------- 网格化（简单的 surface nets）---------------- */
@@ -863,43 +815,58 @@ function shots(dir: string, name: string, pos: Float32Array, tri: Uint32Array) {
 
 /* ---------------- 主程序 ---------------- */
 
-/** 每种胸型：参考模型、对齐时再调的缩放和高低，以及它在滑块上算多大 */
-const SHAPES = [
+/** 每种胸型：参考模型、对齐时再调的缩放和高低 */
+const SHAPES: { name: ChestKind; file: string; tune: { scale: number; lift: number } }[] = [
   { name: 'reference', file: 'assets/source/djp/DJP Anime Base Sculpt.obj', tune: { scale: 1, lift: 0 } },
   { name: 'large', file: 'assets/source/djp/DJP CC0 Free Base Mesh 01.obj', tune: { scale: 1, lift: 0 } },
 ];
 
+/** 采好的胸型换成存进 body.bin 的样子（16 位） */
+function packPatch(p: Patch, natural: number): ChestPatch {
+  const data = new Int16Array(p.data.length);
+  for (let k = 0; k < data.length; k++) data[k] = Math.round((Math.max(-BAND, Math.min(BAND, p.data[k])) / BAND) * 32767);
+  return { nu: p.nu, nv: p.nv, nh: p.nh, v0: p.v0, cell: CELL, hIn: H_IN, band: BAND, center: p.center, ru: p.ru, rv: p.rv, natural, data };
+}
+
+/** 展开图存成 16 位：每行前后正中、每格半径、每格弧长，一个接一个 */
+function packFrame(f: Frame): Int16Array {
+  const out = new Int16Array(ROWS + 2 * ROWS * COLS);
+  const put = (k: number, v: number) => (out[k] = Math.round(v / FRAME_UNIT));
+  for (let i = 0; i < ROWS; i++) put(i, f.zc[i]);
+  for (let k = 0; k < ROWS * COLS; k++) {
+    put(ROWS + k, f.r[k]);
+    put(ROWS + ROWS * COLS + k, f.s[k]);
+  }
+  return out;
+}
+
+/** 存进去以后再读出来的样子（预览和工坊里用的一样） */
+function unpackFrame(data: Int16Array): ChestFrame {
+  const zc = new Float64Array(ROWS);
+  const r = new Float64Array(ROWS * COLS);
+  const s = new Float64Array(ROWS * COLS);
+  for (let i = 0; i < ROWS; i++) zc[i] = data[i] * FRAME_UNIT;
+  for (let k = 0; k < ROWS * COLS; k++) {
+    r[k] = data[ROWS + k] * FRAME_UNIT;
+    s[k] = data[ROWS + ROWS * COLS + k] * FRAME_UNIT;
+  }
+  return { ...GRID, zc, r, s };
+}
+
 export async function main(args: string[], root: string) {
-  const dir = args[0];
-  if (!dir) throw new Error('用法：node tools/run.mjs tools/build-chest.ts <输出目录> [--debug]');
-  mkdirSync(dir, { recursive: true });
+  const write = args.includes('--write');
+  const dir = args.find((a) => !a.startsWith('--'));
+  if (!write && !dir) throw new Error('用法：node tools/run.mjs tools/build-chest.ts --write | <输出目录> [--debug]');
+  if (dir) mkdirSync(dir, { recursive: true });
   if (args.includes('--debug')) DEBUG = [];
-  const bin = readFileSync(join(root, 'public/anime/body.bin'));
+  const bin = readFileSync(join(root, BIN));
   installAnimeBody(bin.buffer.slice(bin.byteOffset, bin.byteOffset + bin.byteLength) as ArrayBuffer);
   const flat = gridDist(getGrid(animeGrid('torsoFlat'))).fn;
-  const native = gridDist(getGrid(animeGrid('torso'))).fn;
   const vroid = vroidFrame(flat);
   console.log(`素体：裆 ${vroid.crotch.toFixed(3)}，腋下 ${vroid.armpit.toFixed(3)}`);
 
-  // 小胸：素体原装的胸（躯干 torso 对平胸 torsoFlat），胸那一片照凸出平胸 3 毫米以上的格子取
-  const nativeRaw = new Float64Array(ROWS * COLS);
-  {
-    for (let i = 0; i < ROWS; i++) {
-      const y = Y0 + i * DY;
-      const zc = vroid.zc[i];
-      for (let j = 0; j < COLS; j++) {
-        const sa = Math.sin(j * DA);
-        const ca = Math.cos(j * DA);
-        let t = lookup(vroid.r, y, j * DA) - 0.01;
-        while (t < 0.4 && native(t * sa, y, zc + t * ca) < 0) t += 0.001;
-        nativeRaw[i * COLS + j] = t;
-      }
-    }
-  }
-  const nativeBreast = breastOf(nativeRaw, vroid);
-  const patches: Patch[] = [samplePatch('native', vroid, nativeBreast, (p) => native(p[0], p[1], p[2]), 0.06)];
-
   const refs: Reference[] = [];
+  const patches = {} as Record<ChestKind, ChestPatch>;
   for (const shape of SHAPES) {
     const ref = loadReference(shape.name, join(root, shape.file), vroid, shape.tune);
     refs.push(ref);
@@ -917,104 +884,88 @@ export async function main(args: string[], root: string) {
     // 手臂：腋下往上 2 厘米以下、比躯干侧面（抹平的面在 90° 的半径）还往外 1 厘米、在 78° 往后的
     const f = ref.frame;
     const arm = (x: number, y: number, z: number) =>
-      y < f.armpit + 0.02 && Math.abs(x) > lookup(f.r, y, Math.PI / 2) + 0.01 && Math.atan2(Math.abs(x), z - zcOf(f, y)) > (78 * Math.PI) / 180;
-    patches.push(samplePatch(shape.name, ref.frame, ref.breast, meshSdf(ref.mesh, arm), top + 0.02));
+      y < f.armpit + 0.02 && Math.abs(x) > lookup(f, f.r, y, Math.PI / 2) + 0.01 && Math.atan2(Math.abs(x), z - zcOf(f, y)) > (78 * Math.PI) / 180;
+    patches[shape.name] = packPatch(samplePatch(shape.name, ref.frame, ref.breast, meshSdf(ref.mesh, arm), top + 0.02), NATURAL[shape.name]);
   }
   if (DEBUG) {
-    DEBUG.forEach((img, k) => writeFileSync(join(dir, `rise-${SHAPES[k].name}.png`), png(COLS, ROWS, img)));
+    DEBUG.forEach((img, k) => writeFileSync(join(dir!, `rise-${SHAPES[k].name}.png`), png(COLS, ROWS, img)));
     return;
   }
-  for (const p of patches) {
-    writeFileSync(join(dir, `chest-${p.name}.bin`), Buffer.from(p.data.buffer));
-    writeFileSync(join(dir, `chest-${p.name}.json`), JSON.stringify({ ...p, data: undefined, cell: CELL, hIn: H_IN }, null, 1));
+  const frameData = packFrame(vroid);
+  registerChest(unpackFrame(frameData), patches);
+
+  if (write) {
+    // 格子照原来的顺序一块块接起来（以前的三块胸 bust、bustLarge、bustReference 不要了），后面接展开图和两种胸型
+    const meta = JSON.parse(readFileSync(join(root, META), 'utf8'));
+    const all = new Int16Array(bin.buffer, bin.byteOffset, bin.byteLength / 2);
+    const chunks: Int16Array[] = [];
+    let offset = 0;
+    const grids: Record<string, { offset: number; length: number }> = {};
+    for (const [name, g] of Object.entries(meta.grids as Record<string, { offset: number; length: number }>)) {
+      if (name === 'bust' || name === 'bustLarge' || name === 'bustReference') continue;
+      chunks.push(all.slice(g.offset, g.offset + g.length));
+      grids[name] = { ...g, offset };
+      offset += g.length;
+    }
+    const chest: Record<string, unknown> = {
+      source: 'Death Joe Productions「DJP Anime Base Sculpt」（中胸）、「DJP CC0 Free Base Mesh 01」（大胸），CC0',
+      frame: { ...GRID, unit: FRAME_UNIT, offset },
+      patches: {},
+    };
+    chunks.push(frameData);
+    offset += frameData.length;
+    for (const [name, p] of Object.entries(patches)) {
+      (chest.patches as Record<string, unknown>)[name] = { ...p, data: undefined, offset };
+      chunks.push(p.data);
+      offset += p.data.length;
+    }
+    meta.grids = grids;
+    delete meta.bustLargeSource;
+    delete meta.bustReferenceSource;
+    meta.chest = chest;
+    const out = new Int16Array(offset);
+    let at = 0;
+    for (const c of chunks) {
+      out.set(c, at);
+      at += c.length;
+    }
+    writeFileSync(join(root, BIN), Buffer.from(out.buffer));
+    writeFileSync(join(root, META), `${JSON.stringify(meta, null, 1)}\n`);
+    console.log(`写进 ${BIN}（${(out.byteLength / 1e6).toFixed(2)} MB）、${META}`);
+    if (!dir) return;
   }
 
-  /* 试 */
+  /* 预览：平胸躯干贴上两边的胸（和工坊里融合时一样取并集），滑块从平到 3 */
   const box: [V3, V3] = [
     [-0.22, 0.86, -0.16],
     [0.22, 1.34, 0.36],
   ];
-  const [nativeP, refP, largeP] = patches;
   const H = 0.003;
+  const body = { kind: 'grid' as const, name: 'Torso', grid: animeGrid('torsoFlat') };
+  const withChest = (size: number) => {
+    const sides = ([1, -1] as const).map((side) => chestDist({ kind: 'chest', name: 'Breast', body, origin: [0, 0, 0], side, size } satisfies ChestShape));
+    return (x: number, y: number, z: number) => Math.min(flat(x, y, z), sides[0].fn(x, y, z), sides[1].fn(x, y, z));
+  };
   const flatVolume = volume(meshOf(flat, box[0], box[1], H));
-  // 1. 素体原装的胸走一遍新做法，应该和原样的躯干一样
-  for (const [name, fn] of [
-    ['torso', native],
-    ['native-1', withChest(flat, vroid, nativeP, 1)],
-  ] as const) {
-    const m = meshOf(fn, box[0], box[1], H);
-    shots(dir, name, m.pos, m.tri);
-  }
-  // 2. 工坊现在的做法：几个大小上胸有多大（躯干加胸的体积减掉只有躯干的），顺便出图
-  const OLD = [0.3, 0.6, 1, 1.3, 1.6, 2.2];
-  const oldVolume = new Map<number, number>();
-  for (const bust of OLD) {
-    const d = defaultSpec();
-    const spec = normalizeSpec({ ...d, bodyStyle: 'anime', shape: { ...d.shape, bust } });
-    const figure = buildFigure(spec);
-    const fuse = (types: string[]) => {
-      const mesh = runJob({ parts: figure.parts.filter((p) => types.includes(p.type)), voxel: 0.004, blend: spec.blend }).mesh;
-      return { pos: mesh.positions.map((v) => v * figure.scale), tri: mesh.triangles };
-    };
-    const both = fuse(['torso', 'chest']);
-    oldVolume.set(bust, volume(both) - volume(fuse(['torso'])));
-    shots(dir, `old-${bust}`, both.pos, both.tri);
-  }
-  // 3. 两种胸型原样大小（k = 1）各算滑块上的多少：中胸对上现在的 1，大胸对上现在的 2.2（体积开三次方）
-  const v1 = (p: Patch) => volume(meshOf(withChest(flat, vroid, p, 1), box[0], box[1], H)) - flatVolume;
-  const natural = { ref: Math.cbrt(v1(refP) / oldVolume.get(1)!), large: 2.2 * Math.cbrt(v1(largeP) / oldVolume.get(2.2)!) };
-  console.log(`胸型在滑块上：中胸 ${natural.ref.toFixed(2)}，大胸 ${natural.large.toFixed(2)}；现在的做法胸的体积（升）：${OLD.map((b) => `${b}→${(oldVolume.get(b)! * 1000).toFixed(2)}`).join(' ')}`);
-  // 4. 滑块从平到 3
-  const NEW = [0.3, 0.6, 1, 1.3, 1.6, 2.2, 2.6, 3];
   const sizes: string[] = [];
-  for (const bust of NEW) {
-    const fn = chestAt(flat, vroid, refP, largeP, natural, bust);
+  for (const bust of [0.3, 0.6, 1, 1.3, 1.6, 2.2, 2.6, 3]) {
+    const fn = withChest(bust);
     const m = meshOf(fn, box[0], box[1], H);
-    shots(dir, `new-${bust}`, m.pos, m.tri);
+    shots(dir!, `new-${bust}`, m.pos, m.tri);
     sizes.push(`${bust}→${((volume(m) - flatVolume) * 1000).toFixed(2)}`);
-    if (bust === 1 || bust === 2.2 || bust === 3) writeFileSync(join(dir, `section-new-${bust}.png`), section(fn, 0.075));
+    if (bust === 1 || bust === 2.2 || bust === 3) writeFileSync(join(dir!, `section-new-${bust}.png`), section(fn, 0.075));
   }
-  console.log(`新做法胸的体积（升）：${sizes.join(' ')}`);
-  for (const bust of [1, 2.2]) {
-    const d = defaultSpec();
-    const figure = buildFigure(normalizeSpec({ ...d, bodyStyle: 'anime', shape: { ...d.shape, bust } }));
-    const parts = figure.parts.filter((p) => p.type === 'torso' || p.type === 'chest');
-    const mesh = runJob({ parts, voxel: 0.003, blend: d.blend }).mesh;
-    const pos = mesh.positions.map((v) => v * figure.scale);
-    writeFileSync(join(dir, `section-old-${bust}.png`), sectionOfMesh(pos, mesh.triangles, 0.075));
-  }
-  // 5. 参考模型摆好以后的样子，和从它胸的正中切一刀
+  console.log(`胸的体积（升）：${sizes.join(' ')}`);
+  // 参考模型摆好以后的样子，和从它胸的正中切一刀
   for (const ref of refs) {
     const pos = Float32Array.from(ref.mesh.v);
-    shots(dir, `ref-${ref.name}`, pos, ref.mesh.t);
+    shots(dir!, `ref-${ref.name}`, pos, ref.mesh.t);
     const f = ref.frame;
     const a = angleAt(f, ref.breast.v, ref.breast.u);
-    const x = lookup(f.r, ref.breast.v, a) * Math.sin(a);
-    writeFileSync(join(dir, `section-ref-${ref.name}.png`), sectionOfMesh(pos, ref.mesh.t, x));
+    const x = lookup(f, f.r, ref.breast.v, a) * Math.sin(a);
+    writeFileSync(join(dir!, `section-ref-${ref.name}.png`), sectionOfMesh(pos, ref.mesh.t, x));
   }
 }
-
-/**
- * 滑块上的胸：bust ≤ FLAT 是平胸；往上先是中胸（照它在滑块上的大小缩放，越接近 FLAT 越淡），
- * 中胸到大胸之间两种胸型的距离场渐变，再往上照大胸放大
- */
-export function chestAt(flat: (x: number, y: number, z: number) => number, frame: Frame, ref: Patch, large: Patch, natural: { ref: number; large: number }, bust: number) {
-  if (bust <= FLAT) return flat;
-  const ease = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
-  if (bust <= natural.ref) {
-    const f = withChest(flat, frame, ref, bust / natural.ref);
-    const t = ease((bust - FLAT) / (natural.ref - FLAT));
-    return (x: number, y: number, z: number) => flat(x, y, z) * (1 - t) + f(x, y, z) * t;
-  }
-  if (bust >= natural.large) return withChest(flat, frame, large, bust / natural.large);
-  const a = withChest(flat, frame, ref, bust / natural.ref);
-  const b = withChest(flat, frame, large, bust / natural.large);
-  const t = ease((bust - natural.ref) / (natural.large - natural.ref));
-  return (x: number, y: number, z: number) => a(x, y, z) * (1 - t) + b(x, y, z) * t;
-}
-
-/** 胸部大小调到多少算全平 */
-const FLAT = 0.3;
 
 /** 网格的体积（三角形朝向一致，取绝对值） */
 function volume(m: { pos: ArrayLike<number>; tri: ArrayLike<number> }): number {
@@ -1079,33 +1030,4 @@ function sectionOfMesh(pos: ArrayLike<number>, tri: ArrayLike<number>, x: number
     }
   }
   return png(w, h, img);
-}
-
-/** 素体原装的胸：凸出平胸 3 毫米以上的那一片 */
-function breastOf(raw: Float64Array, frame: Frame): Reference['breast'] {
-  let n = 0;
-  let su = 0;
-  let sv = 0;
-  const cells: [number, number][] = [];
-  for (let i = 0; i < ROWS; i++) {
-    for (let j = 0; j < COLS / 2; j++) {
-      if (raw[i * COLS + j] - frame.r[i * COLS + j] < 0.003) continue;
-      const u = frame.s[i * COLS + j];
-      const v = Y0 + i * DY;
-      cells.push([u, v]);
-      su += u;
-      sv += v;
-      n++;
-    }
-  }
-  const u = su / n;
-  const v = sv / n;
-  let ru = 0;
-  let rv = 0;
-  for (const [cu, cv] of cells) {
-    ru = Math.max(ru, Math.abs(cu - u));
-    rv = Math.max(rv, Math.abs(cv - v));
-  }
-  console.log(`素体原装的胸：u ${u.toFixed(3)}±${ru.toFixed(3)} v ${v.toFixed(3)}±${rv.toFixed(3)}`);
-  return { u, v, ru: ru * 1.15, rv: rv * 1.15 };
 }

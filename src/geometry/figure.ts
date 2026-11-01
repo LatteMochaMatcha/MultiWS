@@ -32,7 +32,6 @@ export type Material = 'clay' | 'eye' | 'wing';
  * soft —— 这块东西不是硬接上去，而是以这个半径圆滑地融进同类部件（小腿肚、臀、下巴）；
  * cut  —— 这块东西是挖掉的（眼窝），挖出的边缘同样按 soft 的半径倒圆。分部件模式下不显示。
  * fade —— soft 只在根部管用：离部件原点（关节）from 以内按 soft 的半径融，往外越来越小，到 to 就是硬接（或者 rest 那么大的圆角）。
- *         胸用它只在外下侧（往腋下、肋骨那边，fadeAt）圆滑地融进躯干。
  *         聚在同一个肩膀上的几条手臂用它：根部互相融成一片，伸出去以后还是各是各的，不会粘成蹼。
  */
 interface Mass {
@@ -141,23 +140,6 @@ export interface GridShape extends Mass {
   fork?: Fork;
   /** 左右各放一份、腰那一段并成一整块（两个人并成一个宽躯干），见 sdf/grids.ts 的 GridUse.twin */
   twin?: Twin;
-  /** 胸根贴合实际胸壁；后方修整封口，前方体积可按 drape 悬垂（部件自己的坐标）。 */
-  rootFit?: {
-    body: GridShape;
-    frame: NonNullable<Fork['frame']>;
-    front: number;
-    back: number;
-    vertical: [full: number, free: number];
-    inset: number;
-    /** 只在接触胸壁的一圈补出肉质圆角，单位为胸部局部坐标。 */
-    blend?: number;
-    /** 悬垂体积的位移（胸部局部坐标），后缘锚定、向前逐渐生效。 */
-    drape?: V3;
-    /** 胸根向悬垂体积过渡的前缘。 */
-    reach?: number;
-    /** 胸壁附着中心（胸部局部坐标）。 */
-    anchor?: V3;
-  };
   /**
    * 这块格子存的是到一层面片的距离（头发），没有里外：离面片 shell 以内的地方算实心。
    * 融合网格比较粗的时候会自动加厚，免得薄薄的一层在体素网格上破洞
@@ -237,7 +219,31 @@ export interface Thicken {
   end?: number;
 }
 
-export type Prim =Ellipsoid | Cone | Tube | Loft | Wing | GridShape;
+/**
+ * 二次元素体的胸：不是拼上去的一块，而是贴着躯干表面的一层（见 anime/chest.ts）。
+ * 求值时用躯干那一块格子（body：平胸，带着和躯干部件里一样的加宽、加长这些变形），把这一边胸那一片换成贴好胸的样子；
+ * 融合时和躯干取并集。胸部件不转不缩放，挂在躯干上，原点就是 origin（躯干坐标里胸的中心）。
+ * 手动微调不挪部件，换算成这里沿表面的挪动、缩放、转动（见 animeLayout.ts）
+ */
+export interface ChestShape {
+  kind: 'chest';
+  name: string;
+  body: GridShape;
+  origin: V3;
+  side: 1 | -1;
+  /** 「胸部大小」滑块 */
+  size: number;
+  /** 胸整个往上挪多少（加长过的胸腔上胸跟着上移；下排胸往下） */
+  lift?: number;
+  /** 沿表面往外（离正中线）挪、往上挪、往外推（离表面）多少，米 */
+  shift?: V3;
+  /** 沿表面横着、竖着、往外各放大几倍 */
+  scale?: V3;
+  /** 转多少度：绕左右的轴（正的胸尖往下）、绕竖轴（正的往 +X）、在表面上绕胸中心 */
+  tilt?: V3;
+}
+
+export type Prim = Ellipsoid | Cone | Tube | Loft | Wing | GridShape | ChestShape;
 
 /**
  * 重复的骨骼加上 Blender 式的序号后缀：第 1 个（index 0）不加，第 2 个是 .002，第 3 个是 .003 ……
@@ -340,6 +346,8 @@ export interface Part {
    * 胯部聚拢的腿是一束长出来的，大腿挤在一起是设计如此，只查膝盖以下
    */
   siblingFree?: number;
+  /** 贴在躯干表面上的部件（胸）：手动微调由摆位时换算成沿表面的挪动（见 ChestShape），套微调时不再挪这个部件 */
+  surface?: boolean;
   /**
    * 融合时算作哪一类部件（缺省就是自己的 type）。同一类之间是直接取并集、不出圆角：
    * 从同一个模型上切下来、还摆在原位的几块（素体的躯干和腿）要这样接，不然重叠的地方会鼓起一圈。

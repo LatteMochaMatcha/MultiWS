@@ -7,9 +7,10 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { graftMeshOf } from '../anime/grafts';
 import { HAND_CUFF, HAND_STUMP } from '../anime/hand';
 import { fieldFromFunction } from '../sdf/field';
-import { getGrid, gridDist } from '../sdf/grids';
+import { chestDist, getGrid, gridDist } from '../sdf/grids';
 import { meshField } from '../sdf/surfaceNets';
 import {
+  type ChestShape,
   type Cone,
   type Ellipsoid,
   type Graft,
@@ -179,7 +180,20 @@ function primGeos(p: Prim, cuff = 1): THREE.BufferGeometry[] {
       return [wingGeo(p)];
     case 'grid':
       return p.cut ? [] : [gridGeo(p, cuff)];
+    case 'chest':
+      return [chestGeo(p)];
   }
+}
+
+/** 胸：只取胸根以内那一块，插进躯干一点（躯干在分部件时是平胸，见 anime/chest.ts） */
+function chestGeo(p: ChestShape) {
+  const d = chestDist(p, true);
+  const mesh = meshField(fieldFromFunction(d.fn, d.min, d.max), 0.004);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
+  geo.setIndex(new THREE.BufferAttribute(mesh.triangles, 1));
+  return geo;
 }
 
 /**

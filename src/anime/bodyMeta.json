@@ -199,48 +199,6 @@
    "offset": 1006500,
    "length": 115500
   },
-  "bust": {
-   "origin": [
-    0.053286,
-    1.173524,
-    0.075195
-   ],
-   "min": [
-    -0.076978,
-    -0.080153,
-    -0.055476
-   ],
-   "dims": [
-    43,
-    47,
-    38
-   ],
-   "cell": 0.004,
-   "bounds": {
-    "min": [
-     -0.04098,
-     -0.04415,
-     -0.01948
-    ],
-    "max": [
-     0.05258,
-     0.06569,
-     0.05411
-    ]
-   },
-   "caps": [
-    {
-     "center": [
-      0.01051,
-      0.01138,
-      0.00928
-     ],
-     "radius": 0.05972
-    }
-   ],
-   "offset": 1122000,
-   "length": 76798
-  },
   "arm": {
    "origin": [
     0.108425,
@@ -280,7 +238,7 @@
      "radius": 0.06046
     }
    ],
-   "offset": 1198798,
+   "offset": 1122000,
    "length": 404586
   },
   "leg": {
@@ -322,7 +280,7 @@
      "radius": 0.09724
     }
    ],
-   "offset": 1603384,
+   "offset": 1526586,
    "length": 526500
   },
   "torsoFlat": {
@@ -396,7 +354,7 @@
      "radius": 0.05217
     }
    ],
-   "offset": 2129884,
+   "offset": 2053086,
    "length": 562500
   },
   "headBare": {
@@ -462,92 +420,8 @@
      "radius": 0.04104
     }
    ],
-   "offset": 2692384,
+   "offset": 2615586,
    "length": 444000
-  },
-  "bustLarge": {
-   "origin": [
-    0.053286,
-    1.173524,
-    0.075195
-   ],
-   "min": [
-    -0.076978,
-    -0.080153,
-    -0.055476
-   ],
-   "dims": [
-    43,
-    47,
-    38
-   ],
-   "cell": 0.004,
-   "bounds": {
-    "min": [
-     -0.03298,
-     -0.06415,
-     0.00052
-    ],
-    "max": [
-     0.04302,
-     0.04385,
-     0.08452
-    ]
-   },
-   "caps": [
-    {
-     "center": [
-      0.01051,
-      0.01138,
-      0.00928
-     ],
-     "radius": 0.05972
-    }
-   ],
-   "offset": 3136384,
-   "length": 76798
-  },
-  "bustReference": {
-   "origin": [
-    0.053286,
-    1.173524,
-    0.075195
-   ],
-   "min": [
-    -0.076978,
-    -0.080153,
-    -0.055476
-   ],
-   "dims": [
-    43,
-    47,
-    38
-   ],
-   "cell": 0.004,
-   "bounds": {
-    "min": [
-     -0.05698,
-     -0.07615,
-     -0.01548
-    ],
-    "max": [
-     0.04302,
-     0.05585,
-     0.03652
-    ]
-   },
-   "caps": [
-    {
-     "center": [
-      0.01051,
-      0.01138,
-      0.00928
-     ],
-     "radius": 0.05972
-    }
-   ],
-   "offset": 3213182,
-   "length": 76798
   }
  },
  "joints": {
@@ -962,8 +836,6 @@
    0.13056
   ]
  },
- "bustLargeSource": "Death Joe Productions, DJP CC0 Free Base Mesh 01.obj. CC0. Original visible breast surface; only hidden root adapted.",
- "bustReferenceSource": "Death Joe Productions, DJP Anime Base Sculpt.obj. CC0. Original visible breast surface; only hidden root adapted.",
  "torsoDetail": {
   "references": [
    "assets/source/djp/DJP Anime Base Sculpt.obj",
@@ -974,5 +846,52 @@
   "blur": 0.025,
   "limit": 0.008,
   "gain": 1
+ },
+ "chest": {
+  "source": "Death Joe Productions「DJP Anime Base Sculpt」（中胸）、「DJP CC0 Free Base Mesh 01」（大胸），CC0",
+  "frame": {
+   "y0": 0.84,
+   "dy": 0.002,
+   "rows": 261,
+   "cols": 181,
+   "unit": 0.00002,
+   "offset": 3059586
+  },
+  "patches": {
+   "reference": {
+    "nu": 64,
+    "nv": 78,
+    "nh": 31,
+    "v0": 1.0920379180267568,
+    "cell": 0.0025,
+    "hIn": 0.025,
+    "band": 0.04,
+    "center": [
+     0.056241459616807266,
+     1.187238023492614
+    ],
+    "ru": 0.07071099197997373,
+    "rv": 0.0680000753327552,
+    "natural": 1.1,
+    "offset": 3154329
+   },
+   "large": {
+    "nu": 66,
+    "nv": 107,
+    "nh": 57,
+    "v0": 1.0234310354124558,
+    "cell": 0.0025,
+    "hIn": 0.025,
+    "band": 0.04,
+    "center": [
+     0.04090920755978069,
+     1.1558911074544356
+    ],
+    "ru": 0.08648740278641313,
+    "rv": 0.09461433717284265,
+    "natural": 1.63,
+    "offset": 3309081
+   }
+  }
  }
 }

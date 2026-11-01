@@ -4,7 +4,7 @@
  * 部件都按一个 1.76 m 上下的标准人台来摆（沿用 v1 的骨架尺寸），Figure.scale 再把它缩放到设定身高。
  * 体型是动漫比例的成年女性：躯干有胸腔、腰、骨盆的起伏，四肢带一点肌肉的鼓起。
  */
-import { type BodySpec, type Gender, type HandStyle, type LegForm, type PartOverride, legPlan } from '../model/spec';
+import { type BodySpec, type Gender, type HandStyle, type LegForm, type PartOverride, BUST_MAX_OTHER, legPlan } from '../model/spec';
 import { animeReady } from '../anime/body';
 import { FINGER_JOINTS, HAND_ELBOW, HAND_LENGTH, HAND_WRIST, handGraft } from '../anime/hand';
 import { layoutAnime } from './animeLayout';
@@ -639,7 +639,7 @@ export function layoutFigure(given: BodySpec): Figure {
 /** 白模：自己用基本体捏出来的人台 */
 function layoutMannequin(spec: BodySpec): Figure {
   const c = spec.counts;
-  const sh = spec.shape;
+  const sh = { ...spec.shape, bust: Math.min(spec.shape.bust, BUST_MAX_OTHER) };
   const b = sh.build;
   const g = BUILDS[spec.gender];
   const limb = b * sh.limbs;

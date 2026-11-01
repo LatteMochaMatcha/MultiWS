@@ -11,7 +11,7 @@
 // 5. 胸那一片不搬（胸是另外接的，参考模型的胸会在平胸的躯干上留一圈印子），肩膀、脖子、腿根那里渐渐不搬（要和手臂、脖子、腿对得上）。
 // 距离场上就是每个格点照它所在的高度、角度减掉半径的变化量。
 //
-// 要先跑 tools/build-anime-body.mjs（重写整个 body.bin），再跑这个，再跑 build-bust.ts 两遍（它照平胸的躯干取胸）。
+// 要先跑 tools/build-anime-body.mjs（重写整个 body.bin），再跑这个，再跑 build-chest.ts --write（胸贴在平胸躯干上，照它量）。
 // 跑过一次以后 bodyMeta.json 里记着 torsoDetail，再跑会拒绝（不然细节叠两遍）。
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

@@ -31,19 +31,25 @@ interface Case {
   /** 总图上的标题 */
   label: string;
   /** 归在哪一组（总图按组拼、和 refs/ 里同字母开头的参考图对照） */
-  group: 'A' | 'B' | 'C' | 'D' | 'E';
+  group: 'S' | 'A' | 'B' | 'C' | 'D' | 'E';
   spec: Partial<Omit<BodySpec, 'counts' | 'shape'>> & { counts: Partial<BodySpec['counts']> };
   /** 只查不坏，不出姿势那两张 */
   checkOnly?: boolean;
+  /** 出哪几套设定（缺省 def、his） */
+  settings?: (keyof typeof SETTINGS)[];
 }
 
 /** 两套设定：默认的，和他常用的那套 */
 const SETTINGS = {
   def: { label: '默认', shape: {} },
   his: { label: '胸 2.2 · 腰 1.16 · 胯 1.28', shape: { bust: 2.2, waist: 1.16, hips: 1.28 } },
+  b06: { label: '胸 0.6', shape: { bust: 0.6 } },
+  b13: { label: '胸 1.3', shape: { bust: 1.3 } },
+  b3: { label: '胸 3', shape: { bust: 3 } },
 } as const;
 
 const BASES: Case[] = [
+  { name: 'S1', group: 'S', label: 'S 一个上半身 · 一排胸 · 一对手臂', spec: { counts: {} }, settings: ['b06', 'def', 'b13', 'his', 'b3'] },
   { name: 'A2', group: 'A', label: 'A 两排胸 · 两对手臂（上下排）', spec: { armLayout: 'stack', counts: { chestPairs: 2, armPairs: 2 } } },
   { name: 'A3', group: 'A', label: 'A 三排胸 · 两对手臂（上下排）', spec: { armLayout: 'stack', counts: { chestPairs: 3, armPairs: 2 } } },
   { name: 'A4', group: 'A', label: 'A 四排胸 · 两对手臂（上下排）', spec: { armLayout: 'stack', counts: { chestPairs: 4, armPairs: 2 } } },
@@ -197,6 +203,7 @@ export async function main(args: string[], root: string) {
   for (const base of BASES) {
     for (const setting of Object.keys(SETTINGS) as (keyof typeof SETTINGS)[]) {
       if (base.checkOnly && setting !== 'def') continue;
+      if (!(base.settings ?? ['def', 'his']).includes(setting)) continue;
       const name = `${base.name}_${setting}`;
       if (only && !only.includes(base.name) && !only.includes(name)) continue;
       const spec = specOf(base, setting);

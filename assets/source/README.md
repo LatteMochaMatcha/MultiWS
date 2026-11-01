@@ -130,14 +130,13 @@ Gumroad 上「自定价格、可以填 0」，要填邮箱才给下载链接：�
 | `DJP Anime Base Sculpt.obj` | 胸小的那个素体（预览图第一张） | `94406cf775c5` |
 | `DJP Anime Sculpt BaseMesh 01.blend` | 同上，Blender 文件 | `6c542db0db8e` |
 
-胸型更新（2026-11-01）：默认胸使用 `DJP Anime Base Sculpt.obj`，大胸使用 `DJP CC0 Free Base Mesh 01.obj`，两者保留原素材可见表面和胸尖，仅调整隐藏胸根适配躯干。`00` 作为丰满版本的对照；`.blend` 为 Sculpt 的 Blender 版本，原件不修改。
+胸（2026-11-01 换做法，见 [docs/rework-plan.md](../../docs/rework-plan.md)）：中胸用 `DJP Anime Base Sculpt.obj`，大胸用 `DJP CC0 Free Base Mesh 01.obj`。两个模型照素体的躯干长短等比缩放、腋下对齐，在「沿躯干表面横着多远、多高、离抹平的躯干往外多远」三个坐标里原样采成距离场（胸根、胸底的缝原样保留），连同素体平胸躯干的展开图写进 `body.bin`。`00` 作为丰满版本的对照；`.blend` 为 Sculpt 的 Blender 版本，原件不修改。
 
 ```powershell
-node tools/run.mjs tools/build-bust.ts          # bustLarge
-node tools/run.mjs tools/build-bust.ts --small  # bustReference
+node tools/run.mjs tools/build-chest.ts --write
 ```
 
-两个格子与原 bust 同尺寸，可逐格混合。重复构建原位替换，不丢弃后面追加的形状。重跑 `tools/build-anime-body.mjs` 后，两条命令都要再跑。大胸照胸根等比缩到 0.85 倍，默认胸保留原始尺寸，再平移适配现有身体。详见 [胸型对照](../../docs/bust-reference.md)。
+重跑 `tools/build-anime-body.mjs`、`tools/build-torso.ts` 以后要再跑一遍。
 
 ## blender-human-base-meshes/（胸口、肚子、后背的起伏，2026-11-01）
 

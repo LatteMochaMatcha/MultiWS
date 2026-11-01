@@ -1,18 +1,18 @@
 // 好几个上半身（geometry/torsos.ts）：从腰那里分开，左右并排往两边张开；头、手臂、胸、翅膀每个上半身各一份
 import { describe, expect, it } from 'vitest';
 import { describeClashes, findClashes } from '../src/geometry/clash';
-import { animeCaps, animeGrid } from '../src/anime/body';
+import { animeGrid } from '../src/anime/body';
 import { type Figure, type Fork, type Part, worldTransforms } from '../src/geometry/figure';
 import { buildFigure } from '../src/geometry/layout';
-import { type V3, Q_ID, add, quatConj, quatEuler, rotate, sub } from '../src/geometry/vec';
-import { type BodyCounts, type BodySpec, LEG_LAYOUTS, defaultSpec } from '../src/model/spec';
+import { type V3, add, quatConj, quatEuler, rotate, sub } from '../src/geometry/vec';
+import { type BodyCounts, type BodySpec, type PartOverride, LEG_LAYOUTS, defaultSpec } from '../src/model/spec';
 import { applyParse, describeSpec, parseDescription } from '../src/parser';
 import { buildHandles } from '../src/pose/handles';
 import { makeSolver } from '../src/pose/solver';
 import { buildSkeleton } from '../src/rig/skeleton';
 import { bindParts } from '../src/sdf/bindPose';
 import { VOXEL, fuseParts } from '../src/sdf/fuse';
-import { castRay, compileField, compilePartField, fieldAt } from '../src/sdf/field';
+import { castRay, compileField, compilePartField } from '../src/sdf/field';
 import { forkWarp } from '../src/sdf/fork';
 import { getGrid, gridDist } from '../src/sdf/grids';
 import { useAnimeBody } from './animeBody';
@@ -28,8 +28,6 @@ const part = (f: Figure, name: string): Part => {
   return found;
 };
 const names = (f: Figure, type: Part['type']) => f.parts.filter((p) => p.type === type).map((p) => p.name).sort();
-/** 封口裁剪的旧回归单独检查；新增的悬垂和肉垫有独立体积、连通性测试。 */
-const withoutTissue = (p: Part): Part => ({ ...p, prims: p.prims.map(q => q.kind === 'grid' && q.rootFit ? { ...q, rootFit: { ...q.rootFit, blend: undefined, drape: undefined } } : q) });
 
 describe('好几个上半身', () => {
   useAnimeBody();
@@ -38,40 +36,20 @@ describe('好几个上半身', () => {
     expect(buildFigure(make({ torsos: 1, heads: 2, armPairs: 2 }))).toEqual(buildFigure(make({ heads: 2, armPairs: 2 })));
   });
 
-  it('多上半身大胸的悬垂体积向下、向侧分布，胸根仍锚定', () => {
-    const spec = make({ torsos: 2, heads: 2, chestPairs: 2, armPairs: 2 }, { bodyStyle: 'anime', shape: { ...defaultSpec().shape, bust: 2.2 } });
-    const f = buildFigure(spec), p = part(f, 'Chest_01_L');
-    const local = (drape: boolean) => compileField({ scale: 1, parts: [{ ...p, parent: undefined, pos: [0,0,0], quat: Q_ID, scale: 1,
-      prims: p.prims.map(q => q.kind === 'grid' && q.rootFit ? { ...q, rootFit: { ...q.rootFit, blend: undefined, ...(drape ? {} : { drape: undefined }) } } : q),
-    }] }, { blend: 0 });
-    const centroid = (field: ReturnType<typeof local>) => {
-      let x=0, y=0, count=0;
-      for(let ix=-16;ix<=24;ix++) for(let iy=-28;iy<=24;iy++) for(let iz=10;iz<=27;iz++) {
-        const p: V3=[ix*0.005,iy*0.005,iz*0.005];
-        if(fieldAt(field,...p)<0) { x+=p[0];y+=p[1];count++; }
+  it('二次元素体的胸贴着它挂着的那个上半身的躯干：和上半身的躯干同一个分叉，手动挪过上半身也跟着', () => {
+    const cases: Record<string, PartOverride>[] = [{}, { UpperBody_L: { position: [0.03, 0.08, 0], rotation: [0, 12, 8] } }];
+    for (const overrides of cases) {
+      const f = buildFigure(make({ torsos: 2, heads: 2, armPairs: 2, chestPairs: 2 }, { bodyStyle: 'anime', armLayout: 'fan', overrides }));
+      const chests = f.parts.filter((p) => p.type === 'chest');
+      expect(chests.length).toBeGreaterThan(0);
+      for (const chest of chests) {
+        const prim = chest.prims[0];
+        const body = part(f, chest.parent!).prims.find((q) => q.kind === 'grid');
+        if (prim.kind !== 'chest' || body?.kind !== 'grid') throw new Error(`${chest.name} 不是贴在躯干上的胸`);
+        expect(prim.body.fork, chest.name).toEqual(body.fork);
+        expect(prim.body.clipBelow).toBeUndefined();
       }
-      return {x:x/count,y:y/count,count};
-    };
-    const before=centroid(local(false)), after=centroid(local(true));
-    expect(after.y).toBeLessThan(before.y-0.004);
-    expect(after.x).toBeGreaterThan(before.x+0.002);
-    expect(after.count/before.count).toBeGreaterThan(0.85);
-    expect(after.count/before.count).toBeLessThan(1.15);
-  });
-
-  it('胸根在侧胸和腋下之间补出连续接触肉垫，而非只把两个表面硬并在一起', () => {
-    const f=buildFigure(make({torsos:2,heads:2,armPairs:2,chestPairs:2},{bodyStyle:'anime',shape:{...defaultSpec().shape,bust:2.2}}));
-    const p=part(f,'Chest_01_L'), body=part(f,p.parent!), xfs=worldTransforms({...f,scale:1}), xf=xfs.get(p.name)!;
-    const wall=compilePartField(body,xfs.get(body.name)!);
-    const bare={...p,prims:p.prims.map(q=>q.kind==='grid'&&q.rootFit?{...q,rootFit:{...q.rootFit,blend:undefined}}:q)};
-    const breast=compilePartField(bare,xf);
-    const field=compileField({scale:1,parts:f.parts.filter(q=>q.name==='Torso'||q.name===body.name||q.name===p.name)}, {blend:0});
-    let bridged=0;
-    for(let ix=2;ix<=22;ix++) for(let iy=3;iy<=18;iy++) for(let iz=-2;iz<=16;iz++) {
-      const at=add(xf.pos,rotate(xf.quat,[ix*0.003*xf.scale,iy*0.003*xf.scale,iz*0.003*xf.scale]));
-      if(fieldAt(wall,...at)>0.002&&fieldAt(breast,...at)>0.002&&fieldAt(field,...at)<-0.0001) bridged++;
     }
-    expect(bridged).toBeGreaterThan(5);
   });
 
   it('大胸的胸壁连接不依赖手臂：移除手臂以后，下排胸在精细网格里也不脱开', () => {
@@ -123,80 +101,6 @@ describe('好几个上半身', () => {
         expect(out[k], `${i} ${k}`).toBeCloseTo(p[k],6);
         expect(input[k]).toBeGreaterThanOrEqual(lo[k]);
         expect(input[k]).toBeLessThanOrEqual(hi[k]);
-      }
-    }
-  });
-
-  it('下排胸的封口按实际胸部缩放定位，胸根埋进胸壁而不是悬在前面', () => {
-    const spec = make({ chestPairs: 2 }, { bodyStyle: 'anime', shape: { ...defaultSpec().shape, bust: 2.2 } });
-    const f = buildFigure(spec), p = part(f, 'Chest_02_L'), torso = part(f, 'Torso');
-    const body = compileField({ scale: 1, parts: [{ ...torso, pos: [0, 0, 0] }] }, { blend: 0 });
-    const cap = animeCaps('bust')[0].center;
-    const at = p.pos.map((v, k) => v + cap[k] * p.scale!) as V3;
-    expect(fieldAt(body, ...at)).toBeLessThan(-0.001);
-  });
-
-  it('下排胸不保留素材的上胸封口：拉宽、压低上半身以后也不在肋部形成一块板', () => {
-    const spec = make({ torsos: 2, heads: 2, armPairs: 2, chestPairs: 2, legs: 4 }, {
-      bodyStyle: 'anime', armLayout: 'fan', legLayout: 'abreast', shape: { ...defaultSpec().shape, bust: 2.2 },
-      overrides: { UpperBody_L: { position: [0.0142, 0, 0], scale: [1.41, 0.9, 1] }, UpperBody_R: { position: [-0.0142, 0, 0], scale: [1.41, 0.9, 1] } },
-    });
-    const f = buildFigure(spec);
-    for (const name of ['Chest_02_L', 'Chest_02_R']) {
-      const p = part(f, name);
-      const field = compileField({ scale: 1, parts: [{ ...withoutTissue(p), parent: undefined, pos: [0, 0, 0], quat: Q_ID, scale: 1 }] }, { blend: 0 });
-      expect(fieldAt(field, p.side * 0.02353, 0.03288, 0.01525), name).toBeGreaterThan(0.0005);
-    }
-  });
-
-  it('大胸背面的封口不露在分叉后的肋部外面，前方胸型保持原样', () => {
-    const spec = make({ torsos: 2, heads: 2, armPairs: 2 }, {
-      bodyStyle: 'anime', armLayout: 'fan', shape: { ...defaultSpec().shape, bust: 2.2 },
-    });
-    const f = buildFigure(spec);
-    // 侧面截图上突出的板状封口，反算到胸自己的坐标；左右各量一次。
-    for (const name of ['Chest_01_L', 'Chest_01_R']) {
-      const p = part(f, name);
-      const local = compileField({ scale: 1, parts: [{ ...withoutTissue(p), parent: undefined, pos: [0, 0, 0], quat: Q_ID, scale: 1 }] }, { blend: 0 });
-      const side = p.side;
-      expect(fieldAt(local, side * 0.01173, -0.04301, 0.01801), name).toBeGreaterThan(0.001);
-      const original = buildFigure({ ...spec, counts: { ...spec.counts, torsos: 1 } });
-      const raw = part(original, name);
-      const source = compileField({ scale: 1, parts: [{ ...raw, parent: undefined, pos: [0, 0, 0], quat: Q_ID, scale: 1 }] }, { blend: 0 });
-      // 胸根上缘仍要接住原来的上胸斜面，不能把它裁成独立贴上去的圆盘。
-      for (const z of [0, 0.01, 0.02]) expect(fieldAt(local, side * 0.015, 0.015, z), `${name} 上缘 ${z}`).toBeCloseTo(fieldAt(source, side * 0.015, 0.015, z), 9);
-      // 配对的正例：前方可见胸面的射线交点不能被削掉或拉长。
-      for (const x of [0, 0.015, 0.03]) for (const y of [-0.025, 0, 0.025]) {
-        const from: V3 = [side * x, y, 0.2];
-        expect(Math.abs(castRay(local, from, [0, 0, -1], 0.2) - castRay(source, from, [0, 0, -1], 0.2)), `${name} ${x} ${y}`).toBeLessThan(0.0001);
-      }
-    }
-  });
-
-  it('多上半身保留独立胸型：大胸、下排胸和微调后都不被分叉变形拉长', () => {
-    for (const torsos of [2, 3]) for (const bust of [1, 1.6, 2.2]) for (const chestPairs of [1, 3]) {
-      const spec = make({ torsos, heads: 2, armPairs: 2, chestPairs }, {
-        bodyStyle: 'anime', armLayout: 'fan', shape: { ...defaultSpec().shape, bust },
-        overrides: { UpperBody_L: { position: [0.03, 0.08, 0], rotation: [0, 12, 8] } },
-      });
-      const single = buildFigure({ ...spec, counts: { ...spec.counts, torsos: 1 }, overrides: {} });
-      const figure = buildFigure(spec);
-      const chests = figure.parts.filter((p) => p.type === 'chest');
-      expect(chests.length).toBeGreaterThan(0);
-      for (const chest of chests) {
-        const original = single.parts.find((p) => p.type === 'chest' && p.side === chest.side && Math.abs(p.pos[1] - chest.pos[1]) < 1e-9)!;
-        const local = (p: Part) => compileField({ scale: 1, parts: [{ ...withoutTissue(p), parent: undefined, pos: [0, 0, 0], quat: Q_ID }] }, { blend: 0 });
-        const before = local(original), after = local(chest);
-        let error = 0;
-        // 封口允许按胸壁修整；按每块胸自己的尺寸采样前方，防止大胸的样点落进后方连接区。
-        const s = chest.scale ?? 1;
-        for (const x of [-0.05, 0, 0.05]) for (const y of [-0.1, -0.05, 0, 0.05]) for (const z of [0.08, 0.1, 0.12]) {
-          error = Math.max(error, Math.abs(fieldAt(after, x*s, y*s, z*s) - fieldAt(before, x*s, y*s, z*s)));
-        }
-        expect(error, `${torsos} 身 ${bust} 胸 ${chestPairs} 排 ${chest.name}`).toBeLessThan(1e-9);
-        // 胸前轮廓不被拉长；下排胸收在下半截肋骨上、离胸壁近，胸根贴合可能把胸下沿正前方削掉一两毫米
-        const from: V3 = [0, -0.01*s, 0.2*s];
-        expect(Math.abs(castRay(after, from, [0,0,-1], 0.3*s)-castRay(before, from, [0,0,-1], 0.3*s)), `${torsos} 身 ${bust} 胸 ${chestPairs} 排 ${chest.name} 胸前轮廓`).toBeLessThan(0.002);
       }
     }
   });

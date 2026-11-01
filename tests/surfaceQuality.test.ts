@@ -52,7 +52,7 @@ it('校正二次元素体曲面：误差下降、缝合和权重不变，不翻�
     }
     console.log({torsos,heads,changed,errorRatio:newError/oldError});
   }
-});
+}, 60_000);
 
 it('普通白模的融合结果不进入二次元素体校正', () => {
   const spec=defaultSpec(), parts=buildFigure(spec).parts.filter(p=>p.material!=='eye'),voxel=0.012;

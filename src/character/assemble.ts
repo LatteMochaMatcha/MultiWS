@@ -17,7 +17,7 @@ import { type FigureMetrics, nthName } from '../geometry/figure';
 import { type HangBlock, GAP, armDirection, hangAngles } from '../geometry/layout';
 import { FAN_YAW, INNER_ARM_DROP, torsoLean, torsoSlots } from '../geometry/torsos';
 import { type V3, UP, len, norm, quatBetween, quatConj, quatEuler, quatMul, rotate } from '../geometry/vec';
-import { type BodySpec, colorToLinear, headHairColor, legPlan } from '../model/spec';
+import { type BodySpec, colorToLinear, headHairColor, legPlan, BUST_MAX_OTHER } from '../model/spec';
 import { type BeastPiece, beastBody } from './beast';
 import { type ExtraHead, type ExtraKind, extraParts } from './extras';
 import type { HairDonor } from './hair';
@@ -471,7 +471,7 @@ function makeProbe(triangles: Float32Array) {
  */
 export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair: HairDonor | null = null): CharacterBuild {
   const c = spec.counts;
-  const sh = spec.shape;
+  const sh = { ...spec.shape, bust: Math.min(spec.shape.bust, BUST_MAX_OTHER) };
   const tPose = spec.pose === 'T';
   const ignored: string[] = [];
 

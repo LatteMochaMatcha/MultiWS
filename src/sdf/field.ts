@@ -25,7 +25,7 @@ import { WING_OUTLINE, sampleTube, tubeCurve, tubeTipRadius } from '../geometry/
 import { ringAt } from '../geometry/torso';
 import { type Quat, type V3, Q_ID, add, mat3Apply, mul, quatMul, rotate } from '../geometry/vec';
 import { forkWarp } from './fork';
-import { getGrid, gridDist } from './grids';
+import { chestDist, getGrid, gridDist } from './grids';
 
 export type Dist = (x: number, y: number, z: number) => number;
 
@@ -468,6 +468,12 @@ function primDrafts(p: Prim, xf: WorldXf, group: number, minR: number, out: Draf
     case 'wing': {
       const d = wingDist(p, minR / s);
       out.push(customDraft(group, xf, d.fn, d.min, d.max));
+      break;
+    }
+    case 'chest': {
+      // 胸：贴好胸的躯干上这一边胸那一片，和躯干取并集（见 anime/chest.ts）
+      const d = chestDist(p);
+      out.push(customDraft(group, xf, d.fn, d.min, d.max, d.outer));
       break;
     }
     case 'grid': {

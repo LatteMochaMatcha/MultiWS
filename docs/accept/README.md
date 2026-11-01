@@ -8,6 +8,7 @@ uv run --with pillow python tools/accept-sheet.py docs/accept/<期> --title <期
 ```
 
 - `tools/accept.ts`：照固定的几种组合（都是二次元素体）融合、出图、做检查。只跑其中几种：`--only A2,B-ref_his`。
+  - S1：一个上半身，一排胸，一对手臂（第 3 期加的），胸 0.6、1、1.3、2.2（连腰、胯）、3 五套
   - A2–A4：一个上半身，两到四排胸，两对手臂（上下排）
   - B-ref：两个上半身，各一头一对手一对胸（参考图那种）；B-his：各两头两对手（肩部聚拢）两对胸
   - C：两个上半身，横排两副胯；D1、D2：两个头，横排两副胯，一对、两对胸
@@ -21,3 +22,4 @@ uv run --with pillow python tools/accept-sheet.py docs/accept/<期> --title <期
 | 目录 | 是什么 |
 |---|---|
 | `0-before` | 换做法之前（回退点 `snapshot/2026-11-01-before-rework`） |
+| `3-chest` | 第 3 期：新胸接进工坊（一个上半身、一排胸） |

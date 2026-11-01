@@ -8,13 +8,14 @@
 import type { V3 } from '../geometry/vec';
 import { fetchFile } from '../io/fetchFile';
 import { hasGrid, registerGrid } from '../sdf/grids';
+import { type ChestKind, type ChestPatch, registerChest } from './chest';
 import meta from './bodyMeta.json';
 
 /**
- * 素体拆成的几块。torsoFlat 是平胸的躯干（格子和 torso 一模一样，两份之间可以逐格混合），
- * headBare 是去掉人耳的头；bustReference 是 DJP Sculpt 的默认胸，bustLarge 是 DJP 01 的大胸（见 BUST_LARGE）。
+ * 素体拆成的几块。torsoFlat 是平胸的躯干（格子和 torso 一模一样，两份之间可以逐格混合），headBare 是去掉人耳的头。
+ * 胸不是单独的一块格子，是贴在平胸躯干表面上的一层（见 anime/chest.ts），数据也在 body.bin 里（bodyMeta.json 的 chest）
  */
-export type AnimePiece = 'torso' | 'torsoFlat' | 'head' | 'headBare' | 'neck' | 'bust' | 'bustLarge' | 'bustReference' | 'arm' | 'leg';
+export type AnimePiece = 'torso' | 'torsoFlat' | 'head' | 'headBare' | 'neck' | 'arm' | 'leg';
 
 interface PieceMeta {
   /** 这一块自己的原点（关节）在模型里的位置 */
@@ -30,6 +31,11 @@ interface PieceMeta {
 }
 
 const PIECES = meta.grids as Record<AnimePiece, PieceMeta>;
+
+interface ChestMeta {
+  frame: { y0: number; dy: number; rows: number; cols: number; unit: number; offset: number };
+  patches: Record<ChestKind, Omit<ChestPatch, 'data' | 'center'> & { center: number[]; offset: number }>;
+}
 
 /** 登记时用的名字 */
 export const animeGrid = (piece: AnimePiece) => `anime/${piece}`;
@@ -78,16 +84,19 @@ export function installAnimeBody(buffer: ArrayBuffer) {
       bounds: { min: m.bounds.min as V3, max: m.bounds.max as V3 },
     });
   }
+  // 胸：展开图（每行前后正中、每格半径、每格弧长）和两种胸型（tools/build-chest.ts 写进来的；没跑过的话没有胸）
+  const chest = (meta as { chest?: ChestMeta }).chest;
+  if (!chest) return;
+  const { frame, patches } = chest;
+  const n = frame.rows * frame.cols;
+  const read = (from: number, count: number) => Float64Array.from(all.subarray(from, from + count), (v) => v * frame.unit);
+  const patch = (p: ChestMeta['patches'][ChestKind]): ChestPatch => ({ ...p, center: [p.center[0], p.center[1]], data: all.subarray(p.offset, p.offset + p.nu * p.nv * p.nh) });
+  registerChest(
+    { ...frame, zc: read(frame.offset, frame.rows), r: read(frame.offset + frame.rows, n), s: read(frame.offset + frame.rows + n, n) },
+    { reference: patch(patches.reference), large: patch(patches.large) },
+  );
 }
 
-/**
- * 大胸的胸型：格子和 bust 一模一样，两份之间可以逐格混合（GridShape.morph）。
- * 胸往大调时渐渐换成它：bust 是从素体上切下来的一块小胸，照原样放大是一个放大的尖圆锥，前面平、上下一样厚，
- * 背面那块薄盖子还从锁骨上、腋下支出来，看着是个空壳。
- * 它是 tools/build-bust.ts 从 Death Joe Productions 的大胸二次元素体（CC0）上取下来的左胸：各自饱满、往下坠一点、胸下有褶，
- * 背面实心；胸调到 2.2 倍时正好是那个素体的胸原样大小
- */
-export const BUST_LARGE = animeGrid('bustLarge');
 /** 躯干上的起伏（tools/build-torso.ts）参考了的素材里要求署名的那个（CC BY 4.0）：导出时和脚的署名一起写进去 */
 export const TORSO_CREDIT = '躯干起伏参考了「Woman」© Fly_jkey（sketchfab.com/3d-models/woman-b303b7606140480f8335cda121b9607c），CC BY 4.0';
 

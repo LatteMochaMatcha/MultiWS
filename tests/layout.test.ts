@@ -52,6 +52,8 @@ function numbers(p: Prim): number[] {
       return [p.size, p.thickness];
     case 'grid':
       return p.stretchY ?? [];
+    case 'chest':
+      return [...p.origin, p.size, p.lift ?? 0, ...(p.shift ?? []), ...(p.scale ?? []), ...(p.tilt ?? [])];
   }
 }
 

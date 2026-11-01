@@ -60,7 +60,8 @@ describe('二次元少女素体', () => {
       'Leg_01_L',
       'Leg_01_R',
     ]);
-    for (const p of figure.parts) expect(p.prims.some((q) => q.kind === 'grid'), p.name).toBe(true);
+    // 胸贴在躯干表面上（ChestShape，用的也是躯干那块格子）
+    for (const p of figure.parts) expect(p.prims.some((q) => q.kind === (p.type === 'chest' ? 'chest' : 'grid')), p.name).toBe(true);
     // 白模人台不受影响
     expect(usesGrid(buildFigure(defaultSpec()))).toBe(false);
   });

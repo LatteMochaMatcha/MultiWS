@@ -93,12 +93,15 @@ export interface ShapeDef {
   safe?: [min: number, max: number];
 }
 
+/** 胸部大小滑块 2.2 以上只有二次元素体照着变大（白模人台、成品角色到 2.2 为止） */
+export const BUST_MAX_OTHER = 2.2;
+
 export const SHAPE_DEFS: readonly ShapeDef[] = [
   { key: 'height', label: '身高', min: 1.2, max: 2.2, step: 0.01, def: 1.62, unit: 'm' },
   { key: 'headRatio', label: '头身比', min: 6, max: 9, step: 0.1, def: 7.5 },
   { key: 'build', label: '体格', min: 0.7, max: 1.5, step: 0.01, def: 1, safe: [0.8, 1.3] },
   { key: 'shoulders', label: '肩宽', min: 0.75, max: 1.6, step: 0.01, def: 1, safe: [0.85, 1.3] },
-  { key: 'bust', label: '胸部大小', min: 0.3, max: 2.2, step: 0.01, def: 1, safe: [0.3, 1.6] },
+  { key: 'bust', label: '胸部大小', min: 0.3, max: 3, step: 0.01, def: 1, safe: [0.3, 1.6] },
   { key: 'waist', label: '腰宽', min: 0.7, max: 1.6, step: 0.01, def: 1, safe: [0.8, 1.3] },
   { key: 'hips', label: '胯宽', min: 0.7, max: 1.8, step: 0.01, def: 1, safe: [0.8, 1.4] },
   { key: 'limbs', label: '四肢粗细', min: 0.5, max: 2, step: 0.01, def: 1, safe: [0.8, 1.3] },

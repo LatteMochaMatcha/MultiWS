@@ -220,7 +220,8 @@ export function applyOverrides(figure: Figure, overrides: Overrides): Figure {
     let part = warp ? { ...src, pos: mat3Apply(warp, src.pos) } : src;
     if (src.type === 'neck') part = followHead(part, src, byName, overrides, warp);
     if (src.type === 'head') part = moveSockets(part, overrides);
-    const o = overrides[src.name];
+    // 贴在躯干表面上的（胸）：摆位时已经照微调沿表面挪好了（见 Part.surface）
+    const o = src.surface ? undefined : overrides[src.name];
     if (o) {
       const placed = place(part, o);
       part = placed.part;
