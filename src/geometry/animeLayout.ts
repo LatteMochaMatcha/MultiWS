@@ -14,6 +14,7 @@ import { FOOT_ANKLE, FOOT_CUFF, FOOT_SOLE, FOOT_STUMP, FOOT_TOE, FOOT_TOE_END, f
 import { FINGER_JOINTS, HAND_STUMP, handGraft } from '../anime/hand';
 import { type BodySpec, legPlan } from '../model/spec';
 import { type CompiledField, castRay, compileField } from '../sdf/field';
+import { type Stretch, restretch } from '../sdf/stretch';
 import { type Figure, type Graft, type GridShape, type Part, type Prim, type WidenBand, nthName } from './figure';
 import { type CustomHead, type HeadHair, makeFace, makeHead } from './head';
 import {
@@ -106,16 +107,26 @@ const smooth = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 /** 素体本来是几头身 */
 const NATIVE_RATIO = ANIME_HEIGHT / (2 * HEAD_H);
 /**
- * 多排手臂、多排胸时，把腰以上、胸以下的这一段（下半截肋骨）拉长。
+ * 多排手臂时，把腰以上、胸以下的这一段（下半截肋骨）拉长。
  * 以前拉的是 1.04–1.12，正好把腰最细的那一截（1.07）拉成一根长筒，下排胸整个贴在腰上
  */
 const STRETCH: [number, number] = [0.99, 1.23];
 /**
- * 多排胸时相邻两排至少隔多远：上一排的下沿到下一排的上沿，下一排上半截的 ROW_TUCK 可以收在上一排底下（再留 ROW_ROOM）。
- * 胸调大时比 GAP 远，胸腔跟着加长，下排胸不往腰上掉
+ * 多排胸时只在第一排胸中心往下这么窄的一段接长：接出来的那一截是直筒，横截面差不多就是第一排胸中心那一圈，
+ * 下排胸坐在一截和第一排胸那里一样宽的肋骨上，过了最下面一排才照素体往腰收（照参考图 A-two-rows）；腰、胯和第一排以上都不变形。
+ * 以前接在胸下面那一圈（1.09–1.12），紧挨着腰，下排坐的那截比第一排窄一成多。
+ * 直筒上下两头各在加长以后 ROW_RAMP 那么长里渐渐变回原样（见 sdf/stretch.ts）：不然背上直筒的两头各一道硬边
  */
-const ROW_TUCK = 0.5;
+const ROW_STRETCH = 0.05;
+const ROW_RAMP = 0.04;
+/**
+ * 多排胸时相邻两排隔多远：上一排的下沿到下一排的上沿，下一排上半截的 rowTuck 收在上一排底下（再留 ROW_ROOM）——大胸上排胸底压在下排上缘；
+ * 小胸不往下坠，压不上去，上下排挨着（不然几排小胸挤成一片像腹肌）
+ */
+const rowTuck = (size: number) => 0.5 * smooth(size - 1);
 const ROW_ROOM = 0.01;
+/** 多排胸时手臂沿躯干上下排隔多远：第二对从第一对下面一点、腋下的肋骨侧面长出来（照参考图 A-arms-3d、A-rows-arms），不跟着胸一排排往下 */
+const ARM_ROW = 0.1;
 /** 腰最细的地方大概多高（人腿人马后面接的那截腰照这里的粗细） */
 const WAIST_Y = 1.0;
 /** 这一块就摆在素体原来的位置上时，和躯干直接取并集，接缝处还原成素体本来的样子 */
@@ -319,9 +330,17 @@ export function layoutAnime(spec: BodySpec): Figure {
   const rows = Math.max(stacked ? c.armPairs : 1, c.chestPairs, 1);
   /** 每排胸照设定多大：往小调时不缩小，整个往胸口里沉（见下面胸）。下排和第一排一比一（以前往下每排小一成） */
   const rowSize = Math.max(1, sh.bust);
-  /** 相邻两排隔多远（手臂沿躯干上下排时也照它排）：胸大了上下排要放得下（见 ROW_TUCK） */
-  const gap = c.chestPairs > 1 ? Math.max(GAP, chestReach(rowSize)[1] + ROW_TUCK * chestReach(rowSize)[0] + ROW_ROOM) : GAP;
+  /** 相邻两排隔多远（手臂沿躯干上下排时也照它排）：多排胸照胸的大小排（见 rowTuck），只有多排手臂的照 GAP */
+  const [reachUp, reachDown] = chestReach(rowSize);
+  /** 胸中心在平胸表面上的哪一点（u 沿表面横着、高度，素体自己的坐标），见下面每排胸 */
+  const [chestU, chestV] = chestCenter(sh.bust);
+  const gap = c.chestPairs > 1 ? reachDown + (1 - rowTuck(rowSize)) * reachUp + ROW_ROOM : GAP;
+  /** 手臂沿躯干上下排时隔多远 */
+  const armGap = c.chestPairs > 1 ? Math.min(gap, ARM_ROW) : gap;
   const extra = gap * (rows - 1);
+  /** 躯干在哪一段拉长（见 STRETCH、ROW_STRETCH） */
+  const band: [number, number] = c.chestPairs > 1 ? [chestV - ROW_STRETCH, chestV] : STRETCH;
+  const stretch: Stretch | undefined = extra ? (c.chestPairs > 1 ? [band[0], band[1], extra, ROW_RAMP] : [band[0], band[1], extra]) : undefined;
   const shoulderY = SHOULDER[1] + extra;
   // 多个头：凑成一簇，脸贴着脸；脖子根并排挤在肩膀中间（见 bodyPlan.ts）。
   // 素体的肩膀窄、头大：四五个头时脖子根排不下，肩膀会稍微加宽一点
@@ -359,7 +378,7 @@ export function layoutAnime(spec: BodySpec): Figure {
   const flat = Math.min(1, Math.max(0, (1 - sh.bust) / (1 - CHEST_FLAT)));
   // 两种原素材的胸都接在平胸躯干上，避免原 VRoid 胸型从下面顶出来改变轮廓。
   const plain = grid('Torso', 'torso', 1, {
-    ...(extra ? { stretchY: [STRETCH[0], STRETCH[1], extra] as [number, number, number] } : {}),
+    ...(stretch ? { stretchY: stretch } : {}),
     ...(c.chestPairs > 0 || flat ? { morph: [animeGrid('torsoFlat'), c.chestPairs > 0 ? 1 : flat] as [string, number] } : {}),
     // 肩膀加宽：从胸口往上逐渐加宽；腰在那一段加宽、收窄；胯按比例拉宽
     ...(bands.length ? { widenX: bands } : {}),
@@ -370,7 +389,7 @@ export function layoutAnime(spec: BodySpec): Figure {
   const twinD = twinned ? apart : 0;
   const pairD = paired ? apart : 0;
   /** 素体上的高度加长胸腔以后在哪 */
-  const raised = (y: number) => y + extra * smooth((y - STRETCH[0]) / (STRETCH[1] - STRETCH[0]));
+  const raised = (y: number) => restretch(y, stretch);
   const torsoShape: GridShape = twinned
     ? {
         ...plain,
@@ -405,7 +424,6 @@ export function layoutAnime(spec: BodySpec): Figure {
    * 每排胸（见 anime/chest.ts）：下排和第一排一模一样（一样大、离中线一样远），只是往下挪 gap。
    * 胸中心在平胸表面上的哪一点（+X 那边、素体自己的坐标）；肩膀加宽时那里往外挪了多少（x）；胸腔加长以后第一排跟着上移多少（lift）
    */
-  const [chestU, chestV] = chestCenter(sh.bust);
   const chestAt = surfacePoint(chestFrame(), chestU, chestV);
   const chestRows = Array.from({ length: c.chestPairs }, (_, j) => ({
     y: raised(chestV) - j * gap,
@@ -432,11 +450,11 @@ export function layoutAnime(spec: BodySpec): Figure {
   }
 
   // 脊柱：Hips → Spine → Chest →（每多一排多一节）→ UpperChest
-  const chestTop = STRETCH[1] + extra;
+  const chestTop = band[1] + extra;
   const levels: [name: string, at: V3][] = [
     ['Hips', HIPS],
     ['Spine', SPINE],
-    ['Chest', [0, STRETCH[0], 0.02]],
+    ['Chest', [0, band[0], 0.02]],
   ];
   for (let i = rows - 1; i >= 1; i--) levels.push([nthName('Chest', i), [0, chestTop - i * gap, 0.02]]);
   levels.push(['UpperChest', [0, chestTop, 0.02]]);
@@ -576,7 +594,7 @@ export function layoutAnime(spec: BodySpec): Figure {
     let theta: number;
     let phi: number;
     if (stacked) {
-      joint = i ? stackJoint(shoulderY - i * gap) : shoulder;
+      joint = i ? stackJoint(shoulderY - i * armGap) : shoulder;
       theta = tPose ? 90 * DEG : (form === 'spider' ? Math.max(48 - i * 2 + armLift, floorAt(joint)) : 48 - i * 6 + armLift) * DEG;
       phi = tPose ? 0 : mid * (form === 'spider' ? 0.1 : 0.2);
     } else if (tPose) {

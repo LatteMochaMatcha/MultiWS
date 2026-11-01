@@ -11,6 +11,7 @@
  */
 import type { ChestShape } from '../geometry/figure';
 import type { Skin } from '../sdf/grids';
+import { unstretch } from '../sdf/stretch';
 import type { V3 } from '../geometry/vec';
 
 /** 躯干的展开图（平胸躯干，躯干格子自己的坐标） */
@@ -272,7 +273,12 @@ export function chestReach(size: number): [up: number, down: number] {
   let reach = 0;
   // 胸那一片的椭圆连着往外补平的一圈，胸本身大概是它的八成
   for (const l of layers) reach += l.patch.rv * l.scale[1] * 0.8 * l.weight;
-  return [reach, reach];
+  // 往圆里变以后照椭球（中心比胸中心高一点）
+  const round = roundAt(size);
+  if (!round) return [reach, reach];
+  const up = round.off[1] + round.radii[1];
+  const down = round.radii[1] - round.off[1];
+  return [reach + (up - reach) * round.alpha, reach + (down - reach) * round.alpha];
 }
 
 /** 胸在滑块 size 上大概多大：胸根半径、胸尖离平胸表面多远（米）。穿模检查用 */
@@ -578,21 +584,6 @@ export function chestSkin(shape: ChestShape, piece = false): Skin {
 
 /** 切掉的地方离得比这还远时不再查格子（融合最细的一档体素 6 毫米） */
 const FAR = 0.008;
-
-/** 加长（GridShape.stretchY）以后的高度换回加长之前的（和 sdf/grids.ts 里一样，牛顿法） */
-function unstretch(y: number, stretch?: [number, number, number]): number {
-  if (!stretch || y <= stretch[0]) return y;
-  const [from, to, extra] = stretch;
-  if (y >= to + extra) return y - extra;
-  const span = to - from;
-  let s = from + ((y - from) * span) / (span + extra);
-  for (let k = 0; k < 6; k++) {
-    const t = (s - from) / span;
-    s -= (s + extra * t * t * (3 - 2 * t) - y) / (1 + (extra * 6 * t * (1 - t)) / span);
-    s = Math.min(to, Math.max(from, s));
-  }
-  return s;
-}
 
 /**
  * 一个胸部件在躯干格子坐标里大概占多大（加长、加宽之前；照 lift 摆）：融合时只在这个范围里算它。

@@ -7,6 +7,7 @@
  * 乘上 Figure.scale 之后单位是米。
  */
 import type { LegForm } from '../model/spec';
+import type { Stretch } from '../sdf/stretch';
 import { type Mat3, type Quat, type V3, add, mat3Apply, mat3Mul, mul, quatMul, rotate, scaleAlong } from './vec';
 
 export type PartType =
@@ -109,8 +110,8 @@ export interface GridShape extends Mass {
   grid: string;
   /** 左右镜像：右手、右腿用左边那一份翻过来 */
   mirror?: boolean;
-  /** 把 [from, to] 这一段沿 Y 拉长 extra，上面的部分整体上移（多排手臂时加长胸腔） */
-  stretchY?: [from: number, to: number, extra: number];
+  /** 把 [from, to] 这一段沿 Y 拉长 extra，上面的部分整体上移（多排手臂、多排胸时加长胸腔）；第四个数是两头渐变多长（见 sdf/stretch.ts） */
+  stretchY?: Stretch;
   /** 只留下 x ≥ clipX 的部分（镜像之前的坐标）：手臂接在别处时，把连着肩膀的那一圈切掉 */
   clipX?: number;
   /** 只留下 y ≥ clipBelow 的部分：腿只留最上面一截（素体单足时胯底下的两个腿根） */

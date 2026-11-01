@@ -23,3 +23,4 @@ uv run --with pillow python tools/accept-sheet.py docs/accept/<期> --title <期
 |---|---|
 | `0-before` | 换做法之前（回退点 `snapshot/2026-11-01-before-rework`） |
 | `3-chest` | 第 3 期：新胸接进工坊（一个上半身、一排胸） |
+| `4-rows` | 第 4 期：多排胸（A） |

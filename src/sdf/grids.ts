@@ -9,6 +9,7 @@ import { type V3, sub } from '../geometry/vec';
 import { chestRegion, chestSkin, chestVersion } from '../anime/chest';
 import type { Dist } from './field';
 import { forkWarp } from './fork';
+import { type Stretch, unstretch } from './stretch';
 
 export interface Grid {
   /** 第一个格点的位置（这块形状自己的坐标，米） */
@@ -56,9 +57,9 @@ export interface GridUse {
   mirror?: boolean;
   /**
    * 把 [from, to] 这一段沿 Y 拉长 extra，上面的部分整体上移：
-   * 多排手臂、多排胸时用它把胸腔加长。
+   * 多排手臂、多排胸时用它把胸腔加长。第四个数是两头渐变多长（见 sdf/stretch.ts）
    */
-  stretchY?: [from: number, to: number, extra: number];
+  stretchY?: Stretch;
   /** 只留下 x ≥ clipX 的部分（镜像之前的坐标） */
   clipX?: number;
   /** 只留下 y ≥ clipBelow 的部分：腿只留最上面一截 */
@@ -256,8 +257,8 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
   const unit = grid.band / 32767;
   const nxy = nx * ny;
   const flip = use.mirror ? -1 : 1;
-  const [from, to, extra] = use.stretchY ?? [0, 0, 0];
-  const span = to - from;
+  const stretch = use.stretchY;
+  const [from, to, extra] = stretch ?? [0, 0, 0];
   const cut = use.clipX;
   const below = use.clipBelow;
   const above = use.clipAbove;
@@ -388,24 +389,9 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
         if (k < 1) squeeze = Math.max(squeeze, 1 / k);
       }
     }
-    // 加长过的那一段：换算回加长之前的高度。
-    // 加长是「两头缓、中间急」的（原来的高度 s 变成 s + extra·smoothstep），这样两头不会留下折痕；
-    // 反过来求 s 没有现成的式子，用牛顿法迭代几步
+    // 加长过的那一段：换算回加长之前的高度（见 sdf/stretch.ts）
     let y = ly;
-    if (extra && y > from) {
-      if (y >= to + extra) y -= extra;
-      else {
-        let s = from + ((y - from) * span) / (span + extra);
-        for (let step = 0; step < 4; step++) {
-          const t = (s - from) / span;
-          const grown = s + extra * t * t * (3 - 2 * t) - y;
-          s -= grown / (1 + (extra * 6 * t * (1 - t)) / span);
-          if (s < from) s = from;
-          else if (s > to) s = to;
-        }
-        y = s;
-      }
-    }
+    if (extra && y > from) y = y >= to + extra ? y - extra : unstretch(y, stretch);
     if (bands.length) {
       // 加宽、收窄过的地方：换算回原来离中线多远。
       // 原来离中线 s 的点现在在 s + Σ a·smoothstep(s / core)，每段的 a 随高度从 0 变到 amount；反过来求 s 也是牛顿法
