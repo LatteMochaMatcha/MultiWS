@@ -10,3 +10,9 @@ tools/android/sign.keystore
 # 角色、动作素材的原件（约 450 MB），只在重新加工时用；下载地址和校验见 assets/source/README.md
 assets/source/*
 !assets/source/README.md
+
+# 他给的参考图（别人的画、截图），仓库是公开的，不放进去
+refs/
+
+# 验收台的单张图（几百张、十几 MB）：只留拼好的总图 sheet-*.png 和 summary.json
+docs/accept/*/*_*.png

@@ -1,0 +1,23 @@
+# 验收图
+
+胸、多上半身、多胯换做法（[计划](../rework-plan.md)）每一期做完都出一套，和上一套比。
+
+```bash
+npm run accept -- docs/accept/<期> --against docs/accept/<上一期>
+uv run --with pillow python tools/accept-sheet.py docs/accept/<期> --title <期>
+```
+
+- `tools/accept.ts`：照固定的几种组合（都是二次元素体）融合、出图、做检查。只跑其中几种：`--only A2,B-ref_his`。
+  - A2–A4：一个上半身，两到四排胸，两对手臂（上下排）
+  - B-ref：两个上半身，各一头一对手一对胸（参考图那种）；B-his：各两头两对手（肩部聚拢）两对胸
+  - C：两个上半身，横排两副胯；D1、D2：两个头，横排两副胯，一对、两对胸
+  - E3：三个上半身，只查不坏
+  - 每种两套设定：`def` 默认，`his` 胸 2.2、腰 1.16、胯 1.28
+  - 每种出全身正面、躯干正面/侧面/背面/斜后的特写，再套「自然站立」出全身正面、躯干斜前（肩上挤着手臂的照姿势重新融合，别的照权重弯，和工坊里一样）
+- `summary.json`：部件数、网格几块、破口边、非流形边、部件穿插、融合耗时。`--against` 会把比上一次变差的列出来（部件少了、网格碎了、破口多了、穿插多了、慢了一半以上）。
+- `tools/accept-sheet.py`：拼成每组一张的总图 `sheet-<组>.png`；和 `refs/` 里参考图并排的对照图放在 `refs/compare/`（参考图是别人的画，不进仓库）。
+- 单张图不进仓库（`.gitignore`），仓库里只有总图和 `summary.json`。
+
+| 目录 | 是什么 |
+|---|---|
+| `0-before` | 换做法之前（回退点 `snapshot/2026-11-01-before-rework`） |
