@@ -4,8 +4,8 @@
  *
  * 纯计算，在主线程、Web Worker 和单元测试里都能用；数据由外面读进来再登记。
  */
-import type { Fork, SpreadX, Thicken, WidenBand } from '../geometry/figure';
-import type { V3 } from '../geometry/vec';
+import type { Fork, GridShape, SpreadX, Thicken, Twin, WidenBand } from '../geometry/figure';
+import { type V3, mat3Mul, quatMat3 } from '../geometry/vec';
 import type { Dist } from './field';
 import { forkWarp } from './fork';
 
@@ -100,10 +100,216 @@ export interface GridUse {
    */
   fork?: Fork;
   /**
+   * 两个人从肩到胯并成一个宽躯干（横排两副胯、两个头的二次元素体，见 geometry/animeLayout.ts）：这块格子离中线 d 往左右各放一份。
+   * 高度在 bottom 以下、top 以上，两份各是各的，挨着的地方取并集（两副胯、两根脖子，正中各一道沟）；
+   * full 到 fullTo 之间是一整块：离中线 core 以内的一段往两边拉开（和 widenX 一样），腰上、胸上拉开多少、core 多宽各不一样，
+   * 前后的 core 也可以不一样；中间两份渐渐往中间靠拢。在别的变形外面：坐标是这块格子所在部件的，高度是加长（stretchY）以后的
+   */
+  twin?: Twin;
+  /**
    * 这块格子存的是到一层面片的距离（头发），没有里外：离面片 shell 以内的地方算实心。
    * 加长（stretchY）、加宽这些照常管用。
    */
   shell?: number;
+  /** 胸部后下方的封口连续收回到实际胸壁，前方胸型不参与躯干变形。 */
+  rootFit?: GridShape['rootFit'];
+}
+
+/** 后方封口修整、贴入胸壁的圆滑附着体和前方悬垂体积共用一个距离场。 */
+function fitRoot(one: Dist, root: NonNullable<GridShape['rootFit']>): { fn: Dist; bounds?: { min: V3; max: V3 } } {
+  const body = gridDist(getGrid(root.body.grid), root.body).fn;
+  const { frame, front, back, vertical: [full, free], inset, drape, blend = 0, reach = front } = root;
+  const rotation = quatMat3(frame.quat);
+  const m = frame.shape ? mat3Mul(rotation, frame.shape) : rotation;
+  const scale = frame.scale;
+  const lip = frame.shape ? Math.max(1, Math.hypot(...frame.shape)) : 1;
+  const [px, py, pz] = frame.pos;
+  const weightLength=drape?Math.hypot(...drape):0;
+  const ramp = (z: number) => {
+    const t = Math.max(0, Math.min(1, (z - back) / (reach - back)));
+    return t*t*t*(t*(6*t-15)+10);
+  };
+  const slope = (z: number) => {
+    const t = (z-back)/(reach-back);
+    return t<=0 || t>=1 ? 0 : 30*t*t*(1-t)*(1-t)/(reach-back);
+  };
+  const volume: Dist = !drape ? one : (x,y,z) => {
+    // 位移沿前后深度渐增；反解原深度，使布局中歪斜的上半身仍沿世界重力下垂。
+    let original=z;
+    if (drape[2]) for(let i=0;i<6;i++) original-=(original+drape[2]*ramp(original)-z)/(1+drape[2]*slope(original));
+    const w=ramp(original), lip=1+weightLength*slope(original)/Math.max(0.1,1+drape[2]*slope(original));
+    return one(x-drape[0]*w,y-drape[1]*w,original)/lip;
+  };
+  const wallAt: Dist = (x,y,z) => body(px+scale*(m[0]*x+m[1]*y+m[2]*z),py+scale*(m[3]*x+m[4]*y+m[5]*z),pz+scale*(m[6]*x+m[7]*y+m[8]*z))/(scale*lip);
+  // 肉垫的后端实测贴入胸壁，前端伸进胸部中后段；用圆滑椭球连接，避免把截面向后直挤成板。
+  let support: Dist | undefined, bounds: { min: V3; max: V3 } | undefined;
+  if (blend>0 && root.anchor) {
+    const [ax,ay]=root.anchor, extent=reach-back, start=reach+extent*2, end=back-extent*3;
+    let previous=start, hit: number | undefined;
+    for(let z=start;z>=end;z-=extent/24) {
+      if(wallAt(ax,ay,z)<=0) {
+        let lo=z,hi=previous;
+        for(let n=0;n<12;n++) { const mid=(lo+hi)/2; if(wallAt(ax,ay,mid)>0)hi=mid;else lo=mid; }
+        hit=(lo+hi)/2; break;
+      }
+      previous=z;
+    }
+    if(hit!==undefined) {
+      const frontZ=(back+reach)/2+blend, rearZ=hit-blend;
+      const center: V3=[ax+(drape?.[0]??0)*0.25,ay+(drape?.[1]??0)*0.25,(frontZ+rearZ)/2];
+      const radius: V3=[extent*0.65,extent*0.65,Math.max(blend,(frontZ-rearZ)/2)];
+      support=(x,y,z)=>{
+        const ux=(x-center[0])/radius[0],uy=(y-center[1])/radius[1],uz=(z-center[2])/radius[2];
+        const k0=Math.hypot(ux,uy,uz),k1=Math.hypot(ux/radius[0],uy/radius[1],uz/radius[2]);
+        return k1>1e-9?k0*(k0-1)/k1:-Math.min(...radius);
+      };
+      bounds={min:center.map((v,k)=>v-radius[k]-blend) as V3,max:center.map((v,k)=>v+radius[k]+blend) as V3};
+    }
+  }
+  const fn: Dist = (x, y, z) => {
+    const d = volume(x, y, z);
+    const clip = z < front && y < free;
+    const k = blend*(1-ramp(z));
+    if (!clip && k<=0) return d;
+    const bx=px+scale*(m[0]*x+m[1]*y+m[2]*z), by=py+scale*(m[3]*x+m[4]*y+m[5]*z), bz=pz+scale*(m[6]*x+m[7]*y+m[8]*z);
+    const skin = body(bx,by,bz) / (scale * lip);
+    const wall = skin + inset/(scale*lip);
+    const t = Math.max(0, (z - back) / (front - back));
+    const a = 1 - t * t * t * (t * (6 * t - 15) + 10);
+    const u = Math.min(1, (free - y) / (free - full));
+    const b = u * u * u * (u * (6 * u - 15) + 10);
+    const dz = 30 * t * t * (1 - t) * (1 - t) / (front - back);
+    const dy = 30 * u * u * (1 - u) * (1 - u) / (free - full);
+    // 只收回超出胸壁的封口，不添加新体积。过渡引入的梯度计入距离上界，避免采样越过表面。
+    const fitted = clip ? Math.max(d, (d + a * b * (wall - d)) / (1 + Math.hypot(dz * b, dy * a) * Math.abs(d - wall))) : d;
+    if (k<=0) return fitted;
+    const rawPad=support?support(x,y,z):skin;
+    const edge=support?Math.max(0,k-Math.abs(rawPad-skin)):0;
+    const pad=support?Math.max(Math.min(rawPad,skin)-edge*edge/(4*k),rawPad-k/2):skin;
+    const h=Math.max(0,k-Math.abs(fitted-pad));
+    return support ? Math.min(fitted,pad)-h*h/(4*k) : Math.max(Math.min(fitted,pad)-h*h/(4*k),fitted-k/2);
+  };
+  return {fn,bounds};
+}
+
+/**
+ * 两份并成一个宽躯干（见 GridUse.twin）：one 是放在原位的那一份的距离场。
+ * 过渡的那一段不是把「各是各的」和「一整块」两个场按比例混合（两张表面叠出一层虚影：横着一道棱、正中一条鼓条），
+ * 而是取样的地方随高度从「那一份自己的」渐渐挪到「一整块的」：两份往中间靠拢，正中那道沟渐渐变浅，始终是一张完整的表面。
+ * 取样的地方随高度挪得快的，离表面的距离要缩一点
+ */
+function twinned(one: Dist, twin: Twin): Dist {
+  const { d } = twin;
+  const [bottom, full, fullTo, top] = twin.levels ?? APART;
+  /**
+   * 离中线 c 的那一份在 (x, y, z) 上的距离：横着在哪取样，照「一整块」占多少（w，随高度变得多快是 slope）
+   * 从那一份自己的挪到一整块的（merged，随高度、随前后挪得多快是 mergedY、mergedZ）
+   */
+  const copy = (x: number, y: number, z: number, c: number, w: number, slope: number, merged: number, mergedY: number, mergedZ: number) => {
+    const at = (1 - w) * (x - c) + w * merged;
+    const ay = slope * (merged - (x - c)) + w * mergedY;
+    const az = w * mergedZ;
+    const v = one(at, y, z);
+    return ay || az ? v / Math.sqrt(1 + ay * ay + az * az) : v;
+  };
+  return (x, y, z) => {
+    /** 这个高度上「一整块」占多少，以及它随高度变得多快（往上变成一整块是正的） */
+    let w = 0;
+    let slope = 0;
+    if (y > bottom && y < top) {
+      if (y < full) {
+        const t = (y - bottom) / (full - bottom);
+        w = t * t * (3 - 2 * t);
+        slope = (6 * t * (1 - t)) / (full - bottom);
+      } else if (y > fullTo) {
+        const t = (top - y) / (top - fullTo);
+        w = t * t * (3 - 2 * t);
+        slope = (-6 * t * (1 - t)) / (top - fullTo);
+      } else w = 1;
+    }
+    const far = x < 0 ? -x : x;
+    const sign = x < 0 ? -1 : 1;
+    // 一整块时在哪取样（merged），以及它随高度、随前后挪得多快（mergedY、mergedZ）
+    let merged = 0;
+    let mergedY = 0;
+    let mergedZ = 0;
+    if (w > 0) {
+      spreadBack(twin, far, y, z);
+      merged = sign * spread3[0];
+      mergedY = sign * spread3[1];
+      mergedZ = sign * spread3[2];
+    }
+    if (w === 1) return copy(x, y, z, 0, w, slope, merged, mergedY, mergedZ);
+    // 自己这边那一份；离中线不到 d 的地方另一份也伸得过来，取近的
+    const v = copy(x, y, z, sign * d, w, slope, merged, mergedY, mergedZ);
+    if (far >= d) return v;
+    const other = copy(x, y, z, -sign * d, w, slope, merged, mergedY, mergedZ);
+    return other < v ? other : v;
+  };
+}
+
+/** Twin.levels 不给时：哪个高度上都不并成一整块 */
+const APART = [Infinity, Infinity, Infinity, Infinity] as const;
+
+/** spreadBack 的结果放在这里（求值时用，免得每次新建数组）：拉开以前离中线多远，它随高度、随前后变得多快 */
+const spread3 = new Float64Array(3);
+
+/** 并成一整块的那一段（见 Twin.steps）：现在离中线 far、高度 y、前后 z 的一点，拉开以前离中线多远（写进 spread3） */
+function spreadBack(twin: Twin, far: number, y: number, z: number): void {
+  const { steps } = twin;
+  const last = steps.length - 1;
+  // 这个高度上拉开多少（a），前面、后面的 core 多宽，在相邻两个高度之间渐变（da、dfront、dback 是它们随高度变得多快）
+  let k = 0;
+  while (k < last && y >= steps[k + 1][0]) k++;
+  let a = steps[k][1];
+  let front = steps[k][2];
+  let back = steps[k][3];
+  let da = 0;
+  let dFront = 0;
+  let dBack = 0;
+  if (k < last && y > steps[k][0]) {
+    const [y0, a0, f0, b0] = steps[k];
+    const [y1, a1, f1, b1] = steps[k + 1];
+    const v = (y - y0) / (y1 - y0);
+    const u = v * v * (3 - 2 * v);
+    const du = (6 * v * (1 - v)) / (y1 - y0);
+    a = a0 + (a1 - a0) * u;
+    front = f0 + (f1 - f0) * u;
+    back = b0 + (b1 - b0) * u;
+    da = (a1 - a0) * du;
+    dFront = (f1 - f0) * du;
+    dBack = (b1 - b0) * du;
+  }
+  // 前后：从后面的 core 渐渐换成前面的（dz 是它随前后变得多快）
+  const [zBack, zFront] = twin.depth;
+  const q = (z - zBack) / (zFront - zBack);
+  const g = q <= 0 ? 0 : q >= 1 ? 1 : q * q * (3 - 2 * q);
+  const dg = q <= 0 || q >= 1 ? 0 : (6 * q * (1 - q)) / (zFront - zBack);
+  const core = back + (front - back) * g;
+  const dcy = dBack + (dFront - dBack) * g;
+  const dcz = (front - back) * dg;
+  // 原来离中线 s 的点现在在 s + a·smoothstep(s / core)，反过来求 s 用牛顿法
+  if (far >= core + a) {
+    spread3[0] = far - a;
+    spread3[1] = -da;
+    spread3[2] = 0;
+    return;
+  }
+  let s = (far * core) / (core + a);
+  for (let step = 0; step < 4; step++) {
+    const t = s / core;
+    s -= (s + a * t * t * (3 - 2 * t) - far) / (1 + (a * 6 * t * (1 - t)) / core);
+    if (s < 0) s = 0;
+    else if (s > core) s = core;
+  }
+  const t = s / core;
+  const h = t * t * (3 - 2 * t);
+  const hs = 6 * t * (1 - t);
+  const per = 1 + (a * hs) / core;
+  const bySpread = (a * hs * s) / (core * core);
+  spread3[0] = s;
+  spread3[1] = -(da * h - bySpread * dcy) / per;
+  spread3[2] = (bySpread * dcz) / per;
 }
 
 /** 在一块格子里求距离的函数，以及它在自己坐标里占的范围（outer：连四周的留白，整块格子占的范围） */
@@ -153,7 +359,7 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
   const fork = use.fork ? forkWarp(use.fork) : null;
   /** 分开之前的那一点、和旁边分界在外面多远（见 sdf/fork.ts），求值时用 */
   const forked = new Float64Array(4);
-  const fn: Dist = (qx, qy, qz) => {
+  const one: Dist = (qx, qy, qz) => {
     let px = qx;
     let py = qy;
     let pz = qz;
@@ -161,7 +367,9 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
     let lip = 1;
     if (fork) {
       lip = fork.map(qx, qy, qz, forked);
-      [px, py, pz] = forked;
+      px = forked[0];
+      py = forked[1];
+      pz = forked[2];
     }
     let lx = px * flip;
     let lz = pz;
@@ -380,6 +588,10 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
     }
     return clip > d ? clip : d;
   };
+  const twin = use.twin;
+  const shaped: Dist = twin ? twinned(one, twin) : one;
+  const fitted = use.rootFit ? fitRoot(shaped, use.rootFit) : undefined;
+  const fn: Dist = fitted?.fn ?? shaped;
 
   /** 一个盒子（这块格子自己的坐标）加宽、加长、加厚、弯过以后占多大，镜像过来 */
   const placed = (lo: V3, hi: V3): { min: V3; max: V3 } => {
@@ -445,7 +657,20 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
     }
     // 分开之前那一截退回胯上：照退回去的样子把几个角也算进来
     fork?.grow(lo, hi);
-    return use.mirror ? { min: [-hi[0], lo[1], lo[2]], max: [-lo[0], hi[1], hi[2]] } : { min: lo, max: hi };
+    const box: { min: V3; max: V3 } = use.mirror ? { min: [-hi[0], lo[1], lo[2]], max: [-lo[0], hi[1], hi[2]] } : { min: lo, max: hi };
+    if (twin) {
+      // 左右各放了一份（并成一整块的那一段拉开得不比 d 多）
+      const most = Math.max(twin.d, ...twin.steps.map((step) => step[1]));
+      box.min[0] -= most;
+      box.max[0] += most;
+    }
+    if (use.rootFit?.drape || use.rootFit?.blend) {
+      const shift=use.rootFit.drape ?? [0,0,0];
+      const pad=(use.rootFit.blend ?? 0)*2;
+      for(let k=0;k<3;k++) { box.min[k]+=Math.min(0,shift[k])-pad; box.max[k]+=Math.max(0,shift[k])+pad; }
+    }
+    if(fitted?.bounds) for(let k=0;k<3;k++) { box.min[k]=Math.min(box.min[k],fitted.bounds.min[k]); box.max[k]=Math.max(box.max[k],fitted.bounds.max[k]); }
+    return box;
   };
   // 占的范围按表面实际占的地方算，不算四周的留白（再留一个格子）：留白里只有离表面更远的值，
   // 那么远的地方这块格子本来就影响不到融合出来的表面（见 surfaceNets.ts 里 reach），包进来只是让附近的小块白算它。

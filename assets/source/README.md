@@ -118,3 +118,54 @@ CC0 是 pixiv 在上面各自的说明页里声明的。
 
 **Kotori 的脚也用在二次元素体上**（2026-10-31）：素体本来的脚是给穿鞋做的、没有脚趾，`node tools/run.mjs tools/build-foot.ts` 从 `kotori/Model/Kotori.vrm` 的皮肤上取下左脚（脚踝往上 3.5 厘米以下，连着它自带的小腿、脚、脚趾权重），放大 1.08 倍摆到素体的脚踝上，写成 `src/anime/footMesh.json`。所以二次元素体导出的模型里也有 Kotori 的东西：工坊在这种 GLB 里同样写上署名（「脚部网格 © Fox Jump（Kotori），CC BY」），状态栏也提醒。
 
+## djp/（大胸的胸型，2026-10-31）
+
+Death Joe Productions 的「CC0 Character Base Mesh Pack」（<https://deathjoeproductions.gumroad.com/l/CC0pack01>），**CC0**（页面上写着「fully CC0 Licence」，链到 <http://creativecommons.org/publicdomain/zero/1.0/>）：放弃著作权，可以随意使用、修改、再分发，不要求署名。
+Gumroad 上「自定价格、可以填 0」，要填邮箱才给下载链接：是他自己下的（`G:\下载`），拷到这里。
+
+| 文件 | 是什么 | 校验（SHA-256 开头） |
+| --- | --- | --- |
+| `DJP CC0 Free Base Mesh 00.obj` | 大胸的二次元素体（「busty anime body base mesh」），2.2 万个顶点 | `dc80f4cd4a57` |
+| `DJP CC0 Free Base Mesh 01.obj` | 同一个身子更密的一份（5.7 万个顶点，体型丰满一点）：**工坊用的是这个** | `b4eb1190c8cc` |
+| `DJP Anime Base Sculpt.obj` | 胸小的那个素体（预览图第一张） | `94406cf775c5` |
+| `DJP Anime Sculpt BaseMesh 01.blend` | 同上，Blender 文件 | `6c542db0db8e` |
+
+胸型更新（2026-11-01）：默认胸使用 `DJP Anime Base Sculpt.obj`，大胸使用 `DJP CC0 Free Base Mesh 01.obj`，两者保留原素材可见表面和胸尖，仅调整隐藏胸根适配躯干。`00` 作为丰满版本的对照；`.blend` 为 Sculpt 的 Blender 版本，原件不修改。
+
+```powershell
+node tools/run.mjs tools/build-bust.ts          # bustLarge
+node tools/run.mjs tools/build-bust.ts --small  # bustReference
+```
+
+两个格子与原 bust 同尺寸，可逐格混合。重复构建原位替换，不丢弃后面追加的形状。重跑 `tools/build-anime-body.mjs` 后，两条命令都要再跑。大胸照胸根等比缩到 0.85 倍，默认胸保留原始尺寸，再平移适配现有身体。详见 [胸型对照](../../docs/bust-reference.md)。
+
+## blender-human-base-meshes/（胸口、肚子、后背的起伏，2026-11-01）
+
+Blender Studio 的「Human Base Meshes」资源包 v1.4.1，**CC0**（下载页上写着「49 MB – CC0」）：<https://www.blender.org/download/demo-files/>，
+文件实际在 <https://mirror.blender.org/demo/asset-bundles/human-base-meshes/human-base-meshes-bundle-v1.4.1.zip>。2026-11-01 他点名同意后下载。
+
+| 文件 | 是什么 | 校验（SHA-256 开头） |
+| --- | --- | --- |
+| `human-base-meshes-bundle-v1.4.1.zip` | 原包，50.6 MB，解压出 `human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend` | `811f43accbb3` |
+| `female_realistic.obj` | 写实女性全身（`GEO-body_female_realistic`，多级细分取第二级） | 由下面的命令导出 |
+| `female_stylized.obj` | 风格化女性全身（`GEO-body_female_stylized`），比例偏儿童，工坊没用 | 同上 |
+
+```powershell
+& "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" --background --disable-autoexec "assets/source/blender-human-base-meshes/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend" --python tools/export-human-base-meshes.py
+node tools/run.mjs tools/build-torso.ts
+```
+
+`build-torso.ts` 用写实女性和 `djp/` 里的两个素体，只取躯干表面的起伏叠到二次元素体的躯干格子上（`body.bin` 里的 `torso`、`torsoFlat`），素材本身不进工坊。
+
+## sketchfab-woman/（躯干起伏的第四个参考，2026-11-01）
+
+Fly_jkey 的「Woman」：<https://sketchfab.com/3d-models/woman-b303b7606140480f8335cda121b9607c>，**CC BY 4.0**（压缩包里的 `license.txt`：「Author must be credited. Commercial use is allowed.」）。
+Sketchfab 要登录才能下：是他自己下的（`G:\下载\woman.glb`、`woman.zip`），拷到这里。风格化的曲线身材（大胸、大胯），T 字姿势，1.2 万顶点，单位是厘米。
+
+| 文件 | 是什么 | 校验（SHA-256 开头） |
+| --- | --- | --- |
+| `woman.glb` | 原件 | `1f6412c4b5b3` |
+| `woman.zip` | 同一个模型的 glTF 版（`gltf/` 是解压出来的，带 `license.txt`） | `c94d710fee5e` |
+| `woman.obj` | 用 Blender 从 glb 转的（导入 glTF、导出 OBJ，Y 朝上） | — |
+
+只用来给 `tools/build-torso.ts` 取躯干表面的起伏（和另外三个平均），模型本身不进工坊。导出时署名写进文件：`src/anime/body.ts` 的 `TORSO_CREDIT`。

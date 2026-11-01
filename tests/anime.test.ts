@@ -218,15 +218,18 @@ describe('二次元少女素体', () => {
     expect(worst).toBeLessThan(0.045);
   });
 
-  it('胸部大小：往小调躯干逐渐变平，往大调才是把胸那一块放大', () => {
+  it('胸部大小：原素材胸型接到平胸躯干，大小随滑块变化', () => {
     const withBust = (bust: number) => {
       const spec = anime();
       return { ...spec, shape: { ...spec.shape, bust } };
     };
     const torsoShape = (bust: number) => part(buildFigure(withBust(bust)), 'Torso').prims[0];
-    expect(torsoShape(1)).not.toHaveProperty('morph');
-    expect(torsoShape(1.4)).not.toHaveProperty('morph');
-    expect(torsoShape(0.65)).toMatchObject({ morph: [animeGrid('torsoFlat'), 0.5] });
+    expect(torsoShape(1)).toMatchObject({ morph: [animeGrid('torsoFlat'), 1] });
+    expect(torsoShape(1.1)).toMatchObject({ morph: [animeGrid('torsoFlat'), 1] });
+    // 大胸的胸型是照平胸的躯干取的：换的那一段躯干跟着变平，换足时全平
+    expect(torsoShape(1.35)).toMatchObject({ morph: [animeGrid('torsoFlat'), 1] });
+    expect(torsoShape(1.8)).toMatchObject({ morph: [animeGrid('torsoFlat'), 1] });
+    expect(torsoShape(0.65)).toMatchObject({ morph: [animeGrid('torsoFlat'), 1] });
     expect(torsoShape(0.3)).toMatchObject({ morph: [animeGrid('torsoFlat'), 1] });
     // 胸尖那一带最靠前的地方，随滑块一路往前
     const front = (bust: number) => {
@@ -235,14 +238,15 @@ describe('二次元少女素体', () => {
       for (let i = 0; i < mesh.positions.length; i += 3) {
         const x = Math.abs(mesh.positions[i] * figure.scale);
         const y = mesh.positions[i + 1] * figure.scale;
-        if (x > 0.03 && x < 0.09 && y > 1.17 && y < 1.23) z = Math.max(z, mesh.positions[i + 2] * figure.scale);
+        // 只看胸尖正对的那一小块：往小调时胸整个往胸口里沉，剩下的小包在胸尖那一带（再往下、往里就量到平胸躯干靠下那一块，比小包还靠前）
+        if (x > 0.06 && x < 0.08 && y > 1.18 && y < 1.2) z = Math.max(z, mesh.positions[i + 2] * figure.scale);
       }
       return z;
     };
     const depths = [0.3, 0.65, 1, 1.3, 1.6].map(front);
-    for (let i = 1; i < depths.length; i++) expect(depths[i], `第 ${i} 档`).toBeGreaterThan(depths[i - 1] + 0.004);
-    // 调到最小是平胸：比原样至少收回去 3 厘米
-    expect(depths[2] - depths[0]).toBeGreaterThan(0.03);
+    for (let i = 1; i < depths.length; i++) expect(depths[i], `第 ${i} 档`).toBeGreaterThan(depths[i - 1] + 0.001);
+    // 原素材默认是小胸：最小档回到平胸，默认档仍有至少 8 毫米的隆起
+    expect(depths[2] - depths[0]).toBeGreaterThan(0.008);
   });
 
   it('加了兽耳、精灵耳，头上自带的人耳就去掉', () => {

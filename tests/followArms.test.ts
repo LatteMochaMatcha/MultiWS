@@ -150,7 +150,8 @@ describe('手臂让开身体', () => {
   });
 
   it('胸很大时「抱着胳膊」：胳膊挤进胸里的，让到胸前', () => {
-    const kit = kitOf(make({}, { shape: { ...defaultSpec().shape, bust: 1.8 } }));
+    // 胸调到最大：大胸的胸型是照现成素体的胸取的，比以前那种拼的窄，1.8 时胳膊只挤进去几毫米
+    const kit = kitOf(make({}, { shape: { ...defaultSpec().shape, bust: 2.2 } }));
     const arms = armsOf(kit.solver);
     const before = preset('抱着胳膊');
     expect(deepest(kit, before, arms)).toBeGreaterThan(0.01);

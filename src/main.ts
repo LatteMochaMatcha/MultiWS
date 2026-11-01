@@ -1,6 +1,6 @@
 import './style.css';
 import { type Box3, type Raycaster, Matrix4 } from 'three';
-import { animeReady, loadAnimeBody } from './anime/body';
+import { TORSO_CREDIT, animeGrid, animeReady, loadAnimeBody } from './anime/body';
 import { FOOT_CREDIT } from './anime/foot';
 import { type CharacterBuild, assembleCharacter } from './character/assemble';
 import { characterGlb, characterShape, characterSkeleton, poseBuild } from './character/export';
@@ -2719,8 +2719,15 @@ async function exportFused(kind: ExportKind, target: Figure, pose: ExportPose | 
   return { blob: glbBlob(glb), what: `${what}，${skeleton.bones.length} 根骨骼` };
 }
 
-/** 二次元素体接的是 Kotori 的脚（CC BY）：用到了就返回要带的署名 */
-const footCredit = (target: Figure) => (target.parts.some((p) => p.grafts?.some((g) => g.mesh === 'foot')) ? FOOT_CREDIT : undefined);
+/**
+ * 用到了要求署名的素材就返回要带的署名：二次元素体接的是 Kotori 的脚（CC BY），躯干的起伏参考了 Fly_jkey 的「Woman」（CC BY，见 tools/build-torso.ts）
+ */
+const footCredit = (target: Figure) => {
+  const list: string[] = [];
+  if (target.parts.some((p) => p.grafts?.some((g) => g.mesh === 'foot'))) list.push(FOOT_CREDIT);
+  if (target.parts.some((p) => p.prims.some((q) => q.kind === 'grid' && q.grid === animeGrid('torso')))) list.push(TORSO_CREDIT);
+  return list.length ? list.join('；') : undefined;
+};
 
 /** 分部件模式：每个部件一个物体 */
 async function exportParts(kind: ExportKind, target: Figure, pose: ExportPose | null): Promise<{ blob: Blob; what: string }> {

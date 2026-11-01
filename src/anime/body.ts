@@ -7,14 +7,14 @@
  */
 import type { V3 } from '../geometry/vec';
 import { fetchFile } from '../io/fetchFile';
-import { type Grid, getGrid, gridDist, hasGrid, registerGrid } from '../sdf/grids';
+import { hasGrid, registerGrid } from '../sdf/grids';
 import meta from './bodyMeta.json';
 
 /**
  * 素体拆成的几块。torsoFlat 是平胸的躯干（格子和 torso 一模一样，两份之间可以逐格混合），
- * headBare 是去掉人耳的头（加了兽耳、精灵耳时用）。
+ * headBare 是去掉人耳的头；bustReference 是 DJP Sculpt 的默认胸，bustLarge 是 DJP 01 的大胸（见 BUST_LARGE）。
  */
-export type AnimePiece = 'torso' | 'torsoFlat' | 'head' | 'headBare' | 'neck' | 'bust' | 'arm' | 'leg';
+export type AnimePiece = 'torso' | 'torsoFlat' | 'head' | 'headBare' | 'neck' | 'bust' | 'bustLarge' | 'bustReference' | 'arm' | 'leg';
 
 interface PieceMeta {
   /** 这一块自己的原点（关节）在模型里的位置 */
@@ -78,91 +78,18 @@ export function installAnimeBody(buffer: ArrayBuffer) {
       bounds: { min: m.bounds.min as V3, max: m.bounds.max as V3 },
     });
   }
-  registerGrid(BUST_LARGE, largeBust(getGrid(animeGrid('bust')), animeCaps('bust')[0]));
 }
 
 /**
- * 大胸的胸型（见 largeBust）：格子和 bust 一模一样，两份之间可以逐格混合（GridShape.morph）。
+ * 大胸的胸型：格子和 bust 一模一样，两份之间可以逐格混合（GridShape.morph）。
  * 胸往大调时渐渐换成它：bust 是从素体上切下来的一块小胸，照原样放大是一个放大的尖圆锥，前面平、上下一样厚，
- * 背面那块薄盖子还从锁骨上、腋下支出来，看着是个空壳
+ * 背面那块薄盖子还从锁骨上、腋下支出来，看着是个空壳。
+ * 它是 tools/build-bust.ts 从 Death Joe Productions 的大胸二次元素体（CC0）上取下来的左胸：各自饱满、往下坠一点、胸下有褶，
+ * 背面实心；胸调到 2.2 倍时正好是那个素体的胸原样大小
  */
-export const BUST_LARGE = 'anime/bustLarge';
-
-/**
- * 大胸的样子，按 bust 背面盖子的大小（R）和朝向摆（都是工坊自己拼的形状，不来自素材）：
- * - 下半截一个圆球，比盖子正中低一点、往外一点：饱满、往下坠，正面看是圆的，侧面看下沿是一道圆弧（乳房下缘的褶）；
- * - 上半截一个扁的，从盖子上沿顺着胸口斜下来接到圆球上（上坡是平缓的，不是圆锥）；
- * - 背面垫一个扁椭球埋在胸口里（实心，放大以后背面也是圆的，不会露出空壳）。
- * 三块圆滑地融在一起。原样大小时和 bust 差不多大（往前凸出差不多一样多）
- */
-const LARGE = {
-  ball: { center: [0.07, -0.22, 0.22], radii: [0.7, 0.64, 0.46] },
-  slope: { center: [0.02, 0.36, 0.05], radii: [0.56, 0.5, 0.26] },
-  pad: { center: [0, 0, -0.25], radii: [0.76, 0.76, 0.5] },
-  soft: 0.27,
-} as const;
-
-function largeBust(bust: Grid, cap: { center: V3; radius: number }): Grid {
-  const skin = gridDist(bust).fn;
-  // 盖子中心那里的法线（朝身体里）；往前 f、往上 u、往外 l
-  const e = bust.cell / 2;
-  const [cx, cy, cz] = cap.center;
-  const n = unit([
-    skin(cx + e, cy, cz) - skin(cx - e, cy, cz),
-    skin(cx, cy + e, cz) - skin(cx, cy - e, cz),
-    skin(cx, cy, cz + e) - skin(cx, cy, cz - e),
-  ]);
-  const f: V3 = [-n[0], -n[1], -n[2]];
-  const u = unit([-f[1] * f[0], 1 - f[1] * f[1], -f[1] * f[2]]);
-  const l = cross(u, f);
-  const R = cap.radius;
-  /** 一块椭球：中心、三个半径都照 l、u、f 和 R 写 */
-  const blobs = [LARGE.ball, LARGE.slope, LARGE.pad].map(({ center, radii }) => ({
-    at: [0, 1, 2].map((k) => cap.center[k] + (l[k] * center[0] + u[k] * center[1] + f[k] * center[2]) * R) as V3,
-    r: radii.map((v) => v * R) as V3,
-  }));
-  const k = LARGE.soft * R;
-  const [nx, ny, nz] = bust.dims;
-  const unitQ = bust.band / 32767;
-  const data = new Int16Array(bust.data.length);
-  const min: V3 = [Infinity, Infinity, Infinity];
-  const max: V3 = [-Infinity, -Infinity, -Infinity];
-  for (let kz = 0; kz < nz; kz++) {
-    for (let ky = 0; ky < ny; ky++) {
-      for (let kx = 0; kx < nx; kx++) {
-        const p: V3 = [bust.min[0] + kx * bust.cell, bust.min[1] + ky * bust.cell, bust.min[2] + kz * bust.cell];
-        let d = Infinity;
-        for (const { at, r } of blobs) {
-          const q: V3 = [p[0] - at[0], p[1] - at[1], p[2] - at[2]];
-          // 椭球的距离（近似：k0·(k0 − 1)/k1）
-          const a = dot(q, l) / r[0];
-          const b = dot(q, u) / r[1];
-          const c = dot(q, f) / r[2];
-          const k0 = Math.hypot(a, b, c);
-          const k1 = Math.hypot(a / r[0], b / r[1], c / r[2]);
-          const one = k1 > 1e-9 ? (k0 * (k0 - 1)) / k1 : -Math.min(...r);
-          const h = Math.max(k - Math.abs(d - one), 0) / k;
-          d = Math.min(d, one) - (h * h * k) / 4;
-        }
-        data[kx + nx * (ky + ny * kz)] = Math.max(-32767, Math.min(32767, Math.round(d / unitQ)));
-        if (d < 0) {
-          for (let i = 0; i < 3; i++) {
-            min[i] = Math.min(min[i], p[i] - bust.cell);
-            max[i] = Math.max(max[i], p[i] + bust.cell);
-          }
-        }
-      }
-    }
-  }
-  return { ...bust, data, bounds: { min, max } };
-}
-
-const dot = (p: V3, q: V3) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
-const cross = (p: V3, q: V3): V3 => [p[1] * q[2] - p[2] * q[1], p[2] * q[0] - p[0] * q[2], p[0] * q[1] - p[1] * q[0]];
-const unit = (p: V3): V3 => {
-  const l = Math.hypot(p[0], p[1], p[2]) || 1;
-  return [p[0] / l, p[1] / l, p[2] / l];
-};
+export const BUST_LARGE = animeGrid('bustLarge');
+/** 躯干上的起伏（tools/build-torso.ts）参考了的素材里要求署名的那个（CC BY 4.0）：导出时和脚的署名一起写进去 */
+export const TORSO_CREDIT = '躯干起伏参考了「Woman」© Fly_jkey（sketchfab.com/3d-models/woman-b303b7606140480f8335cda121b9607c），CC BY 4.0';
 
 let loading: Promise<ArrayBuffer> | null = null;
 

@@ -21,6 +21,10 @@ const B3 = B * B * B;
 /** 一个格子 12 条棱的两个端点（角的编号：第 0 位是 x，第 1 位是 y，第 2 位是 z） */
 const EDGE_A = [0, 2, 4, 6, 0, 1, 4, 5, 0, 1, 2, 3];
 const EDGE_B = [1, 3, 5, 7, 2, 3, 6, 7, 4, 5, 6, 7];
+/** 每种内外分布的变号棱，保持原来 0..11 的累计顺序。 */
+const CROSSINGS = Array.from({ length: 256 }, (_, mask) =>
+  Uint8Array.from(EDGE_A.map((_, e) => e).filter((e) => ((mask >> EDGE_A[e]) & 1) !== ((mask >> EDGE_B[e]) & 1))),
+);
 /** 六个面，各按绕一圈的顺序列出四个角 */
 const FACES = [
   [0, 1, 3, 2],
@@ -354,6 +358,7 @@ export function meshField(field: CompiledField, voxel: number, memo?: BlockMemo)
   // 格点、小块的排法一样，才抄得了 memo 里的
   const reuse = memo?.saved?.key === key ? memo.saved : undefined;
   const changed = reuse ? changedBlocks(field, ox, oy, oz, bx, by, bz, h * B) : undefined;
+  let scratch = new Float32Array(L3);
   for (let b = 0; b < blockCount; b++) {
     if (!lists[b]) continue;
     if (reuse?.done[b] && !changed![b]) {
@@ -362,9 +367,12 @@ export function meshField(field: CompiledField, voxel: number, memo?: BlockMemo)
       continue;
     }
     evaluated++;
-    const v = evaluate(b);
+    insideCount = evaluateBlock(field, plan, b, scratch);
     if (insideCount === L3) solid[b] = 1;
-    else if (insideCount > 0) values[b] = v;
+    else if (insideCount > 0) {
+      values[b] = scratch;
+      scratch = new Float32Array(L3);
+    }
   }
   // 下面补实时会改这些值：先存一份原样的（每个附近有基本体的小块这时都有数了）
   if (memo && !reuse) {
@@ -458,6 +466,7 @@ export function meshField(field: CompiledField, voxel: number, memo?: BlockMemo)
   /* ---- 3. 变号的格子各放一个顶点：取各条变号棱上零点的平均位置 ---- */
   const cellVertex: (Int32Array | undefined)[] = new Array(blockCount);
   const pos: number[] = [];
+  const activeCells: (number[] | undefined)[] = new Array(blockCount);
   const corner = new Float64Array(8);
   let vertexCount = 0;
   for (let b = 0; b < blockCount; b++) {
@@ -467,6 +476,7 @@ export function meshField(field: CompiledField, voxel: number, memo?: BlockMemo)
     const bj = Math.floor(b / bx) % by;
     const bk = Math.floor(b / (bx * by));
     const ids = new Int32Array(B3).fill(-1);
+    const active: number[] = [];
     for (let k = 0; k < B; k++) {
       for (let j = 0; j < B; j++) {
         for (let i = 0; i < B; i++) {
@@ -479,19 +489,21 @@ export function meshField(field: CompiledField, voxel: number, memo?: BlockMemo)
           corner[5] = v[c + L2 + 1];
           corner[6] = v[c + L2 + L];
           corner[7] = v[c + L2 + L + 1];
-          let neg = 0;
-          for (let q = 0; q < 8; q++) if (corner[q] < 0) neg++;
-          if (neg === 0 || neg === 8) continue;
+          let mask = 0;
+          for (let q = 0; q < 8; q++) if (corner[q] < 0) mask |= 1 << q;
+          const edges = CROSSINGS[mask];
+          if (!edges.length) continue;
+          active.push(i + B * (j + B * k));
           let sx = 0;
           let sy = 0;
           let sz = 0;
           let crossings = 0;
-          for (let e = 0; e < 12; e++) {
+          for (let edge = 0; edge < edges.length; edge++) {
+            const e = edges[edge];
             const a = EDGE_A[e];
             const bb = EDGE_B[e];
             const va = corner[a];
             const vb = corner[bb];
-            if (va < 0 === vb < 0) continue;
             const t = va / (va - vb);
             const ax = a & 1;
             const ay = (a >> 1) & 1;
@@ -511,6 +523,7 @@ export function meshField(field: CompiledField, voxel: number, memo?: BlockMemo)
       }
     }
     cellVertex[b] = ids;
+    activeCells[b] = active;
   }
 
   /* ---- 4. 每条变号的棱，把围着它的四个格子的顶点连成一个四边形 ---- */
@@ -533,27 +546,25 @@ export function meshField(field: CompiledField, voxel: number, memo?: BlockMemo)
     const gi0 = (b % bx) * B;
     const gj0 = (Math.floor(b / bx) % by) * B;
     const gk0 = Math.floor(b / (bx * by)) * B;
-    for (let k = 0; k < B; k++) {
-      for (let j = 0; j < B; j++) {
-        for (let i = 0; i < B; i++) {
-          const self = ids[i + B * (j + B * k)];
-          if (self < 0) continue;
-          const c = i + L * (j + L * k);
-          const inside = v[c] < 0;
-          const gi = gi0 + i;
-          const gj = gj0 + j;
-          const gk = gk0 + k;
-          // 从这个格子的最小角出发的三条棱。棱的起点在里面时，面朝棱的正方向
-          if (v[c + 1] < 0 !== inside) {
-            emit(self, vertexAt(gi, gj - 1, gk), vertexAt(gi, gj - 1, gk - 1), vertexAt(gi, gj, gk - 1), !inside);
-          }
-          if (v[c + L] < 0 !== inside) {
-            emit(self, vertexAt(gi, gj, gk - 1), vertexAt(gi - 1, gj, gk - 1), vertexAt(gi - 1, gj, gk), !inside);
-          }
-          if (v[c + L2] < 0 !== inside) {
-            emit(self, vertexAt(gi - 1, gj, gk), vertexAt(gi - 1, gj - 1, gk), vertexAt(gi, gj - 1, gk), !inside);
-          }
-        }
+    for (const cell of activeCells[b]!) {
+      const i = cell & 7;
+      const j = (cell >> 3) & 7;
+      const k = cell >> 6;
+      const self = ids[cell];
+      const c = i + L * (j + L * k);
+      const inside = v[c] < 0;
+      const gi = gi0 + i;
+      const gj = gj0 + j;
+      const gk = gk0 + k;
+      // 从这个格子的最小角出发的三条棱。棱的起点在里面时，面朝棱的正方向
+      if (v[c + 1] < 0 !== inside) {
+        emit(self, vertexAt(gi, gj - 1, gk), vertexAt(gi, gj - 1, gk - 1), vertexAt(gi, gj, gk - 1), !inside);
+      }
+      if (v[c + L] < 0 !== inside) {
+        emit(self, vertexAt(gi, gj, gk - 1), vertexAt(gi - 1, gj, gk - 1), vertexAt(gi - 1, gj, gk), !inside);
+      }
+      if (v[c + L2] < 0 !== inside) {
+        emit(self, vertexAt(gi - 1, gj, gk), vertexAt(gi - 1, gj - 1, gk), vertexAt(gi, gj - 1, gk), !inside);
       }
     }
   }
@@ -656,9 +667,19 @@ export function meshField(field: CompiledField, voxel: number, memo?: BlockMemo)
     const bdy = dy - by2;
     const bdz = dz - bz2;
     if (acx * acx + acy * acy + acz * acz <= bdx * bdx + bdy * bdy + bdz * bdz) {
-      triangles.set([a, b, c, a, c, d], w * 6);
+      triangles[w * 6] = a;
+      triangles[w * 6 + 1] = b;
+      triangles[w * 6 + 2] = c;
+      triangles[w * 6 + 3] = a;
+      triangles[w * 6 + 4] = c;
+      triangles[w * 6 + 5] = d;
     } else {
-      triangles.set([a, b, d, b, c, d], w * 6);
+      triangles[w * 6] = a;
+      triangles[w * 6 + 1] = b;
+      triangles[w * 6 + 2] = d;
+      triangles[w * 6 + 3] = b;
+      triangles[w * 6 + 4] = c;
+      triangles[w * 6 + 5] = d;
     }
     // 对角线的叉积就是四边形的面法线（长度正比于面积），累加到四个顶点上
     const nx = acy * bdz - acz * bdy;

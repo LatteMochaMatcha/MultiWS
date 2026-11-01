@@ -144,7 +144,7 @@ export interface Draft {
   box: number[];
   mode?: number;
   k?: number;
-  /** 圆角只在这个范围里管用：中心、完整圆角的半径、减到 0 的半径 */
+  /** 圆角只在这个范围里管用：中心、完整圆角的半径、减到 rest 的半径、出了范围以后的圆角（rest，缺省 0） */
   fade?: number[];
   /**
    * 这个基本体所在的部件（手臂、腿）只在根部和别的类圆滑地融合：中心（关节）、离中心多远以内是完整的圆角、到多远减到 0。
@@ -173,7 +173,7 @@ export interface Draft {
 }
 
 /** 每个基本体的 fade 占几个数 */
-const FADE = 5;
+const FADE = 6;
 /** 每个基本体的斜盒子占几个数（见 CompiledField.obb） */
 export const OBB = 15;
 
@@ -411,11 +411,14 @@ const xfPoint = (xf: WorldXf, p: V3): V3 => add(xf.pos, mul(rotate(xf.quat, p), 
 const IDENTITY: WorldXf = { pos: [0, 0, 0], quat: Q_ID, scale: 1 };
 
 /** 给体块标上它是圆滑加上去的还是挖掉的。origin：部件的原点（关节）在哪，只在根部圆滑的那种要用 */
-function asMass(d: Draft, p: { soft?: number; cut?: boolean; fade?: [number, number] }, scale: number, origin: V3): Draft {
+function asMass(d: Draft, p: { soft?: number; cut?: boolean; fade?: [number, number, number?]; fadeAt?: V3 }, xf: WorldXf): Draft {
+  const scale = xf.scale;
   if (p.cut) return { ...d, mode: M_CUT, k: (p.soft ?? 0) * scale };
   if (p.soft) {
     const soft: Draft = { ...d, mode: M_SOFT, k: p.soft * scale };
-    return p.fade ? { ...soft, fade: [origin[0], origin[1], origin[2], p.fade[0] * scale, p.fade[1] * scale] } : soft;
+    // 范围的中心：部件的原点（关节），或者部件里另给的一点（fadeAt）
+    const origin = p.fadeAt ? xfPoint(xf, p.fadeAt) : xf.pos;
+    return p.fade ? { ...soft, fade: [origin[0], origin[1], origin[2], p.fade[0] * scale, p.fade[1] * scale, (p.fade[2] ?? 0) * scale] } : soft;
   }
   return d;
 }
@@ -428,8 +431,7 @@ function primDrafts(p: Prim, xf: WorldXf, group: number, minR: number, out: Draf
         asMass(
           ellipsoidDraft(group, xfPoint(xf, p.center), mul(p.radii, s), p.quat ? quatMul(xf.quat, p.quat) : xf.quat),
           p,
-          s,
-          xf.pos,
+          xf,
         ),
       );
       break;
@@ -437,7 +439,7 @@ function primDrafts(p: Prim, xf: WorldXf, group: number, minR: number, out: Draf
       // 挖掉的东西不需要按网格精度加粗
       const min = p.cut ? 0 : minR;
       out.push(
-        asMass(coneDraft(group, xfPoint(xf, p.a), xfPoint(xf, p.b), Math.max(p.ra * s, min), Math.max(p.rb * s, min)), p, s, xf.pos),
+        asMass(coneDraft(group, xfPoint(xf, p.a), xfPoint(xf, p.b), Math.max(p.ra * s, min), Math.max(p.rb * s, min)), p, xf),
       );
       break;
     }
@@ -471,7 +473,7 @@ function primDrafts(p: Prim, xf: WorldXf, group: number, minR: number, out: Draf
     case 'grid': {
       // 薄薄的一层壳（头发）至少要有一个多体素那么厚，不然在体素网格上会破洞
       const d = gridDist(getGrid(p.grid), p.shell ? { ...p, shell: Math.max(p.shell, (SHELL_VOXELS * minR) / s) } : p);
-      out.push(asMass(customDraft(group, xf, d.fn, d.min, d.max, d.outer), p, s, xf.pos));
+      out.push(asMass(customDraft(group, xf, d.fn, d.min, d.max, d.outer), p, xf));
       break;
     }
   }
@@ -548,7 +550,7 @@ export function partDrafts(part: Part, xf: WorldXf, group: number, minR: number,
             ...wrapped,
             mode: d.mode,
             k: (d.k ?? 0) * thin * xf.scale,
-            ...(d.fade ? { fade: [xf.pos[0], xf.pos[1], xf.pos[2], d.fade[3] * xf.scale, d.fade[4] * xf.scale] } : {}),
+            ...(d.fade ? { fade: [...xfPoint(xf, mat3Apply(fwd, [d.fade[0], d.fade[1], d.fade[2]])), d.fade[3] * xf.scale, d.fade[4] * xf.scale, d.fade[5] * xf.scale] } : {}),
           },
     );
   }
@@ -813,10 +815,11 @@ function foldPrims(f: CompiledField, list: ArrayLike<number>, n: number, x: numb
         const fz = z - fade[i * FADE + 2];
         const r = Math.sqrt(fx * fx + fy * fy + fz * fz);
         const near = fade[i * FADE + 3];
-        if (r >= far) k = 0;
+        const rest = fade[i * FADE + 5];
+        if (r >= far) k = rest;
         else if (r > near) {
           const t = (far - r) / (far - near);
-          k *= t * t * (3 - 2 * t);
+          k = rest + (k - rest) * t * t * (3 - 2 * t);
         }
       }
       dg = smin(dg, v, k);

@@ -464,6 +464,90 @@
    ],
    "offset": 2692384,
    "length": 444000
+  },
+  "bustLarge": {
+   "origin": [
+    0.053286,
+    1.173524,
+    0.075195
+   ],
+   "min": [
+    -0.076978,
+    -0.080153,
+    -0.055476
+   ],
+   "dims": [
+    43,
+    47,
+    38
+   ],
+   "cell": 0.004,
+   "bounds": {
+    "min": [
+     -0.03298,
+     -0.06415,
+     0.00052
+    ],
+    "max": [
+     0.04302,
+     0.04385,
+     0.08452
+    ]
+   },
+   "caps": [
+    {
+     "center": [
+      0.01051,
+      0.01138,
+      0.00928
+     ],
+     "radius": 0.05972
+    }
+   ],
+   "offset": 3136384,
+   "length": 76798
+  },
+  "bustReference": {
+   "origin": [
+    0.053286,
+    1.173524,
+    0.075195
+   ],
+   "min": [
+    -0.076978,
+    -0.080153,
+    -0.055476
+   ],
+   "dims": [
+    43,
+    47,
+    38
+   ],
+   "cell": 0.004,
+   "bounds": {
+    "min": [
+     -0.05698,
+     -0.07615,
+     -0.01548
+    ],
+    "max": [
+     0.04302,
+     0.05585,
+     0.03652
+    ]
+   },
+   "caps": [
+    {
+     "center": [
+      0.01051,
+      0.01138,
+      0.00928
+     ],
+     "radius": 0.05972
+    }
+   ],
+   "offset": 3213182,
+   "length": 76798
   }
  },
  "joints": {
@@ -877,5 +961,18 @@
    0.03756,
    0.13056
   ]
+ },
+ "bustLargeSource": "Death Joe Productions, DJP CC0 Free Base Mesh 01.obj. CC0. Original visible breast surface; only hidden root adapted.",
+ "bustReferenceSource": "Death Joe Productions, DJP Anime Base Sculpt.obj. CC0. Original visible breast surface; only hidden root adapted.",
+ "torsoDetail": {
+  "references": [
+   "assets/source/djp/DJP Anime Base Sculpt.obj",
+   "assets/source/djp/DJP CC0 Free Base Mesh 01.obj",
+   "assets/source/blender-human-base-meshes/female_realistic.obj",
+   "assets/source/sketchfab-woman/woman.obj"
+  ],
+  "blur": 0.025,
+  "limit": 0.008,
+  "gain": 1
  }
 }

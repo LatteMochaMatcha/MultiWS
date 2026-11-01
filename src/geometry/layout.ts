@@ -623,8 +623,8 @@ function limbLength(figure: Figure, spec: BodySpec): Record<string, PartOverride
   return out;
 }
 
-/** 好几个上半身时胯再宽多少倍 */
-const MULTI_HIPS = 1.1;
+/** 好几个上半身时胯再宽多少倍（各坐一副胯的二次元素体不乘，见 animeLayout.ts 的 paired） */
+export const MULTI_HIPS = 1.1;
 
 /** 只按部件数量、排布和体型自动摆位，不管手动微调 */
 export function layoutFigure(given: BodySpec): Figure {
@@ -1065,6 +1065,11 @@ export interface LowerOptions {
    */
   rowSeat?: boolean;
   /**
+   * 横排两副胯、两份素体并成一个宽躯干时（二次元素体，见 animeLayout.ts 的 TWIN）：两副胯就是躯干那两份自己的胯，
+   * 正中各离中线这么远。不另外垫胯、屁股，腿照原位接在两副胯上
+   */
+  twin?: number;
+  /**
    * 一条人腿（髋关节在局部原点）：side 一侧、第 pair 对，接在 parent 这节骨骼上。
    * side 为 0 是长在中线上的腿，pair 是第几条中线上的腿。
    * native：腿就在原位时（双足站立；人腿人马最前面那一对），这条腿和躯干直接取并集（见 Part.fuseAs）。
@@ -1229,6 +1234,10 @@ export function lowerParts(options: LowerOptions): { parts: Part[]; tailRoot: V3
     const glutesBack = hz - 0.134 * b;
     tailRoot = [options.tailRoot[0], options.tailRoot[1], -(n - 1) * HUMANTAUR_SPAN + Math.min(options.tailRoot[2], glutesBack + 0.025)];
     tailParent = legParent(n - 1);
+  } else if (form === 'abreast' && options.twin) {
+    // 两份素体并成一个宽躯干：腿接在躯干那两份自己的胯上，左边那副先（和下面一样）
+    for (const x of [options.twin, -options.twin]) humanRow(2, hz, 'Hips', 0, x);
+    tailRoot = options.tailRoot;
   } else if (form === 'abreast') {
     // 人腿横排多胯：几副完整的胯（各有自己的屁股、胯下）左右并排，稍微叠着并成一整块；每副胯两条腿（单数时正中那副一条）。
     // 上半身还是一个，坐在正中。每副胯上的两条腿是这副胯自己的左右（套现成的姿势时，每副胯的左腿都照左腿摆）

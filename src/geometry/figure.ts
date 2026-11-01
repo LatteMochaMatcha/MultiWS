@@ -31,13 +31,17 @@ export type Material = 'clay' | 'eye' | 'wing';
  * 「体块」的两个可选属性，只在融合网格里起作用：
  * soft —— 这块东西不是硬接上去，而是以这个半径圆滑地融进同类部件（小腿肚、臀、下巴）；
  * cut  —— 这块东西是挖掉的（眼窝），挖出的边缘同样按 soft 的半径倒圆。分部件模式下不显示。
- * fade —— soft 只在根部管用：离部件原点（关节）from 以内按 soft 的半径融，往外越来越小，到 to 就是硬接。
+ * fade —— soft 只在根部管用：离部件原点（关节）from 以内按 soft 的半径融，往外越来越小，到 to 就是硬接（或者 rest 那么大的圆角）。
+ *         胸用它只在外下侧（往腋下、肋骨那边，fadeAt）圆滑地融进躯干。
  *         聚在同一个肩膀上的几条手臂用它：根部互相融成一片，伸出去以后还是各是各的，不会粘成蹼。
  */
 interface Mass {
   soft?: number;
   cut?: boolean;
-  fade?: [from: number, to: number];
+  /** [from, to, rest]：rest 是出了 to 以后的圆角（缺省 0，硬接） */
+  fade?: [from: number, to: number, rest?: number];
+  /** fade 的范围以部件里的这一点为中心（部件自己的坐标），不给就是部件的原点（关节） */
+  fadeAt?: V3;
 }
 
 /** 椭球 */
@@ -135,6 +139,25 @@ export interface GridShape extends Mass {
   lean?: [out: number, depth: number];
   /** 从胯往上渐渐分开（好几个上半身），见 sdf/grids.ts 的 GridUse.fork */
   fork?: Fork;
+  /** 左右各放一份、腰那一段并成一整块（两个人并成一个宽躯干），见 sdf/grids.ts 的 GridUse.twin */
+  twin?: Twin;
+  /** 胸根贴合实际胸壁；后方修整封口，前方体积可按 drape 悬垂（部件自己的坐标）。 */
+  rootFit?: {
+    body: GridShape;
+    frame: NonNullable<Fork['frame']>;
+    front: number;
+    back: number;
+    vertical: [full: number, free: number];
+    inset: number;
+    /** 只在接触胸壁的一圈补出肉质圆角，单位为胸部局部坐标。 */
+    blend?: number;
+    /** 悬垂体积的位移（胸部局部坐标），后缘锚定、向前逐渐生效。 */
+    drape?: V3;
+    /** 胸根向悬垂体积过渡的前缘。 */
+    reach?: number;
+    /** 胸壁附着中心（胸部局部坐标）。 */
+    anchor?: V3;
+  };
   /**
    * 这块格子存的是到一层面片的距离（头发），没有里外：离面片 shell 以内的地方算实心。
    * 融合网格比较粗的时候会自动加厚，免得薄薄的一层在体素网格上破洞
@@ -144,6 +167,24 @@ export interface GridShape extends Mass {
 
 /** 加宽、收窄的一段：见 GridShape.widenX */
 export type WidenBand = [amount: number, from: number, to: number, core: number];
+
+/** 两个人并成一个宽躯干：见 sdf/grids.ts 的 GridUse.twin */
+export interface Twin {
+  /** 两份各离中线多远 */
+  d: number;
+  /**
+   * 并成一整块的那一段，从下往上几个高度上各往两边拉开多少、离中线多远以内是被拉开的（再往外的整个挪；前面、后面各一个），之间渐变；
+   * 最下面那个以下、最上面那个以上照它们
+   */
+  steps: [y: number, amount: number, front: number, back: number][];
+  /** 前后在 depth 这两个 z 之间从后面的 core 渐渐换成前面的 */
+  depth: [back: number, front: number];
+  /**
+   * 从下往上四个高度：bottom 以下两份各是各的，到 full 并成一整块，到 fullTo 还是一整块，到 top 以上又各是各的。
+   * 不给就一直各是各的、不并：两个上半身各坐一副胯时的胯（见 animeLayout.ts 的 paired；上半身由 torsos.ts 各接一份）
+   */
+  levels?: [bottom: number, full: number, fullTo: number, top: number];
+}
 
 /** 离身体中线的距离按比例拉宽、压窄：见 sdf/grids.ts 的 GridUse.spreadX */
 export interface SpreadX {
@@ -158,6 +199,8 @@ export interface Fork {
   pivot: V3;
   quat: Quat;
   shift: V3;
+  /** 上半身的完整缩放矩阵；在分叉区逐渐加上，腰根仍留在未缩放的胯上。 */
+  reshape?: Mat3;
   from: number;
   to: number;
   /**
@@ -166,6 +209,11 @@ export interface Fork {
    */
   shiftFrom?: number;
   shiftTo?: number;
+  /**
+   * 上半身连分开之前的那一截整个挪到哪（各坐一副胯时挪到自己那副胯上，见 torsos.ts 的 seat）：部件的摆放（pos）里带着它，
+   * 求距离时不用管——退回去的那一截也一起挪过去了。照摆放反算挪了多少（refork）时先减掉它
+   */
+  offset?: V3;
   /**
    * 和旁边的上半身在哪分界：每一项是旁边那一个怎么转、怎么挪（同一个 pivot、from、to），dir 是它在这一个的哪一侧（+X / -X）。
    * 各留自己那一半（分界是两条中线正中间）：三个上半身时中间那个不动、两边的挪开，叠在一起的地方两张皮来回穿插，肚子上一道道褶子

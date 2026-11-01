@@ -14,11 +14,12 @@
  * 纯函数，不依赖浏览器。
  */
 import { castRay, compileField } from '../sdf/field';
+import { animeCaps } from '../anime/body';
 import { getGrid } from '../sdf/grids';
-import { type BoneHint, type Figure, type Fork, type Graft, type GridShape, type Part, type Prim, type WidenBand, nthName, shapeInverse, shapeMatrix } from './figure';
+import { type BoneHint, type Figure, type Fork, type Graft, type GridShape, type Part, type Prim, type WidenBand, nthName, shapeInverse, shapeMatrix, worldTransforms } from './figure';
 import { HEAD_HALF_WIDTH } from './head';
 import { ringAt } from './torso';
-import { type Quat, type V3, Q_ID, add, len, mat3Apply, norm, quatBetween, quatConj, quatEuler, quatMul, rotate, sub } from './vec';
+import { type Mat3, type Quat, type V3, Q_ID, add, len, mat3Apply, mat3Mul, norm, quatBetween, quatConj, quatEuler, quatMat3, quatMul, rotate, sub } from './vec';
 
 /** 最多几个上半身 */
 export const MAX_TORSOS = 3;
@@ -29,7 +30,7 @@ const CUT_RISE = 0.03;
  * 胯不加宽，每个上半身从胯上像树杈一样分出去（见 sdf/fork.ts）：髋关节（屁股缝的顶上）那么高以下还是一个人的胯，
  * 往上渐渐转开、挪开，到腰往上 FORK_ABOVE 分足；最下面那排胸的下沿再往下 FORK_UNDER_CHEST 还够的话，分足的地方往上挪
  * （最多到腰往上 FORK_MAX）：分开的那一段越长，转、挪得越缓（胸、手臂是照分足的样子摆的，分足的地方不能高过它们）。
- * 采样好的胸（二次元素体）跟着躯干一起分（见 refork），不挡着：分开的那一段一直延到腋下（手臂根、翅膀根），
+ * 分叉只改变躯干，胸保留独立胸型、随上半身整体搬动。分开的那一段一直延到腋下（手臂根、翅膀根），
  * 腰往上到肋骨渐渐转开，侧面是一道顺的弧线；只延到胸下面的话，肋骨下沿那里一下子支出去，一道横着的台阶。
  * 上半身从分开的地方往下多留 FORK_OVERLAP，叠着的那一截两边一模一样，直接取并集；胯只留到分开的地方往上一点点（FORK_SEAM）：
  * 再往上上半身已经开始转、挪，两张皮差一点点，并在一起会来回穿插出一道道褶子。
@@ -69,6 +70,12 @@ const SHIFT_SAMPLED = 0.085;
  */
 const SPLIT_HALF = 0.07;
 const SPLIT_CORE = 0.03;
+/**
+ * 各坐一副胯（见 seat）时：两份胯离得开（腿在各自原来的位置上），上半身从胯顶起往中间靠拢 SEAT_IN、到腰上（再往上 SEAT_RISE）靠足，
+ * 两个腰在正中并在一起（共用一截小肚子），再往上才转开。不靠拢的话两个身子只在胯上挨着，像两个人并排站着
+ */
+const SEAT_IN = 0.017;
+const SEAT_RISE = 0.08;
 const TURN_DELAY = 0.02;
 const LEAN_MIN_SAMPLED = 8 * (Math.PI / 180);
 /** 三个上半身时两边的往后退一点（绕竖轴转），扇面不至于排成一条直线 */
@@ -88,6 +95,8 @@ const INNER_BIND_LIFT = 90 * (Math.PI / 180) - INNER_ARM_DROP;
 /** 里侧一个肩膀上最多留几条聚拢的手臂，肩关节离多近算同一个肩膀 */
 const INNER_FAN_MAX = 2;
 const SAME_SHOULDER = 0.08;
+/** 胸根连接区沿素材封口的中心、半径定义，随胸一起缩放；前半球和上缘保持原样。 */
+const BUST_ROOT = animeCaps('bust')[0];
 
 /**
  * 两边的上半身往外歪多少（弧度）：歪到相邻两个的肩膀、头之间都空出 gap（缺省 SHOULDER_GAP）。
@@ -136,8 +145,13 @@ export function splitTorsos(figure: Figure, count: number): Figure {
   const pivot: V3 = [0, spineBone.head[1], spineBone.head[2]];
   const three = slots.length === 3;
   const sampled = torso.prims.some((p) => p.kind === 'grid');
+  /**
+   * 各坐一副胯（横排两副胯，见 animeLayout.ts 的 paired）：躯干那块已经是左右两份（Twin 不并），各离中线 seat。
+   * 胯就照那两份留着、不加宽；每个上半身整个挪到自己那一份上（连分开之前那一截），从胯顶起只转开、不再往外挪
+   */
+  const seat = slots.length === 2 ? (torso.prims.find((p): p is GridShape => p.kind === 'grid' && !!p.twin && !p.twin.levels)?.twin?.d ?? 0) : 0;
   /** 两边的上半身往外挪多远（从分开的地方起渐渐挪过去） */
-  const outward = (three ? SHIFT_THREE : 1) * (sampled ? SHIFT_SAMPLED : SHIFT);
+  const outward = seat ? 0 : (three ? SHIFT_THREE : 1) * (sampled ? SHIFT_SAMPLED : SHIFT);
   const hipY = torso.bones?.find((b) => b.name === 'Hips')?.head[1] ?? cutY - 0.12;
 
   /**
@@ -150,7 +164,7 @@ export function splitTorsos(figure: Figure, count: number): Figure {
     return carveTop(p) + (p.soft ?? 0) + FORK_CLEAR + (p.cut ? FORK_OVERLAP : 0);
   };
   const forkFrom = Math.min(cutY, Math.max(hipY, ...torso.prims.map(influence)));
-  // 照分足的样子硬摆着的部件：拼的胸、手臂、翅膀（采样好的胸跟着躯干一起分，不算）
+  // 躯干过渡的上限：拼的胸、手臂根、翅膀根以下。采样胸单独接在胸壁上，保留较长的躯干过渡。
   const rigid = upper.filter(
     (p) => p.parent === 'Torso' && (p.type === 'chest' ? !p.prims.some((q) => q.kind === 'grid') : sampled && (p.type === 'arm' || p.type === 'wing')),
   );
@@ -167,6 +181,11 @@ export function splitTorsos(figure: Figure, count: number): Figure {
     if (p.kind === 'loft') {
       below.push({ ...p, rings: [...p.rings.filter((r) => r.y < pelvisTop), ringAt(p.rings, pelvisTop)] });
       above.push({ ...p, rings: [ringAt(p.rings, copyBottom), ...p.rings.filter((r) => r.y > copyBottom)] });
+    } else if (p.kind === 'grid' && seat) {
+      // 各坐一副胯：胯就是那两份自己的胯；上半身各取一份（不带 twin，摆的时候整个挪到那一份上）
+      const { twin: _, ...one } = p;
+      below.push({ ...p, clipAbove: pelvisTop, clipRound: 0 });
+      above.push({ ...one, clipBelow: copyBottom, clipRound: 0 });
     } else if (p.kind === 'grid') {
       // 两个上半身：胯的上半截跟着上半身往两边挪开的那么多加宽（见 SPLIT_HALF）。胯宽（spreadX）是在加宽以后再乘的：先除掉
       const f = p.spreadX ? spreadAt(p.spreadX, forkFrom) : 1;
@@ -204,7 +223,7 @@ export function splitTorsos(figure: Figure, count: number): Figure {
       reach.push({ wide: Math.abs(p.pos[0]) + HEAD_HALF_WIDTH * (p.scale ?? 1), rise: p.pos[1] - pivot[1] });
     }
   }
-  const lean = torsoLean(reach, three, outward, sampled ? LEAN_MIN_SAMPLED : LEAN_MIN);
+  const lean = torsoLean(reach, three, seat ? seat - SEAT_IN : outward, sampled ? LEAN_MIN_SAMPLED : LEAN_MIN);
   // 里侧的手臂往前伸时手不往下伸到哪儿：腰；腿左右并排、横排多胯时胯底下垫的那一大块比腰还高的话，到它顶上
   const lowerTop = Math.max(
     ...figure.parts
@@ -231,7 +250,7 @@ export function splitTorsos(figure: Figure, count: number): Figure {
   slots.forEach((slot) => {
     const tag = sideTag(slot);
     const q: Quat = quatMul(quatEuler(0, three ? slot * FAN_YAW : 0, 0), quatEuler(0, 0, -slot * lean));
-    const shift: V3 = [slot * outward, 0, three && slot ? -0.02 : 0];
+    const shift: V3 = [slot * (seat ? -SEAT_IN : outward), 0, three && slot ? -0.02 : 0];
     const name = `UpperBody${tag}`;
     /** 骨骼换名字：脊柱带上边，头接着往下数，手臂、胸、翅膀分外侧、里侧 */
     const boneMap = new Map<string, string>();
@@ -287,8 +306,9 @@ export function splitTorsos(figure: Figure, count: number): Figure {
     const grafts = (list: Graft[] | undefined) =>
       list?.map((g) => ({ ...g, bones: Object.fromEntries(Object.entries(g.bones).map(([k, v]) => [k, boneName(v)!])), rigid: g.rigid.map((b) => boneName(b)!) }));
 
-    // 这一份上半身：绕腰转 q，再往外挪 shift。部件的位置写在父部件（胯）的坐标里
-    const copyPos = add(sub(pivot, rotate(q, pivot)), shift);
+    // 这一份上半身：绕腰转 q，再往外挪 shift（各坐一副胯的再整个挪到那一份上）。部件的位置写在父部件（胯）的坐标里
+    const seated: V3 = [slot * seat, 0, 0];
+    const copyPos = add(sub(pivot, rotate(q, pivot)), add(shift, seated));
     // 躯干从胯上渐渐分出去（转、挪都从 forkFrom 起渐渐加上），和胯是同一张皮，直接取并集。
     // 两个上半身是左右镜像，叠在一起的地方直接取并集，交线就在正中；三个时中间那个不动、两边的挪开，
     // 交线来回穿插出一道道褶子，所以和相邻的各留自己那一半
@@ -298,7 +318,16 @@ export function splitTorsos(figure: Figure, count: number): Figure {
     };
     const split = three ? slots.filter((other) => Math.abs(other - slot) === 1).map(neighbor) : undefined;
     const fork: Fork = sampled
-      ? { pivot, quat: q, shift, from: forkFrom + TURN_DELAY, to: forkTo, ...(three ? { shiftFrom: forkFrom, shiftTo: forkTo } : { shiftFrom: forkFrom - SPLIT_HALF, shiftTo: forkFrom + SPLIT_HALF }), ...(split ? { split } : {}) }
+      ? {
+          pivot,
+          quat: q,
+          shift,
+          from: forkFrom + TURN_DELAY,
+          to: forkTo,
+          // 各坐一副胯的从胯顶才开始靠拢：在胯顶下面就挪的话，上半身和胯在切口那里错开一截，外侧一道台阶
+          ...(seat ? { shiftFrom: forkFrom, shiftTo: forkFrom + SEAT_RISE, offset: seated } : three ? { shiftFrom: forkFrom, shiftTo: forkTo } : { shiftFrom: forkFrom - SPLIT_HALF, shiftTo: forkFrom + SPLIT_HALF }),
+          ...(split ? { split } : {}),
+        }
       : { pivot, quat: q, shift, from: forkFrom, to: forkTo, ...(split ? { split } : {}) };
     out.push({
       ...torso,
@@ -488,14 +517,21 @@ const mulAdd = (a: V3, b: V3, t: number): V3 => [a[0] + (b[0] - a[0]) * t, a[1] 
  * 没有微调的时候算出来和原来一样
  */
 export function refork(figure: Figure): Figure {
-  // 胸上的那一份（带 frame）是照上半身的抄过去的，不算
+  // 只从躯干自身的分叉取摆放，忽略挂载格子坐标系中的分叉。
   const forkOf = (p: Part): Fork | undefined => {
     for (const q of p.prims) if ((q.kind === 'grid' || q.kind === 'loft') && q.fork && !q.fork.frame) return q.fork;
     return undefined;
   };
   /** 这个上半身现在怎么摆：照同一个 pivot 换算成转了多少、挪了多少 */
-  const placement = (p: Part, fork: Fork) => ({ quat: p.quat, shift: sub(p.pos, sub(fork.pivot, rotate(p.quat, fork.pivot))) });
-  const now = new Map<string, { quat: Quat; shift: V3 }>();
+  const placement = (p: Part, fork: Fork) => {
+    const shape = shapeMatrix(p) ?? [1,0,0,0,1,0,0,0,1] as const;
+    const reshape = shape.map(v => v * (p.scale ?? 1)) as Mat3;
+    const changed = reshape.some((v, i) => Math.abs(v - (i % 4 === 0 ? 1 : 0)) > 1e-9);
+    // 各坐一副胯的：摆放里整个挪到那一份上的那一截不算在分叉的挪动里
+    const at = fork.offset ? sub(p.pos, fork.offset) : p.pos;
+    return { quat: p.quat, shift: sub(at, sub(fork.pivot, rotate(p.quat, mat3Apply(reshape, fork.pivot)))), reshape: changed ? reshape : undefined };
+  };
+  const now = new Map<string, ReturnType<typeof placement>>();
   for (const p of figure.parts) {
     const fork = forkOf(p);
     if (fork) now.set(p.name, placement(p, fork));
@@ -530,35 +566,49 @@ export function refork(figure: Figure): Figure {
     });
     return { ...p, prims };
   });
-  // 采样好的胸：分开的那一段延到了胸口的，跟着躯干一起分（换到胸自己的坐标里）
-  const parts = pelvised.map((p) => {
-    const fork = p.parent ? forks.get(p.parent) : undefined;
-    if (!fork || p.type !== 'chest' || !p.prims.some((q) => q.kind === 'grid')) return p;
-    const shape = shapeMatrix(p);
-    const inverse = shapeInverse(p);
-    const frame = { pos: p.pos, quat: p.quat, scale: p.scale ?? 1, ...(shape && inverse ? { shape, inverse } : {}) };
-    const { split: _, ...plain } = fork;
-    const reach = Math.max(fork.to, fork.shiftTo ?? fork.to);
+  // 胸已经挂在对应上半身上，位置、转动和用户的大小微调会自然跟随。
+  // 不把躯干的非线性 fork 再套到胸上，否则大胸跨过过渡区时被剪切、拉成长条。
+  const walls = new Map(pelvised.filter((p) => forks.has(p.name)).map((p) => [p.name, { part: p, grid: p.prims.find((q): q is GridShape => q.kind === 'grid') }]));
+  const world = worldTransforms({ parts: pelvised, scale: 1 });
+  const parts = pelvised.map((p): Part => {
+    const wall = p.parent ? walls.get(p.parent) : undefined;
+    if (p.type !== 'chest' || !wall?.grid) return p;
+    const shape = shapeMatrix(p), inverse = shapeInverse(p);
+    const parentInverse = shapeInverse(wall.part);
+    const turn = quatMat3(p.quat);
+    const fromChest = shape ? mat3Mul(turn, shape) : turn;
+    const frame = parentInverse
+      ? { pos: mat3Apply(parentInverse, p.pos), quat: Q_ID, scale: p.scale ?? 1, shape: mat3Mul(parentInverse, fromChest) }
+      : { pos: p.pos, quat: p.quat, scale: p.scale ?? 1, ...(shape && inverse ? { shape, inverse } : {}) };
+    const top = Math.max(...pelvised.filter(c => c.type === 'chest' && c.parent === p.parent).map(c => c.pos[1]));
+    const lowerRow = p.pos[1] < top - 1e-5;
     const prims = p.prims.map((q): Prim => {
       if (q.kind !== 'grid') return q;
-      const { fork: __, ...bare } = q;
-      return frameBottom(q, frame) < reach ? { ...q, fork: { ...plain, frame } } : bare;
+      const shape = getGrid(q.grid);
+      const ceiling = Math.max(shape.bounds.max[1], q.morph ? getGrid(q.morph[0]).bounds.max[1] : -Infinity) + shape.cell;
+      const large = q.morph?.[1] ?? 0;
+      const rootDepth = BUST_ROOT.radius * (lowerRow ? 0.5 + 0.5 * large : 0.5);
+      const gravity = rotate(quatConj(world.get(p.name)!.quat), [0, -BUST_ROOT.radius*0.2*large, 0]);
+      const weight = add(gravity, [p.side*BUST_ROOT.radius*0.12*large, 0, 0]);
+      const drape = inverse ? mat3Apply(inverse, weight) : weight;
+      return { ...q,
+      // 大胸的圆角在真实胸壁交线上计算，覆盖整圈根部，替代仅在一个固定球形区域生效的圆角。
+      ...(large>0 ? { soft: undefined, fade: undefined, fadeAt: undefined } : {}),
+      // 素材的封口在原胸壁内；胸放大、胸壁分叉后它可能露到肋部外面。
+      // 第一排保留上胸斜面；下排随大胸形态渐渐修整更深的封口，前方胸型不参与分叉拉伸。
+      rootFit: {
+        body: wall.grid!, frame,
+        back: BUST_ROOT.center[2], front: BUST_ROOT.center[2] + rootDepth,
+        // 只有第一排需要保留通向锁骨的上胸斜面。下排整圈背面都贴回胸壁，不带进一片上胸封口。
+        vertical: lowerRow ? [ceiling, ceiling + shape.cell] : [BUST_ROOT.center[1] - BUST_ROOT.radius, BUST_ROOT.center[1]], inset: 0.003,
+        ...(large>0 ? { blend: BUST_ROOT.radius*0.25*large, drape, reach: BUST_ROOT.center[2]+BUST_ROOT.radius,
+          anchor: [p.side*BUST_ROOT.center[0], BUST_ROOT.center[1]-BUST_ROOT.radius/4, BUST_ROOT.center[2]] as V3 } : {}),
+      },
+      };
     });
     return { ...p, prims };
   });
   return { ...figure, parts };
-}
-
-/** 一块格子摆到父部件里（frame 照 Fork.frame）以后最低到哪 */
-function frameBottom(q: GridShape, frame: NonNullable<Fork['frame']>): number {
-  const { min, max } = getGrid(q.grid).bounds;
-  let low = Infinity;
-  for (let i = 0; i < 8; i++) {
-    const c: V3 = [i & 1 ? max[0] : min[0], i & 2 ? max[1] : min[1], i & 4 ? max[2] : min[2]];
-    const r = rotate(frame.quat, frame.shape ? mat3Apply(frame.shape, c) : c);
-    low = Math.min(low, frame.pos[1] + r[1] * frame.scale);
-  }
-  return low;
 }
 
 /** 一个椭球最高到哪（转过的照转过以后的样子量） */

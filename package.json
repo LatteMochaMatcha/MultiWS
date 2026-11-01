@@ -13,7 +13,8 @@
     "apk": "npm run build && pwsh -NoProfile -File tools/apk.ps1",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "agent": "node tools/agent.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"
