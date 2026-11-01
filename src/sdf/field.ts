@@ -471,8 +471,8 @@ function primDrafts(p: Prim, xf: WorldXf, group: number, minR: number, out: Draf
       break;
     }
     case 'chest': {
-      // 胸：贴好胸的躯干上这一边胸那一片，和躯干取并集（见 anime/chest.ts）
-      const d = chestDist(p);
+      // 胸：贴好胸的躯干上这一边胸那一片，和躯干取并集（见 anime/chest.ts）。粗的几档融合烤得粗一些
+      const d = chestDist(p, false, minR / s);
       out.push(customDraft(group, xf, d.fn, d.min, d.max, d.outer));
       break;
     }

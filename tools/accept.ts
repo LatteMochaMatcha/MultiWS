@@ -45,11 +45,11 @@ const SETTINGS = {
   his: { label: '胸 2.2 · 腰 1.16 · 胯 1.28', shape: { bust: 2.2, waist: 1.16, hips: 1.28 } },
   b06: { label: '胸 0.6', shape: { bust: 0.6 } },
   b13: { label: '胸 1.3', shape: { bust: 1.3 } },
-  b3: { label: '胸 3', shape: { bust: 3 } },
+  b23: { label: '胸 2.3（最大）', shape: { bust: 2.3 } },
 } as const;
 
 const BASES: Case[] = [
-  { name: 'S1', group: 'S', label: 'S 一个上半身 · 一排胸 · 一对手臂', spec: { counts: {} }, settings: ['b06', 'def', 'b13', 'his', 'b3'] },
+  { name: 'S1', group: 'S', label: 'S 一个上半身 · 一排胸 · 一对手臂', spec: { counts: {} }, settings: ['b06', 'def', 'b13', 'his', 'b23'] },
   { name: 'A2', group: 'A', label: 'A 两排胸 · 两对手臂（上下排）', spec: { armLayout: 'stack', counts: { chestPairs: 2, armPairs: 2 } } },
   { name: 'A3', group: 'A', label: 'A 三排胸 · 两对手臂（上下排）', spec: { armLayout: 'stack', counts: { chestPairs: 3, armPairs: 2 } } },
   { name: 'A4', group: 'A', label: 'A 四排胸 · 两对手臂（上下排）', spec: { armLayout: 'stack', counts: { chestPairs: 4, armPairs: 2 } } },

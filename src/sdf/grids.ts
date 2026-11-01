@@ -6,7 +6,7 @@
  */
 import type { ChestShape, Fork, SpreadX, Thicken, Twin, WidenBand } from '../geometry/figure';
 import { type V3, sub } from '../geometry/vec';
-import { chestRegion, chestSkin } from '../anime/chest';
+import { chestRegion, chestSkin, chestVersion } from '../anime/chest';
 import type { Dist } from './field';
 import { forkWarp } from './fork';
 
@@ -633,8 +633,10 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
  * 融合时一个点要求好几次（分块、找表面、算法线），胸现算又慢：融合用的先烤成 BAKE 一格的格子（同一个胸几档精细度之间共用），
  * 分部件只网格化一次，现算
  */
-export function chestDist(p: ChestShape, piece = false): { fn: Dist; min: V3; max: V3; outer: { min: V3; max: V3 } } {
-  const key = piece ? '' : JSON.stringify(p);
+export function chestDist(p: ChestShape, piece = false, voxel = 0): { fn: Dist; min: V3; max: V3; outer: { min: V3; max: V3 } } {
+  // 烤成的格子：最细一档 BAKE，融合的体素粗的话跟着粗（草图那档拖滑块时要快）
+  const cell = voxel > 0 ? Math.min(BAKE_COARSE, Math.max(BAKE, voxel * 0.6)) : BAKE;
+  const key = piece ? '' : `${chestVersion()} ${cell} ${JSON.stringify(p)}`;
   const known = key ? BAKED.get(key) : undefined;
   if (known) {
     BAKED.delete(key);
@@ -652,7 +654,7 @@ export function chestDist(p: ChestShape, piece = false): { fn: Dist; min: V3; ma
   };
   if (piece) return exact;
   // 框的范围是照躯干的加宽、加长、胯宽一起放大的，比胸大好几倍：粗扫一遍，只框到里面和离表面不到一个粗格的地方
-  const step = BAKE * 3;
+  const step = cell * 3;
   const lo: V3 = [Infinity, Infinity, Infinity];
   const hi: V3 = [-Infinity, -Infinity, -Infinity];
   for (let x = exact.min[0]; x <= exact.max[0] + step; x += step) {
@@ -668,14 +670,15 @@ export function chestDist(p: ChestShape, piece = false): { fn: Dist; min: V3; ma
     }
   }
   if (!Number.isFinite(lo[0])) return exact;
-  const baked = { ...exact, min: lo, max: hi, fn: bake(exact.fn, lo, hi, BAKE) };
+  const baked = { ...exact, min: lo, max: hi, fn: bake(exact.fn, lo, hi, cell) };
   BAKED.set(key, baked);
   if (BAKED.size > 12) BAKED.delete(BAKED.keys().next().value!);
   return baked;
 }
 
-/** 胸烤成的格子每格多大：和躯干的格子（5 毫米）、胸型放大以后的格子差不多（融合最细的一档体素 6 毫米） */
+/** 胸烤成的格子每格多大：最细一档和躯干的格子（5 毫米）、胸型放大以后的格子差不多（融合最细一档的体素 6 毫米）；粗的几档最粗到 BAKE_COARSE */
 const BAKE = 0.004;
+const BAKE_COARSE = 0.012;
 /** 烤好的胸，最近用过的排在后面 */
 const BAKED = new Map<string, { fn: Dist; min: V3; max: V3; outer: { min: V3; max: V3 } }>();
 

@@ -47,13 +47,17 @@ export interface ChestPatch {
   data: Int16Array;
 }
 
-export type ChestKind = 'reference' | 'large' | 'grown';
+export type ChestKind = 'reference' | 'large';
 
 let FRAME: ChestFrame | null = null;
+/** 胸的数据换过几次（烤好的胸照它作废，见 sdf/grids.ts 的 chestDist） */
+let VERSION = 0;
+export const chestVersion = () => VERSION;
 const PATCHES = new Map<ChestKind, ChestPatch>();
 
 export function registerChest(frame: ChestFrame, patches: Record<ChestKind, ChestPatch>) {
   FRAME = frame;
+  VERSION++;
   for (const [name, p] of Object.entries(patches) as [ChestKind, ChestPatch][]) {
     if (p.data.length !== p.nu * p.nv * p.nh) throw new Error(`胸型 ${name} 的数据长度和尺寸对不上`);
     PATCHES.set(name, p);
@@ -161,13 +165,52 @@ export const CHEST_FLAT = 0.3;
 const OUTER = 1.35;
 const INNER = 1.1;
 /**
- * 胸 2.2 以上：从大胸型原样放大渐渐换成长大的大胸型（grown，build-chest.ts 的 shapeLarge：上坡压低、胸下褶往下展、圆底），
- * 到 GROW_TO 换足。长大的那一种胸根只略长宽、主要往前和往下长，上下照胸根偏上的高度（GROWN_PIVOT）放大，上缘少往锁骨爬。
- * 2.2 及以下和以前一样（他看过说 2.2 原来的样子就挺好）
+ * 往圆里变（他说照二次元作品，胸要圆润，参考图里的胸是圆球：上半截饱满、胸根宽、侧面看是一个圆、底是圆的）：
+ * 参考模型的胸和一个同样大小、同样位置的椭球（在 u、v、h 里，往平胸里沉一截，上半截和平胸躯干圆滑地接上，胸底留一道缝）按 ROUNDNESS 混合，
+ * 乳头照参考胸的补上（Columns.nipple）。原来大胸型调到 1.6 上下时外侧胸根那道勒痕、往前伸成一根筒，也跟着没了。
+ * 1.1 以下的小胸本来就圆，不变，到 ROUND_FULL 变足。椭球每个大小一组（ChestRound），build-chest.ts 照参考胸量好存进 body.bin。
+ * 形状是他 11-02 挑的那一版
  */
-const GROW_FROM = 2.2;
-const GROW_TO = 3;
-const GROWN_PIVOT = 0.7;
+const ROUNDNESS = 0.8;
+const ROUND_FROM = 1.1;
+const ROUND_FULL = 1.6;
+/**
+ * 椭球和平胸躯干接上的圆角，竖向半径的几分之几：上半截大（胸从胸口顺着鼓出来，不是一个球放在胸口上、上面一圈凹角），
+ * 下半截小（胸底那道缝留着）；从中心往下 0.65 个半径到往上 0.35 个半径之间渐变
+ */
+const FILLET_TOP = 0.6;
+const FILLET_BOTTOM = 0.08;
+const fillet = (v: number, center: number, rv: number) => rv * (FILLET_BOTTOM + (FILLET_TOP - FILLET_BOTTOM) * ease((v - center) / rv + 0.65));
+
+/**
+ * 每个大小（sizes）一组：整个胸往外挪多少（move：参考胸离正中线近，椭球照它的宽度不越过正中线，就连参考胸一起往外挪）、
+ * 椭球中心离（挪过的）胸中心多远（u、v）、三个半径（u、v、h）、中心在平胸表面外多高
+ */
+export interface ChestRound {
+  sizes: number[];
+  params: [move: number, du: number, dv: number, au: number, av: number, ah: number, hc: number][];
+}
+let ROUND: ChestRound | null = null;
+
+export const chestRound = () => ROUND;
+
+export function registerChestRound(round: ChestRound | null) {
+  ROUND = round;
+  VERSION++;
+}
+
+/** 滑块 size 上的椭球（相对胸中心），和混合时它占多少；没有就是 null */
+function roundAt(size: number): { move: number; off: [number, number]; radii: V3; hc: number; alpha: number } | null {
+  if (!ROUND || size <= ROUND_FROM) return null;
+  const { sizes, params } = ROUND;
+  let i = 0;
+  while (i < sizes.length - 2 && sizes[i + 1] < size) i++;
+  const t = Math.min(1, Math.max(0, (size - sizes[i]) / (sizes[i + 1] - sizes[i])));
+  const q = params[i].map((v, k) => v + (params[i + 1][k] - v) * t);
+  const alpha = ROUNDNESS * ease((size - ROUND_FROM) / (ROUND_FULL - ROUND_FROM));
+  // 往外挪也跟着往圆里变的程度渐渐加上
+  return { move: (q[0] * alpha) / ROUNDNESS, off: [q[1], q[2]], radii: [q[3], q[4], q[5]], hc: q[6], alpha };
+}
 
 /** 一层胸型：放大几倍、中心放在哪、占多少分量 */
 interface Layer {
@@ -187,17 +230,6 @@ function plainLayer(patch: ChestPatch, k: number, weight = 1): Layer {
   return { patch, k, scale: [k, k, k], pivot, at: [patch.center[0] * k, pivot + (patch.center[1] - pivot) * k], weight };
 }
 
-/** 长大的大胸型：k 是滑块上的大小换成的放大倍数（size / natural），2.2 以上越大长得越慢，胸 3 约十升（以前十二升多，拉成长袋） */
-function grownLayer(patch: ChestPatch, size: number, weight = 1): Layer {
-  const from = GROW_FROM / patch.natural;
-  const over = Math.max(0, size / patch.natural - from);
-  const k = from + over - 0.35 * over * over;
-  const pivot = patch.center[1] + GROWN_PIVOT * patch.rv;
-  const kv = k ** 0.8;
-  const lower = 0.012 * (over / (GROW_TO / patch.natural - from)) ** 2;
-  return { patch, k, scale: [k ** 0.6, kv, k ** 1.02], pivot, at: [patch.center[0] * k ** 0.6, pivot + (patch.center[1] - pivot) * kv - lower], weight };
-}
-
 /** 两层胸型挪到同一个中心（照 t 在两者原本的中心之间取）按比例混合：隔开的两团混出来是尖的 */
 function blend(a: Layer, b: Layer, t: number): Layer[] {
   const at: [number, number] = [a.at[0] + (b.at[0] - a.at[0]) * t, a.at[1] + (b.at[1] - a.at[1]) * t];
@@ -211,7 +243,7 @@ const ease = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 
 /**
  * 滑块上的胸：CHEST_FLAT 以下是平胸；往上先是中胸（放大倍数照开方变，再和平胸按比例混合：往小调主要是往平胸里沉，
- * 不缩成一小团）；中胸到大胸之间两种胸型渐变；再往上照大胸放大；2.2 以上渐渐换成长大的大胸型（见 GROW_FROM）。
+ * 不缩成一小团）；中胸到大胸之间两种胸型渐变；再往上照大胸放大（滑块最大 2.3）。
  * fade：和平胸混合时胸占多少
  */
 export function chestLayers(size: number): { layers: Layer[]; fade: number } {
@@ -225,11 +257,7 @@ export function chestLayers(size: number): { layers: Layer[]; fade: number } {
     const t = ease((size - ref.natural) / (large.natural - ref.natural));
     return { layers: blend(plainLayer(ref, size / ref.natural), plainLayer(large, size / large.natural), t), fade: 1 };
   }
-  const plain = plainLayer(large, size / large.natural);
-  if (size <= GROW_FROM) return { layers: [plain], fade: 1 };
-  const grown = grownLayer(chestPatch('grown'), size);
-  const t = ease((size - GROW_FROM) / (GROW_TO - GROW_FROM));
-  return { layers: t >= 1 ? [grown] : blend(plain, grown, t), fade: 1 };
+  return { layers: [plainLayer(large, size / large.natural)], fade: 1 };
 }
 
 /** 胸的中心（u、高度）在滑块 size 上原本在哪（还没往上下挪、没手动微调） */
@@ -262,6 +290,9 @@ export function chestBulk(size: number): { radius: number; depth: number } {
 
 /* ---------------- 胸那一片在展开图上的范围 ---------------- */
 
+/** 取乳头时胸面磨多宽（米，高斯的 σ）：比乳头宽、比整个胸窄得多；只取乳头周围多远（一半以内取足，到这么远减到没有） */
+const NIPPLE_BLUR = 0.008;
+const NIPPLE_REACH = 0.025;
 /** 分部件时胸根从凸出平胸多少的地方切开（胸那一片以外是躯干，免得两张面叠在一起） */
 const FOOT_RISE = 0.003;
 /** 胸型和平胸差不到这么多的地方当成平胸（融合时胸只在差得多的那一片里算，范围小、算得快） */
@@ -276,6 +307,8 @@ interface Columns {
   rise: Float32Array;
   foot: Float32Array;
   active: Float32Array;
+  /** 乳头：胸尖周围胸面比磨平（NIPPLE_BLUR）的胸面凸出来多少（米，只算凸出来的）。往圆里变时照它补回去，胸尖不磨平 */
+  nipple: Float32Array;
 }
 const COLUMNS = new Map<ChestPatch, Columns>();
 
@@ -302,7 +335,40 @@ function columns(p: ChestPatch): Columns {
   const inEllipse = (k: number) => Math.hypot(((k % p.nu) * p.cell - p.center[0]) / p.ru, (p.v0 + Math.floor(k / p.nu) * p.cell - p.center[1]) / p.rv) < OUTER;
   const grown = distance2d(p, (k) => Math.abs(rise[k]) > ACTIVE_RISE && inEllipse(k));
   const active = grown.map((d) => d - 2 * p.cell);
-  const out = { rise, foot, active };
+  // 乳头：凸出平胸的高度先横竖各磨一遍（高斯），比磨过的高出来的那一小块。只取胸尖（胸那一片中间离平胸最远的那一格）
+  // 周围 NIPPLE_REACH 以内的：胸下缘悬空那一圈陡下去，也比磨过的高，不能算进来
+  const height = Float32Array.from(rise, (r) => (Number.isNaN(r) ? 0 : Math.max(0, r)));
+  const sigma = NIPPLE_BLUR / p.cell;
+  const reach = Math.ceil(sigma * 3);
+  const kernel = Array.from({ length: 2 * reach + 1 }, (_, k) => Math.exp(-((k - reach) ** 2) / (2 * sigma * sigma)));
+  const sum = kernel.reduce((a, b) => a + b, 0);
+  let blur = height;
+  for (const [step, count, other] of [
+    [1, p.nu, p.nv],
+    [p.nu, p.nv, p.nu],
+  ] as const) {
+    const next = new Float32Array(n);
+    for (let b = 0; b < other; b++) {
+      const base = step === 1 ? b * p.nu : b;
+      for (let a = 0; a < count; a++) {
+        let acc = 0;
+        for (let k = -reach; k <= reach; k++) acc += blur[base + Math.max(0, Math.min(count - 1, a + k)) * step] * kernel[k + reach];
+        next[base + a * step] = acc / sum;
+      }
+    }
+    blur = next;
+  }
+  let tip = 0;
+  for (let k = 0; k < n; k++) {
+    const e = Math.hypot(((k % p.nu) * p.cell - p.center[0]) / p.ru, (p.v0 + Math.floor(k / p.nu) * p.cell - p.center[1]) / p.rv);
+    if (e < 0.6 && height[k] > height[tip]) tip = k;
+  }
+  const nipple = new Float32Array(n);
+  for (let k = 0; k < n; k++) {
+    const d = Math.hypot((k % p.nu) - (tip % p.nu), Math.floor(k / p.nu) - Math.floor(tip / p.nu)) * p.cell;
+    nipple[k] = Math.max(0, height[k] - blur[k]) * (1 - ease(d / NIPPLE_REACH - 0.5));
+  }
+  const out = { rise, foot, active, nipple };
   COLUMNS.set(p, out);
   return out;
 }
@@ -353,6 +419,19 @@ function columnAt(p: ChestPatch, map: Float32Array, u: number, v: number): numbe
   return d + Math.hypot(u / p.cell - fu, (v - p.v0) / p.cell - fv) * p.cell;
 }
 
+/** 展开图上 (u, v) 处 map 的值（双线性，出了格子是 0） */
+function columnValue(p: ChestPatch, map: Float32Array, u: number, v: number): number {
+  const fu = u / p.cell;
+  const fv = (v - p.v0) / p.cell;
+  if (!(fu >= 0 && fv >= 0 && fu < p.nu - 1 && fv < p.nv - 1)) return 0;
+  const i = fu | 0;
+  const j = fv | 0;
+  const a = fu - i;
+  const b = fv - j;
+  const o = j * p.nu + i;
+  return (map[o] * (1 - a) + map[o + 1] * a) * (1 - b) + (map[o + p.nu] * (1 - a) + map[o + p.nu + 1] * a) * b;
+}
+
 /* ---------------- 距离场 ---------------- */
 
 /** 胸那一块往身体里取多深（离平胸表面往里）：融合时埋在躯干里，分部件时是插进躯干的那一截 */
@@ -371,7 +450,10 @@ export function chestSkin(shape: ChestShape, piece = false): Skin {
   const { layers, fade } = chestLayers(shape.size);
   const side = shape.side;
   const [tu, tv, th] = shape.scale ?? [1, 1, 1];
-  const [du, dv, push] = shape.shift ?? [0, 0, 0];
+  // 往圆里变的椭球（见 ROUNDNESS）：跟着手动微调挪、放大；整个胸往外挪的那一份加在手动微调的往外挪上
+  const round = layers.length ? roundAt(shape.size) : null;
+  const [shiftU, dv, push] = shape.shift ?? [0, 0, 0];
+  const du = shiftU + (round?.move ?? 0);
   const [rx, ry, rz] = (shape.tilt ?? [0, 0, 0]).map((a) => a * DEG);
   const tanX = Math.tan(rx);
   const tanY = Math.tan(ry);
@@ -409,8 +491,13 @@ export function chestSkin(shape: ChestShape, piece = false): Skin {
       e: 0,
     };
   });
-  /** prepare 算好的：离平胸表面多远、切掉的那几刀里最靠外的 */
+  const rc: [number, number] = round ? [Math.max(0.01, ready[0].at[0] + round.off[0] * tu), ready[0].at[1] + round.off[1] * tv] : [0, 0];
+  const [ra, rb, rh] = round ? [round.radii[0] * tu, round.radii[1] * tv, round.radii[2] * th] : [1, 1, 1];
+  const rhc = round ? round.hc * th : 0;
+  /** prepare 算好的：离平胸表面多远、离椭球多远（和这里的圆角多大）、切掉的那几刀里最靠外的 */
   let h = 0;
+  let ball = 0;
+  let rk = 1;
   let cut = 0;
   return {
     prepare(x, y, z, yp) {
@@ -418,21 +505,33 @@ export function chestSkin(shape: ChestShape, piece = false): Skin {
       const own = -x * side;
       const at = shell(f, x, y, z);
       h = at.h;
+      // 手动微调的转动：绕胸中心在表面上转（rz），胸尖往下、往外歪（rx、ry：离表面越远挪得越多）。几层胸型的中心是同一个
+      const hh = h - push;
+      let uu = at.u;
+      let vv = yp - lift;
+      if (rx) vv += hh * tanX;
+      if (ry) uu -= side * hh * tanY;
+      if (rz) {
+        const c = ready[0].at;
+        const a = uu - c[0];
+        const b = vv - c[1];
+        uu = c[0] + a * cosZ + b * sinZ * side;
+        vv = c[1] - a * sinZ * side + b * cosZ;
+      }
       let edge = Infinity;
+      if (round) {
+        // 椭球的距离（近似）；融合时出了它和平胸接上的圆角就不要，分部件时出了它就不要
+        const qu = (uu - rc[0]) / ra;
+        const qv = (vv - rc[1]) / rb;
+        const qh = (hh - rhc) / rh;
+        const k0 = Math.sqrt(qu * qu + qv * qv + qh * qh);
+        const k1 = Math.sqrt((qu / ra) ** 2 + (qv / rb) ** 2 + (qh / rh) ** 2);
+        ball = k1 > 1e-9 ? (k0 * (k0 - 1)) / k1 : -Math.min(ra, rb, rh);
+        rk = fillet(vv, rc[1], rb);
+        edge = piece ? ball : ball - rk;
+      }
       for (const l of ready) {
         const p = l.p;
-        // 手动微调的转动：绕胸中心在表面上转（rz），胸尖往下、往外歪（rx、ry：离表面越远挪得越多）
-        const hh = h - push;
-        let uu = at.u;
-        let vv = yp - lift;
-        if (rx) vv += hh * tanX;
-        if (ry) uu -= side * hh * tanY;
-        if (rz) {
-          const a = uu - l.at[0];
-          const b = vv - l.at[1];
-          uu = l.at[0] + a * cosZ + b * sinZ * side;
-          vv = l.at[1] - a * sinZ * side + b * cosZ;
-        }
         const t = uu <= 0 ? 0 : uu >= l.at[0] ? 1 : uu / l.at[0];
         l.pu = (uu - l.shift * t * t * (3 - 2 * t)) / l.ku;
         l.pv = l.pivot + (vv - l.lower - l.pivot) / l.kv;
@@ -464,7 +563,14 @@ export function chestSkin(shape: ChestShape, piece = false): Skin {
         }
         mix += s * l.weight;
       }
-      const s = g + (mix - g) * fade;
+      let s = g + (mix - g) * fade;
+      if (round) {
+        // 椭球和平胸躯干圆滑地接上，再和参考胸混合；参考胸只剩一部分，它的乳头照分量补回去（往外推那么高）
+        const e = Math.max(rk - Math.abs(g - ball), 0) / rk;
+        let nipple = 0;
+        for (const l of ready) nipple += columnValue(l.p, l.cols.nipple, l.pu, l.pv) * l.kmin * l.weight;
+        s += ((g < ball ? g : ball) - (e * e * rk) / 4 - nipple - s) * round.alpha;
+      }
       return s > cut ? s : cut;
     },
   };
@@ -497,7 +603,9 @@ export function chestRegion(shape: ChestShape): { min: V3; max: V3 } | null {
   const { layers } = chestLayers(shape.size);
   if (!layers.length) return null;
   const [tu, tv, th] = shape.scale ?? [1, 1, 1];
-  const [du, dv, push] = shape.shift ?? [0, 0, 0];
+  const round = layers.length ? roundAt(shape.size) : null;
+  const [shiftU, dv, push] = shape.shift ?? [0, 0, 0];
+  const du = shiftU + (round?.move ?? 0);
   const tilt = Math.max(...(shape.tilt ?? [0, 0, 0]).map((a) => Math.abs(Math.tan(Math.min(80, Math.abs(a)) * DEG))));
   const lift = shape.lift ?? 0;
   const min: V3 = [Infinity, Infinity, Infinity];
@@ -545,6 +653,23 @@ export function chestRegion(shape: ChestShape): { min: V3; max: V3 } | null {
           add(surfacePoint(f, u + slack, ys, h));
           add(surfacePoint(f, Math.max(0, u - slack), ys, -CHEST_DEPTH));
         }
+      }
+    }
+  }
+  if (round) {
+    // 往圆里变的椭球（和平胸接上的圆角也算进去）
+    const c0 = layers[0].at;
+    const cu = Math.max(0.01, c0[0] + du + round.off[0] * tu);
+    const cv = c0[1] + dv + round.off[1] * tv + lift;
+    const [ra, rb, rh] = [round.radii[0] * tu, round.radii[1] * tv, round.radii[2] * th];
+    const rk = FILLET_TOP * rb;
+    const top = round.hc * th + rh + Math.max(push, 0) + rk;
+    for (let i = 0; i <= 8; i++) {
+      for (let j = 0; j <= 8; j++) {
+        const u = Math.max(0, cu + (i / 4 - 1) * (ra + rk));
+        const y = unstretch(cv + (j / 4 - 1) * (rb + rk), shape.body.stretchY);
+        add(surfacePoint(f, u, y, top));
+        add(surfacePoint(f, u, y, -CHEST_DEPTH));
       }
     }
   }

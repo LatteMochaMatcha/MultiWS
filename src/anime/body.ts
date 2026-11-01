@@ -8,7 +8,7 @@
 import type { V3 } from '../geometry/vec';
 import { fetchFile } from '../io/fetchFile';
 import { hasGrid, registerGrid } from '../sdf/grids';
-import { type ChestKind, type ChestPatch, registerChest } from './chest';
+import { type ChestKind, type ChestPatch, type ChestRound, registerChest, registerChestRound } from './chest';
 import meta from './bodyMeta.json';
 
 /**
@@ -35,6 +35,8 @@ const PIECES = meta.grids as Record<AnimePiece, PieceMeta>;
 interface ChestMeta {
   frame: { y0: number; dy: number; rows: number; cols: number; unit: number; offset: number };
   patches: Record<ChestKind, Omit<ChestPatch, 'data' | 'center'> & { center: number[]; offset: number }>;
+  /** 往圆里变的椭球（见 anime/chest.ts 的 ROUNDNESS） */
+  round?: { sizes: number[]; params: number[][] };
 }
 
 /** 登记时用的名字 */
@@ -93,9 +95,9 @@ export function installAnimeBody(buffer: ArrayBuffer) {
   const patch = (p: ChestMeta['patches'][ChestKind]): ChestPatch => ({ ...p, center: [p.center[0], p.center[1]], data: all.subarray(p.offset, p.offset + p.nu * p.nv * p.nh) });
   registerChest(
     { ...frame, zc: read(frame.offset, frame.rows), r: read(frame.offset + frame.rows, n), s: read(frame.offset + frame.rows + n, n) },
-    // 长大的大胸型（grown）是后来加的：重新跑 build-chest.ts 之前的数据里没有，先拿大胸型顶着
-    { reference: patch(patches.reference), large: patch(patches.large), grown: patch(patches.grown ?? patches.large) },
+    { reference: patch(patches.reference), large: patch(patches.large) },
   );
+  registerChestRound(chest.round ? (chest.round as ChestRound) : null);
 }
 
 /** 躯干上的起伏（tools/build-torso.ts）参考了的素材里要求署名的那个（CC BY 4.0）：导出时和脚的署名一起写进去 */
