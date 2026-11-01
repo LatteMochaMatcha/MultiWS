@@ -93,7 +93,8 @@ export function installAnimeBody(buffer: ArrayBuffer) {
   const patch = (p: ChestMeta['patches'][ChestKind]): ChestPatch => ({ ...p, center: [p.center[0], p.center[1]], data: all.subarray(p.offset, p.offset + p.nu * p.nv * p.nh) });
   registerChest(
     { ...frame, zc: read(frame.offset, frame.rows), r: read(frame.offset + frame.rows, n), s: read(frame.offset + frame.rows + n, n) },
-    { reference: patch(patches.reference), large: patch(patches.large) },
+    // 长大的大胸型（grown）是后来加的：重新跑 build-chest.ts 之前的数据里没有，先拿大胸型顶着
+    { reference: patch(patches.reference), large: patch(patches.large), grown: patch(patches.grown ?? patches.large) },
   );
 }
 

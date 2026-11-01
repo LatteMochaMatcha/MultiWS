@@ -47,7 +47,7 @@ export interface ChestPatch {
   data: Int16Array;
 }
 
-export type ChestKind = 'reference' | 'large';
+export type ChestKind = 'reference' | 'large' | 'grown';
 
 let FRAME: ChestFrame | null = null;
 const PATCHES = new Map<ChestKind, ChestPatch>();
@@ -160,54 +160,76 @@ export const CHEST_FLAT = 0.3;
 /** 胸那一片的椭圆放大多少倍以外就是平胸；从多少倍起渐渐换回平胸 */
 const OUTER = 1.35;
 const INNER = 1.1;
-
-const pivotOf = (p: ChestPatch) => p.center[1] + PIVOT * p.rv;
-
-/** 胸照 k 放大以后中心落在哪（u、高度）：左右照正中线放大，上下照 PIVOT 那个高度放大 */
-export function naturalAt(p: ChestPatch, k: number): [number, number] {
-  const pivot = pivotOf(p);
-  return [p.center[0] * k, pivot + (p.center[1] - pivot) * k];
-}
+/**
+ * 胸 2.2 以上：从大胸型原样放大渐渐换成长大的大胸型（grown，build-chest.ts 的 shapeLarge：上坡压低、胸下褶往下展、圆底），
+ * 到 GROW_TO 换足。长大的那一种胸根只略长宽、主要往前和往下长，上下照胸根偏上的高度（GROWN_PIVOT）放大，上缘少往锁骨爬。
+ * 2.2 及以下和以前一样（他看过说 2.2 原来的样子就挺好）
+ */
+const GROW_FROM = 2.2;
+const GROW_TO = 3;
+const GROWN_PIVOT = 0.7;
 
 /** 一层胸型：放大几倍、中心放在哪、占多少分量 */
 interface Layer {
   patch: ChestPatch;
   k: number;
+  /** 胸根的横向、高度和离表面的厚度分别放大几倍（照胸型的格子算好，逐点求值时只除一次） */
+  scale: [number, number, number];
+  /** 上下照胸型里哪个高度放大 */
+  pivot: number;
   at: [number, number];
   weight: number;
 }
 
+/** 照 k 等比放大：左右照正中线放大，上下照 PIVOT 那个高度放大 */
+function plainLayer(patch: ChestPatch, k: number, weight = 1): Layer {
+  const pivot = patch.center[1] + PIVOT * patch.rv;
+  return { patch, k, scale: [k, k, k], pivot, at: [patch.center[0] * k, pivot + (patch.center[1] - pivot) * k], weight };
+}
+
+/** 长大的大胸型：k 是滑块上的大小换成的放大倍数（size / natural），2.2 以上越大长得越慢，胸 3 约十升（以前十二升多，拉成长袋） */
+function grownLayer(patch: ChestPatch, size: number, weight = 1): Layer {
+  const from = GROW_FROM / patch.natural;
+  const over = Math.max(0, size / patch.natural - from);
+  const k = from + over - 0.35 * over * over;
+  const pivot = patch.center[1] + GROWN_PIVOT * patch.rv;
+  const kv = k ** 0.8;
+  const lower = 0.012 * (over / (GROW_TO / patch.natural - from)) ** 2;
+  return { patch, k, scale: [k ** 0.6, kv, k ** 1.02], pivot, at: [patch.center[0] * k ** 0.6, pivot + (patch.center[1] - pivot) * kv - lower], weight };
+}
+
+/** 两层胸型挪到同一个中心（照 t 在两者原本的中心之间取）按比例混合：隔开的两团混出来是尖的 */
+function blend(a: Layer, b: Layer, t: number): Layer[] {
+  const at: [number, number] = [a.at[0] + (b.at[0] - a.at[0]) * t, a.at[1] + (b.at[1] - a.at[1]) * t];
+  return [
+    { ...a, at, weight: 1 - t },
+    { ...b, at, weight: t },
+  ];
+}
+
+const ease = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+
 /**
  * 滑块上的胸：CHEST_FLAT 以下是平胸；往上先是中胸（放大倍数照开方变，再和平胸按比例混合：往小调主要是往平胸里沉，
- * 不缩成一小团）；中胸到大胸之间两种胸型先挪到同一个中心再按比例混合（原样放的话两团隔着三四厘米，混出来是尖的）；
- * 再往上照大胸放大。fade：和平胸混合时胸占多少
+ * 不缩成一小团）；中胸到大胸之间两种胸型渐变；再往上照大胸放大；2.2 以上渐渐换成长大的大胸型（见 GROW_FROM）。
+ * fade：和平胸混合时胸占多少
  */
 export function chestLayers(size: number): { layers: Layer[]; fade: number } {
   const ref = chestPatch('reference');
   const large = chestPatch('large');
   if (size <= CHEST_FLAT) return { layers: [], fade: 0 };
   if (size <= ref.natural) {
-    const k = Math.sqrt(size / ref.natural);
-    return { layers: [{ patch: ref, k, at: naturalAt(ref, k), weight: 1 }], fade: (size - CHEST_FLAT) / (ref.natural - CHEST_FLAT) };
+    return { layers: [plainLayer(ref, Math.sqrt(size / ref.natural))], fade: (size - CHEST_FLAT) / (ref.natural - CHEST_FLAT) };
   }
-  if (size >= large.natural) {
-    const k = size / large.natural;
-    return { layers: [{ patch: large, k, at: naturalAt(large, k), weight: 1 }], fade: 1 };
+  if (size < large.natural) {
+    const t = ease((size - ref.natural) / (large.natural - ref.natural));
+    return { layers: blend(plainLayer(ref, size / ref.natural), plainLayer(large, size / large.natural), t), fade: 1 };
   }
-  const s = (size - ref.natural) / (large.natural - ref.natural);
-  const t = s * s * (3 - 2 * s);
-  const ka = size / ref.natural;
-  const kb = size / large.natural;
-  const p = naturalAt(ref, ka);
-  const q = naturalAt(large, kb);
-  const at: [number, number] = [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
-  return {
-    layers: [
-      { patch: ref, k: ka, at, weight: 1 - t },
-      { patch: large, k: kb, at, weight: t },
-    ],
-    fade: 1,
-  };
+  const plain = plainLayer(large, size / large.natural);
+  if (size <= GROW_FROM) return { layers: [plain], fade: 1 };
+  const grown = grownLayer(chestPatch('grown'), size);
+  const t = ease((size - GROW_FROM) / (GROW_TO - GROW_FROM));
+  return { layers: t >= 1 ? [grown] : blend(plain, grown, t), fade: 1 };
 }
 
 /** 胸的中心（u、高度）在滑块 size 上原本在哪（还没往上下挪、没手动微调） */
@@ -221,7 +243,7 @@ export function chestReach(size: number): [up: number, down: number] {
   const { layers } = chestLayers(Math.max(size, CHEST_FLAT + 0.01));
   let reach = 0;
   // 胸那一片的椭圆连着往外补平的一圈，胸本身大概是它的八成
-  for (const l of layers) reach += l.patch.rv * l.k * 0.8 * l.weight;
+  for (const l of layers) reach += l.patch.rv * l.scale[1] * 0.8 * l.weight;
   return [reach, reach];
 }
 
@@ -231,9 +253,9 @@ export function chestBulk(size: number): { radius: number; depth: number } {
   let radius = 0;
   let depth = 0;
   for (const l of layers) {
-    radius += Math.min(l.patch.ru, l.patch.rv) * l.k * 0.8 * l.weight;
+    radius += Math.min(l.patch.ru * l.scale[0], l.patch.rv * l.scale[1]) * 0.8 * l.weight;
     // 格子往外多采了 2 厘米（build-chest.ts 的 top + 0.02）
-    depth += ((l.patch.nh - 1) * l.patch.cell - l.patch.hIn - 0.02) * l.k * l.weight * fade;
+    depth += ((l.patch.nh - 1) * l.patch.cell - l.patch.hIn - 0.02) * l.scale[2] * l.weight * fade;
   }
   return { radius, depth };
 }
@@ -359,14 +381,14 @@ export function chestSkin(shape: ChestShape, piece = false): Skin {
   const empty = !layers.length || (piece && fade * Math.min(...layers.map((l) => l.k)) < 0.35);
   const ready = layers.map((l) => {
     const p = l.patch;
-    const ku = l.k * tu;
-    const kv = l.k * tv;
-    const kh = l.k * th;
+    const ku = l.scale[0] * tu;
+    const kv = l.scale[1] * tv;
+    const kh = l.scale[2] * th;
     // 往正中线挪也不过正中线
     const at: [number, number] = [Math.max(0.01, l.at[0] + du), l.at[1] + dv];
     // 左右：胸中心那一列对上 at，中心附近照 ku 放大；往正中线那边渐渐换成「正中线对正中线」（左右镜像接得上）
     const shift = Math.min(at[0] - p.center[0] * ku, 0.6 * at[0]);
-    const pivot = pivotOf(p);
+    const pivot = l.pivot;
     return {
       p,
       weight: l.weight,
@@ -489,12 +511,12 @@ export function chestRegion(shape: ChestShape): { min: V3; max: V3 } | null {
   for (const l of layers) {
     const p = l.patch;
     const cols = columns(p);
-    const ku = l.k * tu;
-    const kv = l.k * tv;
-    const kh = l.k * th;
+    const ku = l.scale[0] * tu;
+    const kv = l.scale[1] * tv;
+    const kh = l.scale[2] * th;
     const at: [number, number] = [Math.max(0.01, l.at[0] + du), l.at[1] + dv];
     const shift = Math.min(at[0] - p.center[0] * ku, 0.6 * at[0]);
-    const pivot = pivotOf(p);
+    const pivot = l.pivot;
     const lower = at[1] - (pivot + (p.center[1] - pivot) * kv);
     // 胸型的 u 换回躯干上的 u（chestSkin 里那一步反过来：单调的，二分）
     const realU = (pu: number) => {

@@ -16,3 +16,7 @@ refs/
 
 # 验收台的单张图（几百张、十几 MB）：只留拼好的总图 sheet-*.png 和 summary.json
 docs/accept/*/*_*.png
+
+# 派 Codex 干活的日志、任务说明、临时渲染图，和它对讲用的本机钩子
+.harness-tmp/
+.codex/

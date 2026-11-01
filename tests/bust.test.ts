@@ -1,12 +1,13 @@
 // 二次元素体的胸：贴在平胸躯干表面上的一层（anime/chest.ts、ChestShape；tools/build-chest.ts 从 CC0 参考模型上采的胸型）
 import { describe, expect, it } from 'vitest';
-import { chestFrame, chestLayers, zcOf } from '../src/anime/chest';
+import { chestFrame, chestLayers, chestPatch, chestSkin, shell, surfacePoint, zcOf } from '../src/anime/chest';
+import { animeGrid } from '../src/anime/body';
 import type { ChestShape, Figure, Part } from '../src/geometry/figure';
 import { buildFigure } from '../src/geometry/layout';
 import type { V3 } from '../src/geometry/vec';
 import { type BodySpec, type PartOverride, defaultSpec, normalizeSpec } from '../src/model/spec';
 import { compileField, fieldAt } from '../src/sdf/field';
-import { chestDist } from '../src/sdf/grids';
+import { chestDist, getGrid, gridDist } from '../src/sdf/grids';
 import { fieldFromFunction } from '../src/sdf/field';
 import { meshField } from '../src/sdf/surfaceNets';
 import { useAnimeBody } from './animeBody';
@@ -24,6 +25,11 @@ const centerOf = (f: Figure): V3 => {
   const chest = part(f, 'Chest_01_L');
   return [0, 1, 2].map((k) => (torso.pos[k] + chest.pos[k]) * f.scale) as V3;
 };
+
+/** 不带身高、腰胯变形的原始躯干，用来量与离线验收图同单位的体积。 */
+const nativeChest = (size: number, side: 1 | -1 = 1): ChestShape => ({
+  kind: 'chest', name: 'Breast', body: { kind: 'grid', name: 'Torso', grid: animeGrid('torsoFlat') }, origin: [0, 0, 0], side, size,
+});
 
 describe('二次元素体的胸', () => {
   useAnimeBody();
@@ -62,7 +68,9 @@ describe('二次元素体的胸', () => {
   });
 
   it('胸根没有折痕：胸中心那个高度上从正中往侧面绕一圈，表面的走向慢慢变，没有突然拐弯', () => {
-    for (const bust of [0.8, 1.3, 2.2, 3]) {
+    // 2.2 及以下是原来的胸型，照以前量到侧面 100 度（原来的大胸型调到 1.6 上下时外侧胸根有一道偏紧的弯，四十度上下，没改）；
+    // 2.2 以上长大的大胸型胸根往侧面长，量到后侧 140 度才会完整经过它和躯干的交界
+    for (const bust of [0.8, 1.3, 2.2, 2.6, 3]) {
       const f = buildFigure(anime(bust));
       const field = chestField(f);
       const torso = part(f, 'Torso');
@@ -71,7 +79,7 @@ describe('二次元素体的胸', () => {
       // 躯干的竖轴（展开图上那一行的前后正中），从它往外沿各个角度量到表面多远
       const zc = (torso.pos[2] + zcOf(chestFrame(), y / s - torso.pos[1])) * s;
       const pts: [number, number][] = [];
-      for (let deg = 2; deg <= 100; deg += 2) {
+      for (let deg = 2; deg <= (bust > 2.2 ? 140 : 100); deg += 2) {
         const a = (deg * Math.PI) / 180;
         const out = (r: number) => fieldAt(field, r * Math.sin(a), y, zc + r * Math.cos(a)) > 0;
         let r = 0.45 * s;
@@ -83,7 +91,12 @@ describe('二次元素体的胸', () => {
         pts.push([lo * Math.sin(a), zc + lo * Math.cos(a)]);
       }
       let worst = 0;
+      let checked = 0;
       for (let k = 1; k + 1 < pts.length; k++) {
+        // 下坠后乳头会经过这张横切面，不能把乳头的圆尖当成胸根折痕。只量距胸壁两厘米以内的根部，35 度门槛不变。
+        const h = shell(chestFrame(), pts[k][0] / s - torso.pos[0], y / s - torso.pos[1], pts[k][1] / s - torso.pos[2]).h;
+        if (h > 0.02) continue;
+        checked++;
         const a = Math.atan2(pts[k][1] - pts[k - 1][1], pts[k][0] - pts[k - 1][0]);
         const b = Math.atan2(pts[k + 1][1] - pts[k][1], pts[k + 1][0] - pts[k][0]);
         let turn = Math.abs(b - a);
@@ -92,6 +105,7 @@ describe('二次元素体的胸', () => {
       }
       // 每 2 度（4 毫米上下）拐多少度：乳沟、胸侧和躯干接上的那一道弯（半径一厘米上下）拐二十几度；一道折痕是一下子拐四五十度
       expect(worst, `胸 ${bust}`).toBeLessThan(35);
+      expect(checked, `胸 ${bust} 有量到胸根`).toBeGreaterThan(2);
     }
   });
 
@@ -128,6 +142,93 @@ describe('二次元素体的胸', () => {
     }
   });
 
+  it('实际凸出体积在中大胸渐变时连续增大，常用大小不因收胸根而缩水', () => {
+    const flat = gridDist(getGrid(animeGrid('torsoFlat'))).fn;
+    const volumes = new Map<number, number>();
+    let last = 0;
+    // 单边按 5 毫米体素计，再乘二；量的是平胸以外的体积，不能把插入躯干的封口算进去。
+    const h = 0.005;
+    for (const size of [0.6, 1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.63, 2.2, 2.6, 3]) {
+      const d = chestDist(nativeChest(size));
+      let n = 0;
+      for (let x = h / 2; x < d.max[0]; x += h) {
+        for (let y = d.min[1] + h / 2; y < d.max[1]; y += h) {
+          for (let z = d.min[2] + h / 2; z < d.max[2]; z += h) if (d.fn(x, y, z) < 0 && flat(x, y, z) >= 0) n++;
+        }
+      }
+      const liters = n * h ** 3 * 2000;
+      expect(liters, `胸 ${size} 单调增大`).toBeGreaterThan(last);
+      last = liters;
+      volumes.set(size, liters);
+    }
+    // 改前 0.6 / 1 / 2.2 约 0.03 / 0.19 / 4.37 L；允许体素计数误差和下半部的少量体积分配变化。
+    expect(volumes.get(0.6)).toBeGreaterThan(0.02);
+    expect(volumes.get(0.6)).toBeLessThan(0.05);
+    expect(volumes.get(1)).toBeGreaterThan(0.16);
+    expect(volumes.get(1)).toBeLessThan(0.23);
+    expect(volumes.get(1.6)).toBeGreaterThan(1.35);
+    expect(volumes.get(1.6)).toBeLessThan(1.8);
+    expect(volumes.get(2.2)).toBeGreaterThan(3.9);
+    expect(volumes.get(2.2)).toBeLessThan(4.7);
+    // 主线确认最大档以自然轮廓优先，从旧版 12.3 L 收到约 9–10 L。
+    expect(volumes.get(3)).toBeGreaterThan(8.8);
+    expect(volumes.get(3)).toBeLessThan(10.3);
+  });
+
+  it('胸 2.2 以上换成长大的大胸型：宽下胸根、连续圆底，上胸根不往锁骨爬；左右对称', () => {
+    let firstTop = 0;
+    // 2.2 及以下是原来的大胸型（他看过说就挺好），只拿来量上胸根原来在哪、查左右对称
+    for (const size of [2.2, 2.6, 3]) {
+      const fn = gridDist(getGrid(animeGrid('torsoFlat')), { skin: chestSkin(nativeChest(size)) }).fn;
+      const left = chestSkin(nativeChest(size));
+      const right = chestSkin(nativeChest(size, -1));
+      const u = chestLayers(size).layers[0].at[0];
+      const bottom: number[] = [];
+      let rootLo = Infinity;
+      let rootHi = -Infinity;
+      let lastH = 0;
+      for (let ih = 0; ih < 140; ih++) {
+        const h = 0.003 + ih * 0.002;
+        let low = NaN;
+        for (let y = 0.9; y < 1.31; y += 0.002) {
+          const p = surfacePoint(chestFrame(), u, y, h);
+          const d = fn(...p);
+          if (ih % 10 === 0) {
+            // 两边给同一个胸壁距离，排除素体原网格的小幅不对称；胸层自身必须严格镜像。
+            const a = left.prepare(...p, y);
+            const b = right.prepare(-p[0], p[1], p[2], y);
+            expect(a > 0 ? a : left.finish(h)).toBeCloseTo(b > 0 ? b : right.finish(h), 9);
+          }
+          if (d >= 0) continue;
+          if (!Number.isFinite(low)) low = y;
+          lastH = ih;
+          if (ih === 0) {
+            rootLo = Math.min(rootLo, y);
+            rootHi = Math.max(rootHi, y);
+          }
+        }
+        bottom.push(low);
+      }
+      if (!firstTop) firstTop = rootHi;
+      if (size <= 2.2) continue;
+      expect(rootHi - firstTop, `胸 ${size} 上胸根抬升`).toBeLessThan(0.02);
+      expect((0.003 + lastH * 0.002) / (rootHi - rootLo), `胸 ${size} 前凸与胸根高度比`).toBeLessThan(1.1);
+      expect(rootLo - Math.min(...bottom.filter(Number.isFinite)), `胸 ${size} 胸下褶与最低点`).toBeLessThan(0.035);
+      // 下缘从褶向前应是一段凸弧：弦中点不高于两端均值，留两毫米给离散采样；旧的台阶接平底会反向拐弯。
+      const lo = Math.round(lastH * 0.25);
+      const hi = Math.round(lastH * 0.75);
+      const mid = Math.round((lo + hi) / 2);
+      expect(bottom[mid] - (bottom[lo] + bottom[hi]) / 2, `胸 ${size} 下缘圆弧`).toBeLessThanOrEqual(0.0021);
+    }
+  });
+
+  it('胸 2.2 及以下只用中胸、原来的大胸型，2.2 以上渐渐换成长大的大胸型，到 3 换足', () => {
+    const kinds = (size: number) => chestLayers(size).layers.map((l) => l.patch);
+    for (const size of [0.6, 1.3, 1.63, 2.2]) expect(kinds(size)).not.toContain(chestPatch('grown'));
+    expect(kinds(2.6)).toEqual([chestPatch('large'), chestPatch('grown')]);
+    expect(kinds(3)).toEqual([chestPatch('grown')]);
+  });
+
   it('分部件时每个胸是封闭的一块（胸根以内，插进躯干一点）', () => {
     for (const bust of [1, 2.2, 3]) {
       const f = buildFigure(anime(bust));
@@ -136,15 +237,26 @@ describe('二次元素体的胸', () => {
         const mesh = meshField(fieldFromFunction(d.fn, d.min, d.max), 0.005);
         expect(mesh.triangles.length, `${bust} ${p.name}`).toBeGreaterThan(300);
         const edges = new Map<string, number>();
+        const parent = new Map<number, number>();
+        const root = (v: number): number => {
+          if (!parent.has(v)) parent.set(v, v);
+          while (parent.get(v) !== v) {
+            parent.set(v, parent.get(parent.get(v)!)!);
+            v = parent.get(v)!;
+          }
+          return v;
+        };
         for (let k = 0; k < mesh.triangles.length; k += 3) {
           for (let e = 0; e < 3; e++) {
             const a = mesh.triangles[k + e];
             const b = mesh.triangles[k + ((e + 1) % 3)];
             const key = a < b ? `${a},${b}` : `${b},${a}`;
             edges.set(key, (edges.get(key) ?? 0) + 1);
+            parent.set(root(a), root(b));
           }
         }
         expect([...edges.values()].filter((n) => n !== 2).length, `${bust} ${p.name}`).toBe(0);
+        expect(new Set([...parent.keys()].map(root)).size, `${bust} ${p.name} 只有一块`).toBe(1);
       }
     }
   });
