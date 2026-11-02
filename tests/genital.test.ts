@@ -76,13 +76,14 @@ describe('摆位', () => {
 describe('几副胯各一套', () => {
   const count = (spec: BodySpec, prefix: string) => genitals(spec).filter((p) => p.name.startsWith(prefix)).length;
 
-  it('站着的人腿几副胯各一套，人马、蛛形一套', () => {
+  it('站着的人腿几副胯各一套，胯部聚拢、人马、蛛形一套', () => {
     useGenital();
     const cases: [BodySpec['legLayout'], number, number][] = [
       ['abreast', 4, 2],
       ['abreast', 6, 3],
       ['tandem', 6, 3],
-      ['gather', 4, 2],
+      // 胯部聚拢几副胯挤在一起，只长一套
+      ['gather', 6, 1],
       ['humantaur', 4, 2],
       ['row', 4, 1],
       ['taur', 4, 1],

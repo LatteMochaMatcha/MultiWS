@@ -488,8 +488,8 @@ export const HUMANTAUR_SPAN = 0.46;
  */
 export const GATHER_SPAN = 0.08;
 /**
- * 挂在身体底下的阴茎：离开那副胯的两条腿，挂在前面的肚子底下（贴着腿的话，两条大腿根中间融出来的那一块会被当成身体表面，挂得太低）。
- * 前后串联、胯部聚拢挂在和前一副胯的正中；人腿人马挂在那截腰底下（离后面那副胯一截腰长的几成）；
+ * 挂在身体底下的阴茎：离开那副胯的两条腿，挂在前面的肚子底下（贴着腿的话，两条大腿根中间融出来的那一块会挡住，切口融成一片缝不上）。
+ * 前后串联挂在和前一副胯的正中；人腿人马挂在那截腰底下（离后面那副胯一截腰长的几成）；
  * 人马挂在后腿前面多远；蛛形挂在头胸部底下哪里（高度、前后）
  */
 const UNDER_FRAC = 0.5;
@@ -1261,7 +1261,7 @@ export function lowerParts(options: LowerOptions): { parts: Part[]; tailRoot: V3
     stations.forEach((count, k) => humanRow(count, hz - k * span, legParent(k), gatherOut(k, step, -humanLegJoints(1, hx).ankle[1], odd)));
     tailRoot = [options.tailRoot[0], options.tailRoot[1], -back + options.tailRoot[2]];
     tailParent = legParent(n - 1);
-    mounts = chain.map((at, k) => (k ? under(at[2], pelvisY, legParent(k), span * UNDER_FRAC) : front()));
+    // 几副胯前后只隔一点点，后面几副的胯下都挤在前一副的底下：只长一套，在最前面那副的小腹上（11-02 定的）
   } else if (form === 'tandem') {
     // 人腿前后串联：骨盆向后延长，每对腿各占一段
     const spacing = 0.26;
