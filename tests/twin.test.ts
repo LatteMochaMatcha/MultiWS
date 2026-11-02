@@ -83,6 +83,27 @@ describe('横排两副胯：两个人并成一个宽躯干（C）、一个人的
     for (const leg of legs) expect(leg.fuseAs, leg.name).toBe('torso');
   });
 
+  it('D 选了宽躯干（多个头 wide）：并成两个人宽的躯干、胸按一个人摆在正中放大，手臂只在两边外侧，头照原样大；只在横排两副胯时这样', () => {
+    useAnimeBody();
+    const f = buildFigure(make({}, { headLayout: 'wide' }));
+    const torso = f.parts.find((p) => p.name === 'Torso')!.prims[0] as GridShape;
+    expect(torso.twin!.levels![3]).toBeLessThan(2);
+    const d = torso.twin!.d;
+    for (const head of f.parts.filter((p) => p.type === 'head')) expect(head.scale ?? 1).toBeCloseTo(1, 6);
+    for (const c of f.parts.filter((p) => p.type === 'chest')) {
+      expect((c.prims[0] as { wide?: boolean }).wide, c.name).toBe(true);
+      expect((c.prims[0] as { scale?: number[] }).scale, c.name).toEqual([1.3, 1.3, 1.3]);
+    }
+    const arms = f.parts.filter((p) => p.type === 'arm');
+    expect(arms).toHaveLength(6);
+    for (const arm of arms) expect(Math.abs(arm.pos[0]), arm.name).toBeGreaterThan(d + 0.05);
+    // 和两个上半身那种并成宽躯干的一样，只是不长里侧那两条
+    expect(arms.map((p) => p.name).sort()).toEqual(merged(make()).parts.filter((p) => p.type === 'arm' && !p.name.startsWith('Arm_04')).map((p) => p.name).sort());
+    // 别的组合选了宽躯干照凑成一簇
+    expect(buildFigure(make({ legs: 2 }, { legLayout: 'auto', headLayout: 'wide' }))).toEqual(buildFigure(make({ legs: 2 }, { legLayout: 'auto', headLayout: 'cluster' })));
+    expect(buildFigure(make({ heads: 3 }, { headLayout: 'wide' }))).toEqual(buildFigure(make({ heads: 3 }, { headLayout: 'cluster' })));
+  });
+
   it('C：两根脖子、两副胯各在一份底下；胸按一个人算摆在正中、放大；外侧的手臂照设定，里侧各一条往前伸；左右对称', () => {
     useAnimeBody();
     const f = merged(make());

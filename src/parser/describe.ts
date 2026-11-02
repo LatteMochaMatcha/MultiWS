@@ -53,6 +53,7 @@ export function describeSpec(spec: Describable): string {
     const hip = spec.hipLegs ?? HIP_LEGS.def;
     if (perHip(spec.legLayout) && hip !== HIP_LEGS.def) p.push(`每副胯${zhCount(hip)}条腿`);
   }
+  if (spec.headLayout === 'wide' && c.heads > 1) p.push('宽躯干');
   if (c.tails) p.push(`${zhCount(c.tails)}条尾巴`);
   if (c.wingPairs) p.push(`${zhCount(c.wingPairs)}对翅膀`);
   if (c.hornsPerHead) p.push(`每个头${zhCount(c.hornsPerHead)}只角`);
@@ -87,7 +88,7 @@ export function summarize(spec: Describable): Chip[] {
 
   return [
     { key: 'torsos', label: `上半身 ${c.torsos}` },
-    { key: 'heads', label: manyFaces(spec) ? `一个头 ${c.heads} 张脸` : `头 ${c.heads}` },
+    { key: 'heads', label: manyFaces(spec) ? `一个头 ${c.heads} 张脸` : spec.headLayout === 'wide' && c.heads > 1 ? `头 ${c.heads} · 宽躯干` : `头 ${c.heads}` },
     { key: 'armPairs', label: `手臂 ${c.armPairs} 对` },
     { key: 'chestPairs', label: c.chestPairs ? `胸 ${c.chestPairs} 对` : '平胸' },
     { key: 'legs', label: legs },

@@ -148,7 +148,7 @@ const ROW_TAPER = 0.3;
 const BACK_BAND: [number, number] = [1.06, 1.24];
 const BACK_BLEND: [front: number, back: number] = [0.03, -0.03];
 /**
- * 并成一个宽躯干的（C）：正中那对胸（按一个人算）整个放大几倍（沿表面横着、竖着、往外都放大，照正中线放大，乳沟不挤扁）：
+ * 并成一个宽躯干的（C、选了宽躯干的 D）：正中那对胸（按一个人算）整个放大几倍（沿表面横着、竖着、往外都放大，照正中线放大，乳沟不挤扁）：
  * 一个人的胸贴在两个人宽的躯干上看着小，照参考图 CD-2、CD-3 正中那对要大一截。多排胸的排距跟着放大
  */
 const WIDE_CHEST = 1.3;
@@ -344,8 +344,8 @@ function headProportion(headRatio: number) {
 }
 
 /**
- * twin：两个人并成一个宽躯干（见 TWIN）。只给两个上半身（每个一个头）、横排两副胯的用（layout.ts 照这个摆好再切成两个上半身）；
- * 一个上半身两个头的是一个人的身子顶两个头，不并
+ * twin：两个人并成一个宽躯干（见 TWIN），两个人里侧的肩膀上也各长一条手臂。两个上半身（每个一个头）、横排两副胯的用（layout.ts 照这个摆好再切成两个上半身）。
+ * 一个上半身两个头的平常是一个人的身子顶两个头；「多个头」选了宽躯干（headLayout 'wide'）的也并，但手臂只长在两边外侧
  */
 export function layoutAnime(spec: BodySpec, twin = false): Figure {
   const c = spec.counts;
@@ -365,8 +365,11 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
    * 以前只有两个头的这样，一个头、三个头的胯是一块横着的椭球，往两边翻出去像条裙摆。一副胯三条腿的（5 条腿）素体的腿根排不下，还是那块椭球
    */
   const hipPair = form === 'abreast' && plan.stations.length === 2 && plan.stations.every((n) => n === 2) && c.torsos === 1;
-  /** 两个人并成一个宽躯干（见 TWIN）：两个上半身、横排两副胯的照「一个上半身两个头」摆成这样，再切成两个上半身（见 layout.ts）。别的两副胯腰以上是一个人的（见 PAIR_HIPS） */
-  const twinned = twin && hipPair && necks === 2;
+  /**
+   * 两个人并成一个宽躯干（见 TWIN）：两个上半身、横排两副胯的照「一个上半身两个头」摆成这样，再切成两个上半身（见 layout.ts）；
+   * 一个上半身两个头、「多个头」选了宽躯干的也这样。别的两副胯腰以上是一个人的（见 PAIR_HIPS）
+   */
+  const twinned = (twin || spec.headLayout === 'wide') && hipPair && necks === 2;
   // 头多了每个头小一圈（见 bodyPlan.ts）；并成一个宽躯干的是两个人，头照原样大
   const hs = proportion.hs * headShrink(twinned ? 1 : necks);
   const parts: Part[] = [];
@@ -760,14 +763,15 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
   }
 
   /*
-   * 并成一个宽躯干的（C）：每个人里侧的肩膀上也长一条手臂（照参考图 CD-2、CD-3），排在外侧那几对后面。
+   * 两个上半身并成一个宽躯干的（C）：每个人里侧的肩膀上也长一条手臂（照参考图 CD-2、CD-3），排在外侧那几对后面。
+   * 一个上半身选了宽躯干的不长（手臂只在两边外侧）。
    * 就是对面那个人外侧最贴身的那条挪过来（里侧那个肩膀和外侧的对着那个人自己的正中线左右对称），从两根脖子中间那块肩膀上长出来，
    * 姿势和两个上半身直立并排时里侧的手臂一样（见 torsos.ts 的 BESIDE_DROP）：往前伸、往自己那边偏；胸越大抬得越高（胸 1.6 以上多抬 WIDE_ARM_LIFT，往前略微朝上；
    * 抬得少的话前臂擦着放大过的胸顶过去，融出来的网格在那里破洞），
    * 从正中那对放大过的胸上面过去，不埋进胸里。
    * 外侧聚拢着好几条的，里侧也只长一条：第二条要抬到平举，正面看像一根横在胸口上的棍
    */
-  if (twinned) {
+  if (twinned && twin) {
     for (const outer of parts.filter((p) => p.type === 'arm' && p.name.startsWith(`Arm_${pad(c.armPairs)}_`))) {
       const side = outer.side as 1 | -1;
       const i = Number(/^Arm_(\d+)_/.exec(outer.name)![1]) - 1;

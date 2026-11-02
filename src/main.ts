@@ -126,7 +126,7 @@ const THEME_KEY = 'oc-basemesh-theme';
 const UI_KEY = 'oc-basemesh-ui';
 const START_TEXT = '两个头，两对手，两对胸';
 
-const HEAD_LABEL: Record<HeadLayout, string> = { cluster: '凑成一簇', faces: '一个头几张脸' };
+const HEAD_LABEL: Record<HeadLayout, string> = { cluster: '凑成一簇', faces: '一个头几张脸', wide: '宽躯干' };
 const ARM_LABEL: Record<ArmLayout, string> = { stack: '沿躯干上下排', fan: '肩部扇形聚拢' };
 const MESH_LABEL: Record<MeshMode, string> = { fused: '融合成一整块', parts: '分部件（v1）' };
 const HAND_LABEL: Record<HandStyle, string> = { fingers: '分指', mitten: '并指（手套形）' };

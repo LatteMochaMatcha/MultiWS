@@ -414,6 +414,8 @@ const LEG_TANDEM_RE = new RegExp(
 const LEG_GATHER_RE = new RegExp(
   `(?:腿|胯)[^,。;、手臂肩胳]{0,4}?(?:扇形)?聚拢|${L}(?:gathered|fan(?:ned)?)${S}legs${R}`,
 );
+/** 多个头选了宽躯干（见 HEAD_LAYOUTS）：「宽躯干」「wide torso」 */
+const WIDE_TORSO_RE = new RegExp(`宽躯干|${L}wide${S}torso${R}`);
 /** 横排多胯、多胯横排、几副胯左右并排（说的是胯，不是腿：「腿横排」是腿左右并排） */
 const LEG_ABREAST_RE = new RegExp(
   `横排${CLAUSE}{0,2}?(?:多|几)?副?胯|胯${CLAUSE}{0,4}?(?:横排|左右并排|并排)|${L}(?:side${S}by${S}side|abreast)${S}hips${R}`,
@@ -790,6 +792,7 @@ export function parseDescription(text: string): ParseResult {
 
   /* ---- 6. 排布与耳形：明说的优先于关键词带出来的 ---- */
   if (facesSaid) headLayout = 'faces';
+  else if (WIDE_TORSO_RE.test(work)) headLayout = 'wide';
   else if (headsSaid) headLayout = 'cluster';
 
   if (ARM_STACK_RE.test(work)) armLayout = 'stack';

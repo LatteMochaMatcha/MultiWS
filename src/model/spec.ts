@@ -129,9 +129,11 @@ export const SHAPE_DEF_BY_KEY = Object.fromEntries(SHAPE_DEFS.map((d) => [d.key,
 /**
  * 多个头怎么长：
  * cluster 凑成一簇，各有各的脖子；
- * faces 一个头上长几张脸，共用一个脖子（阿修罗、梵天那种「三面」「四面」）。
+ * faces 一个头上长几张脸，共用一个脖子（阿修罗、梵天那种「三面」「四面」）；
+ * wide 宽躯干：两个头各有自己的肩膀，并成一个两个人宽的躯干，手臂只长在两边外侧。只在二次元素体、一个上半身、
+ * 两个头、横排两副胯（每副两条腿）时这样，别的组合照 cluster。
  */
-export const HEAD_LAYOUTS = ['cluster', 'faces'] as const;
+export const HEAD_LAYOUTS = ['cluster', 'faces', 'wide'] as const;
 export type HeadLayout = (typeof HEAD_LAYOUTS)[number];
 
 /** 多对手臂：沿躯干上下排 / 肩部扇形聚拢 */

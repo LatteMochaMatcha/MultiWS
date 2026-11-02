@@ -103,6 +103,9 @@ describe('describeSpec 规范描述', () => {
     expect(describeSpec(withCounts({ heads: 3 }, { headLayout: 'faces' }))).toBe('三张脸，一对手臂，一对胸，一对腿');
     expect(describeSpec(withCounts({ heads: 3 }, { headLayout: 'cluster' }))).toBe('三个头，一对手臂，一对胸，一对腿');
     expect(describeSpec(withCounts({ heads: 1 }, { headLayout: 'faces' }))).toBe('一个头，一对手臂，一对胸，一对腿');
+    expect(describeSpec(withCounts({ heads: 2, legs: 4 }, { headLayout: 'wide', legLayout: 'abreast' }))).toBe('两个头，一对手臂，一对胸，两对腿，横排多胯，宽躯干');
+    expect(parseDescription('两个头，四条腿，横排多胯，宽躯干').headLayout).toBe('wide');
+    expect(parseDescription('two heads, wide torso').headLayout).toBe('wide');
     expect(describeSpec(applyPreset(defaultSpec(), PRESETS.find((p) => p.name === '阿修罗')!))).toBe(
       '三张脸，三对手臂，一对胸，一对腿，手臂肩部聚拢',
     );
