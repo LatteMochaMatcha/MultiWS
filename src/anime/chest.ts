@@ -447,6 +447,7 @@ const DEG = Math.PI / 180;
 /**
  * 一个胸部件的距离场（见 sdf/grids.ts 的 Skin），写在躯干格子自己的坐标里（已经退回加宽、加长这些变形之前）：
  * prepare 拿到退回去以后的点和退回加长（stretchY）之前的高度 yp——胸照 yp 摆，胸腔加长时胸不跟着拉长（胸贴着的那一圈表面照退回去的算）；
+ * 躯干在那里横着压窄了（taperX，多排胸下面那截肋骨）的话，沿表面横着的 u 乘回去——胸照压窄之前的宽度摆，不跟着压窄，下排还是和第一排一样；
  * finish 拿到那里平胸躯干的距离 g。
  * 只取这一边（side）、离平胸表面往里 CHEST_DEPTH 以外、胸那一片以内的：融合时和躯干取并集，就是贴好胸的躯干。
  * piece：分部件用——只取胸根以内（凸出平胸 3 毫米以上的那一片），平胸以外的皮不要（和躯干叠在一起）
@@ -506,14 +507,14 @@ export function chestSkin(shape: ChestShape, piece = false): Skin {
   let rk = 1;
   let cut = 0;
   return {
-    prepare(x, y, z, yp) {
+    prepare(x, y, z, yp, narrow = 1) {
       if (empty) return 1;
       const own = -x * side;
       const at = shell(f, x, y, z);
       h = at.h;
       // 手动微调的转动：绕胸中心在表面上转（rz），胸尖往下、往外歪（rx、ry：离表面越远挪得越多）。几层胸型的中心是同一个
       const hh = h - push;
-      let uu = at.u;
+      let uu = at.u * narrow;
       let vv = yp - lift;
       if (rx) vv += hh * tanX;
       if (ry) uu -= side * hh * tanY;
@@ -599,6 +600,8 @@ export function chestRegion(shape: ChestShape): { min: V3; max: V3 } | null {
   const du = shiftU + (round?.move ?? 0);
   const tilt = Math.max(...(shape.tilt ?? [0, 0, 0]).map((a) => Math.abs(Math.tan(Math.min(80, Math.abs(a)) * DEG))));
   const lift = shape.lift ?? 0;
+  /** 躯干横着压窄的话（taperX），胸在躯干上横着占得宽一些（见 chestSkin） */
+  const wide = 1 / Math.min(1, shape.body.taperX?.k ?? 1);
   const min: V3 = [Infinity, Infinity, Infinity];
   const max: V3 = [-Infinity, -Infinity, -Infinity];
   const add = (q: V3) => {
@@ -636,7 +639,7 @@ export function chestRegion(shape: ChestShape): { min: V3; max: V3 } | null {
         const top = Number.isNaN(cols.rise[k]) ? 0 : Math.max(0, cols.rise[k]);
         const h = top * kh + Math.max(push, 0) + 0.005;
         const slack = h * tilt;
-        const u = realU(iu * p.cell);
+        const u = realU(iu * p.cell) * wide;
         // 胸照加长以后的高度摆，贴着的那一圈表面在加长之前的高度上
         const y = pivot + (p.v0 + iv * p.cell - pivot) * kv + lower + lift;
         for (const dy of slack ? [-slack, 0, slack] : [0]) {
@@ -657,7 +660,7 @@ export function chestRegion(shape: ChestShape): { min: V3; max: V3 } | null {
     const top = round.hc * th + rh + Math.max(push, 0) + rk;
     for (let i = 0; i <= 8; i++) {
       for (let j = 0; j <= 8; j++) {
-        const u = Math.max(0, cu + (i / 4 - 1) * (ra + rk));
+        const u = Math.max(0, cu + (i / 4 - 1) * (ra + rk)) * wide;
         const y = unstretch(cv + (j / 4 - 1) * (rb + rk), shape.body.stretchY);
         add(surfacePoint(f, u, y, top));
         add(surfacePoint(f, u, y, -CHEST_DEPTH));

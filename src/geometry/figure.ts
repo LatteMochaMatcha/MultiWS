@@ -135,6 +135,8 @@ export interface GridShape extends Mass {
   thicken?: Thicken;
   /** 离身体中线的距离按比例拉宽、压窄（胯宽），见 sdf/grids.ts 的 GridUse.spreadX */
   spreadX?: SpreadX;
+  /** 再一份按比例压窄（多排胸时胸下面接长的那截肋骨往下收），见 sdf/grids.ts 的 GridUse.taperX */
+  taperX?: SpreadX;
   /** 斜过去（腿胯部聚拢时往外散开），见 sdf/grids.ts 的 GridUse.lean */
   lean?: [out: number, depth: number];
   /** 从胯往上渐渐分开（好几个上半身），见 sdf/grids.ts 的 GridUse.fork */

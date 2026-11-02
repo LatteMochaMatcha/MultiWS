@@ -15,7 +15,7 @@ import { FINGER_JOINTS, HAND_STUMP, handGraft } from '../anime/hand';
 import { type BodySpec, legPlan } from '../model/spec';
 import { type CompiledField, castRay, compileField } from '../sdf/field';
 import { type Stretch, restretch } from '../sdf/stretch';
-import { type Figure, type Graft, type GridShape, type Part, type Prim, type WidenBand, nthName } from './figure';
+import { type Figure, type Graft, type GridShape, type Part, type Prim, type SpreadX, type WidenBand, nthName } from './figure';
 import { type CustomHead, type HeadHair, makeFace, makeHead } from './head';
 import {
   type HangBlock,
@@ -121,10 +121,23 @@ const ROW_STRETCH = 0.05;
 const ROW_RAMP = 0.04;
 /**
  * 多排胸时相邻两排隔多远：上一排的下沿到下一排的上沿，下一排上半截的 rowTuck 收在上一排底下（再留 ROW_ROOM）——大胸上排胸底压在下排上缘；
- * 小胸不往下坠，压不上去，上下排挨着（不然几排小胸挤成一片像腹肌）
+ * 小胸不往下坠，压不上去，上下排挨着（不然几排小胸挤成一片像腹肌）。
+ * 以前收进去一半：两只一样大的胸上下叠得多，接缝是一条横的直线，连着乳沟那条竖线，一排排胸成了一格格方块
  */
-const rowTuck = (size: number) => 0.5 * smooth(size - 1);
+const rowTuck = (size: number) => 0.25 * smooth(size - 1);
 const ROW_ROOM = 0.01;
+/**
+ * 多排胸时每排胸尖往下垂多少度（ChestShape.tilt 的第一个，胸 2 以上垂足，小胸不垂）：几排一样垂下来，上下排的接缝成了上排胸底的圆弧，
+ * 上排像搭在下排上，每只胸是圆的，不是方的；胸还是一样大
+ */
+const ROW_DROOP = 15;
+/**
+ * 多排胸时胸下面接长的那截肋骨往下渐渐收窄（离中线的距离乘的倍数，见 GridShape.taperX）：从第一排胸中心往下每米收 ROW_TAPER，
+ * 到最下面一排收足，过了它到腰最细的地方（SHAPE.waist）渐渐变回原样。不然接出来的是一根直筒，正面、背面两条竖直线，太方。
+ * 胸照躯干收窄之前的宽度摆（见 anime/chest.ts 的 chestSkin），下排还是和第一排一样大、一样远。
+ * 胸越大收得越少，胸 2 以上不收：大胸把躯干两边挡住了，最下面一排的下半截又正好在变回原样的那一段上，胸外侧被扯成方角
+ */
+const ROW_TAPER = 0.3;
 /** 多排胸时手臂沿躯干上下排隔多远：第二对从第一对下面一点、腋下的肋骨侧面长出来（照参考图 A-arms-3d、A-rows-arms），不跟着胸一排排往下 */
 const ARM_ROW = 0.1;
 /** 腰最细的地方大概多高（人腿人马后面接的那截腰照这里的粗细） */
@@ -341,6 +354,8 @@ export function layoutAnime(spec: BodySpec): Figure {
   /** 躯干在哪一段拉长（见 STRETCH、ROW_STRETCH） */
   const band: [number, number] = c.chestPairs > 1 ? [chestV - ROW_STRETCH, chestV] : STRETCH;
   const stretch: Stretch | undefined = extra ? (c.chestPairs > 1 ? [band[0], band[1], extra, ROW_RAMP] : [band[0], band[1], extra]) : undefined;
+  /** 素体上的高度加长胸腔以后在哪 */
+  const raised = (y: number) => restretch(y, stretch);
   const shoulderY = SHOULDER[1] + extra;
   // 多个头：凑成一簇，脸贴着脸；脖子根并排挤在肩膀中间（见 bodyPlan.ts）。
   // 素体的肩膀窄、头大：四五个头时脖子根排不下，肩膀会稍微加宽一点
@@ -374,11 +389,20 @@ export function layoutAnime(spec: BodySpec): Figure {
   // 人马 / 蛛形：上半身抬高、前移，坐在兽身的前端
   const lift = beastLift(form);
 
+  /** 多排胸时下半截肋骨往下收窄（见 ROW_TAPER）：从第一排胸中心（rowTop）收到最下面一排胸中心（rowLow）；并成一个宽躯干的不收 */
+  const rowTop = raised(chestV);
+  const rowLow = rowTop - (c.chestPairs - 1) * gap;
+  const taperBy = ROW_TAPER * (rowTop - rowLow) * (1 - smooth(rowSize - 1));
+  const taper: SpreadX | undefined =
+    c.chestPairs > 1 && !twinned && taperBy > 1e-6
+      ? { mid: 0, rise: 0, k: 1 - taperBy, levels: [rowTop, rowLow, rowLow, Math.min(SHAPE.waist.y, rowLow - 0.05)] }
+      : undefined;
   // 胸部大小往小调：躯干在「原样」和「平胸」两份形状之间混合
   const flat = Math.min(1, Math.max(0, (1 - sh.bust) / (1 - CHEST_FLAT)));
   // 两种原素材的胸都接在平胸躯干上，避免原 VRoid 胸型从下面顶出来改变轮廓。
   const plain = grid('Torso', 'torso', 1, {
     ...(stretch ? { stretchY: stretch } : {}),
+    ...(taper ? { taperX: taper } : {}),
     ...(c.chestPairs > 0 || flat ? { morph: [animeGrid('torsoFlat'), c.chestPairs > 0 ? 1 : flat] as [string, number] } : {}),
     // 肩膀加宽：从胸口往上逐渐加宽；腰在那一段加宽、收窄；胯按比例拉宽
     ...(bands.length ? { widenX: bands } : {}),
@@ -388,8 +412,6 @@ export function layoutAnime(spec: BodySpec): Figure {
   const apart = twinned || paired ? TWIN.span * (0.5 - castRay(fieldOf([plain]), [0.5, HIP[1] + 0.03, 0], [-1, 0, 0], 0.5)) : 0;
   const twinD = twinned ? apart : 0;
   const pairD = paired ? apart : 0;
-  /** 素体上的高度加长胸腔以后在哪 */
-  const raised = (y: number) => restretch(y, stretch);
   const torsoShape: GridShape = twinned
     ? {
         ...plain,
@@ -708,6 +730,8 @@ export function layoutAnime(spec: BodySpec): Figure {
   /* ---- 胸：贴在躯干表面上的一层（见 anime/chest.ts、ChestShape），和躯干取并集 ---- */
   // 胸贴着的那块躯干和躯干一样加宽、加长；并成一个宽躯干的不带那两份（胸照一个人的躯干贴好，挪到那一份上）
   const chestBody: GridShape = { ...plain, name: 'Torso' };
+  /** 多排胸时胸尖往下垂（见 ROW_DROOP） */
+  const droop = c.chestPairs > 1 ? ROW_DROOP * smooth(sh.bust - 1) : 0;
   for (let j = 0; j < c.chestPairs; j++) {
     const { y, x, z, lift } = chestRows[j];
     // 并成一个宽躯干的：两份各一对（一排四个），外侧的那对照本来的起名，里侧的那对（那一份另一边的胸）排在后面几对
@@ -746,7 +770,7 @@ export function layoutAnime(spec: BodySpec): Figure {
             lift,
             ...(o?.position ? { shift: [move[0] * flip, move[1], move[2]] as V3 } : {}),
             ...(o?.scale ? { scale: o.scale } : {}),
-            ...(o?.rotation ? { tilt: o.rotation } : {}),
+            ...(o?.rotation || droop ? { tilt: [(o?.rotation?.[0] ?? 0) + droop, o?.rotation?.[1] ?? 0, o?.rotation?.[2] ?? 0] as V3 } : {}),
           },
         ],
       });

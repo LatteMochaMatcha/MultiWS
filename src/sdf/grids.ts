@@ -44,11 +44,12 @@ export function getGrid(name: string): Grid {
 }
 
 /**
- * 求出格子的距离以后再换成别的（胸，见 anime/chest.ts 的 chestSkin）。先 prepare：传进去的是退回各种变形以后的点、退回加长之前的高度，
- * 离得肯定够远的话返回一个正数（不用再查格子，就用它），不然返回 0 或负数；再 finish：传进去那里格子的距离，返回换过以后的
+ * 求出格子的距离以后再换成别的（胸，见 anime/chest.ts 的 chestSkin）。先 prepare：传进去的是退回各种变形以后的点、退回加长之前的高度、
+ * 那里横着压窄成了几倍（taperX，没有就是 1），离得肯定够远的话返回一个正数（不用再查格子，就用它），不然返回 0 或负数；
+ * 再 finish：传进去那里格子的距离，返回换过以后的
  */
 export interface Skin {
-  prepare(x: number, y: number, z: number, yp: number): number;
+  prepare(x: number, y: number, z: number, yp: number, narrow?: number): number;
   finish(d: number): number;
 }
 
@@ -98,6 +99,8 @@ export interface GridUse {
    * 躯干和腿各照自己的 mid、rise 用同一份，叠在一起的那一截（腿根）就还是对得上。镜像之前的坐标
    */
   spreadX?: SpreadX;
+  /** 再一份和 spreadX 一样算的（多排胸时胸下面接长的那截肋骨往下收窄，k < 1），叠在胯宽上 */
+  taperX?: SpreadX;
   /**
    * 斜过去（腿往外散开）：往下（-Y）走到 depth 那么深时往 +X 挪满 out，再往下整个平移；y ≥ 0 的不挪。
    * 每个高度上整片平移，膝盖、脚踝还是水平的，脚平踩在地上。镜像之前的坐标，在别的变形外面
@@ -187,6 +190,46 @@ function twinned(one: Dist, twin: Twin): Dist {
 /** Twin.levels 不给时：哪个高度上都不并成一整块 */
 const APART = [Infinity, Infinity, Infinity, Infinity] as const;
 
+/** spreadX、taperX 在高度 y（这块格子自己的）上把离中线的距离乘了多少 */
+export function spreadAt(spread: SpreadX, y: number): number {
+  const [top, full, fullTo, bottom] = spread.levels;
+  const h = y + spread.rise;
+  const ease = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+  const u = h > full ? ease((top - h) / (top - full)) : h < fullTo ? ease((h - bottom) / (fullTo - bottom)) : 1;
+  return 1 + (spread.k - 1) * u;
+}
+
+/** unspread 的结果放在这里（求值时用，免得每次新建数组）：拉宽以前离中线多远（x 坐标），距离要除以多少，这个高度上乘的倍数 */
+const unspread2 = new Float64Array(3);
+
+/** 按比例拉宽、压窄过的（spreadX、taperX）：现在 x、高度 y 的一点换算回去（写进 unspread2） */
+function unspread(spread: SpreadX, lx: number, ly: number): void {
+  // 这个高度上乘的倍数 f，换算回去就是离中线的距离除以 f
+  const [top, full, fullTo, bottom] = spread.levels;
+  const h = ly + spread.rise;
+  let u = 1;
+  let du = 0;
+  if (h > full) {
+    const t = (top - h) / (top - full);
+    u = t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
+    du = t <= 0 || t >= 1 ? 0 : (-6 * t * (1 - t)) / (top - full);
+  } else if (h < fullTo) {
+    const t = (h - bottom) / (fullTo - bottom);
+    u = t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
+    du = t <= 0 || t >= 1 ? 0 : (6 * t * (1 - t)) / (fullTo - bottom);
+  }
+  const f = 1 + (spread.k - 1) * u;
+  unspread2[0] = lx;
+  unspread2[1] = 1;
+  unspread2[2] = f;
+  if (f === 1) return;
+  const x = (lx - spread.mid) / f;
+  unspread2[0] = spread.mid + x;
+  // 压窄的地方离表面近了；倍数随高度变，斜着拉过的地方也近一点
+  const slope = (x * (spread.k - 1) * du) / f;
+  unspread2[1] = Math.sqrt(Math.max(1, 1 / (f * f)) + slope * slope);
+}
+
 /** spreadBack 的结果放在这里（求值时用，免得每次新建数组）：拉开以前离中线多远，它随高度、随前后变得多快 */
 const spread3 = new Float64Array(3);
 
@@ -275,6 +318,7 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
   const wide = bands.reduce((sum, [amount]) => sum + Math.max(amount, 0), 0);
   const thick = use.thicken;
   const spread = use.spreadX;
+  const taper = use.taperX;
   const [leanOut, leanDepth] = use.lean ?? [0, 1];
   /** 斜过去的那一段（x 随高度一路挪）离表面近了多少：错切的最大伸长倍数 */
   const leanSlope = leanOut / leanDepth;
@@ -342,29 +386,17 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
       if (t < 1) squeeze = leanLip;
     }
     if (spread) {
-      // 按比例拉宽：这个高度上乘的倍数 f，换算回去就是离中线的距离除以 f
-      const [top, full, fullTo, bottom] = spread.levels;
-      const h = ly + spread.rise;
-      let u = 1;
-      let du = 0;
-      if (h > full) {
-        const t = (top - h) / (top - full);
-        u = t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
-        du = t <= 0 || t >= 1 ? 0 : (-6 * t * (1 - t)) / (top - full);
-      } else if (h < fullTo) {
-        const t = (h - bottom) / (fullTo - bottom);
-        u = t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
-        du = t <= 0 || t >= 1 ? 0 : (6 * t * (1 - t)) / (fullTo - bottom);
-      }
-      const f = 1 + (spread.k - 1) * u;
-      if (f !== 1) {
-        const x = (lx - spread.mid) / f;
-        lx = spread.mid + x;
-        // 压窄的地方离表面近了；倍数随高度变，斜着拉过的地方也近一点
-        const slope = (x * (spread.k - 1) * du) / f;
-        const lip = Math.sqrt(Math.max(1, 1 / (f * f)) + slope * slope);
-        if (lip > squeeze) squeeze = lip;
-      }
+      unspread(spread, lx, ly);
+      lx = unspread2[0];
+      if (unspread2[1] > squeeze) squeeze = unspread2[1];
+    }
+    /** 这里横着压窄成了几倍（taperX） */
+    let narrow = 1;
+    if (taper) {
+      unspread(taper, lx, ly);
+      lx = unspread2[0];
+      if (unspread2[1] > squeeze) squeeze = unspread2[1];
+      narrow = unspread2[2];
     }
     if (thick) {
       // 变粗变细：换算回离轴原来多远。轴上的位置 t 处乘的倍数，两头缓缓变回 1
@@ -451,7 +483,7 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
     if (fork && forked[3] > clip) clip = forked[3];
     if (skin) {
       // 胸：离这一块肯定还远的地方不用再查格子
-      const far = skin.prepare(lx, y, lz, ly);
+      const far = skin.prepare(lx, y, lz, ly, narrow);
       if (far > 0) return far / squeeze > clip ? far / squeeze : clip;
     }
     let fx = (lx - x0) * inv;

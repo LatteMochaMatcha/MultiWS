@@ -14,7 +14,7 @@
  * 纯函数，不依赖浏览器。
  */
 import { castRay, compileField } from '../sdf/field';
-import { getGrid } from '../sdf/grids';
+import { getGrid, spreadAt } from '../sdf/grids';
 import { type BoneHint, type Figure, type Fork, type Graft, type GridShape, type Part, type Prim, type WidenBand, nthName, shapeMatrix } from './figure';
 import { HEAD_HALF_WIDTH } from './head';
 import { ringAt } from './torso';
@@ -604,13 +604,4 @@ function partBottom(p: Part): number {
     else if (q.kind === 'cone') low = Math.min(low, p.pos[1] + (Math.min(q.a[1] - q.ra, q.b[1] - q.rb)) * s);
   }
   return Number.isFinite(low) ? low : p.pos[1] - 0.03 * s;
-}
-
-/** 胯宽（GridShape.spreadX）在高度 y 上把离中线的距离乘了多少（和 sdf/grids.ts 里一样算） */
-function spreadAt(spread: NonNullable<GridShape['spreadX']>, y: number): number {
-  const [top, full, fullTo, bottom] = spread.levels;
-  const h = y + spread.rise;
-  const ease = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
-  const u = h > full ? ease((top - h) / (top - full)) : h < fullTo ? ease((h - bottom) / (fullTo - bottom)) : 1;
-  return 1 + (spread.k - 1) * u;
 }
