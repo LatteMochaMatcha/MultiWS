@@ -1,5 +1,8 @@
 // 给 agent 用的监控、测试接口（tools/agent-monitor/plugin.mjs）：起一个真的开发服务器，
 // 用 WebSocket 假扮一个页面（跟 src/dev/agentBridge.ts 走同一套消息），从 HTTP 那头读、问、截图。
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type ViteDevServer, createServer } from 'vite';
 import { Vector3 } from 'three';
@@ -69,6 +72,8 @@ const until = async (check: () => Promise<boolean> | boolean, ms = 3000) => {
 };
 
 describe('agent 监控接口', () => {
+  /** 问题单存到临时文件夹，不往项目里写 */
+  const notesDir = mkdtempSync(join(tmpdir(), 'oc-agent-notes-'));
   let server: ViteDevServer;
   let base: string;
   let wsUrl: string;
@@ -93,7 +98,7 @@ describe('agent 监控接口', () => {
       root: 'tests',
       cacheDir: 'node_modules/.vite-agent-test',
       logLevel: 'silent',
-      plugins: [agentMonitor()],
+      plugins: [agentMonitor({ notesDir })],
       server: { host: '127.0.0.1', port: 0, watch: null },
       optimizeDeps: { noDiscovery: true, include: [] },
     });
@@ -105,6 +110,7 @@ describe('agent 监控接口', () => {
   afterAll(async () => {
     for (const page of pages) page.socket.close();
     await server?.close();
+    rmSync(notesDir, { recursive: true, force: true });
   });
 
   it('列出接口，报服务器自己的状态', async () => {
@@ -197,6 +203,23 @@ describe('agent 监控接口', () => {
     expect(refuse({ socket: { remoteAddress: '127.0.0.1' }, headers: { host: 'evil.example:5173' } })).toContain('Host');
     expect(refuse({ socket: { remoteAddress: '127.0.0.1' }, headers: { host: 'localhost:5173', 'sec-fetch-site': 'cross-site' } })).toContain('别的网页');
     expect(refuse({ socket: { remoteAddress: '::1' }, headers: { host: 'localhost:5173', origin: 'http://localhost:5173' } })).toBeNull();
+  });
+
+  it('页面送来问题单：存进 notes 文件夹，回话说存在哪，/notes 列得出来', async () => {
+    const page = pages.find((p) => p.id === 'aaa111')!;
+    const saved = new Promise<{ ok: boolean; dir: string }>((resolve) => {
+      page.socket.addEventListener('message', (event) => {
+        const msg = JSON.parse(String(event.data));
+        if (msg.type === 'custom' && msg.event === 'oc-agent:note-saved') resolve(msg.data);
+      });
+    });
+    const png = Buffer.from('\x89PNG fake', 'latin1').toString('base64');
+    page.send('oc-agent:note', { note: { text: '肩头鼓包', strokes: [[[0.2, 0.3], [0.4, 0.5]]], snapshot: { mode: 'pose' } }, images: { 'screen.png': png } });
+    const reply = await saved;
+    expect(reply.ok).toBe(true);
+    expect(readdirSync(join(notesDir, reply.dir.split('/').pop()!)).sort()).toEqual(['note.json', 'screen.png']);
+    const list = (await get('/notes')).body;
+    expect(list[0]).toMatchObject({ text: '肩头鼓包', mode: 'pose', strokes: 1, files: ['screen.png'] });
   });
 });
 
