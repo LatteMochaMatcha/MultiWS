@@ -6,6 +6,7 @@ import { buildFigure } from '../src/geometry/layout';
 import { buildPartGeometry, triangleCount } from '../src/geometry/partsMesh';
 import { withoutAdult } from '../src/model/adult';
 import { type BodySpec, PENIS_LAYOUTS, SCROTUM_MODES, defaultSpec } from '../src/model/spec';
+import { rotate } from '../src/geometry/vec';
 import { buildSkeleton } from '../src/rig/skeleton';
 import { compileField } from '../src/sdf/field';
 import { VOXEL, fuseParts } from '../src/sdf/fuse';
@@ -69,6 +70,58 @@ describe('摆位', () => {
     const stack = genitals(make({ penises: 3 }, { penisLayout: 'stack' })).filter((p) => p.name.startsWith('Penis_'));
     expect(stack[1].pos[1]).toBeGreaterThan(stack[0].pos[1]);
     expect(stack[2].pos[1]).toBeGreaterThan(stack[1].pos[1]);
+  });
+});
+
+describe('几副胯各一套', () => {
+  const count = (spec: BodySpec, prefix: string) => genitals(spec).filter((p) => p.name.startsWith(prefix)).length;
+
+  it('站着的人腿几副胯各一套，人马、蛛形一套', () => {
+    useGenital();
+    const cases: [BodySpec['legLayout'], number, number][] = [
+      ['abreast', 4, 2],
+      ['abreast', 6, 3],
+      ['tandem', 6, 3],
+      ['gather', 4, 2],
+      ['humantaur', 4, 2],
+      ['row', 4, 1],
+      ['taur', 4, 1],
+      ['spider', 8, 1],
+    ];
+    for (const [legLayout, legs, hips] of cases)
+      for (const penises of [1, 2]) {
+        const spec = make({ legs, penises }, { legLayout });
+        expect(count(spec, 'Penis_'), `${legLayout} ${legs} ${penises}`).toBe(hips * penises);
+        expect(count(spec, 'Scrotum_'), `${legLayout} ${legs} ${penises}`).toBe(hips);
+      }
+  });
+
+  it('后面几副胯的接在那副胯的骨骼上，挂在身体底下、往前下方伸', () => {
+    useGenital();
+    const figure = buildFigure(make({ legs: 6, penises: 1 }, { legLayout: 'tandem' }));
+    const bones = new Map(buildSkeleton(figure).bones.map((b, _, all) => [b.name, b.parent >= 0 ? all[b.parent].name : null]));
+    expect(bones.get('Penis_01_01')).toBe('Hips');
+    expect(bones.get('Penis_02_01')).toBe('LowerBody_01');
+    expect(bones.get('Penis_03_01')).toBe('LowerBody_02');
+    const front = figure.parts.find((p) => p.name === 'Penis_01')!;
+    const rear = figure.parts.find((p) => p.name === 'Penis_02')!;
+    // 站着的那根朝前，后面的朝下（素体里朝外的方向转到身上）
+    const out = (q: typeof front.quat) => rotate(q, [0, 0, 1]);
+    expect(out(front.quat)[2]).toBeGreaterThan(0.99);
+    expect(out(rear.quat)[1]).toBeLessThan(-0.9);
+    expect(rear.pos[2]).toBeLessThan(front.pos[2] - 0.1);
+  });
+
+  it('每种腿的排法、每副胯一两根：融合出来是一整块，不穿模', () => {
+    useGenital();
+    for (const [legLayout, legs] of [['abreast', 4], ['tandem', 4], ['humantaur', 4], ['taur', 4], ['spider', 6]] as [BodySpec['legLayout'], number][])
+      for (const penises of [1, 2]) {
+        const spec = make({ legs, penises }, { legLayout });
+        const figure = buildFigure(spec);
+        expect(fuseParts(figure.parts, { voxel: VOXEL.fine, blend: spec.blend }).info.components, `${legLayout} ${legs} ${penises}`).toBe(1);
+        const mine = findClashes(figure).filter((c) => /^(Penis|Scrotum)_/.test(c.a) || /^(Penis|Scrotum)_/.test(c.b));
+        expect(mine, `${legLayout} ${legs} ${penises}`).toEqual([]);
+      }
   });
 });
 

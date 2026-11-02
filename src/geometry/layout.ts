@@ -12,7 +12,7 @@ import { layoutAnime } from './animeLayout';
 import { FACE_OUT, faceTurns, fanShift, gatherOut, headCluster, headShrink, headTurn, shoulderSpan } from './bodyPlan';
 import { type BoneHint, type Figure, type Graft, type Part, type Prim, type Ring, type Side, type Tube, nthName } from './figure';
 import { castRay, compileField } from '../sdf/field';
-import { genitalParts } from './genital';
+import { type Mount, UNDER, genitalParts } from './genital';
 import { type HeadHair, CRANIUM, HEAD_HALF_HEIGHT, HEAD_HALF_WIDTH, SKULL, makeFace, makeHead } from './head';
 import { WING_OUTLINE, sampleTube } from './shapes';
 import { ringAt, smoothRings } from './torso';
@@ -52,6 +52,8 @@ const HIP_Y = 0.9;
 /** 阴茎根部的中心有多高；素体的一个单位在人台上多长（「阴茎大小」是 1 的时候，比素体的比例小两成） */
 const PUBIS_Y = 0.865;
 const PENIS_UNIT = 0.95;
+/** 找身体表面时，射线从挂点外面多远的地方打过来 */
+const PROBE_FAR = 0.6;
 export const DEG = Math.PI / 180;
 const O: V3 = [0, 0, 0];
 const DOWN: V3 = [0, -1, 0];
@@ -485,6 +487,15 @@ export const HUMANTAUR_SPAN = 0.46;
  * 粗腿也是到膝盖往下就分开
  */
 export const GATHER_SPAN = 0.08;
+/**
+ * 挂在身体底下的阴茎：离开那副胯的两条腿，挂在前面的肚子底下（贴着腿的话，两条大腿根中间融出来的那一块会被当成身体表面，挂得太低）。
+ * 前后串联、胯部聚拢挂在和前一副胯的正中；人腿人马挂在那截腰底下（离后面那副胯一截腰长的几成）；
+ * 人马挂在后腿前面多远；蛛形挂在头胸部底下哪里（高度、前后）
+ */
+const UNDER_FRAC = 0.5;
+const UNDER_WAIST = 0.4;
+const TAUR_AHEAD = 0.2;
+const SPIDER_UNDER: [y: number, z: number] = [1.02, 0.14];
 export const GATHER_SPREAD = 0.17;
 /** 胯部聚拢的腿之间，离根部这么远（到膝盖）以内挤在一起不算穿模（见 Part.siblingFree） */
 const GATHER_LEG_FREE = 0.42;
@@ -652,6 +663,39 @@ export function layoutFigure(given: BodySpec): Figure {
   const one = anime ? layoutAnime(spec) : layoutMannequin(spec);
   // 好几个上半身：照一个摆好，再从腰那里切开、复制
   return splitTorsos(one, spec.counts.torsos);
+}
+
+/**
+ * 在几个挂点上各长一套阴茎、阴囊（二次元素体也用）。parts 是已经摆好的身体：照它的表面放。
+ * scale：素体的一个单位在身上多长
+ */
+export function genitalsOn(parts: Part[], mounts: Mount[], spec: BodySpec, scale: number): Part[] {
+  const probe = compileField({ scale: 1, parts }, { blend: spec.blend });
+  const out: Part[] = [];
+  let penises = 1;
+  let scrotums = 1;
+  for (const mount of mounts) {
+    const out0 = rotate(mount.quat, [0, 0, 1]);
+    const made = genitalParts({
+      count: spec.counts.penises,
+      layout: spec.penisLayout,
+      scrotum: spec.scrotum,
+      scale,
+      mount,
+      // 从挂点外面老远的地方往里打一条射线，碰到的第一层表面
+      surface: (u, v) => {
+        const start = add(mount.origin, rotate(mount.quat, [u, v, PROBE_FAR]));
+        const t = castRay(probe, start, mul(out0, -1), 2 * PROBE_FAR);
+        return t < 2 * PROBE_FAR ? PROBE_FAR - t : null;
+      },
+      firstPenis: penises,
+      firstScrotum: scrotums,
+    });
+    penises += made.filter((p) => p.name.startsWith('Penis_')).length;
+    scrotums += made.filter((p) => p.name.startsWith('Scrotum_')).length;
+    out.push(...made);
+  }
+  return out;
 }
 
 /** 白模：自己用基本体捏出来的人台 */
@@ -958,6 +1002,7 @@ function layoutMannequin(spec: BodySpec): Figure {
     hipY: HIP_Y,
     pelvisY: 0.93,
     tailRoot: [0, 0.99, -0.11 * b],
+    pubisY: PUBIS_Y,
     humanLeg: (side, pair, parent, out) => ({ prims: humanLegPrims(side, hx, legR, out), bones: humanLegBones(side, hx, pair, parent, out) }),
   });
   parts.push(...lowerBody.parts);
@@ -965,27 +1010,9 @@ function layoutMannequin(spec: BodySpec): Figure {
   /* ---- 尾巴：从尾骨扇形散开，多于三条时上下交替 ---- */
   parts.push(...tailParts(c.tails, sh, b, lowerBody.tailRoot, lowerBody.tailParent));
 
-  /* ---- 阴茎、阴囊：小腹正中往下，阴囊搁在大腿前面（好几副胯的排法见第 3 期，现在只有一副胯的有） ---- */
+  /* ---- 阴茎、阴囊：每副胯一套。站着的胯在小腹正中往下，阴囊搁在大腿前面；后面几副胯、兽身挂在身体底下 ---- */
   // 阴囊的格子还没载入时先不长（数据到了以后界面会重新生成一遍）
-  if (c.penises > 0 && genitalReady() && (form === 'biped' || form === 'row')) {
-    const probe = compileField({ scale: 1, parts }, { blend: spec.blend });
-    parts.push(
-      ...genitalParts({
-        count: c.penises,
-        layout: spec.penisLayout,
-        scrotum: spec.scrotum,
-        scale: PENIS_UNIT * sh.penisSize,
-        root: [0, PUBIS_Y, 0],
-        front: (x, y) => {
-          const t = castRay(probe, [x, y, 0.6], [0, 0, -1], 0.9);
-          return t < 0.9 ? 0.6 - t : null;
-        },
-        parent: 'Hips',
-        firstPenis: 1,
-        firstScrotum: 1,
-      }),
-    );
-  }
+  if (c.penises > 0 && genitalReady()) parts.push(...genitalsOn(parts, lowerBody.mounts, spec, PENIS_UNIT * sh.penisSize));
 
   /* ---- 缩放到设定身高 ---- */
   const scale = sh.height / baseHeight;
@@ -1085,6 +1112,8 @@ export interface LowerOptions {
   pelvisY: number;
   /** 双足时尾根的位置 */
   tailRoot: V3;
+  /** 阴茎根部的中心有多高（站着的胯，正面那一副）；缺省比髋关节低一点 */
+  pubisY?: number;
   /** 髋关节的前后位置，缺省在正中 */
   hipZ?: number;
   /**
@@ -1123,7 +1152,7 @@ export interface LowerOptions {
  * 下半身：腿，以及多对腿时的兽身 / 加长的骨盆。
  * 返回这些部件，加上尾根的位置、尾巴该接在哪节骨骼上。
  */
-export function lowerParts(options: LowerOptions): { parts: Part[]; tailRoot: V3; tailParent: string } {
+export function lowerParts(options: LowerOptions): { parts: Part[]; tailRoot: V3; tailParent: string; mounts: Mount[] } {
   const { form, b, hips, limb, hx, hipY, pelvisY, humanLeg, stations } = options;
   /** 几站（几副胯；人马、蛛形是几对腿） */
   const n = stations.length;
@@ -1201,6 +1230,13 @@ export function lowerParts(options: LowerOptions): { parts: Part[]; tailRoot: V3
   let tailRoot: V3;
   /** 尾巴接在哪节骨骼上 */
   let tailParent = 'Hips';
+  /**
+   * 每副胯长阴茎的挂点（见 genital.ts）：站着的胯在小腹正中朝前；前后排的后面几副胯、兽身在身体底下，
+   * 比髋关节靠前 UNDER_AHEAD，挂点的高度取在身体里面（阴茎根部照身体底下的表面放）
+   */
+  const front = (x = 0, parent = 'Hips'): Mount => ({ origin: [x, options.pubisY ?? hipY - 0.035, hz], quat: Q_ID, parent });
+  const under = (z: number, y: number, parent: string, ahead: number): Mount => ({ origin: [0, y, z + ahead], quat: UNDER, under: true, parent });
+  let mounts: Mount[] = [front()];
 
   if (form === 'biped') {
     if (cover) lower('LowerBody', [0, pelvisY, hz], [coverPrim()]);
@@ -1225,6 +1261,7 @@ export function lowerParts(options: LowerOptions): { parts: Part[]; tailRoot: V3
     stations.forEach((count, k) => humanRow(count, hz - k * span, legParent(k), gatherOut(k, step, -humanLegJoints(1, hx).ankle[1], odd)));
     tailRoot = [options.tailRoot[0], options.tailRoot[1], -back + options.tailRoot[2]];
     tailParent = legParent(n - 1);
+    mounts = chain.map((at, k) => (k ? under(at[2], pelvisY, legParent(k), span * UNDER_FRAC) : front()));
   } else if (form === 'tandem') {
     // 人腿前后串联：骨盆向后延长，每对腿各占一段
     const spacing = 0.26;
@@ -1241,6 +1278,7 @@ export function lowerParts(options: LowerOptions): { parts: Part[]; tailRoot: V3
     stations.forEach((count, k) => humanRow(count, hz - k * spacing, legParent(k)));
     tailRoot = [options.tailRoot[0], options.tailRoot[1], -back + options.tailRoot[2]];
     tailParent = legParent(n - 1);
+    mounts = stations.map((_, k) => (k ? under(hz - k * spacing, pelvisY, legParent(k), spacing * UNDER_FRAC) : front()));
   } else if (form === 'humantaur') {
     // 人腿人马（humantaur）：像人马，但后半截不是马。身后横着一截人的腰，接着又一副人的胯和腿，
     // 像一个人弯腰九十度、上半身并进前面那个人的后腰里。最前面一对腿就是本来的腿；每多一对，往后再接一截
@@ -1274,10 +1312,12 @@ export function lowerParts(options: LowerOptions): { parts: Part[]; tailRoot: V3
     const glutesBack = hz - 0.134 * b;
     tailRoot = [options.tailRoot[0], options.tailRoot[1], -(n - 1) * HUMANTAUR_SPAN + Math.min(options.tailRoot[2], glutesBack + 0.025)];
     tailParent = legParent(n - 1);
+    mounts = stations.map((_, k) => (k ? under(hz - k * HUMANTAUR_SPAN, pelvisY, legParent(k), HUMANTAUR_SPAN * UNDER_WAIST) : front()));
   } else if (form === 'abreast' && options.twin) {
     // 两份素体并成一个宽躯干：腿接在躯干那两份自己的胯上，左边那副先（和下面一样）
     for (const x of [options.twin, -options.twin]) humanRow(2, hz, 'Hips', 0, x);
     tailRoot = options.tailRoot;
+    mounts = [front(options.twin), front(-options.twin)];
   } else if (form === 'abreast') {
     // 人腿横排多胯：几副完整的胯（各有自己的屁股、胯下）左右并排，稍微叠着并成一整块；每副胯两条腿（单数时正中那副一条）。
     // 上半身还是一个，坐在正中。每副胯上的两条腿是这副胯自己的左右（套现成的姿势时，每副胯的左腿都照左腿摆）
@@ -1299,6 +1339,8 @@ export function lowerParts(options: LowerOptions): { parts: Part[]; tailRoot: V3
     const order = xs.map((_, k) => k).sort((a, c) => Math.abs(xs[a]) - Math.abs(xs[c]) || xs[c] - xs[a]);
     for (const k of order) humanRow(stations[k], hz, 'Hips', 0, xs[k]);
     tailRoot = options.tailRoot;
+    // 从正中往外一副一副编号，和腿一样
+    mounts = order.map((k) => front(xs[k]));
   } else if (form === 'row') {
     // 人腿左右并排：胯加宽，腿一字排开，单数时正中一条
     // 躯干没跟着加宽的（二次元素体）：每条腿上面一瓣屁股长在这副胯上，相邻两条腿中间往上一道缝
@@ -1345,6 +1387,8 @@ export function lowerParts(options: LowerOptions): { parts: Part[]; tailRoot: V3
     }
     tailRoot = [0, TAUR_LEVEL + 0.14, zc - half + 0.035];
     tailParent = legParent(n - 1);
+    // 马身底下、两条后腿中间（往前一点）
+    mounts = [under(station(n - 1), TAUR_LEVEL, legParent(n - 1), TAUR_AHEAD)];
   } else {
     // 蛛形：头胸部向两侧放射出腿，后面拖着腹部。最后一对腿不往正后方伸，免得插进腹部
     // 身材瘦小时头胸部不变矮：顶上一直顶着上半身的胯、两侧一直接着腿根，不然会断开
@@ -1365,8 +1409,10 @@ export function lowerParts(options: LowerOptions): { parts: Part[]; tailRoot: V3
     }
     tailRoot = [0, 1.14, -0.94];
     tailParent = 'Abdomen';
+    // 头胸部底下靠前
+    mounts = [under(SPIDER_UNDER[1], SPIDER_UNDER[0], 'Hips', 0)];
   }
-  return { parts, tailRoot, tailParent };
+  return { parts, tailRoot, tailParent, mounts };
 }
 
 /** 尾巴：从尾根扇形散开，越靠外的翘得越低，多于三条时上下交替。root 是尾根的位置，parent 是尾根接在哪节骨骼上 */

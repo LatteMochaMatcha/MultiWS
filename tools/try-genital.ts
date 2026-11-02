@@ -8,7 +8,7 @@ import { installAnimeBody } from '../src/anime/body';
 import { installGenital } from '../src/anime/genital';
 import { findClashes } from '../src/geometry/clash';
 import { buildFigure } from '../src/geometry/layout';
-import { type BodySpec, PENIS_LAYOUTS, SCROTUM_MODES, defaultSpec, normalizeSpec } from '../src/model/spec';
+import { type BodySpec, type LegLayout, PENIS_LAYOUTS, SCROTUM_MODES, defaultSpec, normalizeSpec } from '../src/model/spec';
 import { runJob } from '../src/sdf/job';
 import { type V3, frameFor, png, render } from './softRender';
 
@@ -31,6 +31,18 @@ function cases(): Case[] {
   for (const layout of PENIS_LAYOUTS)
     for (const scrotum of SCROTUM_MODES)
       for (const n of [2, 3, 4]) out.push({ group: 'layouts', name: `${layout}-${scrotum}-${n}`, spec: { penisLayout: layout, scrotum, counts: { penises: n } }, views: ['front', 'three'] });
+  // 几副胯各一套：每种排法两种腿数，每副胯一根、两根
+  const forms: [LegLayout, number[]][] = [
+    ['abreast', [4, 6]],
+    ['tandem', [4, 6]],
+    ['gather', [4, 6]],
+    ['humantaur', [4, 6]],
+    ['taur', [4, 6]],
+    ['spider', [6, 8]],
+  ];
+  for (const [legLayout, legs] of forms)
+    for (const n of legs)
+      for (const penises of [1, 2]) out.push({ group: 'hips', name: `${legLayout}-${n}-${penises}`, spec: { legLayout, counts: { legs: n, penises } }, views: ['three', 'side'] });
   return out;
 }
 
@@ -71,7 +83,8 @@ export async function main(args: string[], root: string) {
     const ys = genitals.map((g) => g.pos[1]);
     const lo = Math.min(...ys) - 0.12;
     const hi = Math.max(...ys) + 0.14;
-    const near = (x: number, y: number) => y > lo && y < hi && Math.abs(x) < 0.2;
+    const xs = genitals.map((g) => g.pos[0]);
+    const near = (x: number, y: number) => y > lo && y < hi && x > Math.min(...xs) - 0.2 && x < Math.max(...xs) + 0.2;
     const tag = `${c.group}-${c.name}`;
     const frame = frameFor(pos, c.views.map((v) => VIEWS[v]), 600, 600, 1.04, near);
     for (const v of c.views) writeFileSync(join(dir, `${tag}_${v}.png`), png(600, 600, render(pos, triangles, VIEWS[v], frame, 600, 600)));

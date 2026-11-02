@@ -20,7 +20,7 @@ import {
 } from '../anime/genital';
 import type { PenisLayout, ScrotumMode } from '../model/spec';
 import type { BoneHint, Graft, Part } from './figure';
-import { type V3, Q_ID, add, mul, quatEuler, sub } from './vec';
+import { type Quat, type V3, add, mul, quatEuler, quatMul, rotate, sub } from './vec';
 
 // 同 layout.ts 的 pad、bone（layout.ts 要引这个文件，不反过来引它）
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -63,6 +63,26 @@ const SAC_ROW = 0.85;
 /** 阴囊的骨骼：从贴着身体那一面的正中往下、往前到哪（素体的单位） */
 const SAC_BONE: V3 = [0, -0.025, 0.035];
 
+/**
+ * 一副胯上长阴茎的地方（「挂点」）：小腹正中、阴茎根部那么高的一点，和那里的朝向。
+ * 朝向把素体的坐标（往右 x、往上 y、往外 z）转到身上：人站着的胯是原样（往外就是往前）；
+ * 前后排的后面几副胯、兽身是身体底下（往外是往下，「往上」朝着前面，见 UNDER）
+ */
+export interface Mount {
+  origin: V3;
+  quat: Quat;
+  /**
+   * 挂在身体底下：几根一律从挂点往后、顺着肚子排（左右并排、扇形的试过，更容易碰上腿，切口融成一片缝不上；
+   * 往前排会碰上前面那副胯的腿），阴囊挂在最后面那根的后面（每根各带一个时各挂在各的后面）
+   */
+  under?: boolean;
+  /** 骨骼接在哪一根上 */
+  parent: string;
+}
+
+/** 挂在身体底下的朝向：绕左右的轴往前转 80°（转满 90° 阴茎就直直往下）：往前下方伸，不往两腿中间插 */
+export const UNDER: Quat = quatEuler(1.4, 0, 0);
+
 export interface GenitalOptions {
   /** 这副胯上几根 */
   count: number;
@@ -70,19 +90,16 @@ export interface GenitalOptions {
   scrotum: ScrotumMode;
   /** 素体的一个单位在身上多长（已经乘了「阴茎大小」） */
   scale: number;
-  /** 阴茎根部那么高、正中的那一点（小腹的表面上）；只用它的 x、y，z 由 front 定 */
-  root: V3;
-  /** 身体在 (x, y) 这里最前面的表面的 z；那里没有身体就返回 null */
-  front: (x: number, y: number) => number | null;
-  /** 骨骼接在哪一根上 */
-  parent: string;
+  mount: Mount;
+  /** 身体表面：挂点的坐标里往右 u、往上 v 的那一处，最外面的表面离挂点往外多远；那里没有身体就返回 null */
+  surface: (u: number, v: number) => number | null;
   /** 编号从几开始：好几副胯时接着前一副编（Penis_03、Scrotum_02 …） */
   firstPenis: number;
   firstScrotum: number;
 }
 
-/** 一根阴茎：根部在 base（身上），绕竖轴转 yaw */
-function penisPart(index: number, base: V3, yaw: number, scale: number, parent: string): Part {
+/** 一根阴茎：根部在 base（身上），朝向 quat */
+function penisPart(index: number, base: V3, quat: Quat, scale: number, parent: string): Part {
   const name = `Penis_${pad(index)}`;
   const boneName = (b: string) => `${name}_${pad(Number(b.slice(-1)))}`;
   const local = (p: V3) => sub(p, PENIS_BASE);
@@ -101,7 +118,7 @@ function penisPart(index: number, base: V3, yaw: number, scale: number, parent: 
     type: 'genital',
     side: 0,
     pos: base,
-    quat: yaw ? quatEuler(0, yaw, 0) : Q_ID,
+    quat,
     scale,
     material: 'clay',
     prims: [
@@ -121,15 +138,15 @@ function penisPart(index: number, base: V3, yaw: number, scale: number, parent: 
   };
 }
 
-/** 一个阴囊：贴着身体那一面的正中在 root，宽 widen 倍 */
-function scrotumPart(index: number, root: V3, scale: number, widen: number, parent: string): Part {
+/** 一个阴囊：贴着身体那一面的正中在 root，朝向 quat，宽 widen 倍 */
+function scrotumPart(index: number, root: V3, quat: Quat, scale: number, widen: number, parent: string): Part {
   const name = `Scrotum_${pad(index)}`;
   return {
     name,
     type: 'genital',
     side: 0,
     pos: root,
-    quat: Q_ID,
+    quat,
     scale,
     ...(widen !== 1 ? { stretch: [widen, 1, 1] as V3 } : {}),
     material: 'clay',
@@ -138,54 +155,56 @@ function scrotumPart(index: number, root: V3, scale: number, widen: number, pare
   };
 }
 
-/** 一副胯上的阴茎和阴囊 */
+/** 一副胯上的阴茎和阴囊。下面的位置都先写在挂点的坐标里（u 往右、v 往上、w 往外），最后才搬到身上 */
 export function genitalParts(o: GenitalOptions): Part[] {
   const n = o.count;
   if (n <= 0) return [];
   const s = o.scale;
+  const { origin, quat, parent, under: below } = o.mount;
+  const layout = below ? 'stack' : o.layout;
+  const world = (p: V3): V3 => add(origin, rotate(quat, p));
   const step = 2 * RIM_WIDE * s + Math.max(GAP * s, GAP_MIN);
   const mid = (n - 1) / 2;
   /** 第 k 根的根部离正中多远（左右、上下），往外转多少 */
   const places = Array.from({ length: n }, (_, k) => {
     const off = k - mid;
-    if (o.layout === 'stack') return { dx: 0, dy: k * step * STACK_SPACING, yaw: 0 };
-    if (o.layout === 'fan') return { dx: off * step * FAN_SPACING, dy: 0, yaw: off * FAN_STEP };
-    return { dx: off * step, dy: 0, yaw: off * step * ROW_FOLLOW };
+    // 身体底下的从挂点往后排（往前排会碰上前面那副胯的腿）；站着的从小腹往上排
+    if (layout === 'stack') return { du: 0, dv: (below ? k - 2 * mid : k) * step * STACK_SPACING, yaw: 0 };
+    if (layout === 'fan') return { du: off * step * FAN_SPACING, dv: 0, yaw: off * FAN_STEP };
+    return { du: off * step, dv: 0, yaw: off * step * ROW_FOLLOW };
   });
-  /** 根部的中心：(x, y) 那里小腹的表面往前，和素体上根部离小腹一样远 */
-  const baseAt = (x: number, y: number): V3 => {
-    const z = o.front(x, y) ?? o.front(o.root[0], y) ?? o.root[2];
-    return [x, y, z + (PENIS_BASE[2] - DJP_PUBIS_Z) * s];
+  /** 根部的中心：(u, v) 那里的表面往外，和素体上根部离小腹一样远 */
+  const baseAt = (u: number, v: number): V3 => {
+    const w = o.surface(u, v) ?? o.surface(0, v) ?? 0;
+    return [u, v, w + (PENIS_BASE[2] - DJP_PUBIS_Z) * s];
   };
   const parts: Part[] = [];
   const bases = places.map((p, k) => {
-    const base = baseAt(o.root[0] + p.dx, o.root[1] + p.dy);
-    parts.push(penisPart(o.firstPenis + k, base, p.yaw, s, o.parent));
+    const base = baseAt(p.du, p.dv);
+    parts.push(penisPart(o.firstPenis + k, world(base), p.yaw ? quatMul(quat, quatEuler(0, p.yaw, 0)) : quat, s, parent));
     return base;
   });
 
   /** 阴囊：在 base 那根的底下，贴着身体（大腿前面）放；half 是它的半宽 */
   const sacAt = (base: V3, size: number, half: number): V3 => {
-    const y = base[1] + (SCROTUM_ROOT[1] - PENIS_BASE[1] + SAC_UP) * size;
-    // 这么高的地方中线上常常已经是两腿之间的空当：贴着中线、半宽一半、快到边上这几处里最靠前的表面
-    const fronts = [0, 0.5, 0.9, -0.5, -0.9].map((t) => o.front(base[0] + t * half, y)).filter((z): z is number => z !== null);
-    const z = fronts.length ? Math.max(...fronts) - SAC_INSET * size : base[2] + (SCROTUM_ROOT[2] - PENIS_BASE[2]) * size;
-    return [base[0], y, z];
+    const v = base[1] + (SCROTUM_ROOT[1] - PENIS_BASE[1] + SAC_UP) * size;
+    // 这么高的地方中线上常常已经是两腿之间的空当：贴着中线、半宽一半、快到边上这几处里最靠外的表面
+    // 挂在身体底下的只看正中：两边是两条腿，往外探会碰到大腿
+    const fronts = (below ? [0] : [0, 0.5, 0.9, -0.5, -0.9]).map((t) => o.surface(base[0] + t * half, v)).filter((w): w is number => w !== null);
+    const w = fronts.length ? Math.max(...fronts) - SAC_INSET * size : base[2] + (SCROTUM_ROOT[2] - PENIS_BASE[2]) * size;
+    return world([base[0], v, w]);
   };
   const lowest = bases.reduce((a, b) => (b[1] < a[1] ? b : a));
   if (o.scrotum === 'each') {
     const size = s * SAC_EACH;
     // 上下叠的，上面几根底下是下面那根：几个阴囊并排挂在最下面那根底下
-    const under =
-      o.layout === 'stack'
-        ? bases.map((_, k): V3 => [o.root[0] + (k - mid) * 2 * SCROTUM_HALF * size * SAC_ROW, lowest[1], lowest[2]])
-        : bases;
-    under.forEach((base, k) => parts.push(scrotumPart(o.firstScrotum + k, sacAt(base, size, SCROTUM_HALF * size), size, 1, o.parent)));
+    const under = layout === 'stack' && !below ? bases.map((_, k): V3 => [(k - mid) * 2 * SCROTUM_HALF * size * SAC_ROW, lowest[1], lowest[2]]) : bases;
+    under.forEach((base, k) => parts.push(scrotumPart(o.firstScrotum + k, sacAt(base, size, SCROTUM_HALF * size), quat, size, 1, parent)));
   } else {
     // 共用一个：上下叠的在最下面那根底下；并排、扇形的在正中，根数多了变宽
-    const widen = o.layout === 'stack' ? 1 : 1 + SAC_WIDEN * (n - 1);
-    const center: V3 = [o.root[0], lowest[1], o.layout === 'stack' ? lowest[2] : baseAt(o.root[0], lowest[1])[2]];
-    parts.push(scrotumPart(o.firstScrotum, sacAt(center, s, SCROTUM_HALF * s * widen), s, widen, o.parent));
+    const widen = layout === 'stack' ? 1 : 1 + SAC_WIDEN * (n - 1);
+    const center: V3 = [0, lowest[1], layout === 'stack' ? lowest[2] : baseAt(0, lowest[1])[2]];
+    parts.push(scrotumPart(o.firstScrotum, sacAt(center, s, SCROTUM_HALF * s * widen), quat, s, widen, parent));
   }
   return parts;
 }
