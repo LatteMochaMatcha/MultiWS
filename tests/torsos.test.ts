@@ -153,7 +153,9 @@ describe('好几个上半身', () => {
       expect(body.bones![0].head[0]).toBeCloseTo(side * pelvis.twin.d, 3);
       const grid = body.prims[0];
       if (grid.kind !== 'grid') throw new Error('上半身不是格子');
-      expect(grid.clipX).toBe(0);
+      // 切口在正中线上，越过一点（两半叠着，正中没有一道缝）
+      expect(grid.clipX).toBeLessThan(0);
+      expect(grid.clipX).toBeGreaterThan(-0.01);
       expect(!!grid.mirror).toBe(side < 0);
     }
     // 头、手臂、胸按在哪一边分给两个上半身；胸按一个人算（两排各一对），贴在宽躯干外面

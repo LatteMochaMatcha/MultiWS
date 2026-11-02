@@ -1,5 +1,6 @@
 // 摆好姿势以后的距离场：各部件的形状照骨骼搬过去再融合（src/sdf/posedField.ts）
 import { describe, expect, it } from 'vitest';
+import { worldTransforms } from '../src/geometry/figure';
 import { buildFigure } from '../src/geometry/layout';
 import { type Quat, type V3, quatEuler } from '../src/geometry/vec';
 import { type BodyCounts, type BodySpec, defaultSpec } from '../src/model/spec';
@@ -404,6 +405,53 @@ describe('哪些身体摆了姿势以后照姿势重新融合（refusable）', (
     const { figure } = setup(make());
     expect(refusable(figure, new Float64Array(24))).toBe(false);
   });
+
+  it('二次元素体好几个上半身（一对、横排两副胯）：要，挤在一起的胸照权重弯会被拉成管子', () => {
+    useAnimeBody();
+    for (const spec of [make({ torsos: 2 }, { bodyStyle: 'anime' }), make({ torsos: 2, legs: 4 }, { bodyStyle: 'anime', legLayout: 'abreast' })]) {
+      const { figure, turned } = setup(spec);
+      expect(refusable(figure, turned({ Spine_L: quatEuler(0, 0, -30 * DEG) }).matrices)).toBe(true);
+    }
+  });
+});
+
+describe('二次元素体好几个上半身照姿势重新融合', () => {
+  it('一个上半身往外歪开：正中的躯干还是实的（两块躯干一起顺着所有躯干骨骼弯，没从正中裂开），正中两只胸之间是空的（没有管子）', () => {
+    useAnimeBody();
+    for (const spec of [
+      make({ torsos: 2, legs: 4 }, { bodyStyle: 'anime', legLayout: 'abreast', shape: { ...defaultSpec().shape, bust: 2.2 } }),
+      make({ torsos: 2 }, { bodyStyle: 'anime', shape: { ...defaultSpec().shape, bust: 2.2 } }),
+    ]) {
+      const label = `腿 ${spec.counts.legs}`;
+      const { figure, skeleton, turned, bone } = setup(spec);
+      const { matrices } = turned({ Spine_L: quatEuler(0, 0, -35 * DEG) });
+      const field = compilePosedField(figure, options, matrices);
+      const rest = compileField(figure, options);
+      const left = bone('UpperChest_L');
+      const right = bone('UpperChest_R');
+      // 正中线上、腰和胸之间躯干里面的一点：两边各照自己的上半身搬过去，中间那一点还在身体里
+      const spine = head(skeleton, 'Spine_L');
+      const inside: V3 = [0, spine[1] + 0.08, spine[2]];
+      expect(fieldAt(rest, ...inside), label).toBeLessThan(0);
+      expect(fieldAt(field, ...mix(carried(matrices, left, inside), carried(matrices, right, inside), 0.5)), label).toBeLessThan(0);
+      // 里侧（正中）的两只胸：各跟着自己的上半身走、还在；两只胸尖之间原来挤着，现在是空的
+      const xfs = worldTransforms(figure);
+      const inner = (side: 1 | -1) => {
+        const chests = figure.parts.filter((p) => p.type === 'chest' && p.name.startsWith('Chest_01') && p.parent === (side > 0 ? 'UpperBody_L' : 'UpperBody_R'));
+        // 两个上半身直立并排时每个上半身各一对，里侧的是离正中近的那只
+        const part = chests.sort((a, b) => Math.abs(xfs.get(a.name)!.pos[0]) - Math.abs(xfs.get(b.name)!.pos[0]))[0];
+        const at = xfs.get(part.name)!.pos;
+        return [at[0], at[1], at[2] + 0.04] as V3;
+      };
+      const l = carried(matrices, left, inner(1));
+      const r = carried(matrices, right, inner(-1));
+      expect(fieldAt(field, ...l), label).toBeLessThan(0);
+      expect(fieldAt(field, ...r), label).toBeLessThan(0);
+      // 静止时两只胸尖之间是挤着的那道沟（贴着），歪开以后中间是空的（照权重弯的话是一根管子，里面是实的）
+      expect(fieldAt(rest, ...mix(inner(1), inner(-1), 0.5)), label).toBeLessThan(0.005);
+      expect(fieldAt(field, ...mix(l, r, 0.5)), label).toBeGreaterThan(0);
+    }
+  }, 120_000);
 });
 
 describe('二次元素体的腿（照着现成的模型采样出来的）：融合时留在胯上，融合完照权重搬过去', () => {

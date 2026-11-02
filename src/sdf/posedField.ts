@@ -19,13 +19,16 @@
  * - 照着现成的模型采样出来的腿（二次元素体）不在这里摆：这种腿的根是一圈毛边，静止时和躯干的开口对得严丝合缝
  *   才看不出来，在场里怎么弯都会错开。所以融合时让它整个跟着胯（见 heldLegs），融合完再照蒙皮权重搬过去
  *   （见 posedFuse.ts）——腿和「拖着的时候」那张网格上的一模一样。
+ * - 好几个上半身的二次元素体（见 SHARED_LIFT）：躯干那几块（胯、每个上半身）一起顺着所有躯干骨骼弯——一个上半身那份只跟自己的脊柱的话，
+ *   两个上半身一歪开，正中切开的两个切面就露出来；胸根那一层跟着躯干，往外渐渐换成整个跟着自己那个上半身。
+ *   照权重弯的话，挤在一起的两只胸接触的那一圈是一整张皮，两个上半身一分开就被拉成一根管子；这样重新融合，两只胸干干净净地分开。
  * 部件之间照旧是圆滑地融合。
  *
  * 不是什么身体都照这个办法，见 refusable。
  *
  * 纯函数，在 Web Worker 和单元测试里都能跑。
  */
-import { type Figure, type Part, type WorldXf, worldTransforms } from '../geometry/figure';
+import { type ChestShape, type Figure, type Part, type WorldXf, worldTransforms } from '../geometry/figure';
 import { type Quat, type V3, quatBasis, quatMul, rotate } from '../geometry/vec';
 import { type Skeleton, buildSkeleton } from '../rig/skeleton';
 import { BIG, type CompiledField, type Dist, type Draft, type FieldOptions, GROUP_BLEND, GROUP_INDEX, GROUPS, T_CUSTOM, draftDist, pack, partDrafts } from './field';
@@ -102,6 +105,13 @@ const SOFT = 0.004 ** 2;
  * 不加的话腰一弯，屁股、腹股沟那一圈会被脊柱带走两三成，和留在胯上的腿根错开，接缝就露出来了
  */
 const PELVIS_STUB = { down: 0.14 };
+
+/**
+ * 好几个上半身的二次元素体：胸离躯干表面 near 以内跟着躯干弯（和躯干对得上），到 far 整个跟着自己那个上半身（按标准人台的尺寸）
+ */
+const SHARED_LIFT: [near: number, far: number] = [0.005, 0.05];
+/** 顺着好几节骨骼弯时，一节骨骼在一个基本体上哪儿都占不到这么多，就不算它（见 bendMap 的 focus） */
+const FOCUS_LEAST = 1e-3;
 
 /** 一个关节：父骨骼 above、子骨骼 below，切面过 at、法线 n 朝着子骨骼那边 */
 interface Joint {
@@ -318,10 +328,23 @@ interface Stub {
  * 「顺着 bones 这几节骨骼弯过去」倒着算：摆好以后的点 p，先看它离各节骨骼（摆好以后的）多远，
  * 照远近把这几节「搬回静止位置」的动作混在一起，搬回去——map 把静止时的位置写进 out。
  * box：一个静止时的基本体这么弯过去以后占多大地方。
- * stubs：另外加进来一起算的几截线段（离它近的地方就跟着它那根骨骼）
+ * stubs：另外加进来一起算的几截线段（离它近的地方就跟着它那根骨骼）。
+ * focus：只给这个基本体用的话，在它盒子的哪个角、中心都占不到千分之一的那几节不算（好几个上半身时躯干一起顺着十几节弯，见 shared）
  */
-function bendMap(bones: number[], skeleton: Skeleton, m: PoseMatrices, stubs: Stub[] = []) {
-  const carriers: Stub[] = [...bones.map((b) => ({ bone: b, seg: [...skeleton.bones[b].head, ...skeleton.bones[b].tail] })), ...stubs];
+function bendMap(bones: number[], skeleton: Skeleton, m: PoseMatrices, stubs: Stub[] = [], focus?: Draft) {
+  let carriers: Stub[] = [...bones.map((b) => ({ bone: b, seg: [...skeleton.bones[b].head, ...skeleton.bones[b].tail] })), ...stubs];
+  if (focus && carriers.length > 1) {
+    const points = boxEdges(focus).flatMap((e) => [e.slice(0, 3), e.slice(3)]);
+    points.push([0, 1, 2].map((k) => points.reduce((sum, p) => sum + p[k], 0) / points.length));
+    const most = carriers.map(() => 0);
+    for (const p of points) {
+      const w = carriers.map(({ seg: s }) => 1 / (nearSegments(s, p[0], p[1], p[2]) ** 2 + SOFT) ** 2);
+      const total = w.reduce((a, b) => a + b, 0);
+      w.forEach((v, j) => (most[j] = Math.max(most[j], v / total)));
+    }
+    const kept = carriers.filter((_, j) => most[j] >= FOCUS_LEAST);
+    if (kept.length) carriers = kept;
+  }
   const count = carriers.length;
   // 每节骨骼：静止时的线段（6 个数）、矩阵（12 个数）、「搬回去」这个动作的对偶四元数（8 个数）
   const seg = new Float64Array(count * 6);
@@ -423,9 +446,9 @@ function bendMap(bones: number[], skeleton: Skeleton, m: PoseMatrices, stubs: St
 }
 
 /** 一个静止时的基本体，顺着 bones 这几节骨骼弯过去（不分段，见 bendMap） */
-function bendDraft(d: Draft, bones: number[], skeleton: Skeleton, m: PoseMatrices, fadeAt: V3 | null, root: number[] | undefined, out: Draft[], stubs: Stub[] = []) {
+function bendDraft(d: Draft, bones: number[], skeleton: Skeleton, m: PoseMatrices, fadeAt: V3 | null, root: number[] | undefined, out: Draft[], stubs: Stub[] = [], focus = false) {
   const f = draftDist(d);
-  const bend = bendMap(bones, skeleton, m, stubs);
+  const bend = bendMap(bones, skeleton, m, stubs, focus ? d : undefined);
   const q = new Float64Array(3);
   out.push({
     type: T_CUSTOM,
@@ -702,6 +725,7 @@ export function heldLegs(figure: Pick<Figure, 'parts' | 'scale'>, matrices: Pose
  * 照着现成的模型采样出来的身体（二次元素体）：几条手臂挤在同一个肩膀上的才要——
  * 一个肩膀上只有一条手臂的，照权重弯出来的肩膀本来就比重新融合的（换成圆肩头的）自然，不用换；
  * 挤在一个肩膀上的几条才是照权重弯不好的：肩头鼓成一团，手臂之间扯着皮。
+ * 好几个上半身的也要：挤在一起的胸照权重弯会被拉成管子（见文件开头）。
  * matrices 只用来核对骨骼数。
  */
 export function refusable(figure: Pick<Figure, 'parts' | 'scale'>, matrices: PoseMatrices): boolean {
@@ -712,14 +736,16 @@ export function refusable(figure: Pick<Figure, 'parts' | 'scale'>, matrices: Pos
     const crowded = arms.some((one, i) =>
       arms.some((other, j) => j > i && other.parent === one.parent && other.side === one.side && Math.hypot(other.pos[0] - one.pos[0], other.pos[1] - one.pos[1], other.pos[2] - one.pos[2]) < CROWDED),
     );
-    known = { bones: buildSkeleton(figure).bones.length, sampled: isSampled(figure.parts), crowded };
+    known = { bones: buildSkeleton(figure).bones.length, sampled: isSampled(figure.parts), crowded, bodies: severalBodies(figure.parts) };
     sampledBodies.set(figure.parts, known);
   }
   if (matrices.length !== known.bones * 12) return false;
-  return !known.sampled || known.crowded;
+  return !known.sampled || known.crowded || known.bodies;
 }
-/** 每副身体只看一遍：骨架多少根骨骼、是不是采样出来的、手臂挤不挤 */
-const sampledBodies = new WeakMap<object, { bones: number; sampled: boolean; crowded: boolean }>();
+/** 每副身体只看一遍：骨架多少根骨骼、是不是采样出来的、手臂挤不挤、是不是好几个上半身 */
+const sampledBodies = new WeakMap<object, { bones: number; sampled: boolean; crowded: boolean; bodies: boolean }>();
+/** 好几个上半身（UpperBody、UpperBody_L …，见 geometry/torsos.ts） */
+const severalBodies = (parts: Part[]): boolean => parts.filter((part) => /^UpperBody/.test(part.name)).length > 1;
 
 /** 挖开的边上圆角多大（几个 margin，见 Room.soft） */
 const CARVE_SOFT = 1.5;
@@ -738,6 +764,73 @@ export interface Room {
   carve: boolean;
   /** 挖开的边上圆个圆角（CARVE_SOFT 个 margin）。圆了以后有的手腕缝得上，有的反而缝不上（见 fuse.ts） */
   soft?: boolean;
+}
+
+/** 胸那一带离躯干多远的格子隔多远一格（按标准人台的尺寸）：只用来定胸上一点跟躯干还是跟自己的上半身（见 SHARED_LIFT），粗一点没关系 */
+const TORSO_CELL = 0.008;
+/** 烤好的「胸那一带离躯干多远」：静止时的躯干不随姿势变，换着姿势重新融合时不用重烤（照躯干、胸部件本身认） */
+const torsoBaked = new Map<string, Dist>();
+
+/**
+ * 好几个上半身时，静止时胸那一带（几个胸部件的盒子再往外两厘米）离躯干表面多远（几块躯干取并集）：烤成 TORSO_CELL 一格的格子，三线性插值，
+ * 出了格子照最近的格点。每个胸上的点都现算的话，三块躯干的格子带着各种变形要算一遍，重新融合慢四五倍
+ */
+function torsoNearChests(parts: Part[], xfs: Map<string, WorldXf>, minR: number): Dist {
+  const torsos = parts.filter((part) => part.type === 'torso');
+  const chests = parts.filter((part) => part.type === 'chest');
+  const key = JSON.stringify([torsos, chests.map((part) => [part.name, part.pos, part.parent])]);
+  const known = torsoBaked.get(key);
+  if (known) return known;
+  const list: Draft[] = [];
+  for (const part of torsos) partDrafts(part, xfs.get(part.name)!, 0, minR, list);
+  const fs = list.map(draftDist);
+  const exact = (x: number, y: number, z: number) => {
+    let v = BIG;
+    for (const f of fs) {
+      const d = f(x, y, z);
+      if (d < v) v = d;
+    }
+    return v;
+  };
+  const boxes: Draft[] = [];
+  for (const part of chests) partDrafts(part, xfs.get(part.name)!, 0, minR, boxes);
+  const scale = xfs.get(chests[0]?.name ?? '')?.scale ?? 1;
+  const cell = TORSO_CELL * scale;
+  const lo = [BIG, BIG, BIG];
+  const hi = [-BIG, -BIG, -BIG];
+  for (const d of boxes) {
+    for (let k = 0; k < 3; k++) {
+      lo[k] = Math.min(lo[k], d.box[k] - 0.02 * scale);
+      hi[k] = Math.max(hi[k], d.box[k + 3] + 0.02 * scale);
+    }
+  }
+  if (!boxes.length) return exact;
+  const n = [0, 1, 2].map((k) => Math.max(2, Math.ceil((hi[k] - lo[k]) / cell) + 1));
+  const data = new Float32Array(n[0] * n[1] * n[2]);
+  for (let k = 0; k < n[2]; k++) for (let j = 0; j < n[1]; j++) for (let i = 0; i < n[0]; i++) data[(k * n[1] + j) * n[0] + i] = exact(lo[0] + i * cell, lo[1] + j * cell, lo[2] + k * cell);
+  const at = (v: number, k: number): [number, number] => {
+    const f = Math.min(Math.max((v - lo[k]) / cell, 0), n[k] - 1.000001);
+    const i = Math.floor(f);
+    return [i, f - i];
+  };
+  const baked: Dist = (x, y, z) => {
+    const [i, a] = at(x, 0);
+    const [j, b] = at(y, 1);
+    const [k, c] = at(z, 2);
+    const o = (k * n[1] + j) * n[0] + i;
+    const row = n[0];
+    const plane = n[0] * n[1];
+    const x00 = data[o] + (data[o + 1] - data[o]) * a;
+    const x10 = data[o + row] + (data[o + row + 1] - data[o + row]) * a;
+    const x01 = data[o + plane] + (data[o + plane + 1] - data[o + plane]) * a;
+    const x11 = data[o + plane + row] + (data[o + plane + row + 1] - data[o + plane + row]) * a;
+    const y0 = x00 + (x10 - x00) * b;
+    const y1 = x01 + (x11 - x01) * b;
+    return y0 + (y1 - y0) * c;
+  };
+  torsoBaked.set(key, baked);
+  if (torsoBaked.size > 4) torsoBaked.delete(torsoBaked.keys().next().value!);
+  return baked;
 }
 
 /**
@@ -834,6 +927,81 @@ export function compilePosedField(
     }
   }
 
+  // 好几个上半身的二次元素体（见 SHARED_LIFT）：躯干那几块一起顺着所有躯干骨骼弯（腿根那几截也算上），胸根跟着躯干
+  const shared = isSampled(figure.parts) && severalBodies(figure.parts);
+  const torsoParts = shared ? figure.parts.filter((part) => part.type === 'torso') : [];
+  const torsoBones = torsoParts.flatMap((part) => own.get(part.name) ?? []);
+  const torsoStubs = torsoParts.flatMap((part) => pelvis.get(part.name) ?? []);
+  /** 静止时胸那一带离躯干表面多远（烤好的，见 torsoNearChests） */
+  let torsoRest: Dist | null = null;
+  const restTorso = (): Dist => (torsoRest ??= torsoNearChests(figure.parts, xfs, minR));
+  /**
+   * 胸（好几个上半身时）：离躯干表面 SHARED_LIFT[0] 以内跟着躯干弯，到 SHARED_LIFT[1] 整个跟着自己那个上半身最近的那节骨骼，之间渐变。
+   * 摆好以后的点先照「整个跟着那节骨骼」搬回去，照那里离躯干多远定跟谁、各跟多少。
+   * 两个上半身直立并排时里侧的胸在两个身子正中间切齐（ChestShape.seam）：那一刀跟着躯干弯（两个身子正中间），不跟着胸——
+   * 跟着胸的话两个身子一分开，两只胸各露出一个平的切面；跟着躯干的话切口落在两个身子正中间，分得开了就切不到胸，胸是圆的
+   */
+  const chestDrafts = (part: Part, xf: WorldXf, group: number) => {
+    const bone = nearest(bonesFor(part), xf.pos);
+    const o = bone * 12;
+    const m = matrices;
+    const torso = restTorso();
+    const [near, far] = SHARED_LIFT.map((v) => v * xf.scale);
+    const shape = part.prims.find((prim): prim is ChestShape => prim.kind === 'chest');
+    const seam = shape?.seam;
+    // 切齐的那一刀（静止时的世界坐标里）：n·p + c ≤ 0 的一侧留着
+    const n = seam ? rotate(xf.quat, [seam[0], seam[1], seam[2]]) : [0, 0, 0];
+    const c = seam && shape ? xf.scale * (seam[0] * shape.origin[0] + seam[1] * shape.origin[1] + seam[2] * shape.origin[2] - seam[3]) - dot(n, xf.pos) : 0;
+    const rest: Draft[] = [];
+    partDrafts(seam ? { ...part, prims: part.prims.map((prim) => (prim.kind === 'chest' ? { ...prim, seam: undefined } : prim)) } : part, xf, group, minR, rest);
+    const q = new Float64Array(3);
+    /** 一个静止时的基本体整个跟着那节骨骼搬过去以后占多大（corners：用哪几个角） */
+    const rigidBox = (corners: readonly number[]): number[] => {
+      const out = [BIG, BIG, BIG, -BIG, -BIG, -BIG];
+      for (let i = 0; i < corners.length; i += 3) {
+        const p = carried(m, o, corners.slice(i, i + 3));
+        for (let k = 0; k < 3; k++) {
+          out[k] = Math.min(out[k], p[k]);
+          out[k + 3] = Math.max(out[k + 3], p[k]);
+        }
+      }
+      return out;
+    };
+    const merge = (a: number[], b: number[]): number[] => [0, 1, 2, 3, 4, 5].map((k) => (k < 3 ? Math.min(a[k], b[k]) : Math.max(a[k], b[k])) + (k < 3 ? -MARGIN : MARGIN));
+    for (const d of rest) {
+      const f = draftDist(d);
+      const bend = bendMap(torsoBones, skeleton, m, torsoStubs, d);
+      const tight = { ...d, corners: tightCorners(d), outerCorners: undefined };
+      drafts.push({
+        type: T_CUSTOM,
+        group: d.group,
+        nums: [],
+        mode: d.mode,
+        k: d.k,
+        custom: (x, y, z) => {
+          // 整个跟着那节骨骼的话，静止时在哪：Rᵀ (p − t)
+          const dx = x - m[o + 9];
+          const dy = y - m[o + 10];
+          const dz = z - m[o + 11];
+          const rx = m[o] * dx + m[o + 3] * dy + m[o + 6] * dz;
+          const ry = m[o + 1] * dx + m[o + 4] * dy + m[o + 7] * dz;
+          const rz = m[o + 2] * dx + m[o + 5] * dy + m[o + 8] * dz;
+          const h = torso(rx, ry, rz);
+          const t = h <= near ? 0 : h >= far ? 1 : (h - near) / (far - near);
+          const w = t * t * (3 - 2 * t);
+          if (w >= 1 && !seam) return f(rx, ry, rz);
+          bend.map(x, y, z, q);
+          const v = f(q[0] + (rx - q[0]) * w, q[1] + (ry - q[1]) * w, q[2] + (rz - q[2]) * w);
+          if (!seam) return v;
+          const cut = n[0] * q[0] + n[1] * q[1] + n[2] * q[2] + c;
+          return v > cut ? v : cut;
+        },
+        box: merge(bend.box(d), rigidBox(boxEdges(d).flatMap((e) => e))),
+        ...(d.span ? { cull: [boxCorners(merge(bend.box(tight), rigidBox(tight.corners)))] } : {}),
+      });
+    }
+  };
+
   const drafts: Draft[] = [];
   /** drafts 里每一个是第几个部件的 */
   const owners: number[] = [];
@@ -859,6 +1027,10 @@ export function compilePosedField(
       partDrafts(part, to, group, minR, drafts);
       if (blend) for (let i = from; i < drafts.length; i++) drafts[i] = { ...drafts[i], root: [...to.pos, blend[0] * xf.scale, blend[1] * xf.scale] };
     };
+    if (shared && part.type === 'chest') {
+      chestDrafts(part, xf, group);
+      continue;
+    }
     if (!mine) {
       whole(nearest(bonesFor(part), xf.pos));
       continue;
@@ -867,16 +1039,19 @@ export function compilePosedField(
     // 大腿、小腿的表面是斜的、鼓的，切开以后两段各转各的，切口两边对不齐，膝盖上勒出一圈棱
     const sampledLeg = part.type === 'leg' && part.prims.some((prim) => prim.kind === 'grid');
     if (BENDS.has(part.type) || sampledLeg) {
+      // 好几个上半身的二次元素体：躯干那几块一起顺着所有躯干骨骼弯（见 shared）
+      const together = shared && part.type === 'torso';
+      const carriers = together ? torsoBones : mine;
       // 这个部件的几节骨骼都没有相对动过：整个搬过去就行
-      if (mine.every((bone) => same(matrices, bone * 12, mine[0] * 12))) {
-        whole(mine[0]);
+      if (carriers.every((bone) => same(matrices, bone * 12, carriers[0] * 12))) {
+        whole(carriers[0]);
         continue;
       }
       const rest: Draft[] = [];
       partDrafts(part, xf, group, minR, rest);
-      const origin = carried(matrices, nearest(mine, xf.pos) * 12, xf.pos);
+      const origin = carried(matrices, nearest(carriers, xf.pos) * 12, xf.pos);
       const root = blend ? [...origin, blend[0] * xf.scale, blend[1] * xf.scale] : undefined;
-      for (const d of rest) bendDraft(d, mine, skeleton, matrices, origin, root, drafts, pelvis.get(part.name));
+      for (const d of rest) bendDraft(d, carriers, skeleton, matrices, origin, root, drafts, together ? torsoStubs : pelvis.get(part.name), together);
       continue;
     }
     const plan = mine.length > 1 || part.type === 'leg' ? planOf(part, mine, skeleton) : null;

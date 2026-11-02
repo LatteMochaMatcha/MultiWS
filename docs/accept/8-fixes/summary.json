@@ -317,13 +317,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 2178
+        "ms": 2651
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
-        "refused": false,
-        "ms": 2323
+        "refused": true,
+        "ms": 15666
       }
     },
     {
@@ -344,13 +344,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 4187
+        "ms": 4398
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
-        "refused": false,
-        "ms": 3175
+        "refused": true,
+        "ms": 31812
       }
     },
     {
@@ -371,13 +371,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 3461
+        "ms": 3535
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": true,
-        "ms": 17827
+        "ms": 29352
       }
     },
     {
@@ -398,13 +398,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 7708
+        "ms": 8742
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": true,
-        "ms": 25141
+        "ms": 67415
       }
     },
     {
@@ -425,13 +425,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 2027
+        "ms": 2004
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
-        "refused": false,
-        "ms": 2215
+        "refused": true,
+        "ms": 11528
       }
     },
     {
@@ -452,13 +452,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 4219
+        "ms": 4419
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
-        "refused": false,
-        "ms": 3639
+        "refused": true,
+        "ms": 18813
       }
     },
     {
@@ -587,7 +587,7 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 5882
+        "ms": 6233
       },
       "clashes": []
     }

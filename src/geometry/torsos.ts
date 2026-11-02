@@ -42,6 +42,11 @@ const FORK_MAX = 0.2;
 const FORK_UNDER_CHEST = 0.02;
 const FORK_OVERLAP = 0.01;
 const FORK_SEAM = 0.002;
+/**
+ * 并成一个宽躯干切成左右两半时（见 splitWide），每一半越过正中线多少：两半叠着。正好切在正中线上的话，正中那个面上场的值正好是 0，
+ * 格点落在上面会被当成身体外面，躯干正中勒出一道细缝（正面看一条竖线）
+ */
+const HALF_OVERLAP = 0.004;
 /** 胯上挖掉的、圆滑地融上去的体块（屁股缝、屁股）管到的地方，顶上再往上空出多少才开始分开 */
 const FORK_CLEAR = 0.01;
 /** 两边的上半身往外歪多少（弧度）、腰那里往外挪多少（按标准人台的米）：歪到两个肩膀之间留出这么宽的空 */
@@ -453,9 +458,9 @@ function splitWide(figure: Figure, torso: Part, wide: GridShape, cutY: number): 
       parent: 'Torso',
       pos: [0, 0, 0],
       quat: Q_ID,
-      // 这一边那一半：右边的照镜像取（宽躯干左右对称），切口都在正中线上
+      // 这一边那一半：右边的照镜像取（宽躯干左右对称），切口都在正中线上（越过一点，两半叠着，见 HALF_OVERLAP）
       prims: [
-        { ...wide, clipBelow: cutY - FORK_OVERLAP, clipRound: 0, clipX: 0, ...(slot < 0 ? { mirror: true } : {}) },
+        { ...wide, clipBelow: cutY - FORK_OVERLAP, clipRound: 0, clipX: -HALF_OVERLAP, ...(slot < 0 ? { mirror: true } : {}) },
         ...torso.prims.filter((p) => p !== wide && above(p) && Math.sign(p.kind === 'ellipsoid' ? p.center[0] : 0) !== -slot),
       ],
       bones: spine.map((b) => ({ ...b, name: rename(b.name)!, parent: rename(b.parent), head: moved(b.head), tail: moved(b.tail) })),
