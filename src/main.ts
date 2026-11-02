@@ -47,6 +47,7 @@ import {
   BLEND,
   BODY_STYLES,
   COUNT_DEFS,
+  COUNT_HINTS,
   HIP_LEGS,
   EAR_SHAPES,
   GENDERS,
@@ -304,6 +305,8 @@ const steppers = COUNT_DEFS.map((d) => {
   const row = el('div', 'row');
   const label = el('label');
   label.append(d.label, el('small', '', d.unit));
+  const hint = COUNT_HINTS[d.key];
+  if (hint) label.title = hint;
   const minus = el('button', '', '−');
   const plus = el('button', '', '+');
   const out = el('output');

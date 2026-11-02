@@ -32,13 +32,13 @@ describe('两个人并成一个宽躯干', () => {
     expect(twinOf(make({ legs: 6 }))).toBeUndefined();
     expect(twinOf(make({ legs: 2 }, { legLayout: 'auto' }))).toBeUndefined();
     expect(twinOf(make({}, { headLayout: 'faces' }))).toBeUndefined();
-    // 两个上半身时 layoutAnime 照一个上半身摆，再由 torsos.ts 分开：不并。横排两副胯时胯是两份，各在一副胯上，一直不并（没有 levels）
-    const seat = twinOf(make({ torsos: 2, heads: 1 }));
-    expect(seat?.levels).toBeUndefined();
-    expect(seat?.d).toBeCloseTo(twinOf(make())!.d, 9);
+    // 两个上半身（每个一个头）、横排两副胯：和 D 长一样，照 D 摆（并成一个宽躯干），再由 torsos.ts 切成两个上半身
+    const wide = twinOf(make({ torsos: 2, heads: 1 }));
+    expect(wide?.levels).toEqual(twinOf(make())!.levels);
+    expect(wide?.d).toBeCloseTo(twinOf(make())!.d, 9);
   });
 
-  it('两根脖子、两副胯各在一份底下；一排四个胸；手臂都长在两边外侧；左右对称', () => {
+  it('两根脖子、两副胯各在一份底下；胸按一个人算摆在正中；手臂都长在两边外侧；左右对称', () => {
     useAnimeBody();
     const f = buildFigure(make());
     const d = twinOf(make())!.d;
@@ -50,14 +50,14 @@ describe('两个人并成一个宽躯干', () => {
     expect(Math.max(...necks)).toBeCloseTo(d, 3);
     // 头照原样大（两个人），不像成簇那样小一圈
     for (const head of f.parts.filter((p) => p.type === 'head' && p.parent === 'Torso')) expect(head.scale ?? 1).toBeCloseTo(1, 6);
-    // 胸：外侧那对 Chest_01、里侧那对 Chest_02，一排四个、左右对称
+    // 胸：按一个人算，正中一对（贴在宽躯干外面，见 ChestShape.wide），左右对称，离正中线和一个人的胸一样远
     const chests = f.parts.filter((p) => p.type === 'chest');
-    expect(chests.map((p) => p.name).sort()).toEqual(['Chest_01_L', 'Chest_01_R', 'Chest_02_L', 'Chest_02_R']);
+    expect(chests.map((p) => p.name).sort()).toEqual(['Chest_01_L', 'Chest_01_R']);
     const at = (name: string) => f.parts.find((p) => p.name === name)!.pos;
-    expect(at('Chest_01_L')[0]).toBeGreaterThan(at('Chest_02_L')[0]);
-    expect(at('Chest_02_L')[0]).toBeGreaterThan(0);
+    expect(at('Chest_01_L')[0]).toBeGreaterThan(0.03);
+    expect(at('Chest_01_L')[0]).toBeLessThan(0.08);
     expect(at('Chest_01_L')[0]).toBeCloseTo(-at('Chest_01_R')[0], 9);
-    expect(at('Chest_02_L')[0]).toBeCloseTo(-at('Chest_02_R')[0], 9);
+    for (const c of chests) expect((c.prims[0] as { wide?: boolean }).wide, c.name).toBe(true);
     // 六条手臂都在外侧那一份的肩膀上
     const arms = f.parts.filter((p) => p.type === 'arm');
     expect(arms).toHaveLength(6);

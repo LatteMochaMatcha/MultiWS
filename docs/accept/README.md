@@ -25,3 +25,4 @@ uv run --with pillow python tools/accept-sheet.py docs/accept/<期> --title <期
 | `3-chest` | 第 3 期：新胸接进工坊（一个上半身、一排胸） |
 | `4-rows` | 第 4 期：多排胸（A） |
 | `5-two-torsos` | 第 5 期：两个上半身直立并排（B） |
+| `6-wide` | 第 6 期：并成宽躯干（C、D），胸按一个人算摆在正中 |

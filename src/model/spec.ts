@@ -31,8 +31,14 @@ export interface CountDef {
   def: number;
 }
 
+/** 数量那一栏名字上的悬停说明 */
+export const COUNT_HINTS: Partial<Record<keyof BodyCounts, string>> = {
+  chestPairs: '好几个上半身时每个上半身各长这么多；二次元素体两个人并成一个宽躯干时（两个头或两个上半身，横排两副胯）按一个人算，摆在正中',
+};
+
 export const COUNT_DEFS: readonly CountDef[] = [
-  // 好几个上半身时，头、手臂、胸、翅膀是每个上半身各长这么多（见 geometry/torsos.ts）
+  // 好几个上半身时，头、手臂、胸、翅膀是每个上半身各长这么多（见 geometry/torsos.ts）；
+  // 二次元素体并成一个宽躯干的（两个头或两个上半身、横排两副胯）胸按一个人算，摆在正中（见 COUNT_HINTS）
   { key: 'torsos', label: '上半身', unit: '个', min: 1, max: 3, def: 1 },
   { key: 'heads', label: '头', unit: '个', min: 1, max: 5, def: 1 },
   { key: 'armPairs', label: '手臂', unit: '对', min: 0, max: 4, def: 1 },

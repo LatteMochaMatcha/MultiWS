@@ -168,7 +168,7 @@ export interface Twin {
   depth: [back: number, front: number];
   /**
    * 从下往上四个高度：bottom 以下两份各是各的，到 full 并成一整块，到 fullTo 还是一整块，到 top 以上又各是各的。
-   * 不给就一直各是各的、不并：两个上半身各坐一副胯时的胯（见 animeLayout.ts 的 paired；上半身由 torsos.ts 各接一份）
+   * 不给就一直各是各的、不并
    */
   levels?: [bottom: number, full: number, fullTo: number, top: number];
 }
@@ -205,11 +205,6 @@ export interface Fork {
    */
   shiftFrom?: number;
   shiftTo?: number;
-  /**
-   * 上半身连分开之前的那一截整个挪到哪（各坐一副胯时挪到自己那副胯上，见 torsos.ts 的 seat）：部件的摆放（pos）里带着它，
-   * 求距离时不用管——退回去的那一截也一起挪过去了。照摆放反算挪了多少（refork）时先减掉它
-   */
-  offset?: V3;
   /**
    * 和旁边的上半身在哪分界：每一项是旁边那一个怎么转、怎么挪（同一个 pivot、from、to），dir 是它在这一个的哪一侧（+X / -X）。
    * 各留自己那一半（分界是两条中线正中间）：三个上半身时中间那个不动、两边的挪开，叠在一起的地方两张皮来回穿插，肚子上一道道褶子
@@ -265,6 +260,11 @@ export interface ChestShape {
    * 和旁边那只挤在一起，中间一道沟（见 torsos.ts 的 refork）
    */
   seam?: [nx: number, ny: number, nz: number, d: number];
+  /**
+   * 胸要贴的展开图照 body 现量（并成一个宽躯干的，见 sdf/grids.ts 的 wideFrame）：胸贴在并好的宽躯干外面，高度照加长以后的。
+   * 不给就照素体的平胸躯干（anime/chest.ts 的 chestFrame），贴在 body 那一份上
+   */
+  wide?: boolean;
 }
 
 export type Prim = Ellipsoid | Cone | Tube | Loft | Wing | GridShape | ChestShape;

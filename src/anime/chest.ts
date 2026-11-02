@@ -452,8 +452,7 @@ const DEG = Math.PI / 180;
  * 只取这一边（side）、离平胸表面往里 CHEST_DEPTH 以外、胸那一片以内的：融合时和躯干取并集，就是贴好胸的躯干。
  * piece：分部件用——只取胸根以内（凸出平胸 3 毫米以上的那一片），平胸以外的皮不要（和躯干叠在一起）
  */
-export function chestSkin(shape: ChestShape, piece = false): Skin {
-  const f = chestFrame();
+export function chestSkin(shape: ChestShape, piece = false, f: ChestFrame = chestFrame()): Skin {
   const { layers, fade } = chestLayers(shape.size);
   const side = shape.side;
   const [tu, tv, th] = shape.scale ?? [1, 1, 1];
@@ -590,8 +589,9 @@ const FAR = 0.008;
  * 一个胸部件在躯干格子坐标里大概占多大（加长、加宽之前；照 lift 摆）：融合时只在这个范围里算它。
  * 照每层胸型里和平胸不一样的那一片（Columns.active），每一列从平胸表面往里 CHEST_DEPTH 到那一列凸出的高度，换算回躯干上的位置
  */
-export function chestRegion(shape: ChestShape): { min: V3; max: V3 } | null {
-  const f = chestFrame();
+export function chestRegion(shape: ChestShape, f: ChestFrame = chestFrame()): { min: V3; max: V3 } | null {
+  /** 展开图的高度就是加长以后的（现量的宽躯干的，见 ChestShape.wide）：不用退回加长之前 */
+  const stretch = shape.wide ? undefined : shape.body.stretchY;
   const { layers } = chestLayers(shape.size);
   if (!layers.length) return null;
   const [tu, tv, th] = shape.scale ?? [1, 1, 1];
@@ -643,7 +643,7 @@ export function chestRegion(shape: ChestShape): { min: V3; max: V3 } | null {
         // 胸照加长以后的高度摆，贴着的那一圈表面在加长之前的高度上
         const y = pivot + (p.v0 + iv * p.cell - pivot) * kv + lower + lift;
         for (const dy of slack ? [-slack, 0, slack] : [0]) {
-          const ys = unstretch(y + dy, shape.body.stretchY);
+          const ys = unstretch(y + dy, stretch);
           add(surfacePoint(f, u + slack, ys, h));
           add(surfacePoint(f, Math.max(0, u - slack), ys, -CHEST_DEPTH));
         }
@@ -661,7 +661,7 @@ export function chestRegion(shape: ChestShape): { min: V3; max: V3 } | null {
     for (let i = 0; i <= 8; i++) {
       for (let j = 0; j <= 8; j++) {
         const u = Math.max(0, cu + (i / 4 - 1) * (ra + rk)) * wide;
-        const y = unstretch(cv + (j / 4 - 1) * (rb + rk), shape.body.stretchY);
+        const y = unstretch(cv + (j / 4 - 1) * (rb + rk), stretch);
         add(surfacePoint(f, u, y, top));
         add(surfacePoint(f, u, y, -CHEST_DEPTH));
       }

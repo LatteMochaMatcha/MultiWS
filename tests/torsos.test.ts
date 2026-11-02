@@ -70,8 +70,7 @@ describe('好几个上半身', () => {
     const u = (h - grid.fork.shiftFrom!) / (grid.fork.shiftTo! - grid.fork.shiftFrom!);
     const move = u * u * u * (u * (6 * u - 15) + 10);
     for (const x of [0.02, 0.06, 0.09]) {
-      // 横排两副胯时上半身整个挪到自己那副胯上（fork.offset）
-      const from: V3 = [x + (grid.fork.offset?.[0] ?? 0) + grid.fork.shift[0] * move, h + part(before, 'Torso').pos[1], -0.5];
+      const from: V3 = [x + grid.fork.shift[0] * move, h + part(before, 'Torso').pos[1], -0.5];
       const old = castRay(a, from, [0, 0, 1], 0.8), now = castRay(b, from, [0, 0, 1], 0.8);
       expect(old).toBeLessThan(0.6);
       expect(Math.abs(now - old), `${x}`).toBeLessThan(0.0002);
@@ -129,39 +128,47 @@ describe('好几个上半身', () => {
     }
   }, 60_000);
 
-  it('二次元素体两个上半身、横排两副胯：每个上半身坐在自己那副胯上，不垫一大块胯，胯顶外侧没有台阶，网格一整块', () => {
-    const spec = make({ torsos: 2, heads: 2, armPairs: 2, chestPairs: 2, legs: 4 }, { bodyStyle: 'anime', armLayout: 'fan', legLayout: 'abreast' });
+  it('二次元素体两个上半身（每个一个头）、横排两副胯：和 D 长一样（并成一个宽躯干，胸按一个人算摆在正中），切成两个上半身各带脊柱，网格一整块', () => {
+    const counts = { armPairs: 2, chestPairs: 2, legs: 4 };
+    const rest = { bodyStyle: 'anime', armLayout: 'fan', legLayout: 'abreast' } as const;
+    const spec = make({ ...counts, torsos: 2, heads: 1 }, rest);
     const f = buildFigure(spec);
-    expect(f.parts.some((p) => p.name === 'LowerBody')).toBe(false);
+    const d = buildFigure(make({ ...counts, torsos: 1, heads: 2 }, rest));
     const torso = part(f, 'Torso');
     const pelvis = torso.prims[0];
-    if (pelvis.kind !== 'grid' || !pelvis.twin) throw new Error('胯不是左右两份');
-    expect(pelvis.twin.levels).toBeUndefined();
-    expect(pelvis.widenX).toBeUndefined();
-    const d = pelvis.twin.d;
-    // 腿接在两份胯原来的位置上（素体的髋关节离中线 7.7 厘米），每副胯一道屁股缝
-    const legs = f.parts.filter((p) => p.type === 'leg').map((p) => Math.abs(p.pos[0])).sort();
-    expect(legs[0]).toBeCloseTo(d - 0.0769, 3);
-    expect(legs[3]).toBeCloseTo(d + 0.0769, 3);
+    if (pelvis.kind !== 'grid' || !pelvis.twin?.levels) throw new Error('不是并成一个宽躯干');
+    expect(torso.bones?.map((b) => b.name)).toEqual(['Hips']);
     expect(torso.prims.filter((p) => p.name.startsWith('Cleft_')).length).toBe(2);
-    for (const name of ['UpperBody_L', 'UpperBody_R']) {
+    for (const [name, side] of [
+      ['UpperBody_L', 1],
+      ['UpperBody_R', -1],
+    ] as const) {
       const body = part(f, name);
-      const grid = body.prims.find((q) => q.kind === 'grid')!;
-      if (grid.kind !== 'grid' || !grid.fork) throw new Error('没有分叉');
-      expect(grid.twin).toBeUndefined();
-      expect(grid.fork.offset![0]).toBeCloseTo(body.side * d, 9);
+      expect(body.parent).toBe('Torso');
+      expect(body.bones?.map((b) => b.name)).toEqual(['Spine', 'Chest', 'Chest.002', 'UpperChest'].map((b) => b.replace(/^(\w+)/, `$1${name.slice(-2)}`)));
+      // 脊柱在自己那一份的正中
+      expect(body.bones![0].head[0]).toBeCloseTo(side * pelvis.twin.d, 3);
+      const grid = body.prims[0];
+      if (grid.kind !== 'grid') throw new Error('上半身不是格子');
+      expect(grid.clipX).toBe(0);
+      expect(!!grid.mirror).toBe(side < 0);
     }
-    // 胯顶上下量外侧的表面：腰本来就往上收，跨过胯顶的那一段和上下两段斜得一样（差不到 2 毫米），没有台阶
-    const field = compileField({ ...f, scale: 1, parts: f.parts.filter((p) => p.name === 'Torso' || p.name.startsWith('UpperBody')) }, { blend: 0 });
-    const top = pelvis.clipAbove! + torso.pos[1];
-    for (const side of [1, -1]) {
-      const at = (y: number) => 0.6 - castRay(field, [side * 0.6, y, 0], [-side, 0, 0], 0.6);
-      const [a, b, c, e] = [-0.012, -0.004, 0.004, 0.012].map((dy) => at(top + dy));
-      expect(Math.abs(c - b - (b - a + (e - c)) / 2), `${side}`).toBeLessThan(0.002);
+    // 头、手臂、胸按在哪一边分给两个上半身；胸按一个人算（两排各一对），贴在宽躯干外面
+    const owner = (p: Part): string => (!p.parent || p.parent.startsWith('UpperBody') || p.parent === 'Torso' ? p.parent ?? '' : owner(part(f, p.parent)));
+    expect(owner(part(f, 'Head_01'))).toBe('UpperBody_R');
+    expect(owner(part(f, 'Head_02'))).toBe('UpperBody_L');
+    expect(names(f, 'chest')).toEqual(['Chest_01_L', 'Chest_01_R', 'Chest_02_L', 'Chest_02_R']);
+    for (const c of f.parts.filter((p) => p.type === 'chest')) {
+      expect(c.parent, c.name).toBe(c.side > 0 ? 'UpperBody_L' : 'UpperBody_R');
+      expect((c.prims[0] as { wide?: boolean }).wide, c.name).toBe(true);
     }
+    expect(names(f, 'arm')).toEqual(names(d, 'arm'));
+    // 网格和 D 差不多一模一样，一整块
     const mesh = fuseParts(f.parts, { voxel: VOXEL.preview, blend: spec.blend });
+    const twin = fuseParts(d.parts, { voxel: VOXEL.preview, blend: spec.blend });
     expect(mesh.info.components).toBe(1);
-  }, 30_000);
+    expect(Math.abs(mesh.positions.length - twin.positions.length) / twin.positions.length).toBeLessThan(0.02);
+  }, 60_000);
 
   it('两个：胯那一截还叫 Torso（带着 Hips、屁股），上面两份 UpperBody_L / _R 往两边歪开，各有脊柱、头、手臂、胸', () => {
     const f = buildFigure(make({ torsos: 2 }));

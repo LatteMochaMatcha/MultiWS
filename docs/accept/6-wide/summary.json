@@ -1,0 +1,595 @@
+{
+  "voxel": 0.006,
+  "at": "2026-11-02T03:49:13.920Z",
+  "cases": [
+    {
+      "name": "S1_def",
+      "label": "S 一个上半身 · 一排胸 · 一对手臂",
+      "group": "S",
+      "setting": "默认",
+      "parts": {
+        "torso": 1,
+        "neck": 1,
+        "head": 1,
+        "arm": 2,
+        "chest": 2,
+        "leg": 2
+      },
+      "rest": {
+        "triangles": 96542,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 621
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": false,
+        "ms": 763
+      }
+    },
+    {
+      "name": "S1_his",
+      "label": "S 一个上半身 · 一排胸 · 一对手臂",
+      "group": "S",
+      "setting": "胸 2.2 · 腰 1.16 · 胯 1.28",
+      "parts": {
+        "torso": 1,
+        "neck": 1,
+        "head": 1,
+        "arm": 2,
+        "chest": 2,
+        "leg": 2
+      },
+      "rest": {
+        "triangles": 108534,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 2428
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": false,
+        "ms": 1147
+      }
+    },
+    {
+      "name": "S1_b06",
+      "label": "S 一个上半身 · 一排胸 · 一对手臂",
+      "group": "S",
+      "setting": "胸 0.6",
+      "parts": {
+        "torso": 1,
+        "neck": 1,
+        "head": 1,
+        "arm": 2,
+        "chest": 2,
+        "leg": 2
+      },
+      "rest": {
+        "triangles": 96234,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 541
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": false,
+        "ms": 790
+      }
+    },
+    {
+      "name": "S1_b13",
+      "label": "S 一个上半身 · 一排胸 · 一对手臂",
+      "group": "S",
+      "setting": "胸 1.3",
+      "parts": {
+        "torso": 1,
+        "neck": 1,
+        "head": 1,
+        "arm": 2,
+        "chest": 2,
+        "leg": 2
+      },
+      "rest": {
+        "triangles": 97538,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 716
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": false,
+        "ms": 685
+      }
+    },
+    {
+      "name": "S1_b23",
+      "label": "S 一个上半身 · 一排胸 · 一对手臂",
+      "group": "S",
+      "setting": "胸 2.3（最大）",
+      "parts": {
+        "torso": 1,
+        "neck": 1,
+        "head": 1,
+        "arm": 2,
+        "chest": 2,
+        "leg": 2
+      },
+      "rest": {
+        "triangles": 105250,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 955
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": false,
+        "ms": 760
+      }
+    },
+    {
+      "name": "A2_def",
+      "label": "A 两排胸 · 两对手臂（上下排）",
+      "group": "A",
+      "setting": "默认",
+      "parts": {
+        "torso": 1,
+        "neck": 1,
+        "head": 1,
+        "arm": 4,
+        "chest": 4,
+        "leg": 2
+      },
+      "rest": {
+        "triangles": 120576,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 958
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": false,
+        "ms": 873
+      }
+    },
+    {
+      "name": "A2_his",
+      "label": "A 两排胸 · 两对手臂（上下排）",
+      "group": "A",
+      "setting": "胸 2.2 · 腰 1.16 · 胯 1.28",
+      "parts": {
+        "torso": 1,
+        "neck": 1,
+        "head": 1,
+        "arm": 4,
+        "chest": 4,
+        "leg": 2
+      },
+      "rest": {
+        "triangles": 141322,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 3317
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": false,
+        "ms": 1482
+      }
+    },
+    {
+      "name": "A3_def",
+      "label": "A 三排胸 · 两对手臂（上下排）",
+      "group": "A",
+      "setting": "默认",
+      "parts": {
+        "torso": 1,
+        "neck": 1,
+        "head": 1,
+        "arm": 4,
+        "chest": 6,
+        "leg": 2
+      },
+      "rest": {
+        "triangles": 125226,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 873
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": false,
+        "ms": 1019
+      }
+    },
+    {
+      "name": "A3_his",
+      "label": "A 三排胸 · 两对手臂（上下排）",
+      "group": "A",
+      "setting": "胸 2.2 · 腰 1.16 · 胯 1.28",
+      "parts": {
+        "torso": 1,
+        "neck": 1,
+        "head": 1,
+        "arm": 4,
+        "chest": 6,
+        "leg": 2
+      },
+      "rest": {
+        "triangles": 156188,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 4705
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": false,
+        "ms": 1975
+      }
+    },
+    {
+      "name": "A4_def",
+      "label": "A 四排胸 · 两对手臂（上下排）",
+      "group": "A",
+      "setting": "默认",
+      "parts": {
+        "torso": 1,
+        "neck": 1,
+        "head": 1,
+        "arm": 4,
+        "chest": 8,
+        "leg": 2
+      },
+      "rest": {
+        "triangles": 129994,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 1025
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": false,
+        "ms": 1054
+      }
+    },
+    {
+      "name": "A4_his",
+      "label": "A 四排胸 · 两对手臂（上下排）",
+      "group": "A",
+      "setting": "胸 2.2 · 腰 1.16 · 胯 1.28",
+      "parts": {
+        "torso": 1,
+        "neck": 1,
+        "head": 1,
+        "arm": 4,
+        "chest": 8,
+        "leg": 2
+      },
+      "rest": {
+        "triangles": 171296,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 6422
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": false,
+        "ms": 2145
+      }
+    },
+    {
+      "name": "B-ref_def",
+      "label": "B 两个上半身 · 各一头一对手一对胸（参考图那种）",
+      "group": "B",
+      "setting": "默认",
+      "parts": {
+        "torso": 3,
+        "neck": 2,
+        "head": 2,
+        "arm": 4,
+        "chest": 4,
+        "leg": 2
+      },
+      "rest": {
+        "triangles": 139672,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 1841
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": false,
+        "ms": 1726
+      }
+    },
+    {
+      "name": "B-ref_his",
+      "label": "B 两个上半身 · 各一头一对手一对胸（参考图那种）",
+      "group": "B",
+      "setting": "胸 2.2 · 腰 1.16 · 胯 1.28",
+      "parts": {
+        "torso": 3,
+        "neck": 2,
+        "head": 2,
+        "arm": 4,
+        "chest": 4,
+        "leg": 2
+      },
+      "rest": {
+        "triangles": 152658,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 4334
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": false,
+        "ms": 2744
+      }
+    },
+    {
+      "name": "B-his_def",
+      "label": "B 两个上半身 · 各两头两对手（肩部聚拢）两对胸",
+      "group": "B",
+      "setting": "默认",
+      "parts": {
+        "torso": 3,
+        "neck": 4,
+        "head": 4,
+        "arm": 8,
+        "chest": 8,
+        "leg": 2
+      },
+      "rest": {
+        "triangles": 205010,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 2992
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": true,
+        "ms": 14472
+      }
+    },
+    {
+      "name": "B-his_his",
+      "label": "B 两个上半身 · 各两头两对手（肩部聚拢）两对胸",
+      "group": "B",
+      "setting": "胸 2.2 · 腰 1.16 · 胯 1.28",
+      "parts": {
+        "torso": 3,
+        "neck": 4,
+        "head": 4,
+        "arm": 8,
+        "chest": 8,
+        "leg": 2
+      },
+      "rest": {
+        "triangles": 236536,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 10307
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": true,
+        "ms": 25586
+      }
+    },
+    {
+      "name": "C_def",
+      "label": "C 两个上半身 · 横排两副胯",
+      "group": "C",
+      "setting": "默认",
+      "parts": {
+        "torso": 3,
+        "neck": 2,
+        "head": 2,
+        "arm": 2,
+        "chest": 2,
+        "leg": 4
+      },
+      "rest": {
+        "triangles": 167210,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 1377
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": false,
+        "ms": 1478
+      }
+    },
+    {
+      "name": "C_his",
+      "label": "C 两个上半身 · 横排两副胯",
+      "group": "C",
+      "setting": "胸 2.2 · 腰 1.16 · 胯 1.28",
+      "parts": {
+        "torso": 3,
+        "neck": 2,
+        "head": 2,
+        "arm": 2,
+        "chest": 2,
+        "leg": 4
+      },
+      "rest": {
+        "triangles": 184922,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 3048
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": false,
+        "ms": 2593
+      }
+    },
+    {
+      "name": "D1_def",
+      "label": "D 两个头 · 横排两副胯 · 两对手（肩部聚拢）一对胸",
+      "group": "D",
+      "setting": "默认",
+      "parts": {
+        "torso": 1,
+        "neck": 2,
+        "head": 2,
+        "arm": 4,
+        "chest": 2,
+        "leg": 4
+      },
+      "rest": {
+        "triangles": 183418,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 1384
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": true,
+        "ms": 6500
+      }
+    },
+    {
+      "name": "D1_his",
+      "label": "D 两个头 · 横排两副胯 · 两对手（肩部聚拢）一对胸",
+      "group": "D",
+      "setting": "胸 2.2 · 腰 1.16 · 胯 1.28",
+      "parts": {
+        "torso": 1,
+        "neck": 2,
+        "head": 2,
+        "arm": 4,
+        "chest": 2,
+        "leg": 4
+      },
+      "rest": {
+        "triangles": 201610,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 2076
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": true,
+        "ms": 8334
+      }
+    },
+    {
+      "name": "D2_def",
+      "label": "D 两个头 · 横排两副胯 · 两对手（肩部聚拢）两对胸",
+      "group": "D",
+      "setting": "默认",
+      "parts": {
+        "torso": 1,
+        "neck": 2,
+        "head": 2,
+        "arm": 4,
+        "chest": 4,
+        "leg": 4
+      },
+      "rest": {
+        "triangles": 192216,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 1521
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": true,
+        "ms": 7547
+      }
+    },
+    {
+      "name": "D2_his",
+      "label": "D 两个头 · 横排两副胯 · 两对手（肩部聚拢）两对胸",
+      "group": "D",
+      "setting": "胸 2.2 · 腰 1.16 · 胯 1.28",
+      "parts": {
+        "torso": 1,
+        "neck": 2,
+        "head": 2,
+        "arm": 4,
+        "chest": 4,
+        "leg": 4
+      },
+      "rest": {
+        "triangles": 220912,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 4072
+      },
+      "clashes": [],
+      "posed": {
+        "pose": "自然站立",
+        "refused": true,
+        "ms": 10648
+      }
+    },
+    {
+      "name": "E3_def",
+      "label": "E 三个上半身（只查不坏）",
+      "group": "E",
+      "setting": "默认",
+      "parts": {
+        "torso": 4,
+        "neck": 3,
+        "head": 3,
+        "arm": 6,
+        "chest": 6,
+        "leg": 2
+      },
+      "rest": {
+        "triangles": 187612,
+        "components": 1,
+        "open": 0,
+        "nonManifold": 0,
+        "ms": 4948
+      },
+      "clashes": []
+    }
+  ]
+}

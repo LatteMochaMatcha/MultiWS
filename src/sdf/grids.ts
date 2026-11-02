@@ -4,9 +4,9 @@
  *
  * 纯计算，在主线程、Web Worker 和单元测试里都能用；数据由外面读进来再登记。
  */
-import type { BackStretch, ChestShape, Fork, SpreadX, Thicken, Twin, WidenBand } from '../geometry/figure';
+import type { BackStretch, ChestShape, Fork, GridShape, SpreadX, Thicken, Twin, WidenBand } from '../geometry/figure';
 import { type V3, sub } from '../geometry/vec';
-import { chestRegion, chestSkin, chestVersion } from '../anime/chest';
+import { type ChestFrame, chestFrame, chestRegion, chestSkin, chestVersion } from '../anime/chest';
 import type { Dist } from './field';
 import { forkWarp } from './fork';
 import { type Stretch, unstretch } from './stretch';
@@ -334,6 +334,8 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
   const [tux, tuy, tuz] = thick ? [0, 1, 2].map((k) => (thick.to[k] - thick.from[k]) / (tSpan || 1)) : [0, 0, 0];
   const shell = use.shell ?? 0;
   const skin = use.skin;
+  /** 并成一个宽躯干的胸贴在并好的躯干外面（见 ChestShape.wide）：不在每一份里换，并好以后再换 */
+  const inner = use.twin ? undefined : skin;
   const mix = use.morph?.[1] ?? 0;
   const other = mix ? getGrid(use.morph![0]) : null;
   if (other && (other.dims.some((n, k) => n !== dims[k]) || other.cell !== cell || other.min.some((v, k) => v !== grid.min[k]))) {
@@ -499,9 +501,9 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
       clip /= lip;
     }
     if (fork && forked[3] > clip) clip = forked[3];
-    if (skin) {
+    if (inner) {
       // 胸：离这一块肯定还远的地方不用再查格子
-      const far = skin.prepare(lx, y, lz, ly, narrow);
+      const far = inner.prepare(lx, y, lz, ly, narrow);
       if (far > 0) return far / squeeze > clip ? far / squeeze : clip;
     }
     let fx = (lx - x0) * inv;
@@ -558,7 +560,7 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
     }
     d = d * unit - shell;
     if (out > 0) d += Math.sqrt(out) * cell;
-    if (skin) d = skin.finish(d);
+    if (inner) d = inner.finish(d);
     if (squeeze !== 1) d /= squeeze;
     if (cutTo !== undefined && along - cutTo > d) d = along - cutTo;
     if (round > 0) {
@@ -570,7 +572,14 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
   };
   const twin = use.twin;
   const shaped: Dist = twin ? twinned(one, twin) : one;
-  const fn: Dist = shaped;
+  const fn: Dist =
+    twin && skin
+      ? (x, y, z) => {
+          // 胸照加长以后的高度摆、贴着的表面也照它找（展开图是照并好的躯干现量的，见 wideFrame）
+          const far = skin.prepare(x, y, z, y, 1);
+          return far > 0 ? far : skin.finish(shaped(x, y, z));
+        }
+      : shaped;
 
   /** 一个盒子（这块格子自己的坐标）加宽、加长、加厚、弯过以后占多大，镜像过来 */
   const placed = (lo: V3, hi: V3): { min: V3; max: V3 } => {
@@ -679,8 +688,9 @@ export function chestDist(p: ChestShape, piece = false, voxel = 0): { fn: Dist; 
     BAKED.set(key, known);
     return known;
   }
-  const region = chestRegion(p) ?? { min: [0, 0, 0] as V3, max: [0, 0, 0] as V3 };
-  const d = gridDist(getGrid(p.body.grid), { ...p.body, skin: chestSkin(p, piece), region });
+  const frame = p.wide ? wideFrame(p.body) : chestFrame();
+  const region = chestRegion(p, frame) ?? { min: [0, 0, 0] as V3, max: [0, 0, 0] as V3 };
+  const d = gridDist(getGrid(p.body.grid), { ...p.body, skin: chestSkin(p, piece, frame), region });
   const [ox, oy, oz] = p.origin;
   const [nx, ny, nz, nd] = p.seam ?? [0, 0, 0, 0];
   const exact = {
@@ -718,6 +728,96 @@ export function chestDist(p: ChestShape, piece = false, voxel = 0): { fn: Dist; 
   BAKED.set(key, baked);
   if (BAKED.size > 12) BAKED.delete(BAKED.keys().next().value!);
   return baked;
+}
+
+/** 现量的展开图（见 wideFrame）每行隔多高、每列隔几度（弧度），量哪一段高度（加长以前的，上头再加上加长的） */
+const WIDE_DY = 0.004;
+const WIDE_COLS = 91;
+const WIDE_FROM = 0.95;
+const WIDE_TO = 1.36;
+/** 量好的宽躯干展开图，最近用过的排在后面 */
+const WIDE = new Map<string, ChestFrame>();
+
+/**
+ * 并成一个宽躯干时胸要贴的展开图（见 anime/chest.ts 的 ChestFrame、figure.ts 的 ChestShape.wide）：照这块躯干（body，带着并成一整块、
+ * 加长这些，不带胸）现量。素体的展开图是一个人的，宽躯干正中是拉宽过的，照它贴的话正中那对胸跟着被横着拉开。
+ * 高度用加长以后的，只量胸会长的那一段（WIDE_FROM–WIDE_TO 再加上加长的）；每个高度上前后正中照正中线的前后表面，
+ * 从那里往 +X 那半圈每 2 度打一条射线量到表面多远、沿截面走过的弧长。正中那一点不在身体里的高度（脖子之间）照下面一行。
+ * 同一块躯干只量一次（八千条上下的射线）
+ */
+export function wideFrame(body: GridShape): ChestFrame {
+  const key = JSON.stringify(body);
+  const known = WIDE.get(key);
+  if (known) {
+    WIDE.delete(key);
+    WIDE.set(key, known);
+    return known;
+  }
+  const fn = gridDist(getGrid(body.grid), body).fn;
+  const extra = body.stretchY?.[2] ?? 0;
+  const rows = Math.ceil((WIDE_TO + extra - WIDE_FROM) / WIDE_DY) + 1;
+  const cols = WIDE_COLS;
+  const zc = new Float64Array(rows);
+  const r = new Float64Array(rows * cols);
+  const s = new Float64Array(rows * cols);
+  /** 从 (x, y, z) 往 (dx, 0, dz) 走，第一次出了身体的地方多远（起点不在身体里是 NaN） */
+  const exit = (x: number, y: number, z: number, dx: number, dz: number): number => {
+    let t = 0;
+    let d = fn(x, y, z);
+    if (d >= 0) return NaN;
+    let last = 0;
+    while (d < 0 && t < 0.6) {
+      last = t;
+      t += Math.max(-d * 0.9, 0.0005);
+      d = fn(x + dx * t, y, z + dz * t);
+    }
+    if (d < 0) return NaN;
+    let lo = last;
+    let hi = t;
+    for (let k = 0; k < 12; k++) {
+      const m = (lo + hi) / 2;
+      if (fn(x + dx * m, y, z + dz * m) < 0) lo = m;
+      else hi = m;
+    }
+    return (lo + hi) / 2;
+  };
+  for (let i = 0; i < rows; i++) {
+    const y = WIDE_FROM + i * WIDE_DY;
+    // 正中线上的前后表面：从身体里面往前、往后走出去（身体里一点照素体的前后正中）
+    const inside = chestFrame();
+    const mid = inside.zc[Math.max(0, Math.min(inside.rows - 1, Math.round((Math.min(y - extra, WIDE_TO) - inside.y0) / inside.dy)))];
+    const front = exit(0, y, mid, 0, 1);
+    const back = exit(0, y, mid, 0, -1);
+    const o = i * cols;
+    if (!(front > 0) || !(back > 0)) {
+      if (i > 0) {
+        zc[i] = zc[i - 1];
+        r.copyWithin(o, o - cols, o);
+        s.copyWithin(o, o - cols, o);
+      } else zc[i] = mid;
+      continue;
+    }
+    zc[i] = mid + (front - back) / 2;
+    let px = 0;
+    let pz = 0;
+    for (let j = 0; j < cols; j++) {
+      const a = (j * Math.PI) / (cols - 1);
+      const dx = Math.sin(a);
+      const dz = Math.cos(a);
+      let rr = exit(0, y, zc[i], dx, dz);
+      if (!(rr > 0)) rr = j ? r[o + j - 1] : (front + back) / 2;
+      r[o + j] = rr;
+      const qx = rr * dx;
+      const qz = rr * dz;
+      s[o + j] = j ? s[o + j - 1] + Math.hypot(qx - px, qz - pz) : 0;
+      px = qx;
+      pz = qz;
+    }
+  }
+  const frame: ChestFrame = { y0: WIDE_FROM, dy: WIDE_DY, rows, cols, zc, r, s };
+  WIDE.set(key, frame);
+  if (WIDE.size > 8) WIDE.delete(WIDE.keys().next().value!);
+  return frame;
 }
 
 /** 胸烤成的格子每格多大：最细一档和躯干的格子（5 毫米）、胸型放大以后的格子差不多（融合最细一档的体素 6 毫米）；粗的几档最粗到 BAKE_COARSE */
