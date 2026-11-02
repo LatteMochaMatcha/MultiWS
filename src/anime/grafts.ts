@@ -1,7 +1,8 @@
-/** 照 Graft.mesh 取对应的那块现成网格（手、脚） */
+/** 照 Graft.mesh 取对应的那块现成网格（手、脚、阴茎） */
 import type { Graft } from '../geometry/figure';
 import { footMesh } from './foot';
+import { penisMesh } from './genital';
 import type { GraftMesh } from './graftMesh';
 import { handMesh } from './hand';
 
-export const graftMeshOf = (kind: Graft['mesh']): GraftMesh => (kind === 'foot' ? footMesh() : handMesh());
+export const graftMeshOf = (kind: Graft['mesh']): GraftMesh => (kind === 'foot' ? footMesh() : kind === 'penis' ? penisMesh() : handMesh());

@@ -168,3 +168,21 @@ Sketchfab 要登录才能下：是他自己下的（`G:\下载\woman.glb`、`wom
 | `woman.obj` | 用 Blender 从 glb 转的（导入 glTF、导出 OBJ，Y 朝上） | — |
 
 只用来给 `tools/build-torso.ts` 取躯干表面的起伏（和另外三个平均），模型本身不进工坊。导出时署名写进文件：`src/anime/body.ts` 的 `TORSO_CREDIT`。
+
+## djp-male/（阴茎、阴囊，2026-11-02）
+
+Death Joe Productions 的「DJP Male Base Mesh Mark 03」：<https://deathjoeproductions.gumroad.com/l/MaleBM03>，**CC BY 4.0**（商品页：「License CC-BY」，<https://creativecommons.org/licenses/by/4.0/>）。
+Gumroad 上 0 元起、要填邮箱：是他自己下的（`G:\下载\DJP Male Mark 03 Base Mesh.zip`），拷到这里。二次元风格的男性全身，勃起，一整块网格、没有骨骼，T 字姿势，身高 1.48 米，约 1.2 万个面。
+
+| 文件 | 是什么 | 校验（SHA-256 开头） |
+| --- | --- | --- |
+| `djp-male.zip` | 原包，124.4 MB，解压出 `djp-male/DJP Male Mark 03 Base Mesh.fbx` 和 4K 贴图（贴图没用） | `a649a484dba7` |
+| `djp-male/djp-male.obj` | 用 Blender 从 FBX 转的，只留身体那一大块，坐标换成工坊的（米，Y 朝上，面朝 +Z） | 由下面的命令导出 |
+
+```powershell
+& "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" --background --factory-startup --disable-autoexec --python tools/export-djp-male.py
+node tools/run.mjs tools/build-genital.ts
+```
+
+`build-genital.ts` 只取阴茎（切口以外原样的网格，写成 `src/anime/penisMesh.json`）和阴囊（采成距离场格子，写进 `public/genital.bin`，尺寸在 `src/anime/genitalMeta.json`），别的部分不进工坊。
+导出时署名写进文件：`src/anime/genital.ts` 的 `GENITAL_CREDIT`。离线试接、出图用 `tools/try-genital.ts`（见 `docs/genital-plan.md` 第 1 期）。

@@ -37,7 +37,7 @@ const T_ELLIPSOID = 1;
 export const T_CUSTOM = 2;
 
 /** 融合的先后顺序：先是躯干和下身，再往上长别的 */
-export const GROUPS: readonly PartType[] = ['torso', 'lower', 'leg', 'neck', 'head', 'arm', 'chest', 'tail', 'wing', 'hair', 'horn', 'ear'];
+export const GROUPS: readonly PartType[] = ['torso', 'lower', 'leg', 'neck', 'head', 'arm', 'chest', 'tail', 'wing', 'hair', 'horn', 'ear', 'genital'];
 export const GROUP_INDEX = new Map(GROUPS.map((t, i) => [t, i]));
 /** 各类部件的融合圆角相对「融合半径」的倍率：胸要柔和，角和耳朵的根部要利落 */
 export const GROUP_BLEND: Partial<Record<PartType, number>> = {
@@ -54,6 +54,14 @@ export const GROUP_BLEND: Partial<Record<PartType, number>> = {
   hair: 0.25,
   horn: 0.4,
   ear: 0.4,
+  genital: 0.6,
+};
+/**
+ * 不摆姿势时也只在根部（关节周围）和身体圆滑融合的几类：离关节 near 以内是完整的圆角，到 far 减到没有（部件自己的单位）。
+ * 阴囊挨着大腿内侧，整个按圆角融合的话两边各扯出一片蹼
+ */
+export const REST_ROOT_BLEND: Partial<Record<PartType, [near: number, far: number]>> = {
+  genital: [0.035, 0.07],
 };
 /** 融合网格里翅膀至少这么厚：太薄的片在体素网格上会破洞 */
 const WING_THICKNESS = 0.028;
@@ -676,7 +684,11 @@ export function compileField(figure: Pick<Figure, 'parts' | 'scale'>, options: F
   for (const part of figure.parts) {
     const group = GROUP_INDEX.get(part.fuseAs ?? part.type);
     if (group === undefined || part.material === 'eye') continue;
-    partDrafts(part, xfs.get(part.name)!, group, minR, drafts);
+    const xf = xfs.get(part.name)!;
+    const from = drafts.length;
+    partDrafts(part, xf, group, minR, drafts);
+    const root = REST_ROOT_BLEND[part.type];
+    if (root) for (let i = from; i < drafts.length; i++) drafts[i] = { ...drafts[i], root: [...xf.pos, root[0] * xf.scale, root[1] * xf.scale] };
   }
   return pack(
     drafts,

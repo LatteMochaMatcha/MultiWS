@@ -23,7 +23,8 @@ export type PartType =
   | 'wing'
   | 'leg'
   | 'lower'
-  | 'tail';
+  | 'tail'
+  | 'genital';
 
 export type Side = 0 | 1 | -1;
 export type Material = 'clay' | 'eye' | 'wing';
@@ -300,8 +301,8 @@ export interface BoneHint {
  * 分部件模式下就是这个部件里多出来的一片网格。
  */
 export interface Graft {
-  /** 哪一块网格：手（anime/hand.ts）或者脚（anime/foot.ts） */
-  mesh: 'hand' | 'foot';
+  /** 哪一块网格：手（anime/hand.ts）、脚（anime/foot.ts）或者阴茎（anime/genital.ts） */
+  mesh: 'hand' | 'foot' | 'penis';
   /** 摆放：网格自己坐标里的点 p 在部件的坐标里是 matrix · p + offset。带镜像的（右手）行列式是负的 */
   matrix: Mat3;
   offset: V3;

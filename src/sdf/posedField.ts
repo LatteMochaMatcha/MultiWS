@@ -31,7 +31,7 @@
 import { type ChestShape, type Figure, type Part, type WorldXf, worldTransforms } from '../geometry/figure';
 import { type Quat, type V3, quatBasis, quatMul, rotate } from '../geometry/vec';
 import { type Skeleton, buildSkeleton } from '../rig/skeleton';
-import { BIG, type CompiledField, type Dist, type Draft, type FieldOptions, GROUP_BLEND, GROUP_INDEX, GROUPS, T_CUSTOM, draftDist, pack, partDrafts } from './field';
+import { BIG, type CompiledField, type Dist, type Draft, type FieldOptions, GROUP_BLEND, GROUP_INDEX, GROUPS, REST_ROOT_BLEND, T_CUSTOM, draftDist, pack, partDrafts } from './field';
 
 /** 每根骨骼的蒙皮矩阵：12 个数一根（3×3 的旋转按行排，后面是平移），骨骼的顺序和 buildSkeleton 给静止姿势排的一样 */
 export type PoseMatrices = ArrayLike<number>;
@@ -64,6 +64,7 @@ const ROOT_BLEND: Partial<Record<Part['type'], [near: number, far: number]>> = {
   leg: [0.13, 0.24],
   tail: [0.08, 0.16],
   wing: [0.08, 0.16],
+  genital: REST_ROOT_BLEND.genital,
 };
 
 const isIdentity = (m: PoseMatrices, o: number) =>

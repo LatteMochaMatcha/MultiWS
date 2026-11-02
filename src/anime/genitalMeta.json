@@ -1,0 +1,37 @@
+{
+  "note": "DJP Male Base Mesh Mark 03（Death Joe Productions，CC BY 4.0）的阴囊，由 tools/build-genital.ts 生成，不要手改",
+  "credit": "阴茎、阴囊取自「DJP Male Base Mesh Mark 03」© Death Joe Productions（www.DeathJoeProductions.com），CC BY 4.0",
+  "scrotum": {
+    "root": [
+      0,
+      0.6668,
+      0.046
+    ],
+    "min": [
+      -0.06732,
+      -0.05719,
+      -0.022
+    ],
+    "dims": [
+      69,
+      59,
+      58
+    ],
+    "cell": 0.002,
+    "band": 0.02,
+    "bounds": {
+      "min": [
+        -0.0453,
+        -0.0352,
+        0
+      ],
+      "max": [
+        0.0453,
+        0.0352,
+        0.0694
+      ]
+    },
+    "offset": 0,
+    "length": 236118
+  }
+}
