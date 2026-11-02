@@ -360,10 +360,13 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
   // 一个头上几张脸：只有一个头、一根脖子，多出来的脸长在这个头的两边和后面
   const faces = spec.headLayout === 'faces' && c.heads > 1;
   const necks = faces ? 1 : c.heads;
-  /** 一个上半身、两个头、横排两副胯：躯干那块格子在胯上分成左右两份（见 TWIN），两副胯各有屁股、胯下，腿是素体原装的 */
-  const hipPair = form === 'abreast' && plan.stations.length === 2 && necks === 2 && c.torsos === 1;
+  /**
+   * 一个上半身、横排两副胯、每副两条腿（几个头都一样）：躯干那块格子在胯上分成左右两份（见 TWIN），两副胯各有屁股、胯下，腿是素体原装的。
+   * 以前只有两个头的这样，一个头、三个头的胯是一块横着的椭球，往两边翻出去像条裙摆。一副胯三条腿的（5 条腿）素体的腿根排不下，还是那块椭球
+   */
+  const hipPair = form === 'abreast' && plan.stations.length === 2 && plan.stations.every((n) => n === 2) && c.torsos === 1;
   /** 两个人并成一个宽躯干（见 TWIN）：两个上半身、横排两副胯的照「一个上半身两个头」摆成这样，再切成两个上半身（见 layout.ts）。别的两副胯腰以上是一个人的（见 PAIR_HIPS） */
-  const twinned = twin && hipPair;
+  const twinned = twin && hipPair && necks === 2;
   // 头多了每个头小一圈（见 bodyPlan.ts）；并成一个宽躯干的是两个人，头照原样大
   const hs = proportion.hs * headShrink(twinned ? 1 : necks);
   const parts: Part[] = [];

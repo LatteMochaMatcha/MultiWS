@@ -37,8 +37,11 @@ describe('横排多胯', () => {
         const f = buildFigure(spec);
         const label = `${bodyStyle} ${legs}`;
         expect(f.metrics.legForm, label).toBe('abreast');
-        const lower = f.parts.find((p) => p.name === 'LowerBody')!;
-        const pelves = lower.prims.filter((p) => /^Pelvis_\d+$/.test(p.name)).map((p) => (p.kind === 'ellipsoid' ? p.center[0] : NaN));
+        // 二次元素体两副胯、每副两条腿的：躯干那块格子自己在胯上分成两副（见 twin.test.ts），两副胯的正中在 ±twin.d
+        const twin = (f.parts.find((p) => p.name === 'Torso')!.prims[0] as { twin?: { d: number } }).twin;
+        expect(!!twin, label).toBe(bodyStyle === 'anime' && legs === 4);
+        const lower = f.parts.find((p) => p.name === 'LowerBody');
+        const pelves = twin ? [-twin.d, twin.d] : lower!.prims.filter((p) => /^Pelvis_\d+$/.test(p.name)).map((p) => (p.kind === 'ellipsoid' ? p.center[0] : NaN));
         expect(pelves.length, label).toBe(legPlan(spec).stations.length);
         // 左右对称
         const sorted = [...pelves].sort((a, b) => a - b);

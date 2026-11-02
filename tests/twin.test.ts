@@ -29,19 +29,20 @@ const merged = (spec: BodySpec) => layoutAnime(spec, true);
 const torsoField = (torso: Part) => compileField({ scale: 1, parts: [{ ...torso, pos: [0, 0, 0] }] }, { blend: 0 });
 
 describe('横排两副胯：两个人并成一个宽躯干（C）、一个人的身子分成两副胯（D）', () => {
-  it('只在横排两副胯、两个头（成簇）或者两个上半身各一个头时这样做；一个上半身的腰以上不并，两个上半身的到脖子才分开', () => {
+  it('只在横排两副胯时这样做；一个上半身的（几个头都一样）腰以上不并，两个上半身各一个头的到脖子才分开', () => {
     useAnimeBody();
     expect(twinOf(make())).toBeDefined();
     expect(twinOf(make({}, { armLayout: 'stack' }))).toBeDefined();
-    expect(twinOf(make({ heads: 1 }))).toBeUndefined();
-    expect(twinOf(make({ heads: 3 }))).toBeUndefined();
     expect(twinOf(make({ legs: 6 }))).toBeUndefined();
     expect(twinOf(make({ legs: 2 }, { legLayout: 'auto' }))).toBeUndefined();
-    expect(twinOf(make({}, { headLayout: 'faces' }))).toBeUndefined();
-    // 一个上半身两个头（D）：腰以上不再分开，往上拉开的渐渐收到零（一个人的身子）
+    // 一个上半身（一个头、两个头、三个头、一个头几张脸）：腰以上不再分开，往上拉开的渐渐收到零（一个人的身子）
     const pair = twinOf(make())!;
-    expect(pair.levels![2]).toBeGreaterThan(5);
-    expect(pair.steps[pair.steps.length - 1][1]).toBe(0);
+    for (const spec of [make(), make({ heads: 1 }), make({ heads: 3 }), make({}, { headLayout: 'faces' })]) {
+      const t = twinOf(spec)!;
+      expect(t.levels![2]).toBeGreaterThan(5);
+      expect(t.steps[t.steps.length - 1][1]).toBe(0);
+      expect(t.d).toBeCloseTo(pair.d, 9);
+    }
     // 两个上半身（每个一个头）：照并成一个宽躯干摆，到脖子又分开，两副胯离得和 D 一样远
     const wide = twinOf(make({ torsos: 2, heads: 1 }))!;
     expect(wide.levels).toEqual((merged(make()).parts.find((p) => p.name === 'Torso')!.prims[0] as GridShape).twin!.levels);
@@ -55,6 +56,8 @@ describe('横排两副胯：两个人并成一个宽躯干（C）、一个人的
     const d = twinOf(make())!.d;
     // 胸那个高度躯干和一个人的一样宽（同样两个头、一对腿的那个）
     const one = buildFigure(make({ legs: 2 }, { legLayout: 'auto' }));
+    // 一个头的也一样：没有以前那块横着的胯（LowerBody）
+    expect(buildFigure(make({ heads: 1 })).parts.some((p) => p.type === 'lower')).toBe(false);
     const side = (fig: typeof f, y: number) => 0.6 - castRay(torsoField(fig.parts.find((p) => p.name === 'Torso')!), [0.6, y, 0.02], [-1, 0, 0], 0.6);
     for (const y of [1.18, 1.25]) expect(side(f, y), `${y}`).toBeCloseTo(side(one, y), 2);
     // 肚子下面和两副胯一样宽，腰在两者之间
@@ -175,6 +178,7 @@ describe('横排两副胯：两个人并成一个宽躯干（C）、一个人的
       make(),
       make({}, { shape: { ...defaultSpec().shape, bust: 1.6, hips: 1.3 } }),
       make({ chestPairs: 2 }, { armLayout: 'stack' }),
+      make({ heads: 1, tails: 1, wingPairs: 1 }),
     ]) {
       for (const f of [merged(spec), buildFigure(spec)]) {
         const mesh = fuseParts(f.parts.filter((p) => p.material !== 'eye'), { voxel: 0.012, blend: spec.blend });
