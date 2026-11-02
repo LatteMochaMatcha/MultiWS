@@ -93,6 +93,51 @@ export class PosedMeshes {
     geometry.computeBoundingSphere();
   }
 
+  /**
+   * 「自然下垂」用：身体表面上撒一把均匀的点和法线（米，每 spacing 那么大的一格一个），现在摆着的和静止时的各一份。
+   * 主要跟着 skip 里的骨骼动的顶点不算身体（头发、裙摆自己）；一张网格里这种顶点占了三成以上的，整张不算
+   * （头发贴着头皮的那一层是跟着头动的，也不能当身体）。
+   * own：skip 里每根骨骼主要带着的顶点静止时在哪（每根最多取几百个），量它自己有多粗用
+   */
+  sample(skip: ReadonlySet<number>, spacing = 0.015) {
+    const now = new Thinner(spacing);
+    const rest = new Thinner(spacing);
+    const own = new Map<number, number[]>();
+    for (const item of this.items) {
+      const { geometry, joints, weights, unit } = item.source;
+      const position = arrayOf(geometry, 'position');
+      const normal = arrayOf(geometry, 'normal');
+      const count = position.length / 3;
+      const lead = new Int32Array(count);
+      let hanging = 0;
+      for (let v = 0; v < count; v++) {
+        let best = 0;
+        for (let k = 1; k < 4; k++) if (weights[v * 4 + k] > weights[v * 4 + best]) best = k;
+        lead[v] = joints[v * 4 + best];
+        if (skip.has(lead[v])) hanging++;
+      }
+      const whole = hanging < count * 0.3;
+      for (let v = 0; v < count; v++) {
+        if (skip.has(lead[v])) {
+          let list = own.get(lead[v]);
+          if (!list) own.set(lead[v], (list = []));
+          list.push(item.position[v * 3] * unit, item.position[v * 3 + 1] * unit, item.position[v * 3 + 2] * unit);
+        } else if (whole) {
+          now.add(position, normal, v, unit);
+          rest.add(item.position, item.normal, v, unit);
+        }
+      }
+    }
+    const kept = new Map<number, Float32Array>();
+    for (const [bone, list] of own) {
+      const step = Math.max(1, Math.floor(list.length / 3 / 400));
+      const out: number[] = [];
+      for (let i = 0; i < list.length; i += 3 * step) out.push(list[i], list[i + 1], list[i + 2]);
+      kept.set(bone, new Float32Array(out));
+    }
+    return { now: now.done(), rest: rest.done(), own: kept };
+  }
+
   /** 现在所有网格合起来占多大地方（米） */
   bounds(): THREE.Box3 {
     const box = new THREE.Box3();
@@ -103,6 +148,49 @@ export class PosedMeshes {
       box.expandByPoint(one.max.clone().multiplyScalar(source.unit));
     }
     return box;
+  }
+}
+
+/** 把一堆顶点按格子并成均匀的一把点：落在同一格里的位置、法线取平均 */
+class Thinner {
+  private readonly cells = new Map<number, number>();
+  private readonly sums: number[] = [];
+
+  constructor(private readonly spacing: number) {}
+
+  add(position: ArrayLike<number>, normal: ArrayLike<number>, v: number, unit: number) {
+    const x = position[v * 3] * unit;
+    const y = position[v * 3 + 1] * unit;
+    const z = position[v * 3 + 2] * unit;
+    const c = (t: number) => Math.floor(t / this.spacing) + 1024;
+    const key = (c(x) * 2048 + c(y)) * 2048 + c(z);
+    let at = this.cells.get(key);
+    if (at === undefined) {
+      at = this.sums.length;
+      this.cells.set(key, at);
+      this.sums.push(0, 0, 0, 0, 0, 0, 0);
+    }
+    const s = this.sums;
+    s[at] += x;
+    s[at + 1] += y;
+    s[at + 2] += z;
+    s[at + 3] += normal[v * 3];
+    s[at + 4] += normal[v * 3 + 1];
+    s[at + 5] += normal[v * 3 + 2];
+    s[at + 6]++;
+  }
+
+  done(): { points: Float32Array; normals: Float32Array } {
+    const n = this.sums.length / 7;
+    const points = new Float32Array(n * 3);
+    const normals = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const s = this.sums.slice(i * 7, i * 7 + 7);
+      const l = Math.hypot(s[3], s[4], s[5]) || 1;
+      points.set([s[0] / s[6], s[1] / s[6], s[2] / s[6]], i * 3);
+      normals.set([s[3] / l, s[4] / l, s[5] / l], i * 3);
+    }
+    return { points, normals };
   }
 }
 

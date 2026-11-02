@@ -97,6 +97,7 @@ import {
 } from './pose/fingers';
 import { type Handle, type HandleGroup, HANDLE_GROUPS, buildHandles } from './pose/handles';
 import { type BodyDist, clearArms } from './pose/clear';
+import { type DrapeKind, BodySurface, boneRadius, drape, drapeBones } from './pose/drape';
 import { fitArms, followArms } from './pose/fit';
 import { POSE_LIBRARY } from './pose/library';
 import { type Posing, POSING_VERSION, cleanPosing, emptyPosing, flipPosing, isPosed } from './pose/posing';
@@ -2169,6 +2170,35 @@ function dropToGround(): boolean {
 }
 $('btnPoseGround').addEventListener('click', () => {
   if (dropToGround()) commitPose();
+});
+
+/* ---- 自然下垂：头发、裙摆、衣摆、袖子（勾上的话还有尾巴）照重力垂下来 ---- */
+
+const DRAPE_LABEL: Record<DrapeKind, string> = { hair: '头发', cloth: '裙摆、衣摆、袖子', tail: '尾巴' };
+$('btnPoseDrape').addEventListener('click', () => {
+  if (!kit || !poseState || !posed) return;
+  const { rig } = kit.solver;
+  const tails = $<HTMLInputElement>('poseDrapeTails').checked;
+  const bones = drapeBones(rig, tails);
+  if (!bones.size) {
+    const hasTails = !tails && drapeBones(rig, true).size > 0;
+    setStatus(
+      `${character ? '这个角色没有会垂下来的头发、裙摆' : '白模的头发没有骨骼（整个跟着头动），垂不下来'}${hasTails ? '；要尾巴垂下来，先勾上「尾巴也垂」' : ''}。`,
+    );
+    return;
+  }
+  // 身体表面：现在摆着的和静止时的，头发、裙摆自己不算
+  const { now, rest, own } = posed.sample(new Set(bones.keys()));
+  poseState = drape(rig, poseState, bones, {
+    now: new BodySurface(now.points, now.normals),
+    rest: new BodySurface(rest.points, rest.normals),
+    floor: 0,
+    radius: boneRadius(rig, own),
+  });
+  showPose();
+  commitPose();
+  const kinds = [...new Set(bones.values())].map((kind) => DRAPE_LABEL[kind]).join('、');
+  setStatus(`${kinds}照重力垂下来了；身体再动以后，再点一次「自然下垂」。`);
 });
 
 /** 换成另一份姿势（现成的姿势、姿势文件）。ground：套上以后落到地面（换了角色腿长不一样，脚会悬空或者陷下去） */
