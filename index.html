@@ -414,6 +414,7 @@
         <div class="export">
           <button type="button" class="btn primary" id="btnGlb" title="一整块网格，拿去雕刻">导出白模（GLB）</button>
           <button type="button" class="btn" id="btnRig" title="网格 + 骨架 + 权重">带骨骼 GLB</button>
+          <button type="button" class="btn" id="btnVrm" title="给 VTuber 软件、VRoid Hub 用的 VRM：T-pose、人形骨骼、尾巴会晃">VRM</button>
           <button type="button" class="btn" id="btnObj" title="保留四边面">OBJ</button>
           <button type="button" class="btn" id="btnStl" title="3D 打印用">STL</button>
           <button type="button" class="btn" id="btnPng" title="透明背景">截图</button>
@@ -422,6 +423,20 @@
       </footer>
     </aside>
   </div>
+  <dialog class="vrm-dialog" id="vrmDialog" aria-labelledby="vrmTitle">
+    <form method="dialog">
+      <h2 id="vrmTitle">导出 VRM</h2>
+      <p class="note">给 VTuber 软件（VSeeFace、Warudo…）、VRoid Hub、Unity、Blender 的 VRM 插件用。静止姿势是 T-pose（VRM 规定的），摆的姿势不进文件；VRM 只认一个头、一对手臂、一对腿，多出来的挂在骨架上、不会被软件带着动。</p>
+      <label class="field"><span>名字</span><input id="vrmName" maxlength="60" autocomplete="off"></label>
+      <label class="field"><span>作者</span><input id="vrmAuthor" maxlength="60" autocomplete="off" placeholder="写进文件里，别人看得到"></label>
+      <label class="field"><span>别人能怎么用</span><select id="vrmLicense"></select></label>
+      <p class="note" id="vrmCredit" hidden></p>
+      <div class="actions">
+        <button type="submit" class="btn" value="cancel">取消</button>
+        <button type="submit" class="btn primary" value="ok" id="vrmOk">导出</button>
+      </div>
+    </form>
+  </dialog>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

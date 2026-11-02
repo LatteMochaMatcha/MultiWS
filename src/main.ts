@@ -14,12 +14,13 @@ import { describeClashes, findClashes } from './geometry/clash';
 import { type Figure, type FigureMetrics, type PartType, nthName } from './geometry/figure';
 import { buildFigure } from './geometry/layout';
 import { partFrame } from './geometry/tweak';
-import { type V3, Q_ID, UP, len, norm, quatBetween, quatMul, sub } from './geometry/vec';
+import { type Quat, type V3, Q_ID, UP, len, norm, quatBetween, quatMul, sub } from './geometry/vec';
 import { inAndroidShell, saveBlob, saveText } from './io/download';
 import { exportGlb } from './io/exportGlb';
 import { OfflineError } from './io/fetchFile';
 import { type GlbMesh, writeGlb } from './io/glb';
 import { forgetFile, keepFile, keptFile } from './io/keepFile';
+import { type VrmLicense, type VrmMeta, type VrmSpring, VRM_LICENSES, humanoidMap, writeVrm } from './io/vrm';
 import { writeObj, writeStl } from './io/meshFiles';
 import { History } from './model/history';
 import { activeOverrides, clearAllOverrides, clearOverride, mirrorName, setOverride } from './model/overrides';
@@ -3153,6 +3154,145 @@ $('btnPng').addEventListener('click', async () => {
     setStatus(`截图失败：${err instanceof Error ? err.message : err}`, true);
   }
 });
+
+/* ---- VRM：给 VTuber 软件、VRoid Hub 用（见 io/vrm.ts）。现在只有融合模式的白模（成品角色见 docs/vrm-plan.md 第 2 期） ---- */
+
+const VRM_KEY = 'oc-basemesh-vrm';
+/**
+ * VRM 的静止姿势是 T-pose：第一对手臂平举、手心朝下、五指并拢伸直。
+ * 姿势数据里上臂、前臂、手、手指本来就是从这个样子算起的（见 pose/posing.ts），这几根不转就是 T-pose。
+ * 平举的是进了人形骨骼对照表的那一对（好几个上半身时右手臂是第一个上半身里侧的那条，UpperArm_R.002），
+ * 再加上不带序号的那一对（两边对称）；别的骨骼（多出来的手臂、头、腿）保持静止时的样子
+ */
+function tPosing(humanoid: Map<string, number>, rest: Skeleton): Posing {
+  const bones: Record<string, Quat> = {};
+  for (const s of ['L', 'R']) {
+    for (const name of ['UpperArm', 'LowerArm', 'Hand']) bones[`${name}_${s}`] = Q_ID;
+    for (const finger of FINGER_NAMES) for (let k = 1; k <= 3; k++) bones[`${finger}${k}_${s}`] = Q_ID;
+  }
+  for (const [slot, i] of humanoid) {
+    if (/^(left|right)(UpperArm|LowerArm|Hand|Thumb|Index|Middle|Ring|Little)/.test(slot)) bones[rest.bones[i].name] = Q_ID;
+  }
+  return { version: POSING_VERSION, bones };
+}
+/** 尾巴是会晃的弹簧骨骼：每条一串，从尾根晃到尾尖 */
+function tailSprings(skeleton: Skeleton): VrmSpring[] {
+  const roots = skeleton.bones.flatMap((b, i) => (/^Tail_\d+_01$/.test(b.name) ? [i] : []));
+  return roots.length ? [{ comment: 'Tail', roots, stiffness: 1, gravity: 0.05, drag: 0.4, hitRadius: 0.03 }] : [];
+}
+
+const vrmDialog = $<HTMLDialogElement>('vrmDialog');
+const vrmName = $<HTMLInputElement>('vrmName');
+const vrmAuthor = $<HTMLInputElement>('vrmAuthor');
+const vrmLicense = $<HTMLSelectElement>('vrmLicense');
+for (const [key, terms] of Object.entries(VRM_LICENSES)) vrmLicense.append(new Option(terms.label, key));
+const isLicense = (v: unknown): v is VrmLicense => typeof v === 'string' && v in VRM_LICENSES;
+
+/** 弹出小框填名字、作者、许可；取消返回 null。上次填的记在这个浏览器里 */
+function askVrmMeta(credits?: string): Promise<VrmMeta | null> {
+  let saved: Record<string, unknown> = {};
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(VRM_KEY) ?? '{}');
+    if (typeof raw === 'object' && raw !== null) saved = raw as Record<string, unknown>;
+  } catch {
+    // 读不到就空着
+  }
+  vrmName.value = typeof saved.title === 'string' ? saved.title : 'OC';
+  vrmAuthor.value = typeof saved.author === 'string' ? saved.author : '';
+  vrmLicense.value = isLicense(saved.license) ? saved.license : 'private';
+  // 用到了要求署名的素材（二次元素体的脚、躯干）：选什么许可都照样写上署名
+  const showCredit = () => {
+    const note = $('vrmCredit');
+    note.hidden = !credits;
+    if (credits) note.textContent = `会自动写上署名：${credits}。${vrmLicense.value === 'cc0' ? '选了 CC0 也一样：这几样素材要求署名。' : ''}`;
+  };
+  vrmLicense.onchange = showCredit;
+  showCredit();
+  vrmDialog.returnValue = '';
+  vrmDialog.showModal();
+  return new Promise((resolve) => {
+    vrmDialog.addEventListener(
+      'close',
+      () => {
+        if (vrmDialog.returnValue !== 'ok') {
+          resolve(null);
+          return;
+        }
+        const license = isLicense(vrmLicense.value) ? vrmLicense.value : 'private';
+        const meta: VrmMeta = { title: vrmName.value.trim() || 'OC', author: vrmAuthor.value.trim(), license, ...(credits ? { credits } : {}) };
+        try {
+          localStorage.setItem(VRM_KEY, JSON.stringify({ title: meta.title, author: meta.author, license }));
+        } catch {
+          // 存不了下次重新填
+        }
+        resolve(meta);
+      },
+      { once: true },
+    );
+  });
+}
+
+async function exportVrm() {
+  if (pending || (!figure && !character)) rebuild();
+  if (character) {
+    setStatus('成品角色导出 VRM 还在做（贴图、表情、头发的弹簧骨骼要一起带上）：现在先用「带骨骼 GLB」。', true);
+    return;
+  }
+  const target = figure;
+  if (!target) return;
+  if (spec.meshMode !== 'fused') {
+    setStatus('VRM 要一整块网格：先在「网格」一栏换成「融合成一整块」。', true);
+    return;
+  }
+  // 先看人形骨骼对不对得上：对不上就不用问名字了
+  const rest = buildSkeleton(target);
+  let humanoid: Map<string, number>;
+  try {
+    humanoid = humanoidMap(rest);
+  } catch (err) {
+    setStatus(`这个身体导不了 VRM：${err instanceof Error ? err.message : err}`, true);
+    return;
+  }
+  const credit = footCredit(target);
+  const meta = await askVrmMeta(credit);
+  if (!meta) return;
+  const buttons = [...Object.values(exportButtons), $<HTMLButtonElement>('btnVrm')];
+  for (const button of buttons) button.disabled = true;
+  try {
+    setStatus('正在生成精细网格，稍等几秒…');
+    const data = await fused.exportData({ skin: true });
+    if (!data.skin) throw new Error('没有拿到蒙皮数据');
+    // 静止的网格照权重搬成 T-pose（权重本来就是手臂平举着算的，搬过去几乎就是算权重时的那张），骨架也换成 T-pose 的
+    const solver = makeSolver(rest.bones);
+    const frame = forward(solver.rig, stateOf(solver, tPosing(humanoid, rest)));
+    const matrices = poseMatrices(solver.rig, frame);
+    skinInPlace(WHITE_BLEND, data.positions, data.normals, data.skin.joints, data.skin.weights, matrices);
+    const skeleton = posedSkeleton({ rig: solver.rig, frame, matrices }, rest);
+    const springs = tailSprings(skeleton);
+    const file = writeVrm(
+      { positions: data.positions, normals: data.normals, indices: data.triangles, joints: data.skin.joints, weights: data.skin.weights, color: MATERIAL_INFO.clay.color },
+      skeleton,
+      meta,
+      springs,
+    );
+    const where = await saveBlob('oc_basemesh.vrm', new Blob([file], { type: 'model/gltf-binary' }));
+    const notes = [
+      'T-pose',
+      `${count(data.info.triangles)} 三角面`,
+      `${skeleton.bones.length} 根骨骼`,
+      ...(springs.length ? ['尾巴会晃'] : []),
+      ...(mode === 'pose' && isPosed(spec.posing) ? ['摆的姿势不进 VRM'] : []),
+      ...(data.info.components > 1 ? [`注意它分成了 ${data.info.components} 块`] : []),
+      ...(credit ? [`发出去时请署名「${credit}」`] : []),
+    ];
+    setStatus(`已导出 oc_basemesh.vrm（${notes.join('，')}），${where}。`);
+  } catch (err) {
+    setStatus(`导出失败：${err instanceof Error ? err.message : err}`, true);
+  } finally {
+    for (const button of buttons) button.disabled = false;
+  }
+}
+$('btnVrm').addEventListener('click', () => void exportVrm());
 
 $('btnJson').addEventListener('click', async () => {
   try {

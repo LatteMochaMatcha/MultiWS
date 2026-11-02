@@ -73,6 +73,13 @@ export interface GlbOptions {
   images?: GlbImage[];
   /** 署名：写进文件的 asset.copyright（用了要求署名的素材时带上） */
   copyright?: string;
+  /**
+   * 骨骼节点朝哪：along（缺省）是节点自己的 +Y 沿着骨头（Blender 照这根轴画骨骼）；
+   * none 是节点都不转、只有位置（VRM 0.x 要求这样）
+   */
+  boneAxes?: 'along' | 'none';
+  /** 加进文件顶层的扩展（VRM 就是一个叫 VRM 的扩展）。节点的下标：骨骼排在最前面、照骨架的顺序，然后才是网格 */
+  extensions?: { used: string[]; data: Record<string, unknown> };
 }
 
 const FLOAT = 5126;
@@ -132,13 +139,14 @@ export function writeGlb(meshes: GlbMesh[], options: GlbOptions = {}): ArrayBuff
     const { bones } = skeleton;
     const turns: Quat[] = bones.map((bone) => {
       const along = sub(bone.tail, bone.head);
-      return len(along) > 1e-9 ? quatBetween(UP, norm(along)) : Q_ID;
+      return options.boneAxes !== 'none' && len(along) > 1e-9 ? quatBetween(UP, norm(along)) : Q_ID;
     });
     bones.forEach((bone, i) => {
       // 相对父骨骼的位置和朝向
       const up = bone.parent >= 0 ? quatConj(turns[bone.parent]) : Q_ID;
       const from: V3 = bone.parent >= 0 ? bones[bone.parent].head : [0, 0, 0];
-      nodes.push({ name: bone.name, translation: rotate(up, sub(bone.head, from)), rotation: quatMul(up, turns[i]) });
+      const translation = rotate(up, sub(bone.head, from));
+      nodes.push(options.boneAxes === 'none' ? { name: bone.name, translation } : { name: bone.name, translation, rotation: quatMul(up, turns[i]) });
     });
     bones.forEach((bone, i) => {
       if (bone.parent < 0) {
@@ -263,7 +271,10 @@ export function writeGlb(meshes: GlbMesh[], options: GlbOptions = {}): ArrayBuff
           samplers: [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }],
         }
       : {}),
-    ...(unlit ? { extensionsUsed: ['KHR_materials_unlit'] } : {}),
+    ...(unlit || options.extensions?.used.length
+      ? { extensionsUsed: [...(unlit ? ['KHR_materials_unlit'] : []), ...(options.extensions?.used ?? [])] }
+      : {}),
+    ...(options.extensions ? { extensions: options.extensions.data } : {}),
     ...(skins.length ? { skins } : {}),
     accessors,
     bufferViews,
