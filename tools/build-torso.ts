@@ -505,7 +505,7 @@ export function main(args: string[], root: string) {
   writeFileSync(join(root, BIN), out);
   writeFileSync(join(root, META), `${JSON.stringify(meta, null, 1)}
 `);
-  console.log('写好了：接着跑 node tools/run.mjs tools/build-bust.ts --small 和 node tools/run.mjs tools/build-bust.ts');
+  console.log('写好了：接着跑 node tools/run.mjs tools/build-chest.ts --write（胸的展开图和胸型照新的躯干重算）');
 }
 
 /**

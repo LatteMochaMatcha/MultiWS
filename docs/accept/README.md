@@ -26,3 +26,4 @@ uv run --with pillow python tools/accept-sheet.py docs/accept/<期> --title <期
 | `4-rows` | 第 4 期：多排胸（A） |
 | `5-two-torsos` | 第 5 期：两个上半身直立并排（B） |
 | `6-wide` | 第 6 期：并成宽躯干（C、D），胸按一个人算摆在正中 |
+| `7-final` | 第 7 期：收尾（烤胸提速以后，最后一套） |

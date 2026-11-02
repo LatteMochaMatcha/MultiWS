@@ -623,7 +623,7 @@ function limbLength(figure: Figure, spec: BodySpec): Record<string, PartOverride
   return out;
 }
 
-/** 好几个上半身时胯再宽多少倍（各坐一副胯的二次元素体不乘，见 animeLayout.ts 的 paired） */
+/** 好几个上半身时胯再宽多少倍（二次元素体两个上半身直立并排的乘 UPRIGHT_HIPS；并成一个宽躯干的照 D 摆、不乘） */
 export const MULTI_HIPS = 1.1;
 /**
  * 二次元素体两个上半身直立并排站在一副胯、一对腿上（见 torsos.ts 的 UPRIGHT_OVERLAP）时胯再宽多少倍：两个腰并排已经很宽，

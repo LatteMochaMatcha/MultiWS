@@ -820,6 +820,8 @@ export function wideFrame(body: GridShape): ChestFrame {
   return frame;
 }
 
+/** 烤的时候先每几格取一个粗点（见 bake） */
+const BAKE_STRIDE = 2;
 /** 胸烤成的格子每格多大：最细一档和躯干的格子（5 毫米）、胸型放大以后的格子差不多（融合最细一档的体素 6 毫米）；粗的几档最粗到 BAKE_COARSE */
 const BAKE = 0.004;
 const BAKE_COARSE = 0.012;
@@ -829,13 +831,54 @@ const BAKED = new Map<string, { fn: Dist; min: V3; max: V3; outer: { min: V3; ma
 /** 把一个距离场在 [min, max] 里每 cell 采一个点存起来，求值时三线性插值；出了范围照边上的值加上到边的距离 */
 function bake(fn: Dist, min: V3, max: V3, cell: number): Dist {
   const [x0, y0, z0] = min;
-  const nx = Math.max(2, Math.ceil((max[0] - x0) / cell) + 1);
-  const ny = Math.max(2, Math.ceil((max[1] - y0) / cell) + 1);
-  const nz = Math.max(2, Math.ceil((max[2] - z0) / cell) + 1);
+  // 格点数凑成 BAKE_STRIDE 的整数倍再加一：粗的那一遍正好落在细格点上
+  const count = (span: number) => Math.max(1, Math.ceil(span / cell / BAKE_STRIDE)) * BAKE_STRIDE + 1;
+  const nx = count(max[0] - x0);
+  const ny = count(max[1] - y0);
+  const nz = count(max[2] - z0);
   const nxy = nx * ny;
   const data = new Float32Array(nxy * nz);
-  let o = 0;
-  for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) data[o++] = fn(x0 + i * cell, y0 + j * cell, z0 + k * cell);
+  // 先每 BAKE_STRIDE 格取一个粗点；一个粗格子八个角离表面都比格子的对角线（再宽一点）远的，表面穿不过这个格子：
+  // 里面的细格点照八个角插值，只有表面附近的粗格子才逐点算（胸那一块里大半是空的、或者埋在躯干里，现算又慢）
+  const step = cell * BAKE_STRIDE;
+  const [cx, cy, cz] = [(nx - 1) / BAKE_STRIDE + 1, (ny - 1) / BAKE_STRIDE + 1, (nz - 1) / BAKE_STRIDE + 1];
+  const coarse = new Float32Array(cx * cy * cz);
+  for (let k = 0, o = 0; k < cz; k++) for (let j = 0; j < cy; j++) for (let i = 0; i < cx; i++) coarse[o++] = fn(x0 + i * step, y0 + j * step, z0 + k * step);
+  const far = step * Math.sqrt(3) * 1.05;
+  const at = (i: number, j: number, k: number) => coarse[i + cx * (j + cy * k)];
+  // 哪些细格点要逐点算：表面附近的粗格子里的（每个点只算一次）
+  const needs = new Uint8Array(nxy * nz);
+  for (let K = 0; K < cz - 1; K++)
+    for (let J = 0; J < cy - 1; J++)
+      for (let I = 0; I < cx - 1; I++) {
+        let near = false;
+        for (let c = 0; c < 8 && !near; c++) {
+          const v = at(I + (c & 1), J + ((c >> 1) & 1), K + ((c >> 2) & 1));
+          near = (v < 0 ? -v : v) < far;
+        }
+        if (!near) continue;
+        for (let k = 0; k <= BAKE_STRIDE; k++)
+          for (let j = 0; j <= BAKE_STRIDE; j++)
+            for (let i = 0; i <= BAKE_STRIDE; i++) needs[I * BAKE_STRIDE + i + nx * (J * BAKE_STRIDE + j) + nxy * (K * BAKE_STRIDE + k)] = 1;
+      }
+  for (let gk = 0, o = 0; gk < nz; gk++)
+    for (let gj = 0; gj < ny; gj++)
+      for (let gi = 0; gi < nx; gi++, o++) {
+        const [I, J, K] = [Math.min(Math.floor(gi / BAKE_STRIDE), cx - 2), Math.min(Math.floor(gj / BAKE_STRIDE), cy - 2), Math.min(Math.floor(gk / BAKE_STRIDE), cz - 2)];
+        const [u, v, w] = [gi / BAKE_STRIDE - I, gj / BAKE_STRIDE - J, gk / BAKE_STRIDE - K];
+        // 正好落在粗点上的就用粗点的值
+        if (u % 1 === 0 && v % 1 === 0 && w % 1 === 0) data[o] = at(I + u, J + v, K + w);
+        else if (needs[o]) data[o] = fn(x0 + gi * cell, y0 + gj * cell, z0 + gk * cell);
+        else {
+          const a = at(I, J, K) + (at(I + 1, J, K) - at(I, J, K)) * u;
+          const b = at(I, J + 1, K) + (at(I + 1, J + 1, K) - at(I, J + 1, K)) * u;
+          const e = at(I, J, K + 1) + (at(I + 1, J, K + 1) - at(I, J, K + 1)) * u;
+          const f = at(I, J + 1, K + 1) + (at(I + 1, J + 1, K + 1) - at(I, J + 1, K + 1)) * u;
+          const g = a + (b - a) * v;
+          const h = e + (f - e) * v;
+          data[o] = g + (h - g) * w;
+        }
+      }
   const inv = 1 / cell;
   return (x, y, z) => {
     let fx = (x - x0) * inv;
