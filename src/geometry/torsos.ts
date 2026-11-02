@@ -10,6 +10,7 @@
  * - 手臂、胸、翅膀分「外侧」和「里侧」（里侧挨着别的上半身）：外侧那条照它在哪一边起名，左右两个上半身的外侧手臂互为镜像，
  *   名字只差 _L / _R；里侧的另外排在后面几对。这样「左右对称」照名字换边时，换到的正好是对面那个上半身上对应的那一条。
  * 里侧的手臂垂下来、平举出去都会插进旁边那个上半身里：改成往前伸（绕肩关节转过去）。
+ * 二次元素体两个上半身（各坐一副胯的除外）不往两边张开：直立并排，里侧贴在一起（见 UPRIGHT_OVERLAP）。
  *
  * 纯函数，不依赖浏览器。
  */
@@ -89,6 +90,25 @@ const ARM_CLEAR = 0.02;
 const ARM_RADIUS = 0.045;
 const ARM_REACH = 0.5;
 const ARM_ROOT = 0.12;
+/**
+ * 二次元素体两个上半身（B，照 refs/B-2～B-4）：直立并排，里侧贴在一起，各有各的腰，到胯并成一副宽胯（胯宽见 layout.ts 的 UPRIGHT_HIPS）。
+ * 两边各往外挪腰最细那里半宽的 UPRIGHT_OVERLAP 倍：两个腰挤进去一点，正中只剩一道浅线（正好挨着的话两个肚子各圆各的，
+ * 中间一道一直凹到侧面中间的深沟；挤进去更多的话头挤不下，上半身歪得多，肩膀那里分出一道 V）。
+ * 不往外歪，只有头碰头时歪到头之间空出 UPRIGHT_HEAD_GAP（一个头的歪一两度，两个头的歪七八度）
+ */
+const UPRIGHT_OVERLAP = 0.8;
+const UPRIGHT_HEAD_GAP = 0.01;
+/**
+ * 直立并排时里侧的手臂：肩关节挪回自己这边、离正中线 BESIDE_ROOT（不然伸到旁边那个身子里，两边的交叉着长出来；
+ * 两边的根离得太近，融合、算权重时两条粘成一块，摆姿势时一条被另一个身子拽着走），从两个头中间那块并在一起的肩膀上长出来。
+ * 姿势固定，不再碰到东西就一档档往上抬：往前伸，离「垂直向下」BESIDE_DROP，往自己那边偏 BESIDE_YAW（两边的分开）；
+ * 一个肩膀上聚拢着好几条的，往后一条比前一条再抬 BESIDE_STEP。
+ * 试过垂在身前（手落在自己那边的胯前，照参考图）：胸 1 时好看，大胸时穿进里侧挤在一起的胸里，套姿势时手插进大腿
+ */
+const BESIDE_ROOT = 0.045;
+const BESIDE_DROP = 62 * (Math.PI / 180);
+const BESIDE_YAW = 15 * (Math.PI / 180);
+const BESIDE_STEP = 30 * (Math.PI / 180);
 /** 往前伸的手臂融合时抬多少：最低的那条正好抬平 */
 const INNER_BIND_LIFT = 90 * (Math.PI / 180) - INNER_ARM_DROP;
 /** 里侧一个肩膀上最多留几条聚拢的手臂，肩关节离多近算同一个肩膀 */
@@ -147,8 +167,10 @@ export function splitTorsos(figure: Figure, count: number): Figure {
    * 胯就照那两份留着、不加宽；每个上半身整个挪到自己那一份上（连分开之前那一截），从胯顶起只转开、不再往外挪
    */
   const seat = slots.length === 2 ? (torso.prims.find((p): p is GridShape => p.kind === 'grid' && !!p.twin && !p.twin.levels)?.twin?.d ?? 0) : 0;
-  /** 两边的上半身往外挪多远（从分开的地方起渐渐挪过去） */
-  const outward = seat ? 0 : (three ? SHIFT_THREE : 1) * (sampled ? SHIFT_SAMPLED : SHIFT);
+  /** 直立并排（见 UPRIGHT_OVERLAP） */
+  const upright = sampled && !three && !seat;
+  /** 两边的上半身往外挪多远（从分开的地方起渐渐挪过去）；直立并排的照腰的宽度，下面量 */
+  let outward = seat ? 0 : (three ? SHIFT_THREE : 1) * (sampled ? SHIFT_SAMPLED : SHIFT);
   const hipY = torso.bones?.find((b) => b.name === 'Hips')?.head[1] ?? cutY - 0.12;
 
   /**
@@ -167,6 +189,13 @@ export function splitTorsos(figure: Figure, count: number): Figure {
   );
   const rigidLow = Math.min(...rigid.map(partBottom));
   const forkTo = Math.max(cutY + FORK_ABOVE, Math.min(cutY + FORK_MAX, rigidLow - FORK_UNDER_CHEST));
+  if (upright) {
+    // 腰最细那里多宽（分开的那一段里，从正中往两边量）
+    const whole = compileField({ scale: 1, parts: [{ ...torso, parent: undefined, pos: [0, 0, 0], quat: Q_ID }] }, { blend: 0 });
+    let waist = Infinity;
+    for (let y = forkFrom; y <= forkTo; y += 0.005) waist = Math.min(waist, 0.6 - castRay(whole, [0.6, y, 0], [-1, 0, 0], 0.6));
+    outward = waist * UPRIGHT_OVERLAP;
+  }
 
   /* ---- 躯干切成两截：分开的地方以下是胯，往上（多留一截）是复制用的那一份 ---- */
   const below: Prim[] = [];
@@ -220,7 +249,9 @@ export function splitTorsos(figure: Figure, count: number): Figure {
       reach.push({ wide: Math.abs(p.pos[0]) + HEAD_HALF_WIDTH * (p.scale ?? 1), rise: p.pos[1] - pivot[1] });
     }
   }
-  const lean = torsoLean(reach, three, seat ? seat - SEAT_IN : outward, sampled ? LEAN_MIN_SAMPLED : LEAN_MIN);
+  // 直立并排的只看头：肩膀本来就并在一起
+  const heads = reach.filter((r) => r.gap === undefined).map((r) => ({ ...r, gap: UPRIGHT_HEAD_GAP }));
+  const lean = upright ? torsoLean(heads, false, outward, 0) : torsoLean(reach, three, seat ? seat - SEAT_IN : outward, sampled ? LEAN_MIN_SAMPLED : LEAN_MIN);
   // 里侧的手臂往前伸时手不往下伸到哪儿：腰；腿左右并排、横排多胯时胯底下垫的那一大块比腰还高的话，到它顶上
   const lowerTop = Math.max(
     ...figure.parts
@@ -345,11 +376,23 @@ export function splitTorsos(figure: Figure, count: number): Figure {
         ...(p.bones ? { bones: bones(p.bones) } : {}),
         ...(p.grafts ? { grafts: grafts(p.grafts) } : {}),
       };
+      // 直立并排时里侧的肩关节挪回自己这边（见 BESIDE_ROOT）
+      if (upright && p.type === 'arm' && p.parent === 'Torso' && inner(p.side) && Math.abs(p.pos[0]) > outward - BESIDE_ROOT) {
+        made.pos = [p.side * (outward - BESIDE_ROOT), p.pos[1], p.pos[2]];
+      }
       out.push(made);
     }
-    // 里侧的手臂往前伸（见 reachForward）
+    // 里侧的手臂：直立并排的摆一个固定的姿势（见 besideArms），别的往前伸、碰到东西往上抬（见 reachForward）
     for (const side of [1, -1]) {
       if (!inner(side)) continue;
+      if (upright) {
+        besideArms(
+          out.filter((p) => p.parent === name && p.side === side && p.type === 'arm'),
+          q,
+          slot,
+        );
+        continue;
+      }
       const mine = out.filter((p) => p.parent === name && p.side === side);
       const extra = reachForward(
         mine.filter((p) => p.type === 'arm'),
@@ -362,7 +405,8 @@ export function splitTorsos(figure: Figure, count: number): Figure {
     }
   });
   for (const p of figure.parts) if (p !== torso && !upperOf(p)) out.push(p);
-  const kept = crowded(out, slots, [0, shoulderY, pivot[2]]);
+  // 直立并排的里侧的胸、手臂都留着（胸挤在一起，手臂见 besideArms）
+  const kept = upright ? out : crowded(out, slots, [0, shoulderY, pivot[2]]);
 
   // 头顶低了一点（上半身歪过去了）：身高照最高的那个头顶重新量
   const crown = (parts: Part[]) => {
@@ -428,6 +472,25 @@ function reachForward(arms: Part[], chests: Part[], q: Quat, toTorso: (p: V3) =>
     placedRods.push({ from, dir, r });
   }
   return extra;
+}
+
+/**
+ * 直立并排时一个上半身里侧的手臂（见 BESIDE_DROP）：往前伸、往自己那边（slot）偏一点，肩关节靠前的先摆，
+ * 一个肩膀上往后一条再抬 BESIDE_STEP。方向照世界算（上半身歪的那一两度不跟着）。
+ * 融合、算权重时另摆的姿势（Part.bind）抬到平举往前（和别的里侧手臂一样）
+ */
+function besideArms(arms: Part[], q: Quat, slot: number) {
+  /** 离「垂直向下」drop、往自己那边偏 BESIDE_YAW 的方向，换到上半身的坐标里 */
+  const toward = (drop: number) =>
+    rotate(quatConj(q), [slot * Math.sin(BESIDE_YAW) * Math.sin(drop), -Math.cos(drop), Math.cos(BESIDE_YAW) * Math.sin(drop)]);
+  [...arms]
+    .sort((a, b) => b.pos[2] - a.pos[2])
+    .forEach((part, i) => {
+      const drop = BESIDE_DROP + i * BESIDE_STEP;
+      const dir = toward(drop);
+      part.quat = quatMul(quatBetween(armDir(part), dir), part.quat);
+      if (part.bind) part.bind = quatBetween(dir, toward(Math.max(drop, Math.PI / 2)));
+    });
 }
 
 /** 从 from 沿单位向量 dir 走 length 那一段，离点 p 最近多远 */

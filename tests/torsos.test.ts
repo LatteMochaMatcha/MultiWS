@@ -360,7 +360,7 @@ describe('好几个上半身', () => {
     }
   });
 
-  it('二次元素体两个上半身从胯上就分开：胯顶往上两个肚子是分开的（中间一道 V），胯里还是一整块，外侧在接口处不起台阶', () => {
+  it('二次元素体两个上半身直立并排：胯顶往上两个肚子挤在一起，正中一道浅沟（不是一直凹到侧面），胯里还是一整块，外侧在接口处不起台阶', () => {
     useAnimeBody();
     for (const shape of [{}, { waist: 1.16, hips: 1.28 }]) {
       const spec = make({ torsos: 2 }, { bodyStyle: 'anime', shape: { ...defaultSpec().shape, ...shape } });
@@ -383,14 +383,48 @@ describe('好几个上半身', () => {
       const front = (x: number, y: number) => 1 - castRay(field, [x, y + lift, 1], [0, 0, -1], 1);
       /** 高度 y 上，左边那个上半身外侧的表面在哪 */
       const outer = (y: number) => 1 - castRay(field, [1, y + lift, 0.01], [-1, 0, 0], 1);
-      // 胯顶往上：正中比两个肚子凹进去一大截
+      // 胯顶往上：正中比两个肚子凹进去一点（两个身子），但不到 4 厘米（正好挨着的话一直凹到侧面中间，十来厘米）
       const waist = split + 0.09;
-      expect(front(0, waist), label).toBeLessThan(front(s, waist) - 0.02);
+      expect(front(0, waist), label).toBeLessThan(front(s, waist) - 0.005);
+      expect(front(0, waist), label).toBeGreaterThan(front(s, waist) - 0.04);
       // 胯里：正中不凹
       expect(front(0, split - 0.04), label).toBeGreaterThan(front(s, split - 0.04) - 0.006);
       // 外侧：接口上下各几毫米没有一下子跳出去
       for (let y = split - 0.03; y < split + 0.03; y += 0.0025) expect(Math.abs(outer(y + 0.0025) - outer(y)), `${label} ${y}`).toBeLessThan(0.004);
     }
+  });
+
+  it('二次元素体两个上半身直立并排：一个头的几乎不歪；里侧的胸、手臂都留着，里侧手臂往前伸、往自己那边偏，两边的根隔开', () => {
+    for (const shape of [{}, { bust: 2.2, waist: 1.16, hips: 1.28 }]) {
+      const f = buildFigure(make({ torsos: 2 }, { bodyStyle: 'anime', shape: { ...defaultSpec().shape, ...shape } }));
+      const world = worldTransforms(f);
+      const label = JSON.stringify(shape);
+      for (const name of ['UpperBody_L', 'UpperBody_R']) {
+        const q = world.get(name)!.quat;
+        expect(2 * Math.asin(Math.hypot(q[0], q[1], q[2])), `${label} ${name}`).toBeLessThan((6 * Math.PI) / 180);
+      }
+      expect(names(f, 'chest'), label).toEqual(['Chest_01_L', 'Chest_01_R', 'Chest_02_L', 'Chest_02_R']);
+      /** 上臂在世界里朝哪 */
+      const reach = (name: string): V3 => {
+        const bone = part(f, name).bones!.find((b) => b.name.startsWith('UpperArm'))!;
+        return rotate(world.get(name)!.quat, sub(bone.tail, bone.head));
+      };
+      // 里侧的：左边那个上半身的是 Arm_02_R，右边的是 Arm_02_L；肩关节在自己这边，往前伸，往自己那边偏一点
+      for (const [name, side] of [
+        ['Arm_02_R', 1],
+        ['Arm_02_L', -1],
+      ] as const) {
+        expect(part(f, name).parent, name).toBe(side > 0 ? 'UpperBody_L' : 'UpperBody_R');
+        expect(Math.sign(world.get(name)!.pos[0]), `${label} ${name}`).toBe(side);
+        const d = reach(name);
+        expect(d[2], `${label} ${name}`).toBeGreaterThan(Math.abs(d[0]) * 2);
+        expect(Math.sign(d[0]), `${label} ${name}`).toBe(side);
+      }
+      expect(world.get('Arm_02_R')!.pos[0] - world.get('Arm_02_L')!.pos[0], label).toBeGreaterThan(0.09);
+    }
+    // 两个头的：歪到头分开，不穿模
+    const two = buildFigure(make({ torsos: 2, heads: 2, armPairs: 2, chestPairs: 2 }, { bodyStyle: 'anime', armLayout: 'fan' }));
+    expect(describeClashes(findClashes(two))).toBe('');
   });
 
   it('胸跟着躯干一起分：在胸自己的坐标里分，和换到上半身的坐标里分是一回事', () => {

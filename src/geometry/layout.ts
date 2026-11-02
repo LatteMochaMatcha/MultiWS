@@ -625,11 +625,18 @@ function limbLength(figure: Figure, spec: BodySpec): Record<string, PartOverride
 
 /** 好几个上半身时胯再宽多少倍（各坐一副胯的二次元素体不乘，见 animeLayout.ts 的 paired） */
 export const MULTI_HIPS = 1.1;
+/**
+ * 二次元素体两个上半身直立并排站在一副胯、一对腿上（见 torsos.ts 的 UPRIGHT_OVERLAP）时胯再宽多少倍：两个腰并排已经很宽，
+ * 照 MULTI_HIPS 的话胯几乎不比腰宽，整个躯干一个长方块；照参考图 B-3 要宽出一截
+ */
+export const UPRIGHT_HIPS = 1.25;
 
 /** 只按部件数量、排布和体型自动摆位，不管手动微调 */
 export function layoutFigure(given: BodySpec): Figure {
-  // 好几个上半身站在一副胯上：胯比一个人的宽一点（画里都是这样画的），在「胯宽」滑块的基础上再乘 MULTI_HIPS
-  const spec = given.counts.torsos > 1 ? { ...given, shape: { ...given.shape, hips: given.shape.hips * MULTI_HIPS } } : given;
+  // 好几个上半身站在一副胯上：胯比一个人的宽一点（画里都是这样画的），在「胯宽」滑块的基础上再乘 MULTI_HIPS（直立并排的乘 UPRIGHT_HIPS）
+  const plan = legPlan(given);
+  const upright = given.bodyStyle === 'anime' && given.counts.torsos === 2 && plan.form === 'biped' && plan.total === 2;
+  const spec = given.counts.torsos > 1 ? { ...given, shape: { ...given.shape, hips: given.shape.hips * (upright ? UPRIGHT_HIPS : MULTI_HIPS) } } : given;
   // 二次元少女素体的数据还没载入时，先按白模摆（数据到了以后界面会重新生成一遍）
   const one = spec.bodyStyle === 'anime' && animeReady() ? layoutAnime(spec) : layoutMannequin(spec);
   // 好几个上半身：照一个摆好，再从腰那里切开、复制
