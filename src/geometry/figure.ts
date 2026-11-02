@@ -216,6 +216,11 @@ export interface Fork {
    */
   split?: { part: string; quat: Quat; shift: V3; dir: 1 | -1 }[];
   /**
+   * 不照每一点自己的高度，全照这个高度上转、挪了多少整块退回去（二次元素体的胸贴着的那块躯干，见 torsos.ts 的 refork）：
+   * 胸长在分开的那一段里，照各点自己的高度的话胸的上半截比下半截多转几度，整只胸被扭扁
+   */
+  freeze?: number;
+  /**
    * 格子不在上半身自己的坐标里，在挂在它上面的一个部件（胸）的坐标里：上面这些数都还是上半身坐标里的，
    * 部件里的一点 p 在上半身里是 pos + quat · (scale · shape · p)（inverse 是 shape 的逆）。
    * 分开的那一段一直延到胸口时，胸跟着躯干一起渐渐转、挪，和底下的皮对得上
@@ -255,6 +260,11 @@ export interface ChestShape {
   scale?: V3;
   /** 转多少度：绕左右的轴（正的胸尖往下）、绕竖轴（正的往 +X）、在表面上绕胸中心 */
   tilt?: V3;
+  /**
+   * 再切一刀（躯干的坐标里 n·p > d 的不要，n 是单位向量）：两个上半身里侧的胸在两个身子正中间切齐，
+   * 和旁边那只挤在一起，中间一道沟（见 torsos.ts 的 refork）
+   */
+  seam?: [nx: number, ny: number, nz: number, d: number];
 }
 
 export type Prim = Ellipsoid | Cone | Tube | Loft | Wing | GridShape | ChestShape;

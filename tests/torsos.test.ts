@@ -36,7 +36,7 @@ describe('好几个上半身', () => {
     expect(buildFigure(make({ torsos: 1, heads: 2, armPairs: 2 }))).toEqual(buildFigure(make({ heads: 2, armPairs: 2 })));
   });
 
-  it('二次元素体的胸贴着它挂着的那个上半身的躯干：和上半身的躯干同一个分叉，手动挪过上半身也跟着', () => {
+  it('二次元素体的胸贴着它挂着的那个上半身的躯干：和上半身的躯干同一个分叉（只是定在胸中心的高度），手动挪过上半身也跟着', () => {
     const cases: Record<string, PartOverride>[] = [{}, { UpperBody_L: { position: [0.03, 0.08, 0], rotation: [0, 12, 8] } }];
     for (const overrides of cases) {
       const f = buildFigure(make({ torsos: 2, heads: 2, armPairs: 2, chestPairs: 2 }, { bodyStyle: 'anime', armLayout: 'fan', overrides }));
@@ -46,7 +46,7 @@ describe('好几个上半身', () => {
         const prim = chest.prims[0];
         const body = part(f, chest.parent!).prims.find((q) => q.kind === 'grid');
         if (prim.kind !== 'chest' || body?.kind !== 'grid') throw new Error(`${chest.name} 不是贴在躯干上的胸`);
-        expect(prim.body.fork, chest.name).toEqual(body.fork);
+        expect(prim.body.fork, chest.name).toEqual({ ...body.fork, freeze: chest.pos[1] });
         expect(prim.body.clipBelow).toBeUndefined();
       }
     }
@@ -427,6 +427,24 @@ describe('好几个上半身', () => {
     // 两个头的：歪到头分开，不穿模
     const two = buildFigure(make({ torsos: 2, heads: 2, armPairs: 2, chestPairs: 2 }, { bodyStyle: 'anime', armLayout: 'fan' }));
     expect(describeClashes(findClashes(two))).toBe('');
+  });
+
+  it('二次元素体两个上半身的胸：贴着的躯干照胸中心那个高度整块转（不被扭扁）；里侧的胸在两个身子正中间切齐，外侧的不切', () => {
+    const f = buildFigure(make({ torsos: 2 }, { bodyStyle: 'anime', shape: { ...defaultSpec().shape, bust: 2.2 } }));
+    for (const p of f.parts.filter((q) => q.type === 'chest')) {
+      const shape = p.prims[0] as Extract<Part['prims'][number], { kind: 'chest' }>;
+      expect(shape.body.fork?.freeze, p.name).toBeCloseTo(p.pos[1], 9);
+      const up = part(f, p.parent!);
+      const inner = p.side === -up.side;
+      expect(!!shape.seam, p.name).toBe(inner);
+      if (!shape.seam) continue;
+      // 切面就是胯上的正中线：上半身坐标里切面上的点换到胯的坐标里 x 是 0（两个上半身左右对称）
+      const [nx, ny, nz, d] = shape.seam;
+      for (const along of [-0.1, 0, 0.1]) {
+        const onPlane: V3 = [nx * d + along * ny, ny * d - along * nx, nz * d + 0.05];
+        expect(Math.abs(add(up.pos, rotate(up.quat, onPlane))[0]), p.name).toBeLessThan(1e-9);
+      }
+    }
   });
 
   it('胸跟着躯干一起分：在胸自己的坐标里分，和换到上半身的坐标里分是一回事', () => {

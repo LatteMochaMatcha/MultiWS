@@ -635,13 +635,32 @@ export function refork(figure: Figure): Figure {
     return { ...p, prims };
   });
   // 二次元素体的胸（ChestShape）贴着的那块躯干，换成它挂着的那个上半身的躯干（带着从胯上分出去的那一段，不要切口）：
-  // 胸部件不转不缩放，它的坐标挪回 origin 就是上半身的坐标
+  // 胸部件不转不缩放，它的坐标挪回 origin 就是上半身的坐标。分出去的那一段照胸中心那个高度整块转、挪（见 Fork.freeze）
   const bodiesOf = new Map(pelvised.filter((p) => forks.has(p.name)).map((p) => [p.name, p.prims.find((q): q is GridShape => q.kind === 'grid')]));
+  // 两个上半身：里侧的胸在两个身子正中间（照两个上半身现在摆在胯上哪儿）切齐，和旁边那只挤在一起（见 ChestShape.seam）
+  /** 上半身的腰（分叉的支点）摆在胯上哪儿（离正中线多远） */
+  const waistAt = (p: Part) => add(p.pos, rotate(p.quat, forks.get(p.name)!.pivot))[0];
+  const pair = pelvised.filter((p) => forks.has(p.name));
+  const middle = pair.length === 2 ? (waistAt(pair[0]) + waistAt(pair[1])) / 2 : undefined;
   const parts = pelvised.map((p): Part => {
     const body = p.parent ? bodiesOf.get(p.parent) : undefined;
     if (p.type !== 'chest' || !body) return p;
-    const own: GridShape = { ...body, name: 'Torso', clipBelow: undefined, clipAbove: undefined, clipRound: undefined, twin: undefined };
-    return { ...p, prims: p.prims.map((q): Prim => (q.kind === 'chest' ? { ...q, body: own } : q)) };
+    const up = pelvised.find((q) => q.name === p.parent)!;
+    /** 旁边那个上半身在哪一边；这只胸长在那一边的话切 */
+    const toward = middle === undefined ? 0 : Math.sign(middle - waistAt(up));
+    const r0 = rotate(quatConj(up.quat), [1, 0, 0]);
+    const seam: [number, number, number, number] | undefined =
+      toward && p.side === toward ? [toward * r0[0], toward * r0[1], toward * r0[2], toward * (middle! - up.pos[0])] : undefined;
+    const own: GridShape = {
+      ...body,
+      name: 'Torso',
+      clipBelow: undefined,
+      clipAbove: undefined,
+      clipRound: undefined,
+      twin: undefined,
+      ...(body.fork ? { fork: { ...body.fork, freeze: p.pos[1] } } : {}),
+    };
+    return { ...p, prims: p.prims.map((q): Prim => (q.kind === 'chest' ? { ...q, body: own, ...(seam ? { seam } : {}) } : q)) };
   });
   return { ...figure, parts };
 }

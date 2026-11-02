@@ -125,6 +125,7 @@ function bareWarp(fork: Fork, frame?: Fork['frame']): ForkWarp {
   const [sx, sy, sz] = fork.shift;
   /** 挪另有一段的：只有往两边的那一份照那一段挪，上下、前后的那一份跟着转（见 Fork.shiftFrom） */
   const apart = fork.shiftFrom !== undefined;
+  const freeze = fork.freeze;
   const middle = compileForkMid(fork, fork.quat, fork.shift);
   const neighbours = fork.split?.map((other) => ({ dir: other.dir, at: compileForkMid(fork, other.quat, other.shift) }));
   /** 求值时用的：这一点在胯的坐标里（w）、猜的高度上退回去以后（相对 pivot） */
@@ -217,7 +218,14 @@ function bareWarp(fork: Fork, frame?: Fork['frame']): ForkWarp {
       wz = pz + q20 * ex + q21 * ey + q22 * ez + sz;
       let h: number;
       let lip = 1;
-      if (wy <= low) {
+      if (freeze !== undefined) {
+        // 照一个高度上转、挪了多少整块退回去（见 Fork.freeze）：不随高度变，不拉伸
+        h = freeze;
+        back(h);
+        out[0] = px + rx;
+        out[1] = py + ry;
+        out[2] = pz + rz;
+      } else if (wy <= low) {
         h = wy;
         out[0] = wx;
         out[1] = wy;

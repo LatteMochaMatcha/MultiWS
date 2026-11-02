@@ -682,8 +682,16 @@ export function chestDist(p: ChestShape, piece = false, voxel = 0): { fn: Dist; 
   const region = chestRegion(p) ?? { min: [0, 0, 0] as V3, max: [0, 0, 0] as V3 };
   const d = gridDist(getGrid(p.body.grid), { ...p.body, skin: chestSkin(p, piece), region });
   const [ox, oy, oz] = p.origin;
+  const [nx, ny, nz, nd] = p.seam ?? [0, 0, 0, 0];
   const exact = {
-    fn: (x: number, y: number, z: number) => d.fn(x + ox, y + oy, z + oz),
+    fn: p.seam
+      ? (x: number, y: number, z: number) => {
+          // 里侧的胸在两个身子正中间切齐（ChestShape.seam）
+          const v = d.fn(x + ox, y + oy, z + oz);
+          const cut = nx * (x + ox) + ny * (y + oy) + nz * (z + oz) - nd;
+          return v > cut ? v : cut;
+        }
+      : (x: number, y: number, z: number) => d.fn(x + ox, y + oy, z + oz),
     min: sub(d.min, p.origin),
     max: sub(d.max, p.origin),
     outer: { min: sub(d.outer.min, p.origin), max: sub(d.outer.max, p.origin) },
