@@ -13,6 +13,7 @@ import { VOXEL, fuseParts } from '../src/sdf/fuse';
 import { graftMeshes } from '../src/sdf/graft';
 import { isSampled } from '../src/sdf/posedField';
 import { meshField } from '../src/sdf/surfaceNets';
+import { useAnimeBody } from './animeBody';
 import { useGenital } from './genital';
 
 const make = (counts: Partial<BodySpec['counts']>, rest: Partial<BodySpec> = {}): BodySpec => {
@@ -113,16 +114,52 @@ describe('几副胯各一套', () => {
     expect(rear.pos[2]).toBeLessThan(front.pos[2] - 0.1);
   });
 
-  it('每种腿的排法、每副胯一两根：融合出来是一整块，不穿模', () => {
-    useGenital();
-    for (const [legLayout, legs] of [['abreast', 4], ['tandem', 4], ['humantaur', 4], ['taur', 4], ['spider', 6]] as [BodySpec['legLayout'], number][])
+  // 每种腿的排法单独一项：一起跑的时候机器忙，十几次融合放在一项里会超时
+  for (const [legLayout, legs] of [['abreast', 4], ['tandem', 4], ['humantaur', 4], ['taur', 4], ['spider', 6]] as [BodySpec['legLayout'], number][])
+    it(`${legLayout} ${legs} 条腿、每副胯一两根：融合出来是一整块，不穿模`, () => {
+      useGenital();
       for (const penises of [1, 2]) {
         const spec = make({ legs, penises }, { legLayout });
         const figure = buildFigure(spec);
-        expect(fuseParts(figure.parts, { voxel: VOXEL.fine, blend: spec.blend }).info.components, `${legLayout} ${legs} ${penises}`).toBe(1);
+        expect(fuseParts(figure.parts, { voxel: VOXEL.fine, blend: spec.blend }).info.components, `${penises}`).toBe(1);
         const mine = findClashes(figure).filter((c) => /^(Penis|Scrotum)_/.test(c.a) || /^(Penis|Scrotum)_/.test(c.b));
-        expect(mine, `${legLayout} ${legs} ${penises}`).toEqual([]);
+        expect(mine, `${penises}`).toEqual([]);
       }
+    });
+});
+
+describe('二次元素体', () => {
+  it('一副胯、两个上半身（B）一套，横排两副胯（C）、宽躯干（D）各一套；融合出来是一整块，不穿模', () => {
+    useAnimeBody();
+    useGenital();
+    const cases: [string, BodySpec, number][] = [
+      ['一根', make({ penises: 1 }, { bodyStyle: 'anime' }), 1],
+      ['三根扇形', make({ penises: 3 }, { bodyStyle: 'anime', penisLayout: 'fan', scrotum: 'each' }), 1],
+      ['B', make({ torsos: 2, penises: 1 }, { bodyStyle: 'anime' }), 1],
+      ['C', make({ torsos: 2, legs: 4, penises: 1 }, { bodyStyle: 'anime', legLayout: 'abreast' }), 2],
+      ['D', make({ heads: 2, legs: 4, penises: 1 }, { bodyStyle: 'anime', legLayout: 'abreast', headLayout: 'wide' }), 2],
+      ['人腿人马', make({ legs: 4, penises: 1 }, { bodyStyle: 'anime', legLayout: 'humantaur' }), 2],
+    ];
+    for (const [name, spec, hips] of cases) {
+      const figure = buildFigure(spec);
+      const parts = figure.parts.filter((p) => p.type === 'genital');
+      expect(parts.filter((p) => p.name.startsWith('Penis_')).length, name).toBe(hips * spec.counts.penises);
+      // 好几个上半身时躯干那一截会被复制（见 torsos.ts）：阴茎、阴囊不挂在下面，不跟着复制
+      for (const p of parts) expect(p.parent, name).toBeUndefined();
+      expect(fuseParts(figure.parts, { voxel: VOXEL.fine, blend: spec.blend }).info.components, name).toBe(1);
+      const mine = findClashes(figure).filter((c) => /^(Penis|Scrotum)_/.test(c.a) || /^(Penis|Scrotum)_/.test(c.b));
+      expect(mine, name).toEqual([]);
+    }
+  });
+
+  it('根部在她的小腹前面、阴囊在根部底下', () => {
+    useAnimeBody();
+    useGenital();
+    const parts = genitals(make({ penises: 1 }, { bodyStyle: 'anime' }));
+    const penis = parts.find((p) => p.name === 'Penis_01')!;
+    const sac = parts.find((p) => p.name === 'Scrotum_01')!;
+    expect(penis.pos[2]).toBeGreaterThan(0.08);
+    expect(sac.pos[1]).toBeLessThan(penis.pos[1]);
   });
 });
 

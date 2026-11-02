@@ -43,6 +43,15 @@ function cases(): Case[] {
   for (const [legLayout, legs] of forms)
     for (const n of legs)
       for (const penises of [1, 2]) out.push({ group: 'hips', name: `${legLayout}-${n}-${penises}`, spec: { legLayout, counts: { legs: n, penises } }, views: ['three', 'side'] });
+  // 二次元素体特有的几种（见 docs/rework-plan.md）：两个上半身、并成宽躯干，和他常用的体型
+  const his = { bust: 2.2, waist: 1.16, hips: 1.28 };
+  out.push(
+    { group: 'special', name: 'B-two-torsos', spec: { counts: { torsos: 2, penises: 1 } }, views: ['front', 'three', 'side'] },
+    { group: 'special', name: 'C-two-torsos-two-hips', spec: { legLayout: 'abreast', counts: { torsos: 2, legs: 4, penises: 1 } }, views: ['front', 'three', 'side'] },
+    { group: 'special', name: 'D-wide', spec: { legLayout: 'abreast', headLayout: 'wide', counts: { heads: 2, legs: 4, penises: 1 } }, views: ['front', 'three', 'side'] },
+    { group: 'special', name: 'his-1', spec: { counts: { penises: 1 }, shape: his }, views: ['front', 'three', 'side'] },
+    { group: 'special', name: 'his-row-3', spec: { counts: { penises: 3 }, shape: his }, views: ['front', 'three', 'side'] },
+  );
   return out;
 }
 

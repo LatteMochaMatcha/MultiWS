@@ -13,6 +13,7 @@ import { CHEST_FLAT, chestCenter, chestFrame, chestReach, surfacePoint } from '.
 import { FOOT_ANKLE, FOOT_CUFF, FOOT_SOLE, FOOT_STUMP, FOOT_TOE, FOOT_TOE_END, footGraft } from '../anime/foot';
 import { FINGER_JOINTS, HAND_STUMP, handGraft } from '../anime/hand';
 import { type BodySpec, legPlan } from '../model/spec';
+import { genitalReady } from '../anime/genital';
 import { type CompiledField, castRay, compileField } from '../sdf/field';
 import { wideFrame } from '../sdf/grids';
 import { BESIDE_DROP, BESIDE_YAW } from './torsos';
@@ -34,6 +35,7 @@ import {
   abreastSpots,
   cleft,
   cone,
+  genitalsOn,
   hangAngles,
   legBones,
   lowerParts,
@@ -170,6 +172,12 @@ const mirror = (p: V3, side: number): V3 => [p[0] * side, p[1], p[2]];
 const STRAIGHTEN = quatEuler(0, 0, Math.atan2(HIP[0] - ANKLE[0], HIP[1] - ANKLE[1]));
 /** 单足时素体原来的两条腿留到髋关节往下多少（腿自己的坐标） */
 const HIP_STUMP = -0.1;
+/**
+ * 阴茎根部的中心有多高（素体两腿在 HIP 往下 4 厘米多分开，小腹正中取在比髋关节低一点的地方）；
+ * 素体的一个单位在她身上多长：和白模人台一样按身高等比（人台 1.764 高、0.95；她脚底到头顶 1.577）
+ */
+const PUBIS_Y = HIP[1] - 0.007;
+const PENIS_UNIT = (0.95 * 1.577) / 1.764;
 /** 素体一瓣屁股的正中离中线多远（找屁股最鼓的那一圈用） */
 const CHEEK_X = 0.055;
 /** 单足时那条腿左右、前后各粗多少倍 */
@@ -893,6 +901,7 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
     hipZ: HIP[2],
     pelvisY,
     tailRoot: [0, 0.93, backAt(0, 0.93) + 0.02],
+    pubisY: PUBIS_Y,
     // 人腿人马：后面接的腰和胯照素体自己的腰、胯那么粗；胯部聚拢垫的胯也是
     ...(form === 'humantaur'
       ? { waist: [sideAt(WAIST_Y, 0) + 0.008, thickAt(WAIST_Y) + 0.008] as [number, number], pelvis: [sideAt(pelvisY, 0), 0.1, thickAt(pelvisY) + 0.01] as V3 }
@@ -953,6 +962,10 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
 
   /* ---- 尾巴 ---- */
   parts.push(...tailParts(c.tails, sh, b, lowerBody.tailRoot, lowerBody.tailParent));
+
+  /* ---- 阴茎、阴囊：和白模人台一样每副胯一套（见 layout.ts 的 genitalsOn）。阴囊的格子还没载入时先不长 ---- */
+  // 要在下面挪到地面上之前：照这时候的身体表面摆
+  if (c.penises > 0 && genitalReady()) parts.push(...genitalsOn(parts, lowerBody.mounts, spec, PENIS_UNIT * sh.penisSize));
 
   // 人腿：脚底踩到地面上（兽腿本来就是按地面摆的）
   const drop = form === 'taur' || form === 'spider' ? 0 : SOLE;
