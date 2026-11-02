@@ -19,6 +19,7 @@ import { inAndroidShell, saveBlob, saveText } from './io/download';
 import { exportGlb } from './io/exportGlb';
 import { OfflineError } from './io/fetchFile';
 import { type GlbMesh, writeGlb } from './io/glb';
+import { forgetFile, keepFile, keptFile } from './io/keepFile';
 import { writeObj, writeStl } from './io/meshFiles';
 import { History } from './model/history';
 import { activeOverrides, clearAllOverrides, clearOverride, mirrorName, setOverride } from './model/overrides';
@@ -116,6 +117,7 @@ import { type GizmoMode, GIZMO_MODES, Gizmo } from './view/gizmo';
 import { MATERIAL_INFO } from './view/materials';
 import { type BakedMesh, PartsModel, disposeTree } from './view/partsModel';
 import { PoseHandles } from './view/poseHandles';
+import { type RefSlot, REF_SLOTS, ReferenceImages, loadPicture } from './view/references';
 import { Tour } from './view/tour';
 import { type SkinSource, FlatParts, PosedMeshes, WHITE_BLEND } from './view/posedMeshes';
 import { type CameraState, type ViewName, VIEW_DEFAULTS, VIEW_LIMITS, Viewport } from './view/viewport';
@@ -939,6 +941,161 @@ for (const [name, label] of VIEW_BUTTONS) {
   $('viewButtons').append(btn);
 }
 applyView();
+
+/* ---------- 参考图 ---------- */
+
+const REFS_KEY = 'oc-basemesh-refs';
+/** 图本身存在 IndexedDB 里（和自己的 VRM 在一起），用这个 key */
+const refFileKey = (slot: RefSlot) => `ref-${slot}`;
+/** 大小、上下、左右是厘米，不透明度是百分数 */
+const REF_LIMITS = { height: [30, 600], up: [-150, 150], shift: [-300, 300], opacity: [10, 100] } as const;
+type RefDial = keyof typeof REF_LIMITS;
+/** 一张参考图：文件名、显不显示、翻不翻，和怎么摆 */
+type RefSettings = { name: string; show: boolean; flip: boolean } & Record<RefDial, number>;
+/** 两张参考图怎么摆、现在在调哪张：和「镜头和灯光」一样只记在浏览器里，不进配置、不进撤销 */
+const refs: { slot: RefSlot; onTop: boolean } & Record<RefSlot, RefSettings | null> = { slot: 'front', onTop: false, front: null, side: null };
+const REF_LABEL: Record<RefSlot, string> = { front: '正面', side: '侧面' };
+const refDial = (key: RefDial, value: unknown, fallback: number) =>
+  typeof value === 'number' && Number.isFinite(value) ? Math.round(Math.max(REF_LIMITS[key][0], Math.min(REF_LIMITS[key][1], value))) : fallback;
+const references = new ReferenceImages();
+viewport?.backdrop.add(references.root);
+try {
+  const saved: unknown = JSON.parse(localStorage.getItem(REFS_KEY) ?? 'null');
+  if (typeof saved === 'object' && saved !== null) {
+    const s = saved as Record<string, unknown>;
+    refs.onTop = s.onTop === true;
+    if (s.slot === 'side') refs.slot = 'side';
+    for (const slot of REF_SLOTS) {
+      const r = s[slot] as Record<string, unknown> | null | undefined;
+      if (typeof r !== 'object' || r === null || typeof r.name !== 'string') continue;
+      refs[slot] = {
+        name: r.name,
+        show: r.show !== false,
+        flip: r.flip === true,
+        height: refDial('height', r.height, 165),
+        up: refDial('up', r.up, 0),
+        shift: refDial('shift', r.shift, 0),
+        opacity: refDial('opacity', r.opacity, 60),
+      };
+    }
+  }
+} catch {
+  // 读不到就当没有参考图
+}
+
+const syncRefSlot = buildSeg($('segRef'), REF_SLOTS, (v) => REF_LABEL[v], (slot) => {
+  refs.slot = slot;
+  applyRefs();
+});
+const REF_DIALS: { key: RefDial; text: (v: number) => string }[] = [
+  { key: 'height', text: (v) => `${(v / 100).toFixed(2)} m` },
+  { key: 'up', text: (v) => (v ? `${v > 0 ? '↑' : '↓'}${Math.abs(v)} cm` : '贴地') },
+  { key: 'shift', text: (v) => (v ? `${v > 0 ? '→' : '←'}${Math.abs(v)} cm` : '居中') },
+  { key: 'opacity', text: (v) => `${v}%` },
+];
+const refDials = REF_DIALS.map((d) => {
+  const input = $<HTMLInputElement>(`s-ref${d.key[0].toUpperCase()}${d.key.slice(1)}`);
+  input.min = String(REF_LIMITS[d.key][0]);
+  input.max = String(REF_LIMITS[d.key][1]);
+  input.step = d.key === 'opacity' ? '5' : '1';
+  input.addEventListener('input', () => {
+    const r = refs[refs.slot];
+    if (!r) return;
+    r[d.key] = refDial(d.key, Number(input.value), r[d.key]);
+    applyRefs();
+  });
+  return (r: RefSettings) => {
+    if (Number(input.value) !== r[d.key]) input.value = String(r[d.key]);
+    $(`o-${input.id.slice(2)}`).textContent = d.text(r[d.key]);
+  };
+});
+for (const [id, key] of [['refShow', 'show'], ['refFlip', 'flip']] as const) {
+  const box = $<HTMLInputElement>(id);
+  box.addEventListener('change', () => {
+    const r = refs[refs.slot];
+    if (!r) return;
+    r[key] = box.checked;
+    applyRefs();
+  });
+}
+$<HTMLInputElement>('refOnTop').addEventListener('change', (e) => {
+  refs.onTop = (e.target as HTMLInputElement).checked;
+  applyRefs();
+});
+
+/** 把两张参考图摆到 3D 视图里，面板跟着变，顺手存起来 */
+function applyRefs() {
+  for (const slot of REF_SLOTS) {
+    const r = refs[slot];
+    const placement = r && { height: r.height / 100, up: r.up / 100, shift: r.shift / 100, opacity: r.opacity / 100, flip: r.flip };
+    references.place(slot, placement, !!r?.show);
+  }
+  if (viewport) viewport.backdropOnTop = refs.onTop;
+  syncRefSlot(refs.slot, true);
+  const r = refs[refs.slot];
+  const label = REF_LABEL[refs.slot];
+  $('refName').textContent = r ? `${label}图：${r.name}` : `还没有${label}图。点「选图…」选一张自己画的${label}设定图。`;
+  $<HTMLButtonElement>('btnRefClear').disabled = !r;
+  $('refBody').hidden = !r;
+  if (r) {
+    for (const sync of refDials) sync(r);
+    $<HTMLInputElement>('refShow').checked = r.show;
+    $<HTMLInputElement>('refFlip').checked = r.flip;
+  }
+  $<HTMLInputElement>('refOnTop').checked = refs.onTop;
+  try {
+    localStorage.setItem(REFS_KEY, JSON.stringify(refs));
+  } catch {
+    // 存不了也照样用
+  }
+}
+
+/** 选图、刚打开时从浏览器里取图：按现在的身高对齐（脚踩在地上、居中） */
+const fitHeight = () => refDial('height', Math.round((metrics?.height ?? 1.65) * 100), 165);
+const fileRef = $<HTMLInputElement>('fileRef');
+fileRef.addEventListener('change', async () => {
+  const file = fileRef.files?.[0];
+  fileRef.value = '';
+  if (!file) return;
+  const slot = refs.slot;
+  try {
+    const bytes = await file.arrayBuffer();
+    references.setImage(slot, await loadPicture(bytes));
+    refs[slot] = { name: file.name, show: true, flip: refs[slot]?.flip ?? false, height: fitHeight(), up: 0, shift: 0, opacity: refs[slot]?.opacity ?? 60 };
+    applyRefs();
+    viewport?.frame(slot);
+    const kept = await keepFile(refFileKey(slot), { name: file.name, bytes });
+    setStatus(`${REF_LABEL[slot]}参考图已垫上：${file.name}${kept ? '' : '。这个浏览器不让存，下次打开要重新选'}。`);
+  } catch (err) {
+    setStatus(`这张图读不了（${err instanceof Error ? err.message : String(err)}）：换成 PNG 或 JPG 再试。`, true);
+  }
+});
+$('btnRefClear').addEventListener('click', () => {
+  const slot = refs.slot;
+  refs[slot] = null;
+  references.setImage(slot, null);
+  applyRefs();
+  void forgetFile(refFileKey(slot));
+});
+$('btnRefFit').addEventListener('click', () => {
+  const r = refs[refs.slot];
+  if (!r) return;
+  Object.assign(r, { height: fitHeight(), up: 0, shift: 0 });
+  applyRefs();
+});
+applyRefs();
+// 上次垫过的图从浏览器里取回来；取不回来（清过浏览器数据）就当没有
+for (const slot of REF_SLOTS) {
+  if (!refs[slot]) continue;
+  void keptFile(refFileKey(slot))
+    .then((file) => (file ? loadPicture(file.bytes) : null))
+    .catch(() => null)
+    .then((picture) => {
+      if (picture) references.setImage(slot, picture);
+      else refs[slot] = null;
+      applyRefs();
+    });
+}
 
 /* ---------- 手机、触屏 ---------- */
 

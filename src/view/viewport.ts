@@ -35,6 +35,10 @@ export class Viewport {
   readonly controls: OrbitControls;
   /** 只在屏幕上看的辅助物（选中高亮、操纵杆）：放在这一组里，截图时不会拍进去 */
   readonly overlay = new THREE.Group();
+  /** 在模型之前另画一遍的东西（参考图）：不管远近都在模型后面，截图时不会拍进去 */
+  readonly backdrop = new THREE.Scene();
+  /** true 时 backdrop 改成盖在模型上面（选中高亮、操纵杆、圆点还在它上面） */
+  backdropOnTop = false;
   /** 想看帧率的话接上这个：每半秒调用一次，参数是这半秒里每秒画了多少帧 */
   onFps: ((fps: number) => void) | null = null;
   private readonly key: THREE.DirectionalLight;
@@ -97,7 +101,7 @@ export class Viewport {
     let since = performance.now();
     const loop = () => {
       this.controls.update();
-      this.renderer.render(this.scene, this.camera);
+      this.draw();
       // 每半秒报一次帧率（有人听才算）
       frames++;
       const now = performance.now();
@@ -130,7 +134,29 @@ export class Viewport {
       this.camera.position.copy(this.controls.target).addScaledVector(offset, k);
     }
     // 改大小会把画面清空：马上补画一帧，免得闪一下白
-    this.renderer.render(this.scene, this.camera);
+    this.draw();
+  }
+
+  /** 画一帧：有参考图的话先画它垫在后面（或者画完模型再盖上去），后几遍不清屏，叠在前一遍上 */
+  private draw() {
+    const r = this.renderer;
+    if (!this.backdrop.children.some((c) => c.visible)) {
+      r.render(this.scene, this.camera);
+      return;
+    }
+    if (this.backdropOnTop) {
+      this.overlay.visible = false;
+      r.render(this.scene, this.camera);
+      r.autoClear = false;
+      r.render(this.backdrop, this.camera);
+      this.overlay.visible = true;
+      r.render(this.overlay, this.camera);
+    } else {
+      r.render(this.backdrop, this.camera);
+      r.autoClear = false;
+      r.render(this.scene, this.camera);
+    }
+    r.autoClear = true;
   }
 
   /** 让阴影相机正好罩住模型：范围越小，阴影越清晰 */
