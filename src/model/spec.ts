@@ -33,7 +33,7 @@ export interface CountDef {
 
 /** 数量那一栏名字上的悬停说明 */
 export const COUNT_HINTS: Partial<Record<keyof BodyCounts, string>> = {
-  chestPairs: '好几个上半身时每个上半身各长这么多；二次元素体两个人并成一个宽躯干时（两个头或两个上半身，横排两副胯）按一个人算，摆在正中',
+  chestPairs: '好几个上半身时每个上半身各长这么多；二次元素体两个人并成一个宽躯干时（两个上半身，或者两个头选了宽躯干，横排两副胯）按一个人算，摆在正中',
 };
 
 export const COUNT_DEFS: readonly CountDef[] = [
