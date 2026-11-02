@@ -1,6 +1,6 @@
 {
   "voxel": 0.006,
-  "at": "2026-11-02T02:00:41.804Z",
+  "at": "2026-11-02T02:36:37.245Z",
   "cases": [
     {
       "name": "S1_def",
@@ -20,13 +20,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 614
+        "ms": 746
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": false,
-        "ms": 738
+        "ms": 768
       }
     },
     {
@@ -47,13 +47,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 2512
+        "ms": 2654
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": false,
-        "ms": 1148
+        "ms": 1065
       }
     },
     {
@@ -74,13 +74,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 517
+        "ms": 595
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": false,
-        "ms": 652
+        "ms": 684
       }
     },
     {
@@ -101,13 +101,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 742
+        "ms": 602
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": false,
-        "ms": 660
+        "ms": 628
       }
     },
     {
@@ -128,13 +128,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 1038
+        "ms": 1132
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": false,
-        "ms": 782
+        "ms": 842
       }
     },
     {
@@ -155,13 +155,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 853
+        "ms": 957
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": false,
-        "ms": 906
+        "ms": 1046
       }
     },
     {
@@ -182,13 +182,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 3373
+        "ms": 3610
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": false,
-        "ms": 1545
+        "ms": 1632
       }
     },
     {
@@ -209,13 +209,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 884
+        "ms": 965
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": false,
-        "ms": 1112
+        "ms": 1056
       }
     },
     {
@@ -236,13 +236,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 4770
+        "ms": 5016
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": false,
-        "ms": 1986
+        "ms": 1833
       }
     },
     {
@@ -263,13 +263,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 1015
+        "ms": 1156
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": false,
-        "ms": 1001
+        "ms": 1094
       }
     },
     {
@@ -290,13 +290,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 5680
+        "ms": 6384
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": false,
-        "ms": 1943
+        "ms": 2067
       }
     },
     {
@@ -313,17 +313,17 @@
         "leg": 2
       },
       "rest": {
-        "triangles": 135344,
+        "triangles": 139676,
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 1761
+        "ms": 2011
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": false,
-        "ms": 1625
+        "ms": 1678
       }
     },
     {
@@ -340,17 +340,17 @@
         "leg": 2
       },
       "rest": {
-        "triangles": 147164,
+        "triangles": 152146,
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 7659
+        "ms": 9549
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": false,
-        "ms": 2515
+        "ms": 2693
       }
     },
     {
@@ -367,17 +367,17 @@
         "leg": 2
       },
       "rest": {
-        "triangles": 202336,
+        "triangles": 205030,
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 3185
+        "ms": 3294
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": true,
-        "ms": 13464
+        "ms": 14658
       }
     },
     {
@@ -394,17 +394,17 @@
         "leg": 2
       },
       "rest": {
-        "triangles": 231188,
+        "triangles": 235664,
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 19122
+        "ms": 19968
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": true,
-        "ms": 34434
+        "ms": 36589
       }
     },
     {
@@ -425,13 +425,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 1817
+        "ms": 1703
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": false,
-        "ms": 1729
+        "ms": 1759
       }
     },
     {
@@ -452,13 +452,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 7258
+        "ms": 7273
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": false,
-        "ms": 2747
+        "ms": 2960
       }
     },
     {
@@ -479,13 +479,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 1485
+        "ms": 1465
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": true,
-        "ms": 6547
+        "ms": 6464
       }
     },
     {
@@ -506,13 +506,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 3076
+        "ms": 2958
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": true,
-        "ms": 8829
+        "ms": 8576
       }
     },
     {
@@ -533,13 +533,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 1518
+        "ms": 1547
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": true,
-        "ms": 7378
+        "ms": 7470
       }
     },
     {
@@ -560,13 +560,13 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 5037
+        "ms": 5088
       },
       "clashes": [],
       "posed": {
         "pose": "自然站立",
         "refused": true,
-        "ms": 11552
+        "ms": 11398
       }
     },
     {
@@ -587,7 +587,7 @@
         "components": 1,
         "open": 0,
         "nonManifold": 0,
-        "ms": 5735
+        "ms": 5517
       },
       "clashes": []
     }

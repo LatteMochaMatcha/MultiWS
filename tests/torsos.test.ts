@@ -394,14 +394,16 @@ describe('好几个上半身', () => {
     }
   });
 
-  it('二次元素体两个上半身直立并排：一个头的几乎不歪；里侧的胸、手臂都留着，里侧手臂往前伸、往自己那边偏，两边的根隔开', () => {
+  it('二次元素体两个上半身直立并排：只歪开一点（给里侧手臂留地方）；里侧的胸、手臂都留着，里侧手臂往前伸、往自己那边偏，两边的根隔开', () => {
     for (const shape of [{}, { bust: 2.2, waist: 1.16, hips: 1.28 }]) {
       const f = buildFigure(make({ torsos: 2 }, { bodyStyle: 'anime', shape: { ...defaultSpec().shape, ...shape } }));
       const world = worldTransforms(f);
       const label = JSON.stringify(shape);
       for (const name of ['UpperBody_L', 'UpperBody_R']) {
         const q = world.get(name)!.quat;
-        expect(2 * Math.asin(Math.hypot(q[0], q[1], q[2])), `${label} ${name}`).toBeLessThan((6 * Math.PI) / 180);
+        const lean = 2 * Math.asin(Math.hypot(q[0], q[1], q[2]));
+        expect(lean, `${label} ${name}`).toBeGreaterThan((10 * Math.PI) / 180);
+        expect(lean, `${label} ${name}`).toBeLessThan((15 * Math.PI) / 180);
       }
       expect(names(f, 'chest'), label).toEqual(['Chest_01_L', 'Chest_01_R', 'Chest_02_L', 'Chest_02_R']);
       /** 上臂在世界里朝哪 */
