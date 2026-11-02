@@ -301,6 +301,20 @@
         <section data-key="poses" data-mode="pose">
           <h2><button type="button" class="fold">现成的姿势</button></h2>
           <div class="body">
+            <div class="field">
+              <span>套到哪些部位</span>
+              <div class="checks" id="posePartChecks"></div>
+            </div>
+            <div class="field" id="posePairRow" hidden>
+              <span>手臂套给哪一对</span>
+              <div class="seg" id="segPosePair" role="radiogroup" aria-label="手臂套给哪一对"></div>
+            </div>
+            <div class="slider">
+              <label for="s-poseAmount">强度</label>
+              <input type="range" id="s-poseAmount" min="10" max="100" step="5" value="100">
+              <output id="o-poseAmount" for="s-poseAmount">100%</output>
+            </div>
+            <p class="note">点了姿势以后接着拖「强度」、改部位，刚点的那个姿势跟着重新套；拖了圆点、撤销过以后再改，就只管下一次点的（只想给下一个换强度：改完按一次撤销）。</p>
             <div class="presets" id="poseLibrary"></div>
             <div class="actions">
               <button type="button" class="btn wide" id="btnPoseRandom">随便来一个</button>

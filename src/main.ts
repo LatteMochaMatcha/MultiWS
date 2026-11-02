@@ -97,6 +97,7 @@ import {
 } from './pose/fingers';
 import { type Handle, type HandleGroup, HANDLE_GROUPS, buildHandles } from './pose/handles';
 import { type BodyDist, clearArms } from './pose/clear';
+import { type PoseRegion, POSE_REGIONS, armPairOf, blendPose, regionOf } from './pose/blend';
 import { type DrapeKind, BodySurface, boneRadius, drape, drapeBones } from './pose/drape';
 import { fitArms, followArms } from './pose/fit';
 import { POSE_LIBRARY } from './pose/library';
@@ -2656,6 +2657,22 @@ function bodyDist(): BodyDist | null {
   return armRoom.dist;
 }
 
+/* ---- 现成的姿势：套到哪些部位、手臂套给哪一对、套几成。只记在这一页里，不进配置 ---- */
+
+const POSE_REGION_LABEL: Record<PoseRegion, string> = { head: '头和脖子', torso: '躯干', armL: '左手臂', armR: '右手臂', legs: '腿' };
+const presetParts = new Set<PoseRegion>(POSE_REGIONS);
+/** 手臂套给第几对（0 是第一对）；null 是全部（多出来的手臂照原来的办法跟着第一对，见 pose/fit.ts） */
+let presetPair: number | null = null;
+/** 套几成，百分数 */
+let presetAmount = 100;
+/**
+ * 上一次点的现成姿势：点之前的样子、点的是哪个、存下来的是哪一份。
+ * 接着拖「强度」、改部位时，设定里的姿势还是 result（中间没拖过圆点、没撤销），就从点之前的样子重新套
+ */
+let lastPreset: { name: string; preset: Posing; base: PoseState; key: string; result: Posing | null } | null = null;
+/** 「手臂套给哪一对」照现在的身体排好（手臂有几对就几格） */
+let syncPresetPanel = () => {};
+
 if (POSE_LIBRARY.length) {
   $('poseLibraryNote').textContent =
     '点一下就套到现在这个角色身上，并且落到地面；不满意接着拖圆点改。这些姿势取自 Quaternius 的 Universal Animation Library（CC0），' +
@@ -2702,10 +2719,115 @@ if (POSE_LIBRARY.length) {
     const body = bodyDist();
     return body && figure ? clearArms(kit.solver, next, body, figure.scale, spec.shape.limbs, followers) : next;
   };
+
+  /* ---- 只套一部分、只套几成（照 Blender 姿态库，见 pose/blend.ts） ---- */
+
+  /** 只把姿势里的手臂套给第 pair 对：姿势里第一对的手臂骨骼换成那一对的名字（别的手臂不动，见 presetPick） */
+  const pairPosing = (posing: Posing, pair: number): Posing => {
+    const own = fittedTorsos(fittedLegs(posing));
+    const bones = { ...own.bones };
+    for (const [name, turn] of Object.entries(posing.bones)) if (armPairOf(name) === 0) bones[nthName(name, pair)] = turn;
+    return { ...own, bones };
+  };
+  /** 点的姿势套到这副骨架上的样子；眼睛照原来的留着（和 usePosing 一样） */
+  const presetState = (preset: Posing, base: PoseState): PoseState => {
+    const posing = presetPair === null ? fitted(preset) : pairPosing(preset, presetPair);
+    const target = stateOf(kit!.solver, posing);
+    for (const face of allFaces()) {
+      const eyes = eyesOf(face);
+      if (!eyes || face.eyes!.some((name) => name in posing.bones)) continue;
+      for (const eye of eyes) target.local[eye] = base.local[eye];
+    }
+    return target;
+  };
+  /** 全选、手臂是全部：整个换成这个姿势（头发、尾巴这些挂着的也照它，和以前点一下一样） */
+  const whole = () => presetParts.size === POSE_REGIONS.length && presetPair === null;
+  /** 哪些骨骼照姿势摆：全选时是全部骨骼，不然是选中的部位（手臂只是选中的那一对） */
+  const presetPick = (rig: PoseRig) => {
+    if (whole()) return () => true;
+    return (j: number) => {
+      const region = regionOf(rig.names[j]);
+      const pair = armPairOf(rig.names[j]);
+      return region !== null && presetParts.has(region) && (presetPair === null || pair < 0 || pair === presetPair);
+    };
+  };
+  /** 照现在的部位、强度，把上一次点的姿势从点之前的样子重新套一遍 */
+  const blendPreset = () => {
+    if (!kit || !lastPreset) return;
+    const { rig } = kit.solver;
+    const target = presetState(lastPreset.preset, lastPreset.base);
+    poseState = blendPose(rig, lastPreset.base, target, presetAmount / 100, presetPick(rig), whole() || presetParts.has('torso'));
+    showPose();
+    dropToGround();
+    commitPose(spec.posing, lastPreset.key);
+    lastPreset.result = spec.posing;
+  };
+  let clicks = 0;
+  /** 点了一个现成的姿势。返回给状态栏的说明 */
+  const applyPreset = (preset: (typeof POSE_LIBRARY)[number]): string => {
+    if (!kit || !poseState) return '';
+    if (!presetParts.size) return '「套到哪些部位」一个都没勾，先勾上要套的部位。';
+    // 每点一次是新的一步撤销；接着拖强度、改部位的几下合在这一步后面
+    lastPreset = { name: preset.name, preset: preset.posing, base: cloneState(poseState), key: `preset-${++clicks}`, result: null };
+    history.seal();
+    blendPreset();
+    if (whole() && presetAmount === 100) return `姿势：${preset.name}`;
+    const parts = POSE_REGIONS.filter((r) => presetParts.has(r)).map((r) => POSE_REGION_LABEL[r]);
+    const where = parts.length === POSE_REGIONS.length ? '整套' : `只套到${parts.join('、')}`;
+    return `姿势：${preset.name}，${where}${presetPair === null ? '' : `（手臂是第 ${presetPair + 1} 对）`}，强度 ${presetAmount}%。`;
+  };
+  /** 拖强度、改部位时：上一次点的姿势之后没拖过圆点、没撤销，就照新的设定重新套 */
+  const reblend = () => {
+    if (lastPreset && lastPreset.result === spec.posing && mode === 'pose') blendPreset();
+  };
+
+  for (const region of POSE_REGIONS) {
+    const input = el('input');
+    input.type = 'checkbox';
+    input.checked = true;
+    input.addEventListener('change', () => {
+      if (input.checked) presetParts.add(region);
+      else presetParts.delete(region);
+      if (presetParts.size) reblend();
+    });
+    const wrap = el('label', 'check');
+    wrap.append(input, ` ${POSE_REGION_LABEL[region]}`);
+    $('posePartChecks').append(wrap);
+  }
+  const amountInput = $<HTMLInputElement>('s-poseAmount');
+  amountInput.addEventListener('input', () => {
+    presetAmount = Number(amountInput.value);
+    $('o-poseAmount').textContent = `${presetAmount}%`;
+    reblend();
+  });
+  // 手臂有几对，「手臂套给哪一对」就有几格（一对的时候不显示）。身体变了才重排
+  let pairCount = 0;
+  let syncPair: ((value: string, enabled: boolean) => void) | null = null;
+  syncPresetPanel = () => {
+    const count = kit ? Math.max(0, ...kit.solver.rig.names.map(armPairOf)) + 1 : 1;
+    if (count !== pairCount) {
+      pairCount = count;
+      if (presetPair !== null && presetPair >= count) presetPair = null;
+      const host = $('segPosePair');
+      host.replaceChildren();
+      const options = ['all', ...Array.from({ length: count }, (_, k) => String(k))];
+      syncPair = buildSeg(host, options, (v) => (v === 'all' ? '全部' : `第 ${Number(v) + 1} 对`), (v) => {
+        presetPair = v === 'all' ? null : Number(v);
+        syncPresetPanel();
+        reblend();
+      });
+    }
+    $('posePairRow').hidden = count < 2;
+    syncPair?.(presetPair === null ? 'all' : String(presetPair), true);
+  };
+
   for (const preset of POSE_LIBRARY) {
     const btn = el('button', 'btn', preset.name);
     btn.type = 'button';
-    btn.addEventListener('click', () => usePosing(fitted(preset.posing), true));
+    btn.addEventListener('click', () => {
+      const note = applyPreset(preset);
+      if (note) setStatus(note, !presetParts.size);
+    });
     $('poseLibrary').append(btn);
   }
   let last = -1;
@@ -2714,8 +2836,8 @@ if (POSE_LIBRARY.length) {
     let pick = Math.floor(Math.random() * POSE_LIBRARY.length);
     if (pick === last) pick = (pick + 1) % POSE_LIBRARY.length;
     last = pick;
-    usePosing(fitted(POSE_LIBRARY[pick].posing), true);
-    setStatus(`姿势：${POSE_LIBRARY[pick].name}`);
+    const note = applyPreset(POSE_LIBRARY[pick]);
+    if (note) setStatus(note, !presetParts.size);
   });
 }
 $('btnPoseJointDone').addEventListener('click', () => selectJoint(null));
@@ -2790,6 +2912,7 @@ function renderPosePanel() {
   posePinFeet.checked = pinFeet;
   posePinHands.checked = pinHands;
   for (const { group, input } of groupChecks) input.checked = shownGroups.has(group);
+  syncPresetPanel();
   renderHand();
   renderFace();
   const any = isPosed(spec.posing);
