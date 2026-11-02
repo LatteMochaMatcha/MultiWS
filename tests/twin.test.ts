@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GridShape, Part } from '../src/geometry/figure';
 import { buildFigure } from '../src/geometry/layout';
+import { rotate, sub } from '../src/geometry/vec';
 import { type BodyCounts, type BodySpec, defaultSpec } from '../src/model/spec';
 import { castRay, compileField, fieldAt } from '../src/sdf/field';
 import { fuseParts } from '../src/sdf/fuse';
@@ -38,7 +39,7 @@ describe('两个人并成一个宽躯干', () => {
     expect(wide?.d).toBeCloseTo(twinOf(make())!.d, 9);
   });
 
-  it('两根脖子、两副胯各在一份底下；胸按一个人算摆在正中；手臂都长在两边外侧；左右对称', () => {
+  it('两根脖子、两副胯各在一份底下；胸按一个人算摆在正中、放大；外侧的手臂照设定，里侧各一条往前伸；左右对称', () => {
     useAnimeBody();
     const f = buildFigure(make());
     const d = twinOf(make())!.d;
@@ -58,10 +59,22 @@ describe('两个人并成一个宽躯干', () => {
     expect(at('Chest_01_L')[0]).toBeLessThan(0.08);
     expect(at('Chest_01_L')[0]).toBeCloseTo(-at('Chest_01_R')[0], 9);
     for (const c of chests) expect((c.prims[0] as { wide?: boolean }).wide, c.name).toBe(true);
-    // 六条手臂都在外侧那一份的肩膀上
+    for (const c of chests) expect((c.prims[0] as { scale?: number[] }).scale, c.name).toEqual([1.3, 1.3, 1.3]);
+    // 外侧那一份的肩膀上照设定三对（六条），里侧的肩膀（两根脖子中间）每个人一条：排在后面，往前伸、往那个人自己的正中偏
     const arms = f.parts.filter((p) => p.type === 'arm');
-    expect(arms).toHaveLength(6);
-    for (const arm of arms) expect(Math.abs(arm.pos[0]), arm.name).toBeGreaterThan(d + 0.05);
+    expect(arms).toHaveLength(8);
+    const inner = arms.filter((p) => Math.abs(p.pos[0]) < d);
+    expect(inner.map((p) => p.name).sort()).toEqual(['Arm_04_L', 'Arm_04_R']);
+    for (const arm of arms.filter((p) => !inner.includes(p))) expect(Math.abs(arm.pos[0]), arm.name).toBeGreaterThan(d + 0.05);
+    for (const arm of inner) {
+      // 长在 -side 那个人身上（左手长在右边那个人的里侧），离正中线不远
+      expect(Math.sign(arm.pos[0]), arm.name).toBe(-arm.side);
+      const bone = arm.bones!.find((b) => b.name.startsWith('UpperArm'))!;
+      const dir = rotate(arm.quat, sub(bone.tail, bone.head));
+      expect(dir[2], arm.name).toBeGreaterThan(Math.abs(dir[0]) * 2);
+      expect(Math.sign(dir[0]), arm.name).toBe(-arm.side);
+      expect(arm.bones!.every((b) => !/_[LR](\.\d+)?$/.test(b.name) || b.name.endsWith('.004')), arm.name).toBe(true);
+    }
     // 腿：每副胯两条，在那一份的原位（离它的正中一个髋关节宽），Leg_01 是左边那副
     const legs = f.parts.filter((p) => p.type === 'leg');
     expect(legs).toHaveLength(4);

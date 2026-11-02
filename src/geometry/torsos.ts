@@ -102,8 +102,8 @@ const UPRIGHT_HEAD_GAP = 0.01;
  * 试过垂在身前（手落在自己那边的胯前，照参考图）：胸 1 时好看，大胸时穿进里侧挤在一起的胸里，套姿势时手插进大腿
  */
 const BESIDE_ROOT = 0.045;
-const BESIDE_DROP = 62 * (Math.PI / 180);
-const BESIDE_YAW = 15 * (Math.PI / 180);
+export const BESIDE_DROP = 62 * (Math.PI / 180);
+export const BESIDE_YAW = 15 * (Math.PI / 180);
 const BESIDE_STEP = 30 * (Math.PI / 180);
 /** 往前伸的手臂融合时抬多少：最低的那条正好抬平 */
 const INNER_BIND_LIFT = 90 * (Math.PI / 180) - INNER_ARM_DROP;

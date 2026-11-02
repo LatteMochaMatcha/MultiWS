@@ -15,6 +15,7 @@ import { FINGER_JOINTS, HAND_STUMP, handGraft } from '../anime/hand';
 import { type BodySpec, legPlan } from '../model/spec';
 import { type CompiledField, castRay, compileField } from '../sdf/field';
 import { wideFrame } from '../sdf/grids';
+import { BESIDE_DROP, BESIDE_YAW } from './torsos';
 import { type Stretch, restretch } from '../sdf/stretch';
 import { type Figure, type Graft, type GridShape, type Part, type Prim, type SpreadX, type WidenBand, nthName } from './figure';
 import { type CustomHead, type HeadHair, makeFace, makeHead } from './head';
@@ -146,6 +147,13 @@ const ROW_TAPER = 0.3;
  */
 const BACK_BAND: [number, number] = [1.06, 1.24];
 const BACK_BLEND: [front: number, back: number] = [0.03, -0.03];
+/**
+ * 并成一个宽躯干的（C、D）：正中那对胸（按一个人算）整个放大几倍（沿表面横着、竖着、往外都放大，照正中线放大，乳沟不挤扁）：
+ * 一个人的胸贴在两个人宽的躯干上看着小，照参考图 CD-2、CD-3 正中那对要大一截。多排胸的排距跟着放大
+ */
+const WIDE_CHEST = 1.3;
+/** 并成一个宽躯干的，里侧的手臂胸 1.6 以上多抬多少（见下面里侧的手臂） */
+const WIDE_ARM_LIFT = 40 * (Math.PI / 180);
 /** 多排胸时手臂沿躯干上下排隔多远：第二对从第一对下面一点、腋下的肋骨侧面长出来（照参考图 A-arms-3d、A-rows-arms），不跟着胸一排排往下 */
 const ARM_ROW = 0.1;
 /** 腰最细的地方大概多高（人腿人马后面接的那截腰照这里的粗细） */
@@ -346,7 +354,7 @@ export function layoutAnime(spec: BodySpec): Figure {
   /** 每排胸照设定多大：往小调时不缩小，整个往胸口里沉（见下面胸）。下排和第一排一比一（以前往下每排小一成） */
   const rowSize = Math.max(1, sh.bust);
   /** 相邻两排隔多远（手臂沿躯干上下排时也照它排）：多排胸照胸的大小排（见 rowTuck），只有多排手臂的照 GAP */
-  const [reachUp, reachDown] = chestReach(rowSize);
+  const [reachUp, reachDown] = chestReach(rowSize).map((r) => r * (twinned ? WIDE_CHEST : 1));
   /** 胸中心在平胸表面上的哪一点（u 沿表面横着、高度，素体自己的坐标），见下面每排胸 */
   const [chestU, chestV] = chestCenter(sh.bust);
   const gap = c.chestPairs > 1 ? reachDown + (1 - rowTuck(rowSize)) * reachUp + ROW_ROOM : GAP;
@@ -451,7 +459,7 @@ export function layoutAnime(spec: BodySpec): Figure {
   const chestAt = surfacePoint(chestFrame(), chestU, chestV);
   const chestRows = Array.from({ length: c.chestPairs }, (_, j) => {
     const y = raised(chestV) - j * gap;
-    const at = wide ? surfacePoint(wide, chestU, y) : chestAt;
+    const at = wide ? surfacePoint(wide, chestU * WIDE_CHEST, y) : chestAt;
     return { y, x: wide ? at[0] : at[0] + pushed(at[0], at[1]), z: at[2], lift: raised(chestV) - chestV - j * gap, size: rowSize };
   });
 
@@ -726,6 +734,44 @@ export function layoutAnime(spec: BodySpec): Figure {
     }
   }
 
+  /*
+   * 并成一个宽躯干的（C、D）：每个人里侧的肩膀上也长一条手臂（照参考图 CD-2、CD-3），排在外侧那几对后面。
+   * 就是对面那个人外侧最贴身的那条挪过来（里侧那个肩膀和外侧的对着那个人自己的正中线左右对称），从两根脖子中间那块肩膀上长出来，
+   * 姿势和两个上半身直立并排时里侧的手臂一样（见 torsos.ts 的 BESIDE_DROP）：往前伸、往自己那边偏；胸越大抬得越高（胸 1.6 以上多抬 WIDE_ARM_LIFT，往前略微朝上；
+   * 抬得少的话前臂擦着放大过的胸顶过去，融出来的网格在那里破洞），
+   * 从正中那对放大过的胸上面过去，不埋进胸里。
+   * 外侧聚拢着好几条的，里侧也只长一条：第二条要抬到平举，正面看像一根横在胸口上的棍
+   */
+  if (twinned) {
+    for (const outer of parts.filter((p) => p.type === 'arm' && p.name.startsWith(`Arm_${pad(c.armPairs)}_`))) {
+      const side = outer.side as 1 | -1;
+      const i = Number(/^Arm_(\d+)_/.exec(outer.name)![1]) - 1;
+      const k = c.armPairs + i - (c.armPairs - 1);
+      const name = (base: string) => nthName(`${base}_${tag(side)}`, k);
+      /** 这条手臂长在哪个人身上（-side 那一份），往那个人的正中偏 */
+      const own = -side;
+      const drop = BESIDE_DROP + WIDE_ARM_LIFT * smooth((sh.bust - 1) / 0.6);
+      const toward = (a: number): V3 => [own * Math.sin(BESIDE_YAW) * Math.sin(a), -Math.cos(a), Math.cos(BESIDE_YAW) * Math.sin(a)];
+      const dir = toward(drop);
+      const turn = quatBetween([side, 0, 0], dir);
+      const pos: V3 = [outer.pos[0] - 2 * side * twinD, outer.pos[1], outer.pos[2]];
+      const collar = rotate(quatConj(turn), [-side * Math.max(Math.abs(pos[0] - own * twinD) - 0.025, 0.02), 0.012, 0]);
+      const rename = (b: string) => (/^(Shoulder|UpperArm|LowerArm|Hand|Thumb|Index|Middle|Ring|Little)/.test(b) ? name(b.replace(/_[LR](\.\d+)?$/, '')) : b);
+      const { fuseAs: _, ...rest } = outer;
+      parts.push({
+        ...rest,
+        name: `Arm_${pad(k + 1)}_${tag(side)}`,
+        pos,
+        quat: turn,
+        grafts: [{ ...handGraft(name), ...handPlace(side, bend, elbow, handSize) }],
+        bones: outer.bones!.map((b, n) =>
+          n === 0 ? { ...b, name: rename(b.name), head: collar } : { ...b, name: rename(b.name), parent: b.parent === undefined ? undefined : rename(b.parent) },
+        ),
+        bind: quatBetween(dir, toward(Math.max(drop, Math.PI / 2))),
+      });
+    }
+  }
+
   /* ---- 胸：贴在躯干表面上的一层（见 anime/chest.ts、ChestShape），和躯干取并集 ---- */
   // 胸贴着的那块躯干和躯干一样加宽、加长；并成一个宽躯干的就是并好的那一块（胸贴在它外面，见 ChestShape.wide）
   const chestBody: GridShape = { ...torsoShape, name: 'Torso' };
@@ -762,8 +808,11 @@ export function layoutAnime(spec: BodySpec): Figure {
             size: sh.bust,
             lift,
             ...(wide ? { wide: true } : {}),
-            ...(o?.position ? { shift: [move[0] * flip, move[1], move[2]] as V3 } : {}),
-            ...(o?.scale ? { scale: o.scale } : {}),
+            // 并成一个宽躯干的照正中线放大（见 WIDE_CHEST）：中心跟着往外挪
+            ...(o?.position || wide ? { shift: [move[0] * flip + (wide ? chestU * (WIDE_CHEST - 1) : 0), move[1], move[2]] as V3 } : {}),
+            ...(o?.scale || wide
+              ? { scale: [0, 1, 2].map((k) => (o?.scale?.[k] ?? 1) * (wide ? WIDE_CHEST : 1)) as V3 }
+              : {}),
             ...(o?.rotation || droop ? { tilt: [(o?.rotation?.[0] ?? 0) + droop, o?.rotation?.[1] ?? 0, o?.rotation?.[2] ?? 0] as V3 } : {}),
           },
         ],
