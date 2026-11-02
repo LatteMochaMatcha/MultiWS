@@ -4,7 +4,7 @@
  *
  * 纯计算，在主线程、Web Worker 和单元测试里都能用；数据由外面读进来再登记。
  */
-import type { ChestShape, Fork, SpreadX, Thicken, Twin, WidenBand } from '../geometry/figure';
+import type { BackStretch, ChestShape, Fork, SpreadX, Thicken, Twin, WidenBand } from '../geometry/figure';
 import { type V3, sub } from '../geometry/vec';
 import { chestRegion, chestSkin, chestVersion } from '../anime/chest';
 import type { Dist } from './field';
@@ -101,6 +101,11 @@ export interface GridUse {
   spreadX?: SpreadX;
   /** 再一份和 spreadX 一样算的（多排胸时胸下面接长的那截肋骨往下收窄，k < 1），叠在胯宽上 */
   taperX?: SpreadX;
+  /**
+   * 背那半边另照一种加长（多排胸：胸那边照 stretchY 接一截直筒，背照素体的背整段拉长）：前后 z 在 front 以前照 stretchY，
+   * 到 back 全照 backStretch.stretch，中间渐变。两种加长的总长要一样（再往上就对得上）
+   */
+  backStretch?: BackStretch;
   /**
    * 斜过去（腿往外散开）：往下（-Y）走到 depth 那么深时往 +X 挪满 out，再往下整个平移；y ≥ 0 的不挪。
    * 每个高度上整片平移，膝盖、脚踝还是水平的，脚平踩在地上。镜像之前的坐标，在别的变形外面
@@ -319,6 +324,7 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
   const thick = use.thicken;
   const spread = use.spreadX;
   const taper = use.taperX;
+  const back = use.backStretch;
   const [leanOut, leanDepth] = use.lean ?? [0, 1];
   /** 斜过去的那一段（x 随高度一路挪）离表面近了多少：错切的最大伸长倍数 */
   const leanSlope = leanOut / leanDepth;
@@ -424,6 +430,18 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
     // 加长过的那一段：换算回加长之前的高度（见 sdf/stretch.ts）
     let y = ly;
     if (extra && y > from) y = y >= to + extra ? y - extra : unstretch(y, stretch);
+    if (back) {
+      // 背那半边照另一种加长换算回去，前后渐变；渐变的那一段高度随前后变，斜着拉过，离表面近一点
+      const w0 = (lz - back.front) / (back.back - back.front);
+      if (w0 > 0) {
+        const t = w0 >= 1 ? 1 : w0 * w0 * (3 - 2 * w0);
+        const dt = w0 >= 1 ? 0 : (6 * w0 * (1 - w0)) / (back.front - back.back);
+        const dy = unstretch(ly, back.stretch) - y;
+        y += dy * t;
+        const lip = Math.sqrt(1 + dy * dt * (dy * dt));
+        if (lip > squeeze) squeeze = lip;
+      }
+    }
     if (bands.length) {
       // 加宽、收窄过的地方：换算回原来离中线多远。
       // 原来离中线 s 的点现在在 s + Σ a·smoothstep(s / core)，每段的 a 随高度从 0 变到 amount；反过来求 s 也是牛顿法

@@ -138,6 +138,14 @@ const ROW_DROOP = 15;
  * 胸越大收得越少，胸 2 以上不收：大胸把躯干两边挡住了，最下面一排的下半截又正好在变回原样的那一段上，胸外侧被扯成方角
  */
 const ROW_TAPER = 0.3;
+/**
+ * 多排胸时接长的那截背（见 GridShape.backStretch）：胸那边照 ROW_STRETCH 接一截直筒，背那半边换成把素体的背从腰上最往前的那一点（腰椎）
+ * 到肩胛最往后的那一点（BACK_BAND，两头渐变 ROW_RAMP）整段均匀拉长。不然接长的那截背是照胸下面一圈原样往下接的：
+ * 侧面看一段直上直下的平板、两头各拐一下（背面看下头一道横的暗带），背面两条竖线平行到底，像根管子；
+ * 整段拉长以后侧面下凹上鼓，背阔肌往腰收的那点 V 形、腰窝都带过来了。前后 z 在 BACK_BLEND[0] 以前（胸）照直筒，到 BACK_BLEND[1] 全照背的
+ */
+const BACK_BAND: [number, number] = [1.06, 1.24];
+const BACK_BLEND: [front: number, back: number] = [0.03, -0.03];
 /** 多排胸时手臂沿躯干上下排隔多远：第二对从第一对下面一点、腋下的肋骨侧面长出来（照参考图 A-arms-3d、A-rows-arms），不跟着胸一排排往下 */
 const ARM_ROW = 0.1;
 /** 腰最细的地方大概多高（人腿人马后面接的那截腰照这里的粗细） */
@@ -403,6 +411,7 @@ export function layoutAnime(spec: BodySpec): Figure {
   const plain = grid('Torso', 'torso', 1, {
     ...(stretch ? { stretchY: stretch } : {}),
     ...(taper ? { taperX: taper } : {}),
+    ...(stretch && c.chestPairs > 1 ? { backStretch: { stretch: [BACK_BAND[0], BACK_BAND[1], extra, ROW_RAMP] as Stretch, front: BACK_BLEND[0], back: BACK_BLEND[1] } } : {}),
     ...(c.chestPairs > 0 || flat ? { morph: [animeGrid('torsoFlat'), c.chestPairs > 0 ? 1 : flat] as [string, number] } : {}),
     // 肩膀加宽：从胸口往上逐渐加宽；腰在那一段加宽、收窄；胯按比例拉宽
     ...(bands.length ? { widenX: bands } : {}),

@@ -66,6 +66,21 @@ describe('二次元素体的多排胸', () => {
     expect(b3 - a3).toBeGreaterThan((b0 - a0) * 0.9);
   });
 
+  it('接长的那截背照人的背拉长：侧面看从第一排往下一排比一排靠前（不是一段直上直下的平板）', () => {
+    for (const n of [2, 4]) {
+      for (const bust of [1, 2.2]) {
+        const f = rows(n, bust);
+        const torso = f.parts.find((p) => p.name === 'Torso')!;
+        const field = compileField({ ...f, parts: [torso] }, { blend: 0 });
+        const s = f.scale;
+        /** 世界坐标高度 y 上，离中线 3 厘米那一竖条的背在哪 */
+        const back = (y: number) => -0.5 * s + castRay(field, [0.03 * s, y, -0.5 * s], [0, 0, 1], 0.5 * s);
+        const zs = chests(f, 1).map((p) => back((torso.pos[1] + p.pos[1]) * s));
+        for (let j = 1; j < n; j++) expect(zs[j] - zs[j - 1], `${n} 排 胸 ${bust} 第 ${j + 1} 排`).toBeGreaterThan(0.005 * s);
+      }
+    }
+  });
+
   it('大胸上排胸底压在下排上缘（排距比上排的下半截加下排的上半截短一点），小胸上下排挨着', () => {
     for (const [bust, overlap] of [
       [2.2, true],

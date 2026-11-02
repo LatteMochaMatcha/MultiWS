@@ -137,6 +137,8 @@ export interface GridShape extends Mass {
   spreadX?: SpreadX;
   /** 再一份按比例压窄（多排胸时胸下面接长的那截肋骨往下收），见 sdf/grids.ts 的 GridUse.taperX */
   taperX?: SpreadX;
+  /** 背那半边另照一种加长（多排胸时接长的那截背照素体的背整段拉长），见 sdf/grids.ts 的 GridUse.backStretch */
+  backStretch?: BackStretch;
   /** 斜过去（腿胯部聚拢时往外散开），见 sdf/grids.ts 的 GridUse.lean */
   lean?: [out: number, depth: number];
   /** 从胯往上渐渐分开（好几个上半身），见 sdf/grids.ts 的 GridUse.fork */
@@ -177,6 +179,15 @@ export interface SpreadX {
   rise: number;
   k: number;
   levels: [top: number, full: number, fullTo: number, bottom: number];
+}
+
+/** 背那半边另照一种加长：见 sdf/grids.ts 的 GridUse.backStretch */
+export interface BackStretch {
+  /** 背那半边怎么加长（加长的总长和 stretchY 一样） */
+  stretch: Stretch;
+  /** 前后 z 在 front 以前照 stretchY，到 back 全照 stretch，中间渐变 */
+  front: number;
+  back: number;
 }
 
 /** 从胯往上渐渐分开：见 sdf/grids.ts 的 GridUse.fork */
