@@ -623,7 +623,7 @@ function limbLength(figure: Figure, spec: BodySpec): Record<string, PartOverride
   return out;
 }
 
-/** 好几个上半身时胯再宽多少倍（二次元素体两个上半身直立并排的乘 UPRIGHT_HIPS；并成一个宽躯干的照 D 摆、不乘） */
+/** 好几个上半身时胯再宽多少倍（二次元素体两个上半身直立并排的乘 UPRIGHT_HIPS；并成一个宽躯干的照一个上半身两个头摆、不乘） */
 export const MULTI_HIPS = 1.1;
 /**
  * 二次元素体两个上半身直立并排站在一副胯、一对腿上（见 torsos.ts 的 UPRIGHT_OVERLAP）时胯再宽多少倍：两个腰并排已经很宽，
@@ -637,10 +637,10 @@ export function layoutFigure(given: BodySpec): Figure {
   const plan = legPlan(given);
   const anime = given.bodyStyle === 'anime' && animeReady();
   const upright = anime && given.counts.torsos === 2 && plan.form === 'biped' && plan.total === 2;
-  // 二次元素体两个上半身（每个一个头）、横排两副胯：和 D（一个上半身两个头）长一样（并成一个宽躯干，胸按一个人算），
-  // 照 D 摆，再由 torsos.ts 切成两个上半身（见 splitWide）
+  // 二次元素体两个上半身（每个一个头）、横排两副胯：并成一个宽躯干（胸按一个人算），照一个上半身两个头摆成那样，
+  // 再由 torsos.ts 切成两个上半身（见 splitWide）。真的一个上半身两个头的（D）不并，是一个人的身子顶两个头
   const wide = anime && given.counts.torsos === 2 && given.counts.heads === 1 && given.headLayout !== 'faces' && plan.form === 'abreast' && plan.stations.length === 2 && plan.stations.every((n) => n === 2);
-  if (wide) return splitTorsos(layoutAnime({ ...given, counts: { ...given.counts, torsos: 1, heads: 2 } }), 2);
+  if (wide) return splitTorsos(layoutAnime({ ...given, counts: { ...given.counts, torsos: 1, heads: 2 } }, true), 2);
   const spec = given.counts.torsos > 1 ? { ...given, shape: { ...given.shape, hips: given.shape.hips * (upright ? UPRIGHT_HIPS : MULTI_HIPS) } } : given;
   // 二次元少女素体的数据还没载入时，先按白模摆（数据到了以后界面会重新生成一遍）
   const one = anime ? layoutAnime(spec) : layoutMannequin(spec);

@@ -690,7 +690,10 @@ export function chestDist(p: ChestShape, piece = false, voxel = 0): { fn: Dist; 
   }
   const frame = p.wide ? wideFrame(p.body) : chestFrame();
   const region = chestRegion(p, frame) ?? { min: [0, 0, 0] as V3, max: [0, 0, 0] as V3 };
-  const d = gridDist(getGrid(p.body.grid), { ...p.body, skin: chestSkin(p, piece, frame), region });
+  // 胸在并好的宽躯干外面贴（ChestShape.wide）才带着 twin；一个上半身、躯干在胯上分成两副的（D），胸那一截就是一个人的躯干，
+  // 照一个人的贴（带着 twin 的话胸照加长以后的高度贴，和一个人的展开图对不上，多排胸时在腋下切出两道横棱）
+  const body = p.wide || !p.body.twin ? p.body : { ...p.body, twin: undefined };
+  const d = gridDist(getGrid(p.body.grid), { ...body, skin: chestSkin(p, piece, frame), region });
   const [ox, oy, oz] = p.origin;
   const [nx, ny, nz, nd] = p.seam ?? [0, 0, 0, 0];
   const exact = {

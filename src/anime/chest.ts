@@ -164,6 +164,12 @@ const PIVOT = 0.4;
 export const CHEST_FLAT = 0.3;
 /** 胸那一片的椭圆放大多少倍以外就是平胸；从多少倍起渐渐换回平胸 */
 const OUTER = 1.35;
+/**
+ * 胸往正中线挪（手动微调）时，胸中心往里那半截照比例压窄，最多压到原来的这么多；再往里挪的整个胸平移过去，可以越过正中线，
+ * 和另一边的胸叠在一起（以前一直压，压到正中一厘米宽的一条里，看着像正中有一面看不见的墙）。
+ * 默认摆的胸最多压到一半（胸 1.6、肩最窄时），不受影响
+ */
+const SQUEEZE = 0.4;
 const INNER = 1.1;
 /**
  * 往圆里变（他说照二次元作品，胸要圆润，参考图里的胸是圆球：上半截饱满、胸根宽、侧面看是一个圆、底是圆的）：
@@ -472,13 +478,16 @@ export function chestSkin(shape: ChestShape, piece = false, f: ChestFrame = ches
     const ku = l.scale[0] * tu;
     const kv = l.scale[1] * tv;
     const kh = l.scale[2] * th;
-    // 往正中线挪也不过正中线
-    const at: [number, number] = [Math.max(0.01, l.at[0] + du), l.at[1] + dv];
+    // 往正中线挪：先压窄，压到 SQUEEZE 以后整个平移过去（slide < 0，胸型的正中线挪到了正中线那边）
+    const want = l.at[0] + du;
+    const slide = Math.min(0, want - Math.max(0.01, SQUEEZE * p.center[0] * ku));
+    const at: [number, number] = [want - slide, l.at[1] + dv];
     // 左右：胸中心那一列对上 at，中心附近照 ku 放大；往正中线那边渐渐换成「正中线对正中线」（左右镜像接得上）
     const shift = Math.min(at[0] - p.center[0] * ku, 0.6 * at[0]);
     const pivot = l.pivot;
     return {
       p,
+      slide,
       weight: l.weight,
       ku,
       kv,
@@ -497,7 +506,9 @@ export function chestSkin(shape: ChestShape, piece = false, f: ChestFrame = ches
       e: 0,
     };
   });
-  const rc: [number, number] = round ? [Math.max(0.01, ready[0].at[0] + round.off[0] * tu), ready[0].at[1] + round.off[1] * tv] : [0, 0];
+  const rc: [number, number] = round ? [ready[0].slide + Math.max(0.01, ready[0].at[0] + round.off[0] * tu), ready[0].at[1] + round.off[1] * tv] : [0, 0];
+  /** 整个胸平移过正中线最远的那一层挪了多少（≤ 0）：正中线那边留到这里 */
+  const reach = Math.min(0, ...ready.map((l) => l.slide));
   const [ra, rb, rh] = round ? [round.radii[0] * tu, round.radii[1] * tv, round.radii[2] * th] : [1, 1, 1];
   const rhc = round ? round.hc * th : 0;
   /** prepare 算好的：离平胸表面多远、离椭球多远（和这里的圆角多大）、切掉的那几刀里最靠外的 */
@@ -508,20 +519,23 @@ export function chestSkin(shape: ChestShape, piece = false, f: ChestFrame = ches
   return {
     prepare(x, y, z, yp, narrow = 1) {
       if (empty) return 1;
-      const own = -x * side;
       const at = shell(f, x, y, z);
       h = at.h;
+      // 沿表面横着量，这一边是正的、正中线那边是负的
+      const su = (x * side < 0 ? -at.u : at.u) * narrow;
+      // 只要这一边（正中线那边的切掉）；整个胸平移过了正中线的，切在挪过去那么远
+      const own = reach < 0 ? reach - su : -x * side;
       // 手动微调的转动：绕胸中心在表面上转（rz），胸尖往下、往外歪（rx、ry：离表面越远挪得越多）。几层胸型的中心是同一个
       const hh = h - push;
-      let uu = at.u * narrow;
+      let uu = su;
       let vv = yp - lift;
       if (rx) vv += hh * tanX;
       if (ry) uu -= side * hh * tanY;
       if (rz) {
         const c = ready[0].at;
-        const a = uu - c[0];
+        const a = uu - c[0] - ready[0].slide;
         const b = vv - c[1];
-        uu = c[0] + a * cosZ + b * sinZ * side;
+        uu = c[0] + ready[0].slide + a * cosZ + b * sinZ * side;
         vv = c[1] - a * sinZ * side + b * cosZ;
       }
       let edge = Infinity;
@@ -538,8 +552,9 @@ export function chestSkin(shape: ChestShape, piece = false, f: ChestFrame = ches
       }
       for (const l of ready) {
         const p = l.p;
-        const t = uu <= 0 ? 0 : uu >= l.at[0] ? 1 : uu / l.at[0];
-        l.pu = (uu - l.shift * t * t * (3 - 2 * t)) / l.ku;
+        const u0 = uu - l.slide;
+        const t = u0 <= 0 ? 0 : u0 >= l.at[0] ? 1 : u0 / l.at[0];
+        l.pu = (u0 - l.shift * t * t * (3 - 2 * t)) / l.ku;
         l.pv = l.pivot + (vv - l.lower - l.pivot) / l.kv;
         l.ph = hh / l.kh;
         const eu = (l.pu - p.center[0]) / p.ru;
@@ -604,6 +619,14 @@ export function chestRegion(shape: ChestShape, f: ChestFrame = chestFrame()): { 
   const wide = 1 / Math.min(1, shape.body.taperX?.k ?? 1);
   const min: V3 = [Infinity, Infinity, Infinity];
   const max: V3 = [-Infinity, -Infinity, -Infinity];
+  /** 展开图上 u 那一点（u < 0 的是平移过正中线的胸，在正中线那边） */
+  const point = (u: number, y: number, h: number): V3 => {
+    const q = surfacePoint(f, Math.abs(u), y, h);
+    if (u < 0) q[0] = -q[0];
+    return q;
+  };
+  /** 第一层胸型平移过正中线多远（椭球跟着它） */
+  let slide0 = 0;
   const add = (q: V3) => {
     for (let k = 0; k < 3; k++) {
       if (q[k] < min[k]) min[k] = q[k];
@@ -616,7 +639,10 @@ export function chestRegion(shape: ChestShape, f: ChestFrame = chestFrame()): { 
     const ku = l.scale[0] * tu;
     const kv = l.scale[1] * tv;
     const kh = l.scale[2] * th;
-    const at: [number, number] = [Math.max(0.01, l.at[0] + du), l.at[1] + dv];
+    const want = l.at[0] + du;
+    const slide = Math.min(0, want - Math.max(0.01, SQUEEZE * p.center[0] * ku));
+    if (l === layers[0]) slide0 = slide;
+    const at: [number, number] = [want - slide, l.at[1] + dv];
     const shift = Math.min(at[0] - p.center[0] * ku, 0.6 * at[0]);
     const pivot = l.pivot;
     const lower = at[1] - (pivot + (p.center[1] - pivot) * kv);
@@ -639,13 +665,13 @@ export function chestRegion(shape: ChestShape, f: ChestFrame = chestFrame()): { 
         const top = Number.isNaN(cols.rise[k]) ? 0 : Math.max(0, cols.rise[k]);
         const h = top * kh + Math.max(push, 0) + 0.005;
         const slack = h * tilt;
-        const u = realU(iu * p.cell) * wide;
+        const u = (slide + realU(iu * p.cell)) * wide;
         // 胸照加长以后的高度摆，贴着的那一圈表面在加长之前的高度上
         const y = pivot + (p.v0 + iv * p.cell - pivot) * kv + lower + lift;
         for (const dy of slack ? [-slack, 0, slack] : [0]) {
           const ys = unstretch(y + dy, stretch);
-          add(surfacePoint(f, u + slack, ys, h));
-          add(surfacePoint(f, Math.max(0, u - slack), ys, -CHEST_DEPTH));
+          add(point(u + slack, ys, h));
+          add(point(slide < 0 ? u - slack : Math.max(0, u - slack), ys, -CHEST_DEPTH));
         }
       }
     }
@@ -653,24 +679,25 @@ export function chestRegion(shape: ChestShape, f: ChestFrame = chestFrame()): { 
   if (round) {
     // 往圆里变的椭球（和平胸接上的圆角也算进去）
     const c0 = layers[0].at;
-    const cu = Math.max(0.01, c0[0] + du + round.off[0] * tu);
+    const cu = slide0 + Math.max(0.01, c0[0] + du - slide0 + round.off[0] * tu);
     const cv = c0[1] + dv + round.off[1] * tv + lift;
     const [ra, rb, rh] = [round.radii[0] * tu, round.radii[1] * tv, round.radii[2] * th];
     const rk = FILLET_TOP * rb;
     const top = round.hc * th + rh + Math.max(push, 0) + rk;
     for (let i = 0; i <= 8; i++) {
       for (let j = 0; j <= 8; j++) {
-        const u = Math.max(0, cu + (i / 4 - 1) * (ra + rk)) * wide;
+        const u = Math.max(slide0 < 0 ? -Infinity : 0, cu + (i / 4 - 1) * (ra + rk)) * wide;
         const y = unstretch(cv + (j / 4 - 1) * (rb + rk), stretch);
-        add(surfacePoint(f, u, y, top));
-        add(surfacePoint(f, u, y, -CHEST_DEPTH));
+        add(point(u, y, top));
+        add(point(u, y, -CHEST_DEPTH));
       }
     }
   }
   if (!Number.isFinite(min[0])) return null;
-  // +X 那一边算的：换到这一边，正中线那边留到正中线（胸那一片的格点隔一格取的，四周再多留 1.5 厘米）
+  // +X 那一边算的：换到这一边，正中线那边留到正中线、平移过正中线的留到它那里（胸那一片的格点隔一格取的，四周再多留 1.5 厘米）
   const pad = 0.015;
-  const lo: V3 = shape.side > 0 ? [-pad, min[1] - pad, min[2] - pad] : [-max[0] - pad, min[1] - pad, min[2] - pad];
-  const hi: V3 = shape.side > 0 ? [max[0] + pad, max[1] + pad, max[2] + pad] : [pad, max[1] + pad, max[2] + pad];
+  const inner = Math.min(min[0], 0);
+  const lo: V3 = shape.side > 0 ? [inner - pad, min[1] - pad, min[2] - pad] : [-max[0] - pad, min[1] - pad, min[2] - pad];
+  const hi: V3 = shape.side > 0 ? [max[0] + pad, max[1] + pad, max[2] + pad] : [-inner + pad, max[1] + pad, max[2] + pad];
   return { min: lo, max: hi };
 }

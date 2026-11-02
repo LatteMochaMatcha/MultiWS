@@ -49,6 +49,12 @@ const WELD = 1e-4;
 const INFLUENCES = 4;
 /** 权重不到最重那根的这个比例的骨骼直接丢掉 */
 const TRIM = 0.02;
+/**
+ * 好几个上半身时，长在不同上半身上的部件（胸、头、手臂）挨在一起的地方：离躯干表面 near 以内照常过渡，到 far 就不再分对方的份额。
+ * 躯干上两个上半身连着的那一圈照常过渡（不然一摆姿势那里拉出一道棱）；挤在一起的两只胸、碰在一起的两个头离躯干远，
+ * 各跟各的上半身——以前两边各占一半，一个上半身一弯，两只胸被扯成一根长条
+ */
+const APART: [near: number, far: number] = [0.005, 0.02];
 
 interface Entry {
   field: CompiledField;
@@ -170,6 +176,10 @@ export interface SkinPlan {
   lead: Uint8Array;
   balls: { vertices: number[]; bone: number }[];
   groupOf: Uint16Array;
+  /** 每一伙长在第几个上半身上（照 figure.parts 里那个上半身部件的位置；不在哪个上半身上的是 -1），见 APART */
+  body: Int32Array;
+  /** entries 里哪些是躯干 */
+  torso: Uint8Array;
   /** 每个顶点由谁代表（位置一样的顶点只算一次） */
   rep: Int32Array;
   bones: number;
@@ -326,6 +336,14 @@ export function planSkin(
     }
   }
   const groupOf = Uint16Array.from(entries, (entry) => entry.group);
+  // 每个部件往上找到的那个上半身（UpperBody、UpperBody_L …，见 geometry/torsos.ts）
+  const kept = figure.parts.filter((part) => part.material !== 'eye');
+  const bodyOf = (part: Part): number => {
+    for (let p: Part | undefined = part; p; p = p.parent ? byName.get(p.parent) : undefined) if (/^UpperBody/.test(p.name)) return figure.parts.indexOf(p);
+    return -1;
+  };
+  const body = Int32Array.from({ length: groups }, (_, g) => bodyOf(kept[sample[g]]));
+  const torso = Uint8Array.from(kept, (part) => (part.type === 'torso' ? 1 : 0));
   return {
     count,
     positions,
@@ -343,6 +361,8 @@ export function planSkin(
     lead,
     balls,
     groupOf,
+    body,
+    torso,
     rep,
     bones: nb,
     mostStrands,
@@ -480,7 +500,10 @@ export function weighVertices(
   joints: Uint16Array,
   weights: Float32Array,
 ) {
-  const { positions, entries, rep, band, soft, groups, parentBone, kind, sample, home, socket, lead, groupOf } = plan;
+  const { positions, entries, rep, band, soft, groups, parentBone, kind, sample, home, socket, lead, groupOf, body, torso } = plan;
+  const apartNear = APART[0] * (band / BAND);
+  const apartFar = APART[1] * (band / BAND);
+  const several = body.some((b) => b >= 0);
   const { offsets, entry: nearEntry, dist: nearDist } = near;
   const base = near.first;
   /** 每一股离这个顶点最近的那一节有多远（距离的平方） */
@@ -503,14 +526,30 @@ export function weighVertices(
     const k0 = offsets[v - base];
     const k1 = offsets[v - base + 1];
     let closest = Infinity;
-    for (let k = k0; k < k1; k++) if (nearDist[k] < closest) closest = nearDist[k];
+    let first = -1;
+    for (let k = k0; k < k1; k++) {
+      if (nearDist[k] < closest) {
+        closest = nearDist[k];
+        first = k;
+      }
+    }
+    // 好几个上半身：这个顶点算哪个上半身的，别的上半身的份额打几折（离躯干表面越远打得越狠，见 APART）
+    const mine = several && first >= 0 ? body[groupOf[nearEntry[first]]] : -1;
+    let apart = 1;
+    if (mine >= 0) {
+      let skin = Infinity;
+      for (let k = k0; k < k1; k++) if (torso[nearEntry[k]] && nearDist[k] < skin) skin = nearDist[k];
+      const t = (skin - apartNear) / (apartFar - apartNear);
+      apart = t <= 0 ? 1 : t >= 1 ? 0 : 1 - t * t * (3 - 2 * t);
+    }
 
     // 每一伙占多少：它的各个部件的份额加起来
     here.length = 0;
     for (let k = k0; k < k1; k++) {
       const gap = nearDist[k] - closest;
       if (gap >= band) continue;
-      const part = (1 - gap / band) ** 2 * (gate ? gate[k] : 1);
+      const other = mine >= 0 && body[groupOf[nearEntry[k]]] >= 0 && body[groupOf[nearEntry[k]]] !== mine;
+      const part = (1 - gap / band) ** 2 * (gate ? gate[k] : 1) * (other ? apart : 1);
       if (part <= 0) continue;
       const group = groupOf[nearEntry[k]];
       if (groupShare[group] === 0) here.push(group);

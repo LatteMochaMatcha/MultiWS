@@ -305,4 +305,36 @@ describe('二次元素体的胸', () => {
     expect(part(after, 'Chest_01_L').pos[0] - part(before, 'Chest_01_L').pos[0]).toBeCloseTo(0.02, 9);
     expect(part(after, 'Chest_01_L').scale).toBeUndefined();
   }, 60_000);
+
+  it('手动微调往正中线挪过了头：整个胸平移过去，越过正中线（不在正中压成一面看不见的墙）', () => {
+    /** 只看躯干和左胸：比平胸躯干多出来的格点，x 最小到哪、重心在哪 */
+    const spread = (f: Figure) => {
+      const field = compileField({ ...f, parts: f.parts.filter((p) => p.type === 'torso' || p.name === 'Chest_01_L') }, { blend: 0 });
+      const flat = compileField({ ...f, parts: f.parts.filter((p) => p.type === 'torso') }, { blend: 0 });
+      const [, y0, z0] = centerOf(f);
+      let least = Infinity;
+      let sum = 0;
+      let n = 0;
+      for (let x = -0.2; x < 0.25; x += 0.004) {
+        for (let y = y0 - 0.2; y < y0 + 0.12; y += 0.004) {
+          for (let z = z0 - 0.05; z < z0 + 0.25; z += 0.004) {
+            if (fieldAt(field, x, y, z) >= 0 || fieldAt(flat, x, y, z) < 0.002) continue;
+            least = Math.min(least, x);
+            sum += x;
+            n++;
+          }
+        }
+      }
+      return { least, mid: sum / n, n };
+    };
+    const before = spread(buildFigure(anime(1.3)));
+    const after = spread(buildFigure(anime(1.3, { Chest_01_L: { position: [-0.12, 0, 0] } })));
+    // 默认的不过正中线
+    expect(before.least).toBeGreaterThan(-0.01);
+    // 挪过头的：胸越过正中线好几厘米，整个往那边挪；往里那半截压到 SQUEEZE 就不再压，体积少不了太多（以前压进正中一厘米宽的一条里）
+    expect(after.least).toBeLessThan(-0.04);
+    expect(after.mid).toBeLessThan(before.mid - 0.06);
+    expect(after.n / before.n).toBeGreaterThan(0.6);
+    expect(after.n / before.n).toBeLessThan(1.1);
+  }, 60_000);
 });

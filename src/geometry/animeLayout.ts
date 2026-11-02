@@ -148,7 +148,7 @@ const ROW_TAPER = 0.3;
 const BACK_BAND: [number, number] = [1.06, 1.24];
 const BACK_BLEND: [front: number, back: number] = [0.03, -0.03];
 /**
- * 并成一个宽躯干的（C、D）：正中那对胸（按一个人算）整个放大几倍（沿表面横着、竖着、往外都放大，照正中线放大，乳沟不挤扁）：
+ * 并成一个宽躯干的（C）：正中那对胸（按一个人算）整个放大几倍（沿表面横着、竖着、往外都放大，照正中线放大，乳沟不挤扁）：
  * 一个人的胸贴在两个人宽的躯干上看着小，照参考图 CD-2、CD-3 正中那对要大一截。多排胸的排距跟着放大
  */
 const WIDE_CHEST = 1.3;
@@ -308,6 +308,20 @@ const TWIN = {
   span: 0.94,
   tilt: (6 * Math.PI) / 180,
 };
+/**
+ * 一个上半身两个头、横排两副胯（D）：躯干照 TWIN 在胯上分成两份（split 以下各是各的，到 merged 并好），并好以后往两边拉开多少
+ * （steps 和 TWIN.steps 一样记，倍数照两副胯各离中线多远）：肚子下面和两副胯一样宽，往上渐渐收，腰上只宽出两成，到胸下面是一个人原样的身子
+ * （腰上宽出四五成的话肚子鼓成一个梨；腰收成一个人的、胯一下子翻出去，腰下面像一道台阶）。
+ * 腰以上不再分开（never：比哪个高度都高）
+ */
+const PAIR_HIPS = {
+  steps: [
+    [0.96, 1, 0.08, 0.08],
+    [SHAPE.waist.y, 0.2, 0.075, 0.075],
+    [1.13, 0, 0.075, 0.1],
+  ] as [number, number, number, number][],
+  never: 9,
+};
 const SHOULDER_CAP = { center: [-0.006, -0.006, 0] as V3, radii: [0.038, 0.03, 0.034] as V3, soft: 0.015 };
 const FAN = {
   inset: 0.02,
@@ -329,7 +343,11 @@ function headProportion(headRatio: number) {
   return { hs, baseHeight: HEAD_JOINT[1] + above * hs };
 }
 
-export function layoutAnime(spec: BodySpec): Figure {
+/**
+ * twin：两个人并成一个宽躯干（见 TWIN）。只给两个上半身（每个一个头）、横排两副胯的用（layout.ts 照这个摆好再切成两个上半身）；
+ * 一个上半身两个头的是一个人的身子顶两个头，不并
+ */
+export function layoutAnime(spec: BodySpec, twin = false): Figure {
   const c = spec.counts;
   const sh = spec.shape;
   // 体格：肩宽、腰宽、胯宽、四肢粗细一起乘上去
@@ -342,8 +360,10 @@ export function layoutAnime(spec: BodySpec): Figure {
   // 一个头上几张脸：只有一个头、一根脖子，多出来的脸长在这个头的两边和后面
   const faces = spec.headLayout === 'faces' && c.heads > 1;
   const necks = faces ? 1 : c.heads;
-  /** 两个人并成一个宽躯干（见 TWIN）：两个头、横排两副胯（两个上半身、横排两副胯的也照这个摆，见 layout.ts） */
-  const twinned = form === 'abreast' && plan.stations.length === 2 && necks === 2 && c.torsos === 1;
+  /** 一个上半身、两个头、横排两副胯：躯干那块格子在胯上分成左右两份（见 TWIN），两副胯各有屁股、胯下，腿是素体原装的 */
+  const hipPair = form === 'abreast' && plan.stations.length === 2 && necks === 2 && c.torsos === 1;
+  /** 两个人并成一个宽躯干（见 TWIN）：两个上半身、横排两副胯的照「一个上半身两个头」摆成这样，再切成两个上半身（见 layout.ts）。别的两副胯腰以上是一个人的（见 PAIR_HIPS） */
+  const twinned = twin && hipPair;
   // 头多了每个头小一圈（见 bodyPlan.ts）；并成一个宽躯干的是两个人，头照原样大
   const hs = proportion.hs * headShrink(twinned ? 1 : necks);
   const parts: Part[] = [];
@@ -376,7 +396,7 @@ export function layoutAnime(spec: BodySpec): Figure {
   /** 腰每边宽出多少：腰侧在拉开的那一段里，挪得比 amount 少一点 */
   const waistWide = ((sh.waist * b - 1) * SHAPE.waist.half) / smooth(SHAPE.waist.half / SHAPE.waist.core);
   /** 胯宽的倍数。只在胯上还是素体原来那一对腿时拉（别的腿不是照素体的腿根接的，拉了对不上）；并成一个宽躯干的两副胯都是 */
-  const hipWide = plan.stations[0] === 2 && (form === 'biped' || form === 'humantaur' || twinned) ? sh.hips * b : 1;
+  const hipWide = plan.stations[0] === 2 && (form === 'biped' || form === 'humantaur' || hipPair) ? sh.hips * b : 1;
   /** 胯按比例拉宽（见 SHAPE.hips）：躯干、腿各自的格子里身体中线在哪、高度差多少 */
   const spread = (mid: number, rise: number) => (Math.abs(hipWide - 1) > 1e-6 ? { spreadX: { mid, rise, k: hipWide, levels: SHAPE.hips } } : {});
   /** 躯干那一块分几段往两边拉开、压窄（见 GridShape.widenX）：肩、腰、胯 */
@@ -418,16 +438,18 @@ export function layoutAnime(spec: BodySpec): Figure {
     ...(bands.length ? { widenX: bands } : {}),
     ...spread(0, 0),
   });
-  /** 并成一个宽躯干时两份各离中线多远：一副胯（胯宽调过的照调过的量）半宽的 TWIN.span 倍 */
-  const twinD = twinned ? TWIN.span * (0.5 - castRay(fieldOf([plain]), [0.5, HIP[1] + 0.03, 0], [-1, 0, 0], 0.5)) : 0;
-  const torsoShape: GridShape = twinned
+  /** 两副胯各离中线多远：一副胯（胯宽调过的照调过的量）半宽的 TWIN.span 倍 */
+  const twinD = hipPair ? TWIN.span * (0.5 - castRay(fieldOf([plain]), [0.5, HIP[1] + 0.03, 0], [-1, 0, 0], 0.5)) : 0;
+  /** 上半身那一截离中线挪了多少：并成一个宽躯干的每个人在自己那一份上（twinD），一个上半身的在正中 */
+  const upperD = twinned ? twinD : 0;
+  const torsoShape: GridShape = hipPair
     ? {
         ...plain,
         twin: {
           d: twinD,
-          steps: TWIN.steps.map(([y, k, front, back]): [number, number, number, number] => [raised(y), k * twinD, front, back]),
+          steps: (twinned ? TWIN.steps : PAIR_HIPS.steps).map(([y, k, front, back]): [number, number, number, number] => [raised(y), k * twinD, front, back]),
           depth: TWIN.depth,
-          levels: [TWIN.split, TWIN.merged, raised(TWIN.mergedTo), raised(TWIN.neck)],
+          levels: twinned ? [TWIN.split, TWIN.merged, raised(TWIN.mergedTo), raised(TWIN.neck)] : [TWIN.split, TWIN.merged, PAIR_HIPS.never, PAIR_HIPS.never],
         },
       }
     : plain;
@@ -466,16 +488,16 @@ export function layoutAnime(spec: BodySpec): Figure {
   // 屁股缝：素体自己的屁股上有一道浅的，照着挖深（多出来的胯、加宽的胯上的屁股见 lowerParts）。
   // 照一瓣屁股的正中往下找最鼓的那一圈，缝就开在那个高度的正中
   // 并成一个宽躯干的：两副胯各一道
-  if (form === 'biped' || twinned) {
+  if (form === 'biped' || hipPair) {
     const radii = cheekRadii(b, 1);
-    (twinned ? [-twinD, twinD] : [0]).forEach((x, k) => {
+    (hipPair ? [-twinD, twinD] : [0]).forEach((x, k) => {
       const own = x;
       let apex: V3 = [x, HIP[1], backAt(own + CHEEK_X, HIP[1])];
       for (let y = HIP[1] - 0.06; y <= HIP[1] + 0.08; y += 0.005) {
         const z = backAt(own + CHEEK_X, y);
         if (z < apex[2]) apex = [x, y, z];
       }
-      torso.push(cleft(twinned ? `Cleft_${pad(k + 1)}` : 'Cleft', [x, apex[1], apex[2] + radii[2]], radii, b));
+      torso.push(cleft(hipPair ? `Cleft_${pad(k + 1)}` : 'Cleft', [x, apex[1], apex[2] + radii[2]], radii, b));
     });
   }
 
@@ -568,7 +590,7 @@ export function layoutAnime(spec: BodySpec): Figure {
   /* ---- 手臂 ---- */
   const armLift = form === 'row' ? 6 * Math.max(0, plan.stations[0] - 2) : form === 'abreast' ? 6 * Math.max(0, plan.total - 2) : 0;
   /** 素体本来的肩关节（肩膀加宽以后跟着往外挪了；并成一个宽躯干的在外侧那一份上） */
-  const shoulder: V3 = [shoulderX + twinD, shoulderY, SHOULDER[2]];
+  const shoulder: V3 = [shoulderX + upperD, shoulderY, SHOULDER[2]];
   /** 聚在一个肩膀上的几条手臂（肩部聚拢、不止一对） */
   const fanned = !stacked && c.armPairs > 1;
   /** 肩部聚拢时肩关节最多往后排多深：素体的身子薄，排到后背表面往里一点为止 */
@@ -584,7 +606,7 @@ export function layoutAnime(spec: BodySpec): Figure {
    */
   const stackJoint = (y: number): V3 => {
     // 沿正中线量厚度：那里前面没有胸挡着（并成一个宽躯干的量外侧那一份的正中）
-    const mid = (frontAt(twinD, y) + backAt(twinD, y)) / 2;
+    const mid = (frontAt(upperD, y) + backAt(upperD, y)) / 2;
     return [Math.max(sideAt(y, mid) - 0.004, 0.06), y, mid];
   };
   /** 手臂自己的粗细加一点余量：垂下来时要让开别的东西这么远（手臂调粗了跟着多让） */
@@ -600,7 +622,7 @@ export function layoutAnime(spec: BodySpec): Figure {
       form === 'taur'
         ? { wide: 0.21 * b, level: TAUR_LEVEL - lift[1] }
         : {
-            wide: form === 'abreast' && !twinned ? abreastSpots(plan.stations, sideAt(HIP[1] + 0.03, 0), HIP[0]).wide : sideAt(HIPS[1], 0),
+            wide: form === 'abreast' && !hipPair ? abreastSpots(plan.stations, sideAt(HIP[1] + 0.03, 0), HIP[0]).wide : sideAt(HIPS[1], 0),
             level: HIPS[1],
           },
     ];
@@ -608,7 +630,7 @@ export function layoutAnime(spec: BodySpec): Figure {
     if (cover) for (const s of [0, 0.4, 0.7, 0.9]) blocks.push({ wide: cover * Math.sqrt(1 - s * s), level: HIP[1] + 0.03 + s * 0.1 * b });
     chestRows.forEach((row, j) => {
       // 照胸调的大小量（大胸的胸型比以前那种窄，虽然放大得多一点，这样留的空也够：再宽的话手臂抬得高，手臂根上那片腋下的皮翻出来）
-      blocks.push({ wide: twinD + row.x + 0.095 * (j ? row.size : sh.bust), level: row.y });
+      blocks.push({ wide: upperD + row.x + 0.095 * (j ? row.size : sh.bust), level: row.y });
     });
     hang = hangAngles(c.armPairs, Math.max(48 + armLift, form === 'spider' ? floorAt(shoulder) : 0), { x: shoulder[0], y: shoulder[1] }, blocks, floorAt(shoulder), clearance);
   }
@@ -700,7 +722,7 @@ export function layoutAnime(spec: BodySpec): Figure {
       // 素体的手臂是平举着的：整条绕肩关节转到要的方向
       const turn = quatBetween([side, 0, 0], dir);
       // 锁骨从脊柱旁边伸到肩关节，它不跟着手臂转：先把它转回去
-      const collar = rotate(quatConj(turn), [-side * Math.max(x - twinD - 0.025, 0.02), 0.012, 0]);
+      const collar = rotate(quatConj(turn), [-side * Math.max(x - upperD - 0.025, 0.02), 0.012, 0]);
       parts.push({
         name: `Arm_${pad(i + 1)}_${tag(side)}`,
         type: 'arm',
@@ -735,7 +757,7 @@ export function layoutAnime(spec: BodySpec): Figure {
   }
 
   /*
-   * 并成一个宽躯干的（C、D）：每个人里侧的肩膀上也长一条手臂（照参考图 CD-2、CD-3），排在外侧那几对后面。
+   * 并成一个宽躯干的（C）：每个人里侧的肩膀上也长一条手臂（照参考图 CD-2、CD-3），排在外侧那几对后面。
    * 就是对面那个人外侧最贴身的那条挪过来（里侧那个肩膀和外侧的对着那个人自己的正中线左右对称），从两根脖子中间那块肩膀上长出来，
    * 姿势和两个上半身直立并排时里侧的手臂一样（见 torsos.ts 的 BESIDE_DROP）：往前伸、往自己那边偏；胸越大抬得越高（胸 1.6 以上多抬 WIDE_ARM_LIFT，往前略微朝上；
    * 抬得少的话前臂擦着放大过的胸顶过去，融出来的网格在那里破洞），
@@ -849,8 +871,8 @@ export function layoutAnime(spec: BodySpec): Figure {
     center: [0, 0, -0.007],
   });
   const pelvisY = HIP[1] + 0.03;
-  /** 还在素体原来位置上的腿：双足站立，或者人腿人马最前面那一对（那副胯上正好一对时）；并成一个宽躯干的两副胯上的都是 */
-  const nativeLegs = (pair: number) => twinned || (frontPair && pair === 0 && (form === 'biped' || form === 'humantaur'));
+  /** 还在素体原来位置上的腿：双足站立，或者人腿人马最前面那一对（那副胯上正好一对时）；躯干分成两副胯的（见 hipPair）两副胯上的都是 */
+  const nativeLegs = (pair: number) => hipPair || (frontPair && pair === 0 && (form === 'biped' || form === 'humantaur'));
   /** 素体在高度 y 处的半厚（前后） */
   const thickAt = (y: number) => (frontAt(0, y) - backAt(0, y)) / 2;
   const lowerBody = lowerParts({
@@ -872,7 +894,7 @@ export function layoutAnime(spec: BodySpec): Figure {
         : {}),
     rowSeat: true,
     // 并成一个宽躯干的：两副胯就是躯干那两份自己的胯
-    ...(twinned ? { twin: twinD } : {}),
+    ...(hipPair ? { twin: twinD } : {}),
     // 胯上三条以上腿（人腿人马每副胯好几条）：两个腿根的切口露在外面，垫一副胯包住
     ...(plan.stations[0] > 2 && (form === 'biped' || form === 'humantaur') ? { cover: frontCover(plan.stations[0]) } : {}),
     humanLeg: (side, pair, parent, out) =>

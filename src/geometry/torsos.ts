@@ -416,7 +416,7 @@ export function splitTorsos(figure: Figure, count: number): Figure {
 }
 
 /**
- * 两个上半身并成一个宽躯干（C，照 refs/CD-1～3）：和 D（一个上半身两个头）长一样（layout.ts 照 D 摆），只是骨骼、部件按两个上半身来——
+ * 两个上半身并成一个宽躯干（C，照 refs/CD-1～3）：layout.ts 照「一个上半身两个头」并成宽躯干摆好（layoutAnime 带 twin），骨骼、部件再按两个上半身来——
  * 躯干那一块（带 Twin）在腰上（cutY）切开：以下是胯，还叫 Torso（带着 Hips、屁股）；以上从正中线切成左右两半，各是一个上半身
  * （UpperBody_L / _R），带着自己那一份正中的脊柱（Spine_L、Chest_L、UpperChest_L …），长在那一边的头、脖子、手臂、胸、翅膀搬过去。
  * 网格和 D 一模一样（几块切开的叠在一起的那一截两边是同一张皮，直接取并集）；摆姿势时两根脊柱各弯各的

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { describeClashes, findClashes } from '../src/geometry/clash';
 import { animeGrid } from '../src/anime/body';
 import { type Figure, type Fork, type Part, worldTransforms } from '../src/geometry/figure';
+import { layoutAnime } from '../src/geometry/animeLayout';
 import { buildFigure } from '../src/geometry/layout';
 import { type V3, add, quatConj, quatEuler, rotate, sub } from '../src/geometry/vec';
 import { type BodyCounts, type BodySpec, type PartOverride, LEG_LAYOUTS, defaultSpec } from '../src/model/spec';
@@ -10,9 +11,10 @@ import { applyParse, describeSpec, parseDescription } from '../src/parser';
 import { buildHandles } from '../src/pose/handles';
 import { makeSolver } from '../src/pose/solver';
 import { buildSkeleton } from '../src/rig/skeleton';
+import { skinVertices } from '../src/rig/skin';
 import { bindParts } from '../src/sdf/bindPose';
 import { VOXEL, fuseParts } from '../src/sdf/fuse';
-import { castRay, compileField, compilePartField } from '../src/sdf/field';
+import { castRay, compileField, compilePartField, fieldAt } from '../src/sdf/field';
 import { forkWarp } from '../src/sdf/fork';
 import { getGrid, gridDist } from '../src/sdf/grids';
 import { useAnimeBody } from './animeBody';
@@ -128,12 +130,13 @@ describe('好几个上半身', () => {
     }
   }, 60_000);
 
-  it('二次元素体两个上半身（每个一个头）、横排两副胯：和 D 长一样（并成一个宽躯干，胸按一个人算摆在正中），切成两个上半身各带脊柱，网格一整块', () => {
+  it('二次元素体两个上半身（每个一个头）、横排两副胯：并成一个宽躯干（胸按一个人算摆在正中），切成两个上半身各带脊柱，网格一整块', () => {
     const counts = { armPairs: 2, chestPairs: 2, legs: 4 };
     const rest = { bodyStyle: 'anime', armLayout: 'fan', legLayout: 'abreast' } as const;
     const spec = make({ ...counts, torsos: 2, heads: 1 }, rest);
     const f = buildFigure(spec);
-    const d = buildFigure(make({ ...counts, torsos: 1, heads: 2 }, rest));
+    // 照「一个上半身两个头」并成宽躯干摆的那一个（切开之前）；真的一个上半身两个头（D）不并
+    const d = layoutAnime(make({ ...counts, torsos: 1, heads: 2 }, rest), true);
     const torso = part(f, 'Torso');
     const pelvis = torso.prims[0];
     if (pelvis.kind !== 'grid' || !pelvis.twin?.levels) throw new Error('不是并成一个宽躯干');
@@ -163,11 +166,53 @@ describe('好几个上半身', () => {
       expect((c.prims[0] as { wide?: boolean }).wide, c.name).toBe(true);
     }
     expect(names(f, 'arm')).toEqual(names(d, 'arm'));
-    // 网格和 D 差不多一模一样，一整块
+    // 网格和切开之前差不多一模一样，一整块
     const mesh = fuseParts(f.parts, { voxel: VOXEL.preview, blend: spec.blend });
     const twin = fuseParts(d.parts, { voxel: VOXEL.preview, blend: spec.blend });
     expect(mesh.info.components).toBe(1);
     expect(Math.abs(mesh.positions.length - twin.positions.length) / twin.positions.length).toBeLessThan(0.02);
+  }, 60_000);
+
+  it('两个上半身挤在一起的胸各跟各的上半身（摆姿势时不被另一个扯成长条）；躯干上两个上半身连着的那一圈照常过渡', () => {
+    const spec = make({ torsos: 2, heads: 1, legs: 4 }, { bodyStyle: 'anime', legLayout: 'abreast', shape: { ...defaultSpec().shape, bust: 2.2 } });
+    const figure = { parts: buildFigure(spec).parts, scale: 1 };
+    const mesh = fuseParts(figure.parts, { voxel: VOXEL.preview, blend: spec.blend });
+    const skeleton = buildSkeleton(figure);
+    const skin = skinVertices(figure, skeleton, mesh.positions, mesh.triangles);
+    // 每根骨骼接在哪个上半身的脊柱上（1：左边那个，-1：右边那个，0：都不是）
+    const body = skeleton.bones.map((_, i) => {
+      for (let b = i; b >= 0; b = skeleton.bones[b].parent) {
+        if (skeleton.bones[b].name === 'Spine_L') return 1;
+        if (skeleton.bones[b].name === 'Spine_R') return -1;
+      }
+      return 0;
+    });
+    // 离躯干表面多远（胸上的顶点离得远，躯干上的贴着）
+    const flat = compileField({ ...figure, parts: figure.parts.filter((p) => p.type === 'torso') }, { blend: 0 });
+    const chest = figure.parts.find((p) => p.name === 'Chest_01_L')!;
+    const y0 = part(buildFigure(spec), 'Torso').pos[1] + chest.pos[1];
+    let onChest = 0;
+    let mixedChest = 0;
+    let mixedTorso = 0;
+    for (let v = 0; v < mesh.positions.length / 3; v++) {
+      const [x, y, z] = [mesh.positions[v * 3], mesh.positions[v * 3 + 1], mesh.positions[v * 3 + 2]];
+      if (Math.abs(x) > 0.06 || Math.abs(y - y0) > 0.1) continue;
+      let l = 0;
+      let r = 0;
+      for (let k = 0; k < 4; k++) {
+        const s = body[skin.joints[v * 4 + k]];
+        if (s > 0) l += skin.weights[v * 4 + k];
+        else if (s < 0) r += skin.weights[v * 4 + k];
+      }
+      const off = fieldAt(flat, x, y, z);
+      if (off > 0.03) {
+        onChest++;
+        if (Math.min(l, r) > 0.01) mixedChest++;
+      } else if (Math.abs(off) < 0.004 && z < 0 && Math.min(l, r) > 0.2) mixedTorso++;
+    }
+    expect(onChest).toBeGreaterThan(50);
+    expect(mixedChest).toBe(0);
+    expect(mixedTorso).toBeGreaterThan(5);
   }, 60_000);
 
   it('两个：胯那一截还叫 Torso（带着 Hips、屁股），上面两份 UpperBody_L / _R 往两边歪开，各有脊柱、头、手臂、胸', () => {
