@@ -5,6 +5,7 @@ import {
   type CountKey,
   type EarShape,
   type LegLayout,
+  type PenisLayout,
   HIP_LEGS,
   legPlan,
   perHip,
@@ -29,8 +30,13 @@ const LEG_PHRASE: Record<Exclude<LegLayout, 'auto'>, string> = {
   abreast: '横排多胯',
 };
 
+const PENIS_PHRASE: Record<Exclude<PenisLayout, 'row'>, string> = {
+  stack: '阴茎上下叠',
+  fan: '阴茎扇形散开',
+};
+
 export type Describable = Pick<BodySpec, 'counts' | 'armLayout' | 'legLayout' | 'earShape'> &
-  Partial<Pick<BodySpec, 'gender' | 'pose' | 'headLayout' | 'hipLegs'>>;
+  Partial<Pick<BodySpec, 'gender' | 'pose' | 'headLayout' | 'hipLegs' | 'penisLayout' | 'scrotum'>>;
 
 /** 是不是「一个头上几张脸」（只有一个头时谈不上） */
 const manyFaces = (spec: Describable) => spec.headLayout === 'faces' && spec.counts.heads > 1;
@@ -60,6 +66,11 @@ export function describeSpec(spec: Describable): string {
   if (c.eyesPerHead !== 2) p.push(`每个头${zhCount(c.eyesPerHead)}只眼睛`);
   if (c.earPairsPerHead) p.push(`每个头${zhCount(c.earPairsPerHead)}对${EAR_NAME[spec.earShape]}`);
   if (spec.armLayout === 'fan' && c.armPairs > 1) p.push('手臂肩部聚拢');
+  if (c.penises) {
+    p.push(`${zhCount(c.penises)}根阴茎`);
+    if (c.penises > 1 && spec.penisLayout && spec.penisLayout !== 'row') p.push(PENIS_PHRASE[spec.penisLayout]);
+    if (spec.scrotum === 'each') p.push('每根各带阴囊');
+  }
   if (spec.pose === 'T') p.push('T-pose');
   return p.join('，');
 }
@@ -100,5 +111,7 @@ export function summarize(spec: Describable): Chip[] {
       key: 'earPairsPerHead',
       label: c.earPairsPerHead ? `${EAR_NAME[spec.earShape]} ${c.earPairsPerHead} 对` : '兽耳 0',
     },
+    // 成人部件只在有的时候列出来（开关关着时设定里一律是 0，见 model/adult.ts）
+    ...(c.penises ? [{ key: 'penises' as const, label: `阴茎 ${c.penises}` }] : []),
   ];
 }

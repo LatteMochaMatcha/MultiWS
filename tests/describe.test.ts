@@ -8,6 +8,8 @@ import {
   GENDERS,
   HEAD_LAYOUTS,
   LEG_LAYOUTS,
+  PENIS_LAYOUTS,
+  SCROTUM_MODES,
   POSES,
   defaultCounts,
   defaultSpec,
@@ -40,6 +42,8 @@ function expectRoundTrip(spec: BodySpec) {
     expect(back.legLayout, text).toBe(spec.legLayout);
     if (spec.legLayout === 'humantaur' || spec.legLayout === 'tandem') expect(back.hipLegs, text).toBe(spec.hipLegs);
   }
+  if (spec.counts.penises > 1) expect(back.penisLayout, text).toBe(spec.penisLayout);
+  if (spec.counts.penises > 0) expect(back.scrotum, text).toBe(spec.scrotum);
   // 性别和姿势：从一份全新的默认设定出发，光靠这句话就能读回来
   const fresh = applyParse(defaultSpec(), parseDescription(text));
   expect(fresh.gender, text).toBe(spec.gender);
@@ -166,8 +170,16 @@ describe('描述 → 解析 → 描述 往返一致', () => {
         earShape: pick(EAR_SHAPES),
         gender: pick(GENDERS),
         pose: pick(POSES),
+        penisLayout: pick(PENIS_LAYOUTS),
+        scrotum: pick(SCROTUM_MODES),
       });
     }
+  });
+
+  it('阴茎的根数、排法和阴囊', () => {
+    for (const penises of [1, 2, 3, 4])
+      for (const penisLayout of PENIS_LAYOUTS)
+        for (const scrotum of SCROTUM_MODES) expectRoundTrip(withCounts({ penises, legs: 4 }, { penisLayout, scrotum, legLayout: 'abreast' }));
   });
 
   it('性别和姿势的四种组合', () => {
@@ -180,7 +192,7 @@ describe('描述 → 解析 → 描述 往返一致', () => {
   });
 
   it('规范描述里写到的部件全部被识别', () => {
-    const spec = withCounts({ torsos: 2, tails: 2, wingPairs: 1, hornsPerHead: 2, eyesPerHead: 3, earPairsPerHead: 1 });
+    const spec = withCounts({ torsos: 2, tails: 2, wingPairs: 1, hornsPerHead: 2, eyesPerHead: 3, earPairsPerHead: 1, penises: 2 });
     const r = parseDescription(describeSpec(spec));
     expect([...r.hits].sort()).toEqual(COUNT_DEFS.map((d) => d.key).sort());
   });

@@ -18,7 +18,8 @@ export type CountKey =
   | 'wingPairs'
   | 'hornsPerHead'
   | 'eyesPerHead'
-  | 'earPairsPerHead';
+  | 'earPairsPerHead'
+  | 'penises';
 
 export type BodyCounts = Record<CountKey, number>;
 
@@ -49,6 +50,8 @@ export const COUNT_DEFS: readonly CountDef[] = [
   { key: 'hornsPerHead', label: '角', unit: '只 / 每个头', min: 0, max: 4, def: 0 },
   { key: 'eyesPerHead', label: '眼睛', unit: '只 / 每个头', min: 1, max: 6, def: 2 },
   { key: 'earPairsPerHead', label: '兽耳', unit: '对 / 每个头', min: 0, max: 2, def: 0 },
+  // 成人部件：设置里打开「显示成人部件」才有（见 model/adult.ts）；好几副胯时每副胯各长这么多
+  { key: 'penises', label: '阴茎', unit: '根 / 每副胯', min: 0, max: 4, def: 0 },
 ];
 
 export const COUNT_KEYS: readonly CountKey[] = COUNT_DEFS.map((d) => d.key);
@@ -80,7 +83,8 @@ export type ShapeKey =
   | 'armLength'
   | 'legLength'
   | 'tailFluff'
-  | 'tailLength';
+  | 'tailLength'
+  | 'penisSize';
 
 export type BodyShape = Record<ShapeKey, number>;
 
@@ -115,6 +119,7 @@ export const SHAPE_DEFS: readonly ShapeDef[] = [
   { key: 'legLength', label: '腿长短', min: 0.5, max: 1.8, step: 0.01, def: 1, safe: [1, 1] },
   { key: 'tailFluff', label: '尾巴蓬松', min: 0, max: 3, step: 0.01, def: 0.4, safe: [0, 2] },
   { key: 'tailLength', label: '尾巴长度', min: 0.3, max: 3, step: 0.01, def: 1, safe: [0.5, 2] },
+  { key: 'penisSize', label: '阴茎大小', min: 0.5, max: 1.6, step: 0.01, def: 1 },
 ];
 
 export const SHAPE_KEYS: readonly ShapeKey[] = SHAPE_DEFS.map((d) => d.key);
@@ -155,6 +160,15 @@ export type LegLayout = (typeof LEG_LAYOUTS)[number];
 
 /** 实际采用的下身形态（auto 已解析；一两条腿、又不是人腿人马的，是 biped：一条腿就是单足） */
 export type LegForm = 'biped' | 'taur' | 'spider' | 'humantaur' | 'tandem' | 'row' | 'gather' | 'abreast';
+
+/**
+ * 一副胯上好几根阴茎怎么排：row 左右并排、stack 上下叠（往小腹上排）、fan 扇形散开（根部挨着，往外张开）。
+ * 阴囊：shared 几根共用一个（摆在正中，根数多了跟着变宽）、each 每根各带一个（小一圈）
+ */
+export const PENIS_LAYOUTS = ['row', 'stack', 'fan'] as const;
+export type PenisLayout = (typeof PENIS_LAYOUTS)[number];
+export const SCROTUM_MODES = ['shared', 'each'] as const;
+export type ScrotumMode = (typeof SCROTUM_MODES)[number];
 
 export const POSES = ['A', 'T'] as const;
 export type Pose = (typeof POSES)[number];
@@ -327,6 +341,9 @@ export interface BodySpec {
   legLayout: LegLayout;
   /** 人腿人马、前后串联每副胯上几条腿，见 HIP_LEGS。腿的总数不是它的整数倍时，最后那副胯少几条 */
   hipLegs: number;
+  /** 一副胯上好几根阴茎怎么排、阴囊共用还是各带一个，见 PENIS_LAYOUTS、SCROTUM_MODES */
+  penisLayout: PenisLayout;
+  scrotum: ScrotumMode;
   pose: Pose;
   earShape: EarShape;
   hands: HandStyle;
@@ -365,6 +382,8 @@ export function defaultSpec(): BodySpec {
     armLayout: 'stack',
     legLayout: 'auto',
     hipLegs: HIP_LEGS.def,
+    penisLayout: 'row',
+    scrotum: 'shared',
     pose: 'A',
     earShape: 'cat',
     hands: 'fingers',
@@ -567,6 +586,8 @@ export function normalizeSpec(input: unknown): BodySpec {
     armLayout: pick(ARM_LAYOUTS, src.armLayout ?? v1Layout, 'stack'),
     legLayout: pick(LEG_LAYOUTS, src.legLayout, 'auto'),
     hipLegs: clampHipLegs(src.hipLegs),
+    penisLayout: pick(PENIS_LAYOUTS, src.penisLayout, 'row'),
+    scrotum: pick(SCROTUM_MODES, src.scrotum, 'shared'),
     pose: pick(POSES, src.pose, 'A'),
     earShape: pick(EAR_SHAPES, src.earShape, 'cat'),
     hands: pick(HAND_STYLES, src.hands, 'fingers'),

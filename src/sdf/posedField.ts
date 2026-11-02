@@ -679,8 +679,8 @@ function poseDraft(d: Draft, plan: Plan, m: PoseMatrices, fadeAt: V3 | null, roo
   drafts.push({ ...base, custom, box, ...(cull ? { cull } : {}) });
 }
 
-/** 这副身体是不是照着现成的模型一块块采样出来的（二次元素体） */
-export const isSampled = (parts: Part[]): boolean => parts.some((part) => part.prims.some((prim) => prim.kind === 'grid'));
+/** 这副身体是不是照着现成的模型一块块采样出来的（二次元素体）。阴囊也是采样的格子，但它是加在身上的，不算 */
+export const isSampled = (parts: Part[]): boolean => parts.some((part) => part.type !== 'genital' && part.prims.some((prim) => prim.kind === 'grid'));
 
 /** 采样出来的腿上每根骨骼，和带着那条腿的骨骼（往上数第一根不属于同一个部件的）：成对的下标 */
 /** 照着现成的模型采样出来的腿（二次元素体）：这些部件的名字 */

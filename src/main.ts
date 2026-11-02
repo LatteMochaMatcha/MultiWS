@@ -2,6 +2,8 @@ import './style.css';
 import { type Box3, type Raycaster, Matrix4 } from 'three';
 import { TORSO_CREDIT, animeGrid, animeReady, loadAnimeBody } from './anime/body';
 import { FOOT_CREDIT } from './anime/foot';
+import { GENITAL_CREDIT, genitalReady, loadGenital } from './anime/genital';
+import { adultOn, setAdult, withoutAdult } from './model/adult';
 import { type CharacterBuild, assembleCharacter } from './character/assemble';
 import { characterGlb, characterShape, characterSkeleton, poseBuild } from './character/export';
 import { type FaceInstance, type FaceWeights, type Gaze, applyFaces, faceLabel, gazeAt, gazeOf, gazeTurns, hasExpression } from './character/face';
@@ -39,6 +41,8 @@ import {
   type HeadLayout,
   type LegLayout,
   type MeshMode,
+  type PenisLayout,
+  type ScrotumMode,
   type PartOverride,
   type Pose,
   type ShapeDef,
@@ -57,6 +61,8 @@ import {
   HAND_STYLES,
   HEAD_LAYOUTS,
   LEG_LAYOUTS,
+  PENIS_LAYOUTS,
+  SCROTUM_MODES,
   clampHipLegs,
   perHip,
   MESH_MODES,
@@ -106,7 +112,7 @@ import { type Skeleton, buildSkeleton } from './rig/skeleton';
 import { bindPartGrafts, skinVertices } from './rig/skin';
 import { type HairShape, hairReady, loadHairShape } from './hair/shapes';
 import { compileField, fieldAt } from './sdf/field';
-import { provideHair, provideShapes, spreadWork } from './sdf/meshClient';
+import { provideGenital, provideHair, provideShapes, spreadWork } from './sdf/meshClient';
 import { type Picker, makePicker } from './sdf/pick';
 import { refusable } from './sdf/posedField';
 import { BoneOverlay } from './view/boneOverlay';
@@ -130,6 +136,8 @@ const HEAD_LABEL: Record<HeadLayout, string> = { cluster: '凑成一簇', faces:
 const ARM_LABEL: Record<ArmLayout, string> = { stack: '沿躯干上下排', fan: '肩部扇形聚拢' };
 const MESH_LABEL: Record<MeshMode, string> = { fused: '融合成一整块', parts: '分部件（v1）' };
 const HAND_LABEL: Record<HandStyle, string> = { fingers: '分指', mitten: '并指（手套形）' };
+const PENIS_LABEL: Record<PenisLayout, string> = { row: '左右并排', stack: '上下叠', fan: '扇形散开' };
+const SCROTUM_LABEL: Record<ScrotumMode, string> = { shared: '几根共用一个', each: '每根各带一个' };
 const GENDER_LABEL: Record<Gender, string> = { female: '女性', male: '男性' };
 const BODY_LABEL: Record<BodyStyle, string> = { mannequin: '白模人台', anime: '二次元素体', character: '成品角色' };
 /** 这几个滑块对这种身体不起作用 */
@@ -202,12 +210,20 @@ function readText(value: string) {
   return r;
 }
 
+/**
+ * 成人部件只在开关打开、身体不是成品角色时有：别的时候设定里一律去掉（文字里写了、载入的配置里有也一样），
+ * 免得开关关着时看不见的设定还留在存档、撤销历史里（见 model/adult.ts）
+ */
+const gate = (next: BodySpec): BodySpec => (adultOn() ? next : withoutAdult(next));
+/** 成人部件的几项要不要显示 */
+const adultShown = () => adultOn() && spec.bodyStyle !== 'character';
+
 function load() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) {
       const data = JSON.parse(raw);
-      spec = normalizeSpec(data);
+      spec = gate(normalizeSpec(data));
       readText(typeof data.text === 'string' ? data.text : describeSpec(spec));
       return;
     }
@@ -245,6 +261,7 @@ const history = new History<Snapshot>(
  * key 相同的连续修改（拖同一个滑块、连着打字）合并成一步。
  */
 function commit(key?: string) {
+  spec = gate(spec);
   history.push({ spec, text }, key);
   save();
   render();
@@ -252,7 +269,7 @@ function commit(key?: string) {
 
 function restore(snapshot: Snapshot | null) {
   if (!snapshot) return;
-  spec = snapshot.spec;
+  spec = gate(snapshot.spec);
   readText(snapshot.text);
   desc.value = text;
   save();
@@ -323,6 +340,7 @@ const steppers = COUNT_DEFS.map((d) => {
   $('counts').append(row);
   return () => {
     const v = spec.counts[d.key];
+    if (d.key === 'penises') row.hidden = !adultShown();
     out.textContent = String(v);
     minus.disabled = v <= d.min;
     plus.disabled = v >= d.max;
@@ -367,6 +385,30 @@ const syncArm = buildSeg($('segArm'), ARM_LAYOUTS, (v) => ARM_LABEL[v], (armLayo
 const syncLeg = buildSeg($('segLeg'), LEG_LAYOUTS, (v) => LEG_LABEL[v], (legLayout) =>
   fromParams({ ...spec, legLayout }),
 );
+const syncPenis = buildSeg($('segPenis'), PENIS_LAYOUTS, (v) => PENIS_LABEL[v], (penisLayout) =>
+  fromParams({ ...spec, penisLayout }),
+);
+const syncScrotum = buildSeg($('segScrotum'), SCROTUM_MODES, (v) => SCROTUM_LABEL[v], (scrotum) =>
+  fromParams({ ...spec, scrotum }),
+);
+/** 成人部件的开关和两排选项：开关关着、成品角色、没有阴茎时都藏起来 */
+const adultBox = $<HTMLInputElement>('adultOn');
+adultBox.checked = adultOn();
+adultBox.addEventListener('change', () => {
+  setAdult(adultBox.checked);
+  // 打开：照现在的描述重新认一遍（之前写了「两根阴茎」的，这时才长出来）；
+  // 关上：去掉已有的（commit 里去），描述原样留着，写了也不长
+  if (adultBox.checked) fromText(desc.value);
+  else commit();
+});
+function syncAdult() {
+  const shown = adultShown() && spec.counts.penises > 0;
+  $('penisLayoutField').hidden = !shown;
+  $('scrotumField').hidden = !shown;
+  syncPenis(spec.penisLayout, spec.counts.penises > 1);
+  syncScrotum(spec.scrotum, true);
+}
+
 /** 人腿人马、前后串联每副胯上几条腿：只在选了这两种排法时显示 */
 const syncHipLegs = (() => {
   const minus = el('button', '', '−');
@@ -721,6 +763,7 @@ const sliders = SHAPE_DEFS.map((d) => {
     const fixed = FIXED_SHAPES[spec.bodyStyle].has(d.key);
     input.disabled = fixed;
     row.classList.toggle('off', fixed);
+    if (d.key === 'penisSize') row.hidden = !adultShown() || spec.counts.penises === 0;
   };
 });
 
@@ -1242,6 +1285,25 @@ function ensureHairShape() {
     });
 }
 
+/** 阴囊的数据（不到 0.5 MB）也是用到时才取，取回来之前先不长阴茎、阴囊（见 geometry/layout.ts） */
+let genitalLoading = false;
+function ensureGenital() {
+  if (genitalLoading || genitalReady() || !spec.counts.penises) return;
+  genitalLoading = true;
+  loadGenital(import.meta.env.BASE_URL)
+    .then((buffer) => {
+      provideGenital(buffer);
+      scheduleRebuild();
+    })
+    .catch((err: unknown) => {
+      retryOnReturn = err instanceof OfflineError;
+      setStatus(`阴囊的数据没载入成功，先不长：${err instanceof Error ? err.message : String(err)}`, true);
+    })
+    .finally(() => {
+      genitalLoading = false;
+    });
+}
+
 /** 显示成品角色：按部件数量把她拼出来。拼不出来（文件有问题）就返回 false，退回白模人台 */
 function showCharacter(): boolean {
   const source = characterSource(spec.character);
@@ -1286,6 +1348,7 @@ function bodyKeyOf(): string {
     Boolean(hairDonor(style)),
     spec.bodyStyle === 'character' && hairSources().map((source) => Boolean(source && hairLit(source))),
     style === 'own' || hairReady(style),
+    genitalReady(),
   ]);
 }
 let bodyKey = '';
@@ -1319,6 +1382,7 @@ function rebuildBody() {
   characterModel.root.visible = false;
   if (spec.bodyStyle === 'anime') ensureAnimeBody();
   if (spec.bodyStyle !== 'character') ensureHairShape();
+  ensureGenital();
   figure = buildFigure(spec);
   picker = null;
   metrics = figure.metrics;
@@ -2723,12 +2787,14 @@ async function exportFused(kind: ExportKind, target: Figure, pose: ExportPose | 
 }
 
 /**
- * 用到了要求署名的素材就返回要带的署名：二次元素体接的是 Kotori 的脚（CC BY），躯干的起伏参考了 Fly_jkey 的「Woman」（CC BY，见 tools/build-torso.ts）
+ * 用到了要求署名的素材就返回要带的署名：二次元素体接的是 Kotori 的脚（CC BY），躯干的起伏参考了 Fly_jkey 的「Woman」（CC BY，见 tools/build-torso.ts），
+ * 阴茎、阴囊取自 Death Joe Productions 的男性素体（CC BY，见 tools/build-genital.ts）
  */
 const footCredit = (target: Figure) => {
   const list: string[] = [];
   if (target.parts.some((p) => p.grafts?.some((g) => g.mesh === 'foot'))) list.push(FOOT_CREDIT);
   if (target.parts.some((p) => p.prims.some((q) => q.kind === 'grid' && q.grid === animeGrid('torso')))) list.push(TORSO_CREDIT);
+  if (target.parts.some((p) => p.type === 'genital')) list.push(GENITAL_CREDIT);
   return list.length ? list.join('；') : undefined;
 };
 
@@ -2918,6 +2984,7 @@ function render() {
   syncArm(spec.armLayout, spec.counts.armPairs > 1);
   syncLeg(spec.legLayout, spec.counts.legs > 1);
   syncHipLegs();
+  syncAdult();
   syncEar(spec.earShape, spec.counts.earPairsPerHead > 0);
   const ready = spec.bodyStyle !== 'mannequin';
   const finished = spec.bodyStyle === 'character';

@@ -6,6 +6,7 @@
  * 两样都写在素体模型自己的坐标里（米，面朝 +Z，左手边是 +X；素体身高 1.48 米）。
  */
 import type { V3 } from '../geometry/vec';
+import { fetchFile } from '../io/fetchFile';
 import { registerGrid } from '../sdf/grids';
 import meta from './genitalMeta.json';
 import { type GraftMesh, decodeGraftMesh } from './graftMesh';
@@ -28,10 +29,12 @@ export const PENIS_CUT_DIR = penis.cutDir as V3;
 export const PENIS_RADIUS = penis.radius;
 export const PENIS_RIM = penis.rim;
 export const PENIS_LENGTH = penis.length;
-/** 三节骨骼的关节：根部、两个中间、龟头 */
+/** 三节骨骼的关节：根部、两个中间、龟头；中心线（从根部到龟头） */
 export const PENIS_JOINTS = penis.jointsAt as V3[];
-/** 阴囊格子的原点（敞口一圈的中心）在模型里的位置 */
+export const PENIS_LINE = penis.line as V3[];
+/** 阴囊格子的原点（贴着身体那一面的正中）在模型里的位置；阴囊的半宽 */
 export const SCROTUM_ROOT = meta.scrotum.root as V3;
+export const SCROTUM_HALF = (meta.scrotum.bounds.max[0] - meta.scrotum.bounds.min[0]) / 2;
 
 let cached: GraftMesh | null = null;
 
@@ -62,3 +65,22 @@ export function installGenital(buffer: ArrayBuffer) {
 }
 
 export const genitalReady = () => installed;
+
+let loading: Promise<ArrayBuffer> | null = null;
+
+/**
+ * 浏览器里用：把阴囊的数据（不到 0.5 MB）取回来登记好，只取一次。
+ * 返回取到的数据：网格是在 Worker 里算的，那边也要登记一份（见 sdf/meshClient 的 provideGenital）。
+ */
+export function loadGenital(base = '/'): Promise<ArrayBuffer> {
+  loading ??= fetchFile(`${base}${GENITAL_URL}`, '阴囊数据')
+    .then((buffer) => {
+      installGenital(buffer);
+      return buffer;
+    })
+    .catch((err) => {
+      loading = null;
+      throw err;
+    });
+  return loading;
+}

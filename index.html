@@ -83,6 +83,7 @@
           <h2><button type="button" class="fold">部件数量</button></h2>
           <div class="body">
             <div class="rows" id="counts"></div>
+            <label class="check" title="这台设备自己记着，不进配置、不进撤销"><input type="checkbox" id="adultOn"> 显示成人部件</label>
           </div>
         </section>
 
@@ -104,6 +105,14 @@
             <div class="field" id="hipLegsField" hidden>
               <span>每副胯上几条腿（人腿人马、前后串联）</span>
               <div class="stepper" id="hipLegs"></div>
+            </div>
+            <div class="field" id="penisLayoutField" hidden>
+              <span>好几根阴茎</span>
+              <div class="seg" id="segPenis" role="radiogroup" aria-label="好几根阴茎怎么排"></div>
+            </div>
+            <div class="field" id="scrotumField" hidden>
+              <span>阴囊</span>
+              <div class="seg" id="segScrotum" role="radiogroup" aria-label="阴囊几根共用一个还是各带一个"></div>
             </div>
             <div class="field">
               <span>兽耳形状</span>

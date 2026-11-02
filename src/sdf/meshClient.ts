@@ -9,7 +9,7 @@
 import type { HairShape } from '../hair/shapes';
 import type { PortMessage } from './eval.worker';
 import type { FuseJob, FuseResult } from './job';
-import type { CancelMessage, HairMessage, HelpersMessage, MeshReply, MeshRequest, ShapesMessage, SpreadMessage } from './mesh.worker';
+import type { CancelMessage, GenitalMessage, HairMessage, HelpersMessage, MeshReply, MeshRequest, ShapesMessage, SpreadMessage } from './mesh.worker';
 
 /** 采样好的形状（二次元素体）的数据。主线程载入以后交到这里，每个 Worker 接下一个任务之前先收到一份 */
 let shapes: ArrayBuffer | null = null;
@@ -24,6 +24,14 @@ const hairs = new Map<HairShape, ArrayBuffer>();
 export function provideHair(style: HairShape, buffer: ArrayBuffer) {
   hairs.set(style, buffer);
   const message: HairMessage = { hair: style, data: buffer };
+  for (const helper of helpers ?? []) helper.postMessage(message);
+}
+
+/** 阴囊的格子。同样是主线程载入以后交到这里，每个 Worker 用到之前先收到 */
+let genital: ArrayBuffer | null = null;
+export function provideGenital(buffer: ArrayBuffer) {
+  genital = buffer;
+  const message: GenitalMessage = { genital };
   for (const helper of helpers ?? []) helper.postMessage(message);
 }
 
@@ -51,6 +59,10 @@ function startHelpers(): Worker[] {
     }
     for (const [hair, data] of hairs) {
       const message: HairMessage = { hair, data };
+      helper.postMessage(message);
+    }
+    if (genital) {
+      const message: GenitalMessage = { genital };
       helper.postMessage(message);
     }
   }
@@ -105,6 +117,8 @@ export class MeshClient {
   private shapesSent = false;
   /** 哪几副头发的数据给过这个 Worker 了 */
   private hairsSent = new Set<HairShape>();
+  /** 阴囊的数据给过这个 Worker 了没有 */
+  private genitalSent = false;
 
   private start(): Worker {
     const worker = new Worker(new URL('./mesh.worker.ts', import.meta.url), { type: 'module' });
@@ -152,6 +166,11 @@ export class MeshClient {
       const message: HairMessage = { hair, data };
       this.worker.postMessage(message);
       this.hairsSent.add(hair);
+    }
+    if (genital && !this.genitalSent) {
+      const message: GenitalMessage = { genital };
+      this.worker.postMessage(message);
+      this.genitalSent = true;
     }
     const request: MeshRequest = { id: ++this.id, ...this.running.job };
     this.worker.postMessage(request);

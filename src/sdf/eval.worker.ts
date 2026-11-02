@@ -4,8 +4,9 @@
  * 场、算权重要用的那些照任务自己准备（和网格 Worker 准备的一模一样），同一个任务后面几份活接着用。
  */
 import { installAnimeBody } from '../anime/body';
+import { installGenital } from '../anime/genital';
 import { installHairShape } from '../hair/shapes';
-import type { HairMessage, ShapesMessage } from './mesh.worker';
+import type { GenitalMessage, HairMessage, ShapesMessage } from './mesh.worker';
 import { type ChunkDrop, type ChunkRequest, type SkinRequest, helperDesk } from './parallel';
 
 /** 界面送来的：一个连着网格 Worker 的端口 */
@@ -15,10 +16,11 @@ export interface PortMessage {
 
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 
-scope.onmessage = (event: MessageEvent<ShapesMessage | HairMessage | PortMessage>) => {
+scope.onmessage = (event: MessageEvent<ShapesMessage | HairMessage | GenitalMessage | PortMessage>) => {
   const data = event.data;
   if ('shapes' in data) installAnimeBody(data.shapes);
   else if ('hair' in data) installHairShape(data.hair, data.data);
+  else if ('genital' in data) installGenital(data.genital);
   else if ('port' in data) listen(data.port);
 };
 

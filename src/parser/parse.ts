@@ -21,7 +21,9 @@ import {
   type HairStyle,
   type HeadLayout,
   type LegLayout,
+  type PenisLayout,
   type Pose,
+  type ScrotumMode,
   COUNT_DEF_BY_KEY,
   HIP_LEGS,
   PAIRED_KEYS,
@@ -50,6 +52,9 @@ export interface ParseResult {
   legLayout: LegLayout;
   /** 人腿人马每副胯几条腿（「每副胯三条腿」「前三后三」）；没说就是 2 */
   hipLegs: number;
+  /** 好几根阴茎怎么排、阴囊共用还是各带一个（「阴茎上下叠」「每根各带阴囊」）；没说就是并排、共用 */
+  penisLayout: PenisLayout;
+  scrotum: ScrotumMode;
   /** 文字里点名了耳朵形状时才有 */
   earShape?: EarShape;
   /** 文字里写了「八头身」「身高 165」时才有对应项 */
@@ -121,6 +126,11 @@ interface CnPart {
 
 /** 长词在前，保证「手臂」不会被拆成「手」 */
 const CN_PARTS: readonly CnPart[] = [
+  // 成人部件（设置里打开「显示成人部件」才长，见 model/adult.ts）
+  { word: '阴茎', key: 'penises' },
+  { word: '肉棒', key: 'penises' },
+  { word: '阳具', key: 'penises' },
+  { word: '鸡巴', key: 'penises' },
   // 「两个上半身」：一副胯和腿上长着几个上半身
   { word: '上半身', key: 'torsos' },
   { word: '上身', key: 'torsos', notBefore: '衣穿' },
@@ -217,6 +227,7 @@ const MULTI: BodyCounts = {
   hornsPerHead: 4,
   eyesPerHead: 3,
   earPairsPerHead: 2,
+  penises: 2,
 };
 
 /** 不带数字的中文提及：出现了就至少有这么多 */
@@ -225,6 +236,7 @@ const CN_PRESENCE: ReadonlyArray<{ re: RegExp; key: CountKey; min: number }> = [
   { re: /翅膀|羽翼|(?:龙|蝠|羽|光|蝶)翼/g, key: 'wingPairs', min: 1 },
   { re: /犄角|(?:龙|鹿|羊|牛|鬼|恶魔)角|(?:长着|生着|有|长|带)角(?![色度落形])/g, key: 'hornsPerHead', min: 2 },
   { re: /兽耳|(?:猫咪?|狐狸?|兔子?|狼|犬|狗|虎|精灵|尖)耳/g, key: 'earPairsPerHead', min: 1 },
+  { re: /阴茎|肉棒|阳具|鸡巴/g, key: 'penises', min: 1 },
 ];
 
 /* ================= 英文：Danbooru / e621 风格标签 ================= */
@@ -260,10 +272,11 @@ const EN_PART: ReadonlyMap<string, CountKey> = new Map(
     eye: 'eyesPerHead', eyes: 'eyesPerHead', eyed: 'eyesPerHead',
     horn: 'hornsPerHead', horns: 'hornsPerHead', horned: 'hornsPerHead',
     ear: 'earPairsPerHead', ears: 'earPairsPerHead', eared: 'earPairsPerHead',
+    penis: 'penises', penises: 'penises', cock: 'penises', cocks: 'penises', dick: 'penises', dicks: 'penises',
   } satisfies Record<string, CountKey>),
 );
 const EN_PART_SRC =
-  'torsoed|torsos?|headed|heads?|faced|faces?|armed|arms?|breasted|breasts?|boobs?|legged|legs?|tailed|tails?|winged|wings?|eyed|eyes?|horned|horns?|eared|ears?';
+  'torsoed|torsos?|headed|heads?|faced|faces?|armed|arms?|breasted|breasts?|boobs?|legged|legs?|tailed|tails?|winged|wings?|eyed|eyes?|horned|horns?|eared|ears?|penis(?:es)?|cocks?|dicks?';
 
 /** 数字和部件之间允许夹一个形容词（two fox tails），但不能是这些虚词 */
 const EN_STOP = 'with|and|or|of|has|have|having|in|on|the|a|an|to|girls?|boys?|pairs?|extra|additional|more';
@@ -306,6 +319,7 @@ const EN_PRESENCE: ReadonlyArray<{ re: RegExp; key: CountKey; min: number }> = [
   { re: new RegExp(`${L}wings?${R}(?!${S}collar)`, 'g'), key: 'wingPairs', min: 1 },
   { re: new RegExp(`${L}horns${R}`, 'g'), key: 'hornsPerHead', min: 2 },
   { re: new RegExp(`${L}horn${R}`, 'g'), key: 'hornsPerHead', min: 1 },
+  { re: new RegExp(`${L}(?:penis|cock|dick)${R}`, 'g'), key: 'penises', min: 1 },
   {
     re: new RegExp(
       `${L}(?:${EN_ANIMALS})${S}ears?${R}|${L}(?:kemonomimi|nekomimi|usamimi|kitsunemimi|inumimi)${R}`,
@@ -423,6 +437,15 @@ const LEG_ABREAST_RE = new RegExp(
 const LEG_ROW_RE = new RegExp(
   `腿${CLAUSE}{0,4}?(?:并排|横排|左右排)|(?:并排|横排|左右排)${CLAUSE}{0,4}?腿|${L}legs${S}(?:abreast|side${S}by${S}side)${R}`,
 );
+
+const PENIS_WORD = '(?:阴茎|肉棒|阳具|鸡巴)';
+/** 好几根阴茎上下叠、扇形散开（没说就是左右并排） */
+const PENIS_STACK_RE = new RegExp(
+  `${PENIS_WORD}${CLAUSE}{0,6}?(?:上下叠|上下排|叠着)|(?:上下叠|上下排)${CLAUSE}{0,6}?${PENIS_WORD}|${L}stacked${S}(?:penises|cocks)${R}`,
+);
+const PENIS_FAN_RE = new RegExp(`${PENIS_WORD}${CLAUSE}{0,6}?(?:扇形|散开)|扇形${CLAUSE}{0,6}?${PENIS_WORD}`);
+/** 每根各带一个阴囊（没说就是共用一个） */
+const SCROTUM_EACH_RE = new RegExp(`(?:每根|各)${CLAUSE}{0,3}?阴囊|阴囊${CLAUSE}{0,2}?各|[${N}几多]个阴囊`);
 
 /* ================= 性别、姿势 ================= */
 
@@ -815,12 +838,17 @@ export function parseDescription(text: string): ParseResult {
     }
   }
 
+  const penisLayout: PenisLayout = PENIS_STACK_RE.test(work) ? 'stack' : PENIS_FAN_RE.test(work) ? 'fan' : 'row';
+  const scrotum: ScrotumMode = SCROTUM_EACH_RE.test(work) ? 'each' : 'shared';
+
   return {
     counts: clampCounts(c),
     headLayout,
     armLayout,
     legLayout,
     hipLegs,
+    penisLayout,
+    scrotum,
     earShape,
     shape,
     gender,

@@ -17,6 +17,7 @@ import {
 } from './figure';
 import { getGrid } from '../sdf/grids';
 import { chestBulk } from '../anime/chest';
+import { PENIS_BASE, PENIS_LINE, PENIS_RADIUS } from '../anime/genital';
 import { sampleTube } from './shapes';
 import { type V3, add, dot, lerp, mat3Apply, mul, rotate, sub } from './vec';
 
@@ -54,6 +55,8 @@ const ROOT_FREE: Partial<Record<PartType, number>> = {
   neck: 0.07,
   horn: 0.04,
   ear: 0.05,
+  // 阴茎根部的圆台往身体里埋了好几厘米，阴囊贴着身体那一面埋在大腿前面
+  genital: 0.09,
 };
 /** 同类部件之间（两条腿、两只角）根部挨得近，多放宽一些 */
 const SIBLING_FACTOR = 1.6;
@@ -159,11 +162,20 @@ function rootFree(part: Part): number {
   return base + 2.2 * fluff;
 }
 
+/** 阴茎（部件的局部坐标，原点在根部）：中心线每隔一段一根圆棒 */
+function penisRods(): Rod[] {
+  const pts = PENIS_LINE.filter((_, k) => k % 4 === 0 || k === PENIS_LINE.length - 1).map((p) => sub(p, PENIS_BASE));
+  const r = PENIS_RADIUS * 0.9;
+  return pts.slice(1).map((b, i) => ({ a: pts[i], b, ra: r, rb: r }));
+}
+
 function toBody(part: Part, xf: WorldXf): Body {
   const shape = shapeMatrix(part);
   const thin = shapeThin(part);
   const place = (q: V3): V3 => add(xf.pos, mul(rotate(xf.quat, shape ? mat3Apply(shape, q) : q), xf.scale));
-  const rods = part.prims.flatMap(primRods).map((r) => ({
+  // 缝上去的阴茎不在基本体里：顺着它的中心线另放一串圆棒（粗细取九成，宁小勿大）
+  const grafted = part.grafts?.some((g) => g.mesh === 'penis') ? penisRods() : [];
+  const rods = [...part.prims.flatMap(primRods), ...grafted].map((r) => ({
     a: place(r.a),
     b: place(r.b),
     ra: r.ra * xf.scale * thin,

@@ -25,6 +25,8 @@ const WORD: Record<string, string> = {
   Horn: '角',
   Ear: '耳朵',
   Hair: '头发',
+  Penis: '阴茎',
+  Scrotum: '阴囊',
 };
 
 const SIDE: Record<string, string> = { L: '左', R: '右', C: '中' };

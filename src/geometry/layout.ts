@@ -6,10 +6,13 @@
  */
 import { type BodySpec, type Gender, type HandStyle, type LegForm, type PartOverride, BUST_MAX_OTHER, legPlan } from '../model/spec';
 import { animeReady } from '../anime/body';
+import { genitalReady } from '../anime/genital';
 import { FINGER_JOINTS, HAND_ELBOW, HAND_LENGTH, HAND_WRIST, handGraft } from '../anime/hand';
 import { layoutAnime } from './animeLayout';
 import { FACE_OUT, faceTurns, fanShift, gatherOut, headCluster, headShrink, headTurn, shoulderSpan } from './bodyPlan';
 import { type BoneHint, type Figure, type Graft, type Part, type Prim, type Ring, type Side, type Tube, nthName } from './figure';
+import { castRay, compileField } from '../sdf/field';
+import { genitalParts } from './genital';
 import { type HeadHair, CRANIUM, HEAD_HALF_HEIGHT, HEAD_HALF_WIDTH, SKULL, makeFace, makeHead } from './head';
 import { WING_OUTLINE, sampleTube } from './shapes';
 import { ringAt, smoothRings } from './torso';
@@ -46,6 +49,9 @@ const NECK_LEAN = 0.06;
 /** 多个头时：最外面的脖子根离肩膀外沿至少多远 */
 const NECK_ROOM = 0.07;
 const HIP_Y = 0.9;
+/** 阴茎根部的中心有多高；素体的一个单位在人台上多长（「阴茎大小」是 1 的时候，比素体的比例小两成） */
+const PUBIS_Y = 0.865;
+const PENIS_UNIT = 0.95;
 export const DEG = Math.PI / 180;
 const O: V3 = [0, 0, 0];
 const DOWN: V3 = [0, -1, 0];
@@ -958,6 +964,28 @@ function layoutMannequin(spec: BodySpec): Figure {
 
   /* ---- 尾巴：从尾骨扇形散开，多于三条时上下交替 ---- */
   parts.push(...tailParts(c.tails, sh, b, lowerBody.tailRoot, lowerBody.tailParent));
+
+  /* ---- 阴茎、阴囊：小腹正中往下，阴囊搁在大腿前面（好几副胯的排法见第 3 期，现在只有一副胯的有） ---- */
+  // 阴囊的格子还没载入时先不长（数据到了以后界面会重新生成一遍）
+  if (c.penises > 0 && genitalReady() && (form === 'biped' || form === 'row')) {
+    const probe = compileField({ scale: 1, parts }, { blend: spec.blend });
+    parts.push(
+      ...genitalParts({
+        count: c.penises,
+        layout: spec.penisLayout,
+        scrotum: spec.scrotum,
+        scale: PENIS_UNIT * sh.penisSize,
+        root: [0, PUBIS_Y, 0],
+        front: (x, y) => {
+          const t = castRay(probe, [x, y, 0.6], [0, 0, -1], 0.9);
+          return t < 0.9 ? 0.6 - t : null;
+        },
+        parent: 'Hips',
+        firstPenis: 1,
+        firstScrotum: 1,
+      }),
+    );
+  }
 
   /* ---- 缩放到设定身高 ---- */
   const scale = sh.height / baseHeight;

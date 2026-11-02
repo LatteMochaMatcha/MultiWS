@@ -106,6 +106,25 @@ describe('需求里点名的输入', () => {
     expect(resolveLegForm(1, 'auto')).toBe('biped');
   });
 
+  it('阴茎：中文、英文标签、排法和阴囊', () => {
+    const read = (text: string) => {
+      const r = parseDescription(text);
+      return [r.counts.penises, r.penisLayout, r.scrotum];
+    };
+    expect(read('两根阴茎')).toEqual([2, 'row', 'shared']);
+    expect(read('双阴茎')).toEqual([2, 'row', 'shared']);
+    expect(read('多根肉棒')).toEqual([2, 'row', 'shared']);
+    expect(read('阳具')).toEqual([1, 'row', 'shared']);
+    expect(read('三根阴茎上下叠')).toEqual([3, 'stack', 'shared']);
+    expect(read('四根阴茎扇形散开，每根各带阴囊')).toEqual([4, 'fan', 'each']);
+    expect(read('两根阴茎，两个阴囊')).toEqual([2, 'row', 'each']);
+    expect(read('2_penises, stacked penises')).toEqual([2, 'stack', 'shared']);
+    expect(read('multiple_penises')).toEqual([2, 'row', 'shared']);
+    expect(read('penis')).toEqual([1, 'row', 'shared']);
+    // 没提到的时候
+    expect(read('两个头，两对手，扇形聚拢')).toEqual([0, 'row', 'shared']);
+  });
+
   it('没写到的部件保持默认', () => {
     expect(parseDescription('').counts).toEqual({
       torsos: 1,
@@ -118,6 +137,7 @@ describe('需求里点名的输入', () => {
       hornsPerHead: 0,
       eyesPerHead: 2,
       earPairsPerHead: 0,
+      penises: 0,
     });
     expect(parseDescription('').hits.size).toBe(0);
   });

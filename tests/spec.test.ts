@@ -43,6 +43,7 @@ describe('默认值与范围', () => {
       hornsPerHead: [0, 4, 0],
       eyesPerHead: [1, 6, 2],
       earPairsPerHead: [0, 2, 0],
+      penises: [0, 4, 0],
     });
   });
 
@@ -275,6 +276,7 @@ describe('normalizeSpec', () => {
       hornsPerHead: 2,
       eyesPerHead: 3,
       earPairsPerHead: 0,
+      penises: 0,
     });
     expect(spec.shape).toMatchObject({ build: 1.1, shoulders: 0.9, bust: 1.2, hips: 1.3, tailFluff: 1.4 });
     expect(spec.armLayout).toBe('fan');
