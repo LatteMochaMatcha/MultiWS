@@ -166,7 +166,7 @@
 **合并、打包（11-03）**：本地的 `main` 还停在 b05f1db，往 GitHub main 推的是主目录那条 `rework/torso-bust`（已经推到 d058630「拖动不卡」，后面还有导出 VRM 第 3 期 75349f7 没推；另一个会话正在那边改 VRM，有没提交的改动）。主目录不碰，在这个 worktree 里把 `rework/torso-bust`（75349f7）合进 `feature/multi-genital`（d6b55fd）：冲突只有摆姿势面板一处（阴茎那组圆点的显示和预设面板都留着）。合完 46 个文件、1435 项测试通过，`npm run build` 通过，浏览器里试过人马配四根几乘几。导出 VRM 会带上阴茎的署名；会晃的骨骼只有尾巴，阴茎不晃。
 
 - 打包：在这个 worktree 里 `npm run pack`、`npm run apk`，出来的在这个 worktree 的 `release\`（exe、zip、apk、使用说明）。apk 用的是主目录 `tools/android/sign.keystore` 那把钥匙（拷了一份过来，不进仓库），能盖在手机上原来那个上装。exe 没有双击试。
-- 还没做：合到推 GitHub 的那条线上。等主目录那边的 VRM 改完提交了，再把这个分支合进 `rework/torso-bust`（那时候大概能直接快进），问你要不要推。
+- 合到推 GitHub 的那条线上（11-03）：那边导出 VRM 第 4 期和两个会话重看后的修改都提交了以后，在这个 worktree 里合进来（第二次有网格线程几处 import、消息类型的冲突，两边都留着），全部 1450 项测试过，浏览器里试过；主目录的 `rework/torso-bust` 快进到 7bda39c，在主目录重新打了 exe、zip、apk。推不推 GitHub 等你定。
 
 ### 合并前整体重审（11-03）
 
