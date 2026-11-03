@@ -2117,6 +2117,51 @@ describe('成品角色：好几个上半身', () => {
     expect(dyed.materials[left.material].color[2]).toBeGreaterThan(dyed.materials[left.material].color[0]);
   });
 
+  it('每个上半身单独设的数量也照着拼：左边三个头、两对手臂，右边照全部一样', () => {
+    const b = build('两个上半身，左边的上半身三个头、两对手臂');
+    expectSkinned(b);
+    expect(b.ignored).toEqual([]);
+    const names = b.bones.map((x) => x.name);
+    expect(new Set(names).size).toBe(names.length);
+    /** 这根骨骼长在哪个上半身上 */
+    const torsoOf = (name: string) => {
+      let i = names.indexOf(name);
+      while (i >= 0 && !/^Spine_[LR]$/.test(names[i])) i = b.bones[i].parent;
+      return names[i];
+    };
+    // 头从右往左数：右边那个上半身上的是第 1 个，左边的三个接着往下数
+    expect(names.filter((n) => /^Head(\.\d+)?$/.test(n)).sort()).toEqual(['Head', 'Head.002', 'Head.003', 'Head.004']);
+    expect(torsoOf('Head')).toBe('Spine_R');
+    for (const head of ['Head.002', 'Head.003', 'Head.004']) expect(torsoOf(head)).toBe('Spine_L');
+    expect(b.faces).toHaveLength(4);
+    // 手臂：同一个后缀上先排外侧的（左边两对），再排里侧的（照另一个上半身有几对往后排）
+    expect(names.filter((n) => /^UpperArm_/.test(n)).sort()).toEqual(['UpperArm_L', 'UpperArm_L.002', 'UpperArm_L.003', 'UpperArm_R', 'UpperArm_R.002', 'UpperArm_R.003']);
+    for (const arm of ['UpperArm_L', 'UpperArm_L.002', 'UpperArm_R.002', 'UpperArm_R.003']) expect(torsoOf(arm), arm).toBe('Spine_L');
+    for (const arm of ['UpperArm_R', 'UpperArm_L.003']) expect(torsoOf(arm), arm).toBe('Spine_R');
+    // 腿没有多：胯、腿还是她自己那一副
+    expect(names.filter((n) => /^UpperLeg/.test(n))).toEqual(build().bones.map((x) => x.name).filter((n) => /^UpperLeg/.test(n)));
+    // 单独设成和「全部一样」一样多的：和没设一模一样
+    expect(build('两个上半身', { torsoCounts: { L: { heads: 1 }, R: { armPairs: 1 } } }).bones).toEqual(build('两个上半身').bones);
+  });
+
+  it('三个上半身：正中那个单独设过的，她自己（正中）照它的数拼，两边照全部一样；分开染照全身第几个头', () => {
+    const blue = '#2a5f9e';
+    const spec = make('三个上半身，中间的上半身两对手臂，右边的上半身两个头');
+    const b = assembleCharacter(source(), { ...spec, hair: { ...spec.hair, color: '#c2413b', heads: ['', '', '', blue] } });
+    expectSkinned(b);
+    const names = b.bones.map((x) => x.name);
+    expect(new Set(names).size).toBe(names.length);
+    expect(names.filter((n) => /^UpperArm_/.test(n))).toHaveLength(8);
+    // 右边两个、正中一个、左边一个
+    expect(names.filter((n) => /^Head(\.\d+)?$/.test(n))).toHaveLength(4);
+    expect(b.faces).toHaveLength(4);
+    // 第 4 个头（左边那个上半身上的）染蓝：只有它在 +X 那边
+    const hair = b.meshes.filter((m) => /HAIR_01/.test(b.materials[m.material].name) && !/EAR/.test(b.materials[m.material].name));
+    const blueHair = hair.filter((m) => b.materials[m.material].color[2] > b.materials[m.material].color[0] * 1.5);
+    expect(blueHair.length).toBeGreaterThan(0);
+    for (const m of blueHair) expect(m.positions[0]).toBeGreaterThan(0.1);
+  });
+
   it('手动微调：胯是 Torso，每个上半身一个部件，手臂、头挂在自己那个上半身上', () => {
     const b = build('两个上半身');
     const parts = characterParts(b);

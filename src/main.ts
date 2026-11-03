@@ -788,17 +788,20 @@ const syncHairHeads = (() => {
     host.append(wrap);
     return { input, dot, head };
   };
-  return (heads: number, torsos: number) => {
-    if (built !== `${heads}×${torsos}`) {
-      built = `${heads}×${torsos}`;
+  /** heads：每个上半身（正面看从左往右）各有几个头 */
+  return (heads: readonly number[]) => {
+    if (built !== heads.join('×')) {
+      built = heads.join('×');
       host.replaceChildren();
       cells = [cell(null, t('全部'))];
-      for (let body = 0; body < torsos; body++) {
-        (heads > 1 ? (HEAD_SLOT_LABEL[heads] ?? []) : ['']).forEach((text, slot) => {
-          const where = torsos > 1 ? (TORSO_LABEL[torsos]?.[body] ?? '') : '';
-          cells.push(cell(body * heads + headAtSlot(slot, heads), [where, text].filter(Boolean).join(' · ')));
+      let first = 0;
+      heads.forEach((count, body) => {
+        (count > 1 ? (HEAD_SLOT_LABEL[count] ?? []) : ['']).forEach((text, slot) => {
+          const where = heads.length > 1 ? (TORSO_LABEL[heads.length]?.[body] ?? '') : '';
+          cells.push(cell(first + headAtSlot(slot, count), [where, text].filter(Boolean).join(' · ')));
         });
-      }
+        first += count;
+      });
     }
     for (const { input, dot, head } of cells) {
       input.checked = head === dyeHead;
@@ -823,12 +826,15 @@ function syncHair() {
   $('hairDye').classList.toggle('off', !colored);
   hairColorInput.disabled = !colored;
   // 几个头凑成一簇时可以分开染；头少了、换成一个头几张脸，选着的那个头不在了就回到「全部」
-  // 一个头几张脸的只有一副头发；好几个上半身时每个上半身各有自己的头
-  const perHeads = spec.headLayout === 'faces' ? 1 : spec.counts.heads;
-  const apart = colored && perHeads * spec.counts.torsos > 1;
+  // 一个头几张脸的只有一副头发；好几个上半身时每个上半身各有自己的头（单独设过的照它自己的数）
+  const per = (heads: number) => (spec.headLayout === 'faces' ? 1 : heads);
+  const sides = torsoSides(spec.counts.torsos);
+  const heads = sides.length ? sides.map((side) => per(countsOf(spec, side).heads)) : [per(spec.counts.heads)];
+  const total = heads.reduce((sum, n) => sum + n, 0);
+  const apart = colored && total > 1;
   $('hairHeadsField').hidden = !apart;
-  if (!apart || (dyeHead !== null && dyeHead >= perHeads * spec.counts.torsos)) dyeHead = null;
-  if (apart) syncHairHeads(perHeads, spec.counts.torsos);
+  if (!apart || (dyeHead !== null && dyeHead >= total)) dyeHead = null;
+  if (apart) syncHairHeads(heads);
   const current = dyeHead === null ? spec.hair.color : headHairColor(spec.hair, dyeHead);
   // 取色框总得有个值：没染的时候摆一个中性的浅灰
   hairColorInput.value = current || '#c8c8d0';

@@ -15,10 +15,10 @@
 import { FACE_OUT, faceTurns, fanShift, gatherOut, headCluster, headShrink, headTurn, shoulderSpan, widenShift } from '../geometry/bodyPlan';
 import { type FigureMetrics, nthName } from '../geometry/figure';
 import { type HangBlock, GAP, armDirection, hangAngles } from '../geometry/layout';
-import { FAN_YAW, INNER_ARM_DROP, torsoLean, torsoSlots } from '../geometry/torsos';
+import { FAN_YAW, INNER_ARM_DROP, SLOT_SIDE, torsoLean, torsoSlots } from '../geometry/torsos';
 import { type V3, UP, len, norm, quatBetween, quatConj, quatEuler, quatMul, rotate } from '../geometry/vec';
 import { t } from '../i18n';
-import { type BodySpec, colorToLinear, headHairColor, legPlan, BUST_MAX_OTHER } from '../model/spec';
+import { type BodySpec, PER_TORSO_KEYS, colorToLinear, countsOf, headHairColor, legPlan, BUST_MAX_OTHER } from '../model/spec';
 import { type BeastPiece, beastBody } from './beast';
 import { type ExtraHead, type ExtraKind, extraParts } from './extras';
 import type { HairDonor } from './hair';
@@ -475,10 +475,60 @@ function makeProbe(triangles: Float32Array) {
 }
 
 /**
+ * 好几个上半身、有的上半身单独设的数量（见 BodySpec.torsoCounts）和她自己那个不一样时：照它自己的数拼到「好几个上半身」那一步为止，
+ * 腰以上（连头、头发、手臂、胸、衣服、后加的兽耳和翅膀）从这一份里取，接到她的胯上（胯、腿照她自己那一份）。
+ * 骨骼、网格还是这一份里的下标
+ */
+interface TorsoDonor {
+  names: string[];
+  parent: number[];
+  rest: V3[];
+  origin: (BoneOrigin | null)[];
+  marker: boolean[];
+  ends: Map<number, V3>;
+  chunks: Chunk[];
+  /** 材质的清单（连「两面都画」的那几份）；另加的染好的那几份是照哪一个染的 */
+  materials: SourceMaterial[];
+  dyedFrom: Map<number, number>;
+  copyOf: Map<Chunk, string>;
+  spine: number;
+  /** 头的骨骼，和它是这个上半身上的第几个头（见 ExtraHead.index） */
+  heads: { bone: number; index: number }[];
+  armPairs: number;
+  /** 一个上半身有几个头（一个头几张脸时就一个）；头（连贴着的头发）的半宽，量歪多少用 */
+  perHeads: number;
+  headHalf: number;
+  ignored: string[];
+}
+/** 第 slot 个上半身照它自己的数拼的那一份；和她自己那个上半身一样多的是 null */
+type DonorFor = (slot: -1 | 0 | 1) => TorsoDonor | null;
+
+/** 好几个上半身时第 slot 个上半身照什么拼：单独设过的那几样换成它自己的数 */
+const torsoSpec = (spec: BodySpec, slot: -1 | 0 | 1): BodySpec =>
+  spec.counts.torsos > 1 ? { ...spec, counts: countsOf(spec, SLOT_SIDE[slot]), torsoCounts: {} } : spec;
+
+/**
  * hair：换发型用的那副头发（见 hair.ts）。设定里选的不是原装、而这副头发还没取回来（或者给的不是选的那一副）时，
  * 先照原装的头发拼。
  */
 export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair: HairDonor | null = null): CharacterBuild {
+  // 好几个上半身：先照她自己那个上半身（两个时左边，三个时正中）的数拼；别的上半身数量不一样的，照它自己的数另拼一份（见 TorsoDonor）
+  const own = torsoSpec(spec, torsoSlots(spec.counts.torsos)[0]);
+  const donors = new Map<string, TorsoDonor>();
+  return assemble(source, own, hair, (slot) => {
+    const mine = torsoSpec(spec, slot);
+    if (PER_TORSO_KEYS.every((key) => mine.counts[key] === own.counts[key])) return null;
+    const key = JSON.stringify(mine.counts);
+    let donor = donors.get(key);
+    if (!donor) donors.set(key, (donor = assemble(source, mine, hair, null)));
+    return donor;
+  });
+}
+
+/** donorFor 是 null 时只拼到「好几个上半身」那一步为止，交出腰以上给别的上半身用（见 TorsoDonor） */
+function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | null, donorFor: DonorFor): CharacterBuild;
+function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | null, donorFor: null): TorsoDonor;
+function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | null, donorFor: DonorFor | null): CharacterBuild | TorsoDonor {
   const c = spec.counts;
   const sh = { ...spec.shape, bust: Math.min(spec.shape.bust, BUST_MAX_OTHER) };
   const tPose = spec.pose === 'T';
@@ -2255,7 +2305,28 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
   /* ---- 好几个上半身：腰以上（连头、头发、手臂、胸、衣服、后加的兽耳和翅膀）复制几份，各自从腰那里往两边歪开 ---- */
   // 排法、名字和两种白模一样（见 geometry/torsos.ts）：头从右往左一个上半身一个上半身地数，脊柱带上它在哪一边，
   // 手臂、翅膀分外侧（照原名，左右两个互为镜像）和里侧（排在后面几对）；里侧的手臂往前伸。
-  // 歪开是摆姿势摆出来的（第二次烘焙）：腰那一圈一半跟着胯、一半跟着脊柱的点自然地弯过去，不用切开再接
+  // 歪开是摆姿势摆出来的（第二次烘焙）：腰那一圈一半跟着胯、一半跟着脊柱的点自然地弯过去，不用切开再接。
+  // 单独设的数量和她自己这个不一样的上半身不复制，从照它自己的数拼的那一份里取（见 TorsoDonor）
+  if (!donorFor) {
+    return {
+      names,
+      parent,
+      rest,
+      origin,
+      marker,
+      ends,
+      chunks,
+      materials: [...materials, ...sided],
+      dyedFrom,
+      copyOf,
+      spine: need('Spine'),
+      heads: heads.map((bone, i) => ({ bone, index: headSpots[i].index })),
+      armPairs,
+      perHeads: faces ? 1 : c.heads,
+      headHalf: crest.wide * hs,
+      ignored,
+    };
+  }
   if (c.torsos > 1) {
     const slots = torsoSlots(c.torsos);
     const three = slots.length === 3;
@@ -2263,6 +2334,116 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
     const ownSlot = slots[0];
     const spine = need('Spine');
     const pivot = rest[spine];
+    const sideTag = (slot: number) => (slot > 0 ? '_L' : slot < 0 ? '_R' : '');
+    original = chunks.length;
+    /** 复制出来的、接过来的那几片在哪个上半身上 */
+    const copiedTo = new Map<Chunk, number>();
+    /** 接过来的那几片是照它自己的数拼的那一份里的哪一片 */
+    const grafted = new Map<Chunk, { from: Chunk; donor: TorsoDonor }>();
+
+    /** 一个上半身的骨骼（这里的下标，脊柱排第一个）、头、几对手臂；复制出来的上半身照她自己的这一份 */
+    type Upper = { spine: number; body: number[]; heads: { bone: number; index: number }[]; armPairs: number; perHeads: number; headHalf: number };
+    const self: Upper = {
+      spine,
+      body: subtree(spine),
+      heads: heads.map((bone, i) => ({ bone, index: headSpots[i].index })),
+      armPairs,
+      perHeads: faces ? 1 : c.heads,
+      headHalf: crest.wide * hs,
+    };
+    /** 照它自己的数拼的那一份（donor）腰以上接到胯上：三角面的取法和复制她自己的上半身一样 */
+    const graft = (donor: TorsoDonor, slot: number): Upper => {
+      // 它的脊柱和下面所有的骨骼，父骨骼总在子骨骼前面（和 subtree 一样）
+      const members = [donor.spine];
+      for (let i = 0; i < members.length; i++) {
+        for (let b = 0; b < donor.parent.length; b++) if (donor.parent[b] === members[i]) members.push(b);
+      }
+      const map = new Map<number, number>();
+      for (const b of members) {
+        map.set(b, names.length);
+        names.push(donor.names[b]);
+        origin.push(donor.origin[b]);
+        marker.push(donor.marker[b]);
+        parent.push(b === donor.spine ? hips : map.get(donor.parent[b])!);
+        rest.push([donor.rest[b][0], donor.rest[b][1], donor.rest[b][2]]);
+        const tail = donor.ends.get(b);
+        if (tail) ends.set(map.get(b)!, [tail[0], tail[1], tail[2]]);
+      }
+      // 材质换成这里清单上的：染好的那几份换回照哪一个染的（下面照全身第几个头重新挑），别的照是不是同一份找
+      const materialOf = (index: number) => {
+        const base = donor.dyedFrom.get(index);
+        if (base !== undefined || index < undyed.length) return base ?? index;
+        const made = donor.materials[index];
+        const at = materials.indexOf(made);
+        if (at >= 0) return at;
+        const both = sided.indexOf(made);
+        return materials.length + (both >= 0 ? both : sided.push(made) - 1);
+      };
+      const set = new Set(members);
+      for (const from of donor.chunks) {
+        const on = share(from, set);
+        const remap = new Map<number, number>();
+        const indices: number[] = [];
+        for (let t = 0; t < from.indices.length; t += 3) {
+          const tri = [from.indices[t], from.indices[t + 1], from.indices[t + 2]];
+          if ((on[tri[0]] + on[tri[1]] + on[tri[2]]) / 3 < TORSO_SPLIT) continue;
+          for (const v of tri) {
+            if (!remap.has(v)) remap.set(v, remap.size);
+            indices.push(remap.get(v)!);
+          }
+        }
+        if (!indices.length) continue;
+        const count = remap.size;
+        const made: Chunk = {
+          name: `${from.name}_Torso${sideTag(slot)}`,
+          material: materialOf(from.material),
+          positions: new Float32Array(count * 3),
+          normals: new Float32Array(count * 3),
+          uvs: new Float32Array(count * 2),
+          joints: new Uint16Array(count * 4),
+          weights: new Float32Array(count * 4),
+          indices: Uint32Array.from(indices),
+        };
+        if (from.faceVertex) made.faceVertex = new Int32Array(count);
+        for (const [v, id] of remap) {
+          if (from.faceVertex) made.faceVertex![id] = from.faceVertex[v];
+          made.positions.set(from.positions.subarray(v * 3, v * 3 + 3), id * 3);
+          made.normals.set(from.normals.subarray(v * 3, v * 3 + 3), id * 3);
+          made.uvs.set(from.uvs.subarray(v * 2, v * 2 + 2), id * 2);
+          // 跟着腰以下的权重归到胯上：同一根骨骼只占一格，权重加在一起
+          let filled = 0;
+          for (let k = 0; k < 4; k++) {
+            const w = from.weights[v * 4 + k];
+            if (!w) continue;
+            const bone = map.get(from.joints[v * 4 + k]) ?? hips;
+            let at = 0;
+            while (at < filled && made.joints[id * 4 + at] !== bone) at++;
+            if (at === filled) made.joints[id * 4 + filled++] = bone;
+            made.weights[id * 4 + at] += w;
+          }
+        }
+        chunks.push(made);
+        copiedTo.set(made, slot);
+        grafted.set(made, { from, donor });
+      }
+      for (const note of donor.ignored) if (!ignored.includes(note)) ignored.push(note);
+      return {
+        spine: map.get(donor.spine)!,
+        body: members.map((b) => map.get(b)!),
+        heads: donor.heads.map(({ bone, index }) => ({ bone: map.get(bone)!, index })),
+        armPairs: donor.armPairs,
+        perHeads: donor.perHeads,
+        headHalf: donor.headHalf,
+      };
+    };
+    /** 每个上半身照哪一份 */
+    const upperOf = new Map<number, Upper>();
+    for (const slot of slots) {
+      const donor = slot === ownSlot ? null : donorFor(slot);
+      upperOf.set(slot, donor ? graft(donor, slot) : self);
+    }
+    const uppers = [...new Set(upperOf.values())];
+
     const was = names.slice();
     const stem = (name: string) => name.replace(/\.\d+$/, '');
     const nth = (name: string) => {
@@ -2274,33 +2455,35 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
     /* 上半身上的骨骼各属于哪一样：脊柱、第几个头（连脖子、头发、耳朵）、哪一对手臂 / 翅膀，别的（胸、衣服的辅助骨骼） */
     type Kind = { type: 'spine' } | { type: 'head'; index: number } | { type: 'arm' | 'wing'; pair: number; side: 1 | -1 } | { type: 'other' };
     const kind = new Map<number, Kind>();
-    const body = subtree(spine);
-    for (const b of body) kind.set(b, /^(Spine|Chest|UpperChest)(\.\d+)?$/.test(was[b]) ? { type: 'spine' } : { type: 'other' });
-    heads.forEach((h, i) => {
-      const neckBone = parent[h] >= 0 && /^Neck(\.\d+)?$/.test(was[parent[h]]) ? parent[h] : h;
-      for (const b of subtree(neckBone)) kind.set(b, { type: 'head', index: headSpots[i].index });
-    });
-    for (const b of body) {
-      const arm = /^Shoulder_([LR])(?:\.(\d+))?$/.exec(was[b]);
-      const wing = /^Wing_(\d+)_([LR])$/.exec(was[b]);
-      if (arm) for (const k of subtree(b)) kind.set(k, { type: 'arm', pair: arm[2] ? Number(arm[2]) - 1 : 0, side: arm[1] === 'L' ? 1 : -1 });
-      if (wing) for (const k of subtree(b)) kind.set(k, { type: 'wing', pair: Number(wing[1]) - 1, side: wing[2] === 'L' ? 1 : -1 });
+    for (const { body, heads } of uppers) {
+      for (const b of body) kind.set(b, /^(Spine|Chest|UpperChest)(\.\d+)?$/.test(was[b]) ? { type: 'spine' } : { type: 'other' });
+      for (const { bone: h, index } of heads) {
+        const neckBone = parent[h] >= 0 && /^Neck(\.\d+)?$/.test(was[parent[h]]) ? parent[h] : h;
+        for (const b of subtree(neckBone)) kind.set(b, { type: 'head', index });
+      }
+      for (const b of body) {
+        const arm = /^Shoulder_([LR])(?:\.(\d+))?$/.exec(was[b]);
+        const wing = /^Wing_(\d+)_([LR])$/.exec(was[b]);
+        if (arm) for (const k of subtree(b)) kind.set(k, { type: 'arm', pair: arm[2] ? Number(arm[2]) - 1 : 0, side: arm[1] === 'L' ? 1 : -1 });
+        if (wing) for (const k of subtree(b)) kind.set(k, { type: 'wing', pair: Number(wing[1]) - 1, side: wing[2] === 'L' ? 1 : -1 });
+      }
     }
-    /** 一个上半身有几个头（一个头几张脸时就一个） */
-    const perHeads = faces ? 1 : c.heads;
     const order: number[] = [...slots].sort((a, b) => a - b);
+    /** 第 slot 个上半身上的头从全身第几个头数起：从右往左一个上半身一个上半身地数 */
+    const headBase = (slot: number) => order.filter((other) => other < slot).reduce((sum, other) => sum + upperOf.get(other)!.perHeads, 0);
     /** 第 slot 个上半身上，这一边挨着别的上半身吗 */
     const inner = (slot: number, side: number) => (slot === 0 ? three : side === -slot);
     /** 原来的骨骼 b 在 slot 那个上半身上叫什么 */
     const nameIn = (slot: number, b: number): string => {
-      const tag = slot > 0 ? '_L' : slot < 0 ? '_R' : '';
+      const tag = sideTag(slot);
       const k = kind.get(b)!;
       const name = was[b];
       if (k.type === 'spine') return nthName(`${stem(name)}${tag}`, nth(name));
-      if (k.type === 'head') return nthName(stem(name), k.index + order.indexOf(slot) * perHeads);
+      if (k.type === 'head') return nthName(stem(name), k.index + headBase(slot));
       if (k.type === 'arm' || k.type === 'wing') {
-        const per = k.type === 'arm' ? armPairs : c.wingPairs;
-        const pair = slot === 0 ? k.pair : k.pair + (inner(slot, k.side) ? (three ? 2 : 1) : three ? 1 : 0) * per;
+        // 同一个后缀（_L / _R）上先排正中那个上半身的，再排外侧在这一边的，最后是里侧在这一边的，各照自己有几对往后排
+        const per = (other: number) => (k.type === 'arm' ? upperOf.get(other)!.armPairs : c.wingPairs);
+        const pair = slot === 0 ? k.pair : k.pair + (three ? per(0) : 0) + (inner(slot, k.side) ? per(-slot) : 0);
         return k.type === 'wing' ? `Wing_${pad(pair + 1)}_${k.side > 0 ? 'L' : 'R'}` : nthName(stem(name), pair);
       }
       // 别的：左边、右边那个上半身上的，名字里带上是哪一边的（放在左右前面）：Bust1_L → Bust1_R_L
@@ -2310,16 +2493,17 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
     };
 
     /* 复制 */
-    original = chunks.length;
-    /** 复制出来的那几片在哪个上半身上 */
-    const copiedTo = new Map<Chunk, number>();
-    /** 每个上半身的骨骼：原来的骨骼 → 这个上半身上的那一根 */
+    /** 每个上半身的骨骼：照的那一份上的骨骼 → 这个上半身上的那一根 */
     const boneIn = new Map<number, Map<number, number>>();
-    boneIn.set(ownSlot, new Map(body.map((b) => [b, b])));
     for (const slot of slots) {
-      if (slot === ownSlot) continue;
+      const upper = upperOf.get(slot)!;
+      if (slot === ownSlot || upper !== self) {
+        boneIn.set(slot, new Map(upper.body.map((b) => [b, b])));
+        for (const b of upper.body) names[b] = nameIn(slot, b);
+        continue;
+      }
       const from = chunks.length;
-      const map = clone([spine], `Torso${slot > 0 ? '_L' : slot < 0 ? '_R' : ''}`, (p) => p, (n) => n, hips, TORSO_SPLIT, {
+      const map = clone([spine], `Torso${sideTag(slot)}`, (p) => p, (n) => n, hips, TORSO_SPLIT, {
         bones: { index: 1, rootParent: hips },
       });
       for (let n = from; n < chunks.length; n++) copiedTo.set(chunks[n], slot);
@@ -2331,11 +2515,10 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
       }
       boneIn.set(slot, map);
     }
-    for (const b of body) names[b] = nameIn(ownSlot, b);
     // 里侧的翅膀（挨着旁边那个上半身的那一边）和旁边那一对交叉在一起：不要了（两种白模也是这样，见 torsos.ts 的 crowded）
     const innerWings = new Set<number>();
     for (const [slot, map] of boneIn) {
-      for (const b of body) {
+      for (const b of upperOf.get(slot)!.body) {
         const k = kind.get(b)!;
         if (k.type === 'wing' && inner(slot, k.side)) innerWings.add(map.get(b)!);
       }
@@ -2346,14 +2529,14 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
       for (const b of innerWings) marker[b] = true;
     }
     const slotOf = (chunk: Chunk) => copiedTo.get(chunk) ?? ownSlot;
-    const sourceOf = (chunk: Chunk) => (copiedTo.has(chunk) ? cloned.get(chunk)! : chunk);
+    const sourceOf = (chunk: Chunk) => grafted.get(chunk)?.from ?? (copiedTo.has(chunk) ? cloned.get(chunk)! : chunk);
     /** 这一片长在它那个上半身的第几个头上（不在头上的算第一个：染发只改头发、头皮、兽耳那几种材质） */
     const localHead = (chunk: Chunk) => {
       const from = sourceOf(chunk);
       const m = /^Head_(\d+)_/.exec(from.name) ?? /_Head_(\d+)$/.exec(from.name);
       return m ? Number(m[1]) - 1 : 0;
     };
-    const globalHead = (chunk: Chunk) => order.indexOf(slotOf(chunk)) * perHeads + localHead(chunk);
+    const globalHead = (chunk: Chunk) => headBase(slotOf(chunk)) + localHead(chunk);
 
     /* 每个头的发色照全身的第几个头重新挑（分开染的见 HairSpec.heads） */
     const dyeKeys = new Set([...dyeing('#808080').keys(), flatIndex('ear')]);
@@ -2381,11 +2564,12 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
     const labelWas = new Map(copyOf);
     for (const chunk of chunks) {
       if (!chunk.faceVertex) continue;
-      const label = labelWas.get(sourceOf(chunk)) ?? '';
+      const from = grafted.get(chunk);
+      const label = (from ? from.donor.copyOf.get(from.from) : labelWas.get(sourceOf(chunk))) ?? '';
       const m = /^(Head|Face)_(\d+)$/.exec(label);
       const local = m?.[1] === 'Head' ? Number(m[2]) - 1 : 0;
       const face = m?.[1] === 'Face' ? Number(m[2]) : 0;
-      const g = order.indexOf(slotOf(chunk)) * perHeads + local;
+      const g = headBase(slotOf(chunk)) + local;
       const head = g ? `Head_${pad(g + 1)}` : '';
       const made = face ? `${head}${head ? '/' : ''}Face_${pad(face)}` : head;
       if (made) copyOf.set(chunk, made);
@@ -2394,27 +2578,30 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
 
     /* 歪开：每个上半身的脊柱绕腰转开，往外挪一点；里侧的手臂往前伸 */
     const reach: { wide: number; rise: number }[] = [];
-    for (const b of body) {
-      const k = kind.get(b)!;
-      if (k.type === 'arm' && /^UpperArm_/.test(was[b])) reach.push({ wide: Math.abs(rest[b][0]), rise: rest[b][1] - pivot[1] });
-      if (k.type === 'head' && /^Head(\.\d+)?$/.test(was[b])) reach.push({ wide: Math.abs(rest[b][0]) + crest.wide * hs, rise: rest[b][1] - pivot[1] });
+    for (const { body, headHalf } of uppers) {
+      for (const b of body) {
+        const k = kind.get(b)!;
+        if (k.type === 'arm' && /^UpperArm_/.test(was[b])) reach.push({ wide: Math.abs(rest[b][0]), rise: rest[b][1] - pivot[1] });
+        if (k.type === 'head' && /^Head(\.\d+)?$/.test(was[b])) reach.push({ wide: Math.abs(rest[b][0]) + headHalf, rise: rest[b][1] - pivot[1] });
+      }
     }
     const outward = (three ? 2 : 1) * TORSO_SHIFT;
     const lean = torsoLean(reach, three, outward);
     const second = new Map<number, BonePose>();
     for (const slot of slots) {
       const map = boneIn.get(slot)!;
+      const upper = upperOf.get(slot)!;
       const q = quatMul(quatEuler(0, three ? slot * FAN_YAW : 0, 0), quatEuler(0, 0, -slot * lean));
-      second.set(map.get(spine)!, { rotation: q, move: [slot * outward, 0, three && slot ? -0.02 : 0] });
+      second.set(map.get(upper.spine)!, { rotation: q, move: [slot * outward, 0, three && slot ? -0.02 : 0] });
       // 里侧的手臂：同一个肩膀上的几条（肩部聚拢的）肩关节靠前的放低，往后一条比一条抬高
-      const uppers = body.filter((b) => {
+      const arms = upper.body.filter((b) => {
         const k = kind.get(b)!;
         return k.type === 'arm' && inner(slot, k.side) && /^UpperArm_/.test(was[b]);
       });
       const done = new Set<number>();
-      for (const first of uppers) {
+      for (const first of arms) {
         if (done.has(first)) continue;
-        const group = uppers.filter((b) => !done.has(b) && len([rest[b][0] - rest[first][0], rest[b][1] - rest[first][1], rest[b][2] - rest[first][2]]) < INNER_SHOULDER);
+        const group = arms.filter((b) => !done.has(b) && len([rest[b][0] - rest[first][0], rest[b][1] - rest[first][1], rest[b][2] - rest[first][2]]) < INNER_SHOULDER);
         group.sort((a, b) => rest[b][2] - rest[a][2]);
         group.forEach((b, i) => {
           done.add(b);
