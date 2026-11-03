@@ -4,6 +4,7 @@
  *
  * 只管画和翻页；第几步指着谁、要先展开哪一栏、看完记在哪里，都由调用的一方（main.ts）给。
  */
+import { t } from '../i18n';
 
 export interface TourStep {
   title: string;
@@ -108,11 +109,11 @@ export class Tour {
       btn.addEventListener('click', onClick);
       return btn;
     };
-    const skip = button('跳过', 'btn ghost', () => this.close());
+    const skip = button(t('跳过'), 'btn ghost', () => this.close());
     skip.hidden = last;
-    const back = button('上一步', 'btn', () => this.go(this.at - 1));
+    const back = button(t('上一步'), 'btn', () => this.go(this.at - 1));
     back.disabled = this.at === 0;
-    const next = button(last ? '开始用' : '下一步', 'btn primary', () => this.go(this.at + 1));
+    const next = button(last ? t('开始用') : t('下一步'), 'btn primary', () => this.go(this.at + 1));
     row.append(skip, back, next);
     this.card.replaceChildren(head, text, row);
 

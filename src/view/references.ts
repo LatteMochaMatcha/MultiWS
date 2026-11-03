@@ -6,6 +6,7 @@
  * 不管远近总在模型后面，也可以改成盖在模型上面；截图里没有它们。
  * 镜头转开就淡掉：正面图只在从正面、背面看时看得见，侧面图只在从左右看时看得见，斜着看是半透明的。
  */
+import { t } from '../i18n';
 import * as THREE from 'three';
 
 export type RefSlot = 'front' | 'side';
@@ -173,7 +174,7 @@ export async function loadPicture(bytes: ArrayBuffer): Promise<RefPicture> {
       canvas.width = Math.max(1, Math.round(bitmap.width * k));
       canvas.height = Math.max(1, Math.round(bitmap.height * k));
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      if (!ctx) throw new Error('浏览器没能准备画布');
+      if (!ctx) throw new Error(t('浏览器没能准备画布'));
       ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
       return { canvas, ctx };
     };

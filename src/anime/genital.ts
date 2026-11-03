@@ -6,6 +6,7 @@
  *
  * 两样都写在素体模型自己的坐标里（米，面朝 +Z，左手边是 +X；素体身高 1.48 米）。
  */
+import { t, tk } from '../i18n';
 import { type V3, len, mul, sub } from '../geometry/vec';
 import { fetchFile } from '../io/fetchFile';
 import { registerGrid } from '../sdf/grids';
@@ -13,8 +14,12 @@ import meta from './genitalMeta.json';
 import { type GraftMesh, decodeGraftMesh } from './graftMesh';
 import penis from './penisMesh.json';
 
-/** 导出时写进去的署名（CC BY 4.0 要求） */
-export const GENITAL_CREDIT = meta.credit;
+/**
+ * 导出时写进去的署名（CC BY 4.0 要求）。原文是 genitalMeta.json 里的 credit（tools/build-genital.ts 写的），
+ * 译文按原文查，所以把同一句登记成键；改了 JSON 里的署名就要同步改 GENITAL_CREDIT_KEY
+ */
+export const GENITAL_CREDIT_KEY = tk('阴茎、阴囊取自「DJP Male Base Mesh Mark 03」© Death Joe Productions（https://deathjoeproductions.gumroad.com/l/MaleBM03），CC BY 4.0（https://creativecommons.org/licenses/by/4.0/），有修改');
+export const GENITAL_CREDIT = t(meta.credit);
 /** 数据文件（阴囊、阴茎根部那一截的格子）：public 下面的路径 */
 export const GENITAL_URL = 'genital.bin';
 /** 阴囊、阴茎根部到切口那一截的格子登记用的名字。阴茎那块以根部（PENIS_BASE）为原点 */
@@ -81,7 +86,7 @@ let loading: Promise<ArrayBuffer> | null = null;
  * 返回取到的数据：网格是在 Worker 里算的，那边也要登记一份（见 sdf/meshClient 的 provideGenital）。
  */
 export function loadGenital(base = '/'): Promise<ArrayBuffer> {
-  loading ??= fetchFile(`${base}${GENITAL_URL}`, '阴囊数据')
+  loading ??= fetchFile(`${base}${GENITAL_URL}`, t('阴囊数据'))
     .then((buffer) => {
       installGenital(buffer);
       return buffer;

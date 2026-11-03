@@ -17,6 +17,7 @@ import { type FigureMetrics, nthName } from '../geometry/figure';
 import { type HangBlock, GAP, armDirection, hangAngles } from '../geometry/layout';
 import { FAN_YAW, INNER_ARM_DROP, torsoLean, torsoSlots } from '../geometry/torsos';
 import { type V3, UP, len, norm, quatBetween, quatConj, quatEuler, quatMul, rotate } from '../geometry/vec';
+import { t } from '../i18n';
 import { type BodySpec, colorToLinear, headHairColor, legPlan, BUST_MAX_OTHER } from '../model/spec';
 import { type BeastPiece, beastBody } from './beast';
 import { type ExtraHead, type ExtraKind, extraParts } from './extras';
@@ -595,7 +596,7 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
   const find = (name: string) => names.indexOf(name);
   const need = (name: string) => {
     const index = find(name);
-    if (index < 0) throw new Error(`角色里没有骨骼 ${name}`);
+    if (index < 0) throw new Error(t('角色里没有骨骼 {name}', { name }));
     return index;
   };
   /** root 和它下面所有的骨骼，root 排第一个，父骨骼总在子骨骼前面 */
@@ -772,7 +773,7 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
 
   /* ---- 这个样式顾不上的设定 ---- */
   const armPairs = Math.max(1, c.armPairs);
-  if (c.armPairs === 0) ignored.push('去掉手臂');
+  if (c.armPairs === 0) ignored.push(t('去掉手臂'));
   const legs = legPlan(spec);
   /** 从前往后每副胯上几条腿（人马、蛛形是每对腿一站，恒为 2） */
   const stations = legs.stations;
@@ -793,7 +794,7 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
    * 人腿前后排的（串联、人腿人马）是几副胯
    */
   const legPairs = row ? Math.ceil(legs.total / 2) : stations.length;
-  if (c.eyesPerHead !== 2) ignored.push('眼睛数量');
+  if (c.eyesPerHead !== 2) ignored.push(t('眼睛数量'));
 
   /* ---- 头身比：滑块在默认位置（7.5）时就是角色本来的比例 ---- */
   let top = -Infinity;
@@ -1472,7 +1473,7 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
       );
     }
   } else if (c.chestPairs > 1 || Math.abs(sh.bust - 1) > 1e-6) {
-    ignored.push('胸');
+    ignored.push(t('胸'));
   }
 
   /* ---- 单数条腿、一副胯上好几条腿用的几样做法 ---- */
@@ -2513,7 +2514,7 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
   }
   const seen = new Set<string>();
   for (const bone of bones) {
-    if (seen.has(bone.name)) throw new Error(`骨骼重名：${bone.name}`);
+    if (seen.has(bone.name)) throw new Error(t('骨骼重名：{name}', { name: bone.name }));
     seen.add(bone.name);
   }
 

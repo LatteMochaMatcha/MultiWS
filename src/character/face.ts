@@ -8,6 +8,7 @@
  *
  * 视线是转两只眼睛的骨骼：往外、往里、上下各能转多少度，文件里有（VRM 的 lookAt）。
  */
+import { t } from '../i18n';
 import { type Mat3, type Quat, type V3, mat3Apply, quatConj, quatMul, rotate } from '../geometry/vec';
 import type { Chunk, FaceMorphs } from './source';
 
@@ -35,10 +36,10 @@ export interface FaceInstance {
 /** 给人看的名字：头 1、头 2、脸 2 … */
 export function faceLabel(key: string): string {
   const copy = /^Head\.(\d+)$/.exec(key);
-  if (copy) return `头 ${Number(copy[1])}`;
+  if (copy) return t('头 {n}', { n: Number(copy[1]) });
   const extra = /^Head\/(\d+)$/.exec(key);
-  if (extra) return `脸 ${Number(extra[1])}`;
-  return '头 1';
+  if (extra) return t('脸 {n}', { n: Number(extra[1]) });
+  return t('头 {n}', { n: 1 });
 }
 
 /* ---------------- 「原始的脸 → 现在这张脸」 ---------------- */

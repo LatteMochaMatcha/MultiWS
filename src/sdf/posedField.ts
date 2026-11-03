@@ -33,6 +33,7 @@ import { type Quat, type V3, quatBasis, quatMul, rotate } from '../geometry/vec'
 import { type Skeleton, buildSkeleton } from '../rig/skeleton';
 import { BIG, type CompiledField, type Dist, type Draft, type FieldOptions, GROUP_BLEND, GROUP_INDEX, GROUPS, REST_ROOT_BLEND, T_CUSTOM, draftDist, pack, partDrafts } from './field';
 import { collectingChests } from './grids';
+import { t } from '../i18n';
 
 /** 每根骨骼的蒙皮矩阵：12 个数一根（3×3 的旋转按行排，后面是平移），骨骼的顺序和 buildSkeleton 给静止姿势排的一样 */
 export type PoseMatrices = ArrayLike<number>;
@@ -851,7 +852,7 @@ export function compilePosedField(
   rooms: Room[] = [],
 ): CompiledField {
   const skeleton = buildSkeleton(figure);
-  if (matrices.length !== skeleton.bones.length * 12) throw new Error(`姿势里有 ${matrices.length / 12} 根骨骼，骨架里是 ${skeleton.bones.length} 根`);
+  if (matrices.length !== skeleton.bones.length * 12) throw new Error(t('姿势里有 {n} 根骨骼，骨架里是 {bones} 根', { n: matrices.length / 12, bones: skeleton.bones.length }));
   const xfs = worldTransforms(figure);
   const minR = options.minRadius ?? 0;
   const byName = new Map(figure.parts.map((part) => [part.name, part]));

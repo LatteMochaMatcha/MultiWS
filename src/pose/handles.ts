@@ -9,6 +9,8 @@
  * 手指也是这样，每根在指尖有一个点；后两节只朝手心那一个方向弯，不会被拖得往旁边、往手背折。
  */
 import type { V3 } from '../geometry/vec';
+import { t } from '../i18n';
+import { cap } from '../model/partLabel';
 import { FINGER_LABEL, FINGER_NAMES, fingerHinge } from './fingers';
 import type { AimLink } from './solve';
 import type { Solver } from './solver';
@@ -46,7 +48,7 @@ const nth = (name: string) => {
   const m = /\.(\d+)$/.exec(name);
   return m ? ` ${Number(m[1])}` : '';
 };
-const sideWord = (name: string) => (/_L(\.\d+)?$/.test(name) ? ' 左' : /_R(\.\d+)?$/.test(name) ? ' 右' : '');
+const sideWord = (name: string) => (/_L(\.\d+)?$/.test(name) ? ' ' + t('左') : /_R(\.\d+)?$/.test(name) ? ' ' + t('右') : '');
 const DEG = Math.PI / 180;
 /** 手指的后两节最多往手背翘多少、往手心弯多少（弧度）：第 2 节、第 3 节 */
 const FINGER_BEND = [
@@ -57,22 +59,22 @@ const FINGER_BEND = [
 /** 一串挂着的骨骼叫什么、归哪一组 */
 function chainLabel(name: string): { group: HandleGroup; label: string } {
   let m: RegExpExecArray | null;
-  if ((m = /^Tail_(\d+)/.exec(name))) return { group: 'tail', label: `尾巴 ${Number(m[1])}` };
-  if ((m = /^Wing_(\d+)/.exec(name))) return { group: 'tail', label: `翅膀${sideWord(name)}${Number(m[1]) > 1 ? ` ${Number(m[1])}` : ''}` };
-  if ((m = /^LowerBody_(\d+)/.exec(name))) return { group: 'tail', label: `兽身 ${Number(m[1])}` };
-  if (name === 'Abdomen') return { group: 'tail', label: '腹部' };
-  if ((m = /^Penis_(\d+)/.exec(name))) return { group: 'genital', label: `阴茎 ${Number(m[1])}` };
-  if ((m = /^Scrotum_(\d+)/.exec(name))) return { group: 'genital', label: `阴囊 ${Number(m[1])}` };
-  if ((m = /^Hair\D*(\d+)/.exec(name))) return { group: 'hair', label: `头发 ${Number(m[1])}` };
+  if ((m = /^Tail_(\d+)/.exec(name))) return { group: 'tail', label: t('尾巴 {n}', { n: Number(m[1]) }) };
+  if ((m = /^Wing_(\d+)/.exec(name))) return { group: 'tail', label: t('翅膀') + sideWord(name) + (Number(m[1]) > 1 ? ` ${Number(m[1])}` : '') };
+  if ((m = /^LowerBody_(\d+)/.exec(name))) return { group: 'tail', label: t('兽身 {n}', { n: Number(m[1]) }) };
+  if (name === 'Abdomen') return { group: 'tail', label: t('腹部') };
+  if ((m = /^Penis_(\d+)/.exec(name))) return { group: 'genital', label: t('阴茎 {n}', { n: Number(m[1]) }) };
+  if ((m = /^Scrotum_(\d+)/.exec(name))) return { group: 'genital', label: t('阴囊 {n}', { n: Number(m[1]) }) };
+  if ((m = /^Hair\D*(\d+)/.exec(name))) return { group: 'hair', label: t('头发 {n}', { n: Number(m[1]) }) };
   // 裙摆；新版 VRoid 的外套下摆叫 CoatSkirt…
   if ((m = /^(Coat)?Skirt(Front|Back|Side)?/.exec(name))) {
-    const where = { Front: ' 前', Back: ' 后', Side: ' 侧' }[m[2] as 'Front' | 'Back' | 'Side'] ?? '';
-    return { group: 'hair', label: `${m[1] ? '衣摆' : '裙摆'}${where}${sideWord(name)}` };
+    const where = { Front: ' ' + t('前'), Back: ' ' + t('后'), Side: ' ' + t('侧') }[m[2] as 'Front' | 'Back' | 'Side'] ?? '';
+    return { group: 'hair', label: (m[1] ? t('衣摆') : t('裙摆')) + where + sideWord(name) };
   }
   // 角色自带的兽耳（配饰）：RabbitEar1_01_L、CatEar1_01_R …
-  if (/^[A-Za-z]*Ear\d/.test(name)) return { group: 'hair', label: `耳朵${sideWord(name)}` };
-  if (/Sleeve/.test(name)) return { group: 'hair', label: `袖子${sideWord(name)}` };
-  if (/^Bust/.test(name)) return { group: 'hair', label: `胸${sideWord(name)}` };
+  if (/^[A-Za-z]*Ear\d/.test(name)) return { group: 'hair', label: t('耳朵') + sideWord(name) };
+  if (/Sleeve/.test(name)) return { group: 'hair', label: t('袖子') + sideWord(name) };
+  if (/^Bust/.test(name)) return { group: 'hair', label: t('胸') + sideWord(name) };
   return { group: 'hair', label: name };
 }
 
@@ -94,7 +96,7 @@ export function buildHandles(solver: Solver): Handle[] {
   });
 
   const hips = rig.hips;
-  handles.push(joint(hips, { kind: 'body', group: 'torso', label: '胯' }));
+  handles.push(joint(hips, { kind: 'body', group: 'torso', label: cap(t('胯')) }));
 
   // 脊柱：从胯往上一节一节，走到带着脖子的那一节为止。好几个上半身时胯上长着好几串，各有各的腰和胸
   const roots = kids[hips].filter((k) => SPINE.test(rig.names[k]));
@@ -104,15 +106,15 @@ export function buildHandles(solver: Solver): Handle[] {
     const where = sideWord(rig.names[root]);
     if (roots.length === 1) {
       // 腰：拖它是整个上身从胯那里倾过去
-      handles.push(joint(spine[0], { kind: 'aim', group: 'torso', label: '腰', links: [{ bone: hips, weight: 1 }] }));
+      handles.push(joint(spine[0], { kind: 'aim', group: 'torso', label: cap(t('腰')), links: [{ bone: hips, weight: 1 }] }));
     } else if (spine.length > 2) {
       // 好几个上半身：胯不动，只有这一个从腰那里倾过去
-      handles.push(joint(spine[1], { id: `${rig.names[root]}:waist`, kind: 'aim', group: 'torso', label: `腰${where}`, links: [{ bone: spine[0], weight: 1 }] }));
+      handles.push(joint(spine[1], { id: `${rig.names[root]}:waist`, kind: 'aim', group: 'torso', label: cap(t('腰')) + where, links: [{ bone: spine[0], weight: 1 }] }));
     }
     // 胸：拖它是弯腰，下面几节脊柱一起弯
     if (spine.length > 1) {
       const below = spine.slice(0, -1).reverse();
-      handles.push(joint(spine[spine.length - 1], { kind: 'aim', group: 'torso', label: `胸${where}`, links: below.map((bone) => ({ bone, weight: 0.6 })) }));
+      handles.push(joint(spine[spine.length - 1], { kind: 'aim', group: 'torso', label: t('胸{side}', { side: where }), links: below.map((bone) => ({ bone, weight: 0.6 })) }));
     }
   }
   /** 从这根骨骼往上（往胯那边）的几节脊柱，近的在前 */
@@ -126,35 +128,35 @@ export function buildHandles(solver: Solver): Handle[] {
     if (/^Neck(\.\d+)?$/.test(name)) {
       // 脖子根：拖它是含胸、挺胸，越靠上的脊柱弯得越多（弯的是这根脖子所在的那个上半身的脊柱）
       const links = spineAbove(bone).map((b, i) => ({ bone: b, weight: Math.max(0.25, 0.5 - 0.1 * i) }));
-      handles.push(joint(bone, { kind: 'aim', group: 'head', label: `脖子${nth(name)}`, links }));
+      handles.push(joint(bone, { kind: 'aim', group: 'head', label: cap(t('脖子')) + nth(name), links }));
     } else if (/^Head(\.\d+)?$/.test(name)) {
       const neck = rig.parent[bone];
-      handles.push(joint(bone, { kind: 'aim', group: 'head', label: `头${nth(name)}`, links: neck >= 0 ? [{ bone: neck, weight: 1 }] : [] }));
+      handles.push(joint(bone, { kind: 'aim', group: 'head', label: cap(t('头')) + nth(name), links: neck >= 0 ? [{ bone: neck, weight: 1 }] : [] }));
       // 头顶：拖它是歪头、点头，脖子也跟着弯一点
       const links: AimLink[] = [{ bone, weight: 0.7 }];
       if (neck >= 0) links.push({ bone: neck, weight: 0.3 });
-      handles.push(joint(bone, { id: `${name}:tip`, kind: 'aim', group: 'head', label: `头顶${nth(name)}`, rest: rig.tail[bone], links }));
+      handles.push(joint(bone, { id: `${name}:tip`, kind: 'aim', group: 'head', label: t('头顶') + nth(name), rest: rig.tail[bone], links }));
     }
   });
 
   limbs.forEach((limb, i) => {
     const arm = limb.kind === 'arm';
     const group: HandleGroup = arm ? 'arm' : 'leg';
-    const which = ` ${limb.side > 0 ? '左' : limb.side < 0 ? '右' : '中'}${limb.pair ? ` ${limb.pair + 1}` : ''}`;
+    const side = (limb.side > 0 ? t('左') : limb.side < 0 ? t('右') : t('中')) + (limb.pair ? ` ${limb.pair + 1}` : '');
     // 肩、大腿根：拖它是带着它的那节（锁骨、胯）转过去
     const base = rig.parent[limb.upper];
-    handles.push(joint(limb.upper, { kind: 'aim', group, label: `${arm ? '肩' : '大腿根'}${which}`, links: base >= 0 ? [{ bone: base, weight: 1 }] : [] }));
-    handles.push(joint(limb.lower, { kind: 'bend', group, label: `${arm ? '肘' : '膝'}${which}`, limb: i }));
-    handles.push(joint(limb.end, { kind: 'reach', group, label: `${arm ? '手' : '脚'}${which}`, limb: i }));
+    handles.push(joint(limb.upper, { kind: 'aim', group, label: arm ? t('肩 {side}', { side }) : t('大腿根 {side}', { side }), links: base >= 0 ? [{ bone: base, weight: 1 }] : [] }));
+    handles.push(joint(limb.lower, { kind: 'bend', group, label: arm ? t('肘 {side}', { side }) : t('膝 {side}', { side }), limb: i }));
+    handles.push(joint(limb.end, { kind: 'reach', group, label: arm ? t('手 {side}', { side }) : t('脚 {side}', { side }), limb: i }));
     if (!arm) {
       const toes = kids[limb.end].find((k) => /^Toe/.test(rig.names[k]));
-      if (toes !== undefined) handles.push(joint(toes, { kind: 'aim', group, label: `脚尖${which}`, links: [{ bone: limb.end, weight: 1 }] }));
+      if (toes !== undefined) handles.push(joint(toes, { kind: 'aim', group, label: t('脚尖 {side}', { side }), links: [{ bone: limb.end, weight: 1 }] }));
     }
   });
 
   // 手指：每根在指尖一个点。拖它整根跟着弯，点一下转的是整根（绕指根）
   for (const hand of solver.hands) {
-    const which = ` ${hand.side > 0 ? '左' : '右'}${hand.pair ? ` ${hand.pair + 1}` : ''}`;
+    const which = ' ' + (hand.side > 0 ? t('左') : t('右')) + (hand.pair ? ` ${hand.pair + 1}` : '');
     hand.fingers.forEach((chain, f) => {
       if (!chain.length) return;
       const tip = chain[chain.length - 1];

@@ -7,6 +7,7 @@
  * 每个网格 Worker 和每个帮手之间各开一条通道，活直接从网格 Worker 发给帮手，不经过这里。
  */
 import type { HairShape } from '../hair/shapes';
+import { LANG, t } from '../i18n';
 import type { PortMessage } from './eval.worker';
 import type { FuseJob, FuseResult } from './job';
 import type { CancelMessage, GenitalMessage, HairMessage, HelpersMessage, MeshReply, MeshRequest, PhoneMessage, ShapesMessage, SpreadMessage } from './mesh.worker';
@@ -42,6 +43,9 @@ let helpers: Worker[] | null = null;
 const phone = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 
 /** 开几个帮手：留两个核给界面和网格 Worker 自己；手机上最多 3 个（每个要多占一二十兆内存） */
+/** 线程名里带上语言：线程里报的错也照页面的语言（见 i18n/index.ts 的 detect） */
+const WORKER_NAME = `oc-mesh lang=${LANG}`;
+
 function helperCount(): number {
   const cores = navigator.hardwareConcurrency || 2;
   return Math.max(0, Math.min(phone ? 3 : 6, cores - 2));
@@ -50,7 +54,7 @@ function helperCount(): number {
 function startHelpers(): Worker[] {
   const made: Worker[] = [];
   try {
-    for (let i = 0; i < helperCount(); i++) made.push(new Worker(new URL('./eval.worker.ts', import.meta.url), { type: 'module' }));
+    for (let i = 0; i < helperCount(); i++) made.push(new Worker(new URL('./eval.worker.ts', import.meta.url), { type: 'module', name: WORKER_NAME }));
   } catch {
     // 开不了这么多线程：有几个用几个，一个都没有就网格 Worker 自己算
   }
@@ -127,7 +131,7 @@ export class MeshClient {
   private genitalSent = false;
 
   private start(): Worker {
-    const worker = new Worker(new URL('./mesh.worker.ts', import.meta.url), { type: 'module' });
+    const worker = new Worker(new URL('./mesh.worker.ts', import.meta.url), { type: 'module', name: WORKER_NAME });
     worker.onmessage = (event: MessageEvent<MeshReply>) => {
       const done = this.running;
       this.running = null;
@@ -154,7 +158,7 @@ export class MeshClient {
     worker.onerror = (event) => {
       const done = this.running;
       this.running = null;
-      done?.reject(new Error(event.message || '网格线程出错'));
+      done?.reject(new Error(event.message || t('网格线程出错')));
       this.pump();
     };
     return worker;

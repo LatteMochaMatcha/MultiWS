@@ -5,6 +5,7 @@
  *
  * 纯函数，不依赖浏览器：贴图只取原始的图片字节，显示时再由界面那边解码。
  */
+import { t } from '../i18n';
 import type { V3 } from '../geometry/vec';
 import { type GlbDoc, readAccessor, readBufferView, readGlb } from '../io/glbRead';
 import { type VrmToon, toonFromV1 } from '../io/vrm';
@@ -224,7 +225,7 @@ function readBones(doc: GlbDoc, turned: boolean): { bones: SourceBone[]; ofNode:
       const m = inverse.subarray(j * 16, j * 16 + 16);
       // 逆绑定矩阵按列存：前三列是旋转，第四列是平移
       const identity = [m[0], m[5], m[10]].every((v) => Math.abs(v - 1) < 1e-4) && [m[1], m[2], m[4], m[6], m[8], m[9]].every((v) => Math.abs(v) < 1e-4);
-      if (!identity) throw new Error(`骨骼 ${json.nodes[node].name} 在静止姿势下带旋转或缩放，这种模型还读不了`);
+      if (!identity) throw new Error(t('骨骼 {name} 在静止姿势下带旋转或缩放，这种模型还读不了', { name: json.nodes[node].name }));
       ofNode.set(node, bones.length);
       // 关节的位置就是平移取反；VRM 0.x 的再换成面朝 +Z
       bones.push({ name: json.nodes[node].name ?? `Bone_${node}`, parent: -1, pos: turned ? [m[12], -m[13], m[14]] : [-m[12], -m[13], -m[14]] });
@@ -246,7 +247,7 @@ export function readCharacter(buffer: ArrayBuffer, options: ReadOptions = {}): C
   const { json } = doc;
   const vrm0 = json.extensions?.VRM;
   const vrm1 = json.extensions?.VRMC_vrm;
-  if (options.strict && !vrm0 && !vrm1) throw new Error('这个文件不是 VRM（GLB 里没有 VRM 的扩展）');
+  if (options.strict && !vrm0 && !vrm1) throw new Error(t('这个文件不是 VRM（GLB 里没有 VRM 的扩展）'));
   const turn = vrm1 ? (data: Float32Array) => data : turnAround;
   const { bones, ofNode } = readBones(doc, !vrm1);
   // 不是 VRoid 做的：照人形骨骼对照表把身体的骨骼换成 VRoid 的名字
@@ -262,7 +263,7 @@ export function readCharacter(buffer: ArrayBuffer, options: ReadOptions = {}): C
     }
   }
   const missing = REQUIRED.filter(([name]) => !bones.some((b) => b.name === name)).map(([, h]) => h);
-  if (options.strict && missing.length) throw new Error(`这个模型缺少工坊要用的人形骨骼：${missing.join('、')}`);
+  if (options.strict && missing.length) throw new Error(t('这个模型缺少工坊要用的人形骨骼：{bones}', { bones: missing.join(t('、')) }));
 
   // 只留用得到的材质和底色贴图（法线贴图、缩略图这些不要）
   const materials: SourceMaterial[] = [];
@@ -430,7 +431,7 @@ export function readCharacter(buffer: ArrayBuffer, options: ReadOptions = {}): C
           const w = sum > 0 ? weight[from * 4 + k] / sum : k === 0 ? 1 : 0;
           if (!(w > 0)) continue;
           const bone = ofNode.get(skinJoints[joint[from * 4 + k]]);
-          if (bone === undefined) throw new Error(`网格 ${chunk.name} 用到了骨架以外的关节`);
+          if (bone === undefined) throw new Error(t('网格 {name} 用到了骨架以外的关节', { name: chunk.name }));
           let slot = 0;
           while (slot < filled && chunk.joints[to * 4 + slot] !== bone) slot++;
           if (slot === filled) chunk.joints[to * 4 + filled++] = bone;
@@ -442,7 +443,7 @@ export function readCharacter(buffer: ArrayBuffer, options: ReadOptions = {}): C
       chunks.push(chunk);
     }
   }
-  if (!chunks.length) throw new Error('文件里没有带蒙皮的网格');
+  if (!chunks.length) throw new Error(t('文件里没有带蒙皮的网格'));
 
   const meta = (vrm1 ? vrm1.meta : vrm0?.meta) ?? {};
   // 缩略图：0.x 记的是贴图的下标，1.0 记的是图片的下标

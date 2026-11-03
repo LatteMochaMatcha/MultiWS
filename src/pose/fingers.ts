@@ -8,6 +8,7 @@
  * 手臂平举（T-pose）、手心朝下、四指并拢朝外伸直，拇指也贴着四指朝外。
  * 所以同一个手势放到静止时手指微张的角色上、手指微弯的骨架上，摆出来是同一个样子。
  */
+import { tk, t } from '../i18n';
 import { type Quat, type V3, add, cross, len, mul, norm, quatConj, quatMul, rotate, sub } from '../geometry/vec';
 import { type Limb, limbFrame } from './limbs';
 import { anyPerp, quatUnit, reject } from './math';
@@ -18,7 +19,7 @@ import type { Solver } from './solver';
 export const FINGER_NAMES = ['Thumb', 'Index', 'Middle', 'Ring', 'Little'] as const;
 export type FingerName = (typeof FINGER_NAMES)[number];
 /** 给人看的名字 */
-export const FINGER_LABEL: Record<FingerName, string> = { Thumb: '拇指', Index: '食指', Middle: '中指', Ring: '无名指', Little: '小指' };
+export const FINGER_LABEL: Record<FingerName, string> = { Thumb: t('拇指'), Index: t('食指'), Middle: t('中指'), Ring: t('无名指'), Little: t('小指') };
 
 /** 骨骼名是不是手指的一节；是的话给出是哪根手指、第几节 */
 export function fingerOf(name: string): { finger: FingerName; joint: number } | null {
@@ -370,25 +371,26 @@ const THUMB_UP: Five = [64, 0, 0, -5, -8];
 export const RELAXED = hand([40, 16, 10, 8, 14], [14, 22, 12, 5], [20, 28, 15, 1], [26, 32, 18, -3], [32, 36, 20, -8]);
 
 export interface Gesture {
+  /** 手势名：中文原文，既是 __oc.pose.gesture() 和工具里按名字找的键，也是译文的键（界面上显示时用 t(name)） */
   name: string;
   shape: HandShape;
 }
 
 export const GESTURES: Gesture[] = [
-  { name: '放松', shape: RELAXED },
-  { name: '张开', shape: hand([THUMB_OPEN.far, THUMB_OPEN.down, 0, 0, 0], UP(SPLAY[0]), UP(SPLAY[1]), UP(SPLAY[2]), UP(SPLAY[3])) },
-  { name: '并拢', shape: hand([14, 6, 0, 0, 0], UP(), UP(), UP(), UP()) },
-  { name: '握拳', shape: hand(TUCK, DOWN, DOWN, DOWN, DOWN) },
-  { name: '握着东西', shape: hand([40, 28, 30, 35, 40], [58, 78, 45, 0], [60, 80, 46, 0], [62, 82, 48, 0], [64, 84, 50, 0]) },
-  { name: '指', shape: hand(TUCK, UP(), DOWN, DOWN, DOWN) },
-  { name: '剪刀手', shape: hand(TUCK, UP(12), UP(-10), DOWN, DOWN) },
-  { name: '三', shape: hand(TUCK, UP(12), UP(1), UP(-11), DOWN) },
-  { name: '四', shape: hand([32, 18, 35, 75, 35], UP(9), UP(2), UP(-5), UP(-13)) },
-  { name: '竖大拇指', shape: hand(THUMB_UP, DOWN, DOWN, DOWN, DOWN) },
+  { name: tk('放松'), shape: RELAXED },
+  { name: tk('张开'), shape: hand([THUMB_OPEN.far, THUMB_OPEN.down, 0, 0, 0], UP(SPLAY[0]), UP(SPLAY[1]), UP(SPLAY[2]), UP(SPLAY[3])) },
+  { name: tk('并拢'), shape: hand([14, 6, 0, 0, 0], UP(), UP(), UP(), UP()) },
+  { name: tk('握拳'), shape: hand(TUCK, DOWN, DOWN, DOWN, DOWN) },
+  { name: tk('握着东西'), shape: hand([40, 28, 30, 35, 40], [58, 78, 45, 0], [60, 80, 46, 0], [62, 82, 48, 0], [64, 84, 50, 0]) },
+  { name: tk('指'), shape: hand(TUCK, UP(), DOWN, DOWN, DOWN) },
+  { name: tk('剪刀手'), shape: hand(TUCK, UP(12), UP(-10), DOWN, DOWN) },
+  { name: tk('三'), shape: hand(TUCK, UP(12), UP(1), UP(-11), DOWN) },
+  { name: tk('四'), shape: hand([32, 18, 35, 75, 35], UP(9), UP(2), UP(-5), UP(-13)) },
+  { name: tk('竖大拇指'), shape: hand(THUMB_UP, DOWN, DOWN, DOWN, DOWN) },
   { name: 'OK', shape: hand([35, 35, 30, 40, 40], [40, 60, 45, 4], [8, 14, 8, 1], [5, 9, 6, -8], [2, 6, 5, -18]) },
-  { name: '摇滚', shape: hand(TUCK, UP(8), DOWN, DOWN, UP(-12)) },
-  { name: '六', shape: hand(THUMB_UP, DOWN, DOWN, DOWN, UP(-22)) },
-  { name: '手枪', shape: hand(THUMB_UP, UP(), DOWN, DOWN, DOWN) },
-  { name: '爪', shape: hand([55, 20, 10, 25, 45], [14, 78, 55, 16], [14, 80, 56, 4], [14, 80, 56, -8], [14, 78, 55, -20]) },
-  { name: '捏', shape: hand([35, 35, 30, 40, 40], [44, 52, 30, 4], [40, 50, 30, 0], [48, 55, 34, -3], [55, 60, 38, -7]) },
+  { name: tk('摇滚'), shape: hand(TUCK, UP(8), DOWN, DOWN, UP(-12)) },
+  { name: tk('六'), shape: hand(THUMB_UP, DOWN, DOWN, DOWN, UP(-22)) },
+  { name: tk('手枪'), shape: hand(THUMB_UP, UP(), DOWN, DOWN, DOWN) },
+  { name: tk('爪'), shape: hand([55, 20, 10, 25, 45], [14, 78, 55, 16], [14, 80, 56, 4], [14, 80, 56, -8], [14, 78, 55, -20]) },
+  { name: tk('捏'), shape: hand([35, 35, 30, 40, 40], [44, 52, 30, 4], [40, 50, 30, 0], [48, 55, 34, -3], [55, 60, 38, -7]) },
 ];

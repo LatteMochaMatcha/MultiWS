@@ -6,10 +6,12 @@
  * 这里换成一句看得懂、知道该怎么办的话。
  */
 
+import { t } from '../i18n';
+
 /** 连不上工坊的程序 */
 export class OfflineError extends Error {
   constructor() {
-    super('连不上工坊的程序，它可能已经关掉了。重新打开它（双击 exe，或者 npm run dev），回到这个页面就会自动重试');
+    super(t('连不上工坊的程序，它可能已经关掉了。重新打开它（双击 exe，或者 npm run dev），回到这个页面就会自动重试'));
     this.name = 'OfflineError';
   }
 }
@@ -22,7 +24,7 @@ export async function fetchFile(url: string, what: string): Promise<ArrayBuffer>
   } catch {
     throw new OfflineError();
   }
-  if (!response.ok) throw new Error(`${what}没取到（${response.status}）`);
+  if (!response.ok) throw new Error(t('{what}没取到（{status}）', { what, status: response.status }));
   try {
     return await response.arrayBuffer();
   } catch {

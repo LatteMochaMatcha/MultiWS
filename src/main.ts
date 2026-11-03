@@ -1,4 +1,5 @@
 import './style.css';
+import { type Lang, LANG, LANGS, setLang, t, tk, translatePage, variants } from './i18n';
 import { type Box3, type Raycaster, Matrix4 } from 'three';
 import { TORSO_CREDIT, animeGrid, animeReady, loadAnimeBody } from './anime/body';
 import { FOOT_CREDIT } from './anime/foot';
@@ -141,20 +142,23 @@ import { Tour } from './view/tour';
 import { type SkinSource, FlatParts, PosedMeshes, WHITE_BLEND } from './view/posedMeshes';
 import { type CameraState, type ViewName, VIEW_DEFAULTS, VIEW_LIMITS, Viewport } from './view/viewport';
 
+// 写死在 index.html 里的文字先换成当前语言，后面的代码再往页面上加东西
+translatePage();
+
 const STORE_KEY = 'oc-basemesh-v2';
 const THEME_KEY = 'oc-basemesh-theme';
 /** 面板里哪几栏折叠着 */
 const UI_KEY = 'oc-basemesh-ui';
-const START_TEXT = '两个头，两对手，两对胸';
+const START_TEXT = t('两个头，两对手，两对胸');
 
-const HEAD_LABEL: Record<HeadLayout, string> = { cluster: '凑成一簇', faces: '一个头几张脸', wide: '宽躯干' };
-const ARM_LABEL: Record<ArmLayout, string> = { stack: '沿躯干上下排', fan: '肩部扇形聚拢' };
-const MESH_LABEL: Record<MeshMode, string> = { fused: '融合成一整块', parts: '分部件（v1）' };
-const HAND_LABEL: Record<HandStyle, string> = { fingers: '分指', mitten: '并指（手套形）' };
-const PENIS_LABEL: Record<PenisLayout, string> = { row: '左右并排', stack: '上下叠', fan: '扇形散开', grid: '几乘几' };
-const SCROTUM_LABEL: Record<ScrotumMode, string> = { shared: '几根共用一个', each: '每根各带一个' };
-const GENDER_LABEL: Record<Gender, string> = { female: '女性', male: '男性' };
-const BODY_LABEL: Record<BodyStyle, string> = { mannequin: '白模人台', anime: '二次元素体', character: '成品角色' };
+const HEAD_LABEL: Record<HeadLayout, string> = { cluster: t('凑成一簇'), faces: t('一个头几张脸'), wide: t('宽躯干') };
+const ARM_LABEL: Record<ArmLayout, string> = { stack: t('沿躯干上下排'), fan: t('肩部扇形聚拢') };
+const MESH_LABEL: Record<MeshMode, string> = { fused: t('融合成一整块'), parts: t('分部件（v1）') };
+const HAND_LABEL: Record<HandStyle, string> = { fingers: t('分指'), mitten: t('并指（手套形）') };
+const PENIS_LABEL: Record<PenisLayout, string> = { row: t('左右并排'), stack: t('上下叠'), fan: t('扇形散开'), grid: t('几乘几') };
+const SCROTUM_LABEL: Record<ScrotumMode, string> = { shared: t('几根共用一个'), each: t('每根各带一个') };
+const GENDER_LABEL: Record<Gender, string> = { female: t('女性'), male: t('男性') };
+const BODY_LABEL: Record<BodyStyle, string> = { mannequin: t('白模人台'), anime: t('二次元素体'), character: t('成品角色') };
 /** 这几个滑块对这种身体不起作用 */
 const FIXED_SHAPES: Record<BodyStyle, ReadonlySet<ShapeDef['key']>> = {
   mannequin: new Set(),
@@ -163,41 +167,41 @@ const FIXED_SHAPES: Record<BodyStyle, ReadonlySet<ShapeDef['key']>> = {
 };
 const BODY_NOTE: Record<BodyStyle, string> = {
   mannequin: '',
-  anime: '头、躯干、手臂、腿的形状来自 VRoid Studio 旧版的女性素体（CC0）。体型是在她原来的样子上拉宽、压窄、变粗变细：肩宽、腰宽、胯宽、四肢粗细都能调，体格是这几样一起变；胯宽只对站着的那一对人腿起作用（人马、蛛形、单足、一副胯上三条以上腿时不变）。性别、手的样式对她不起作用。',
+  anime: t('头、躯干、手臂、腿的形状来自 VRoid Studio 旧版的女性素体（CC0）。体型是在她原来的样子上拉宽、压窄、变粗变细：肩宽、腰宽、胯宽、四肢粗细都能调，体格是这几样一起变；胯宽只对站着的那一对人腿起作用（人马、蛛形、单足、一副胯上三条以上腿时不变）。性别、手的样式对她不起作用。'),
   character:
-    '带头发、衣服和贴图的现成角色，上面「角色」里选是哪一个。多出来的头、手臂、胸是把她自己的复制一份接上去，各块互相插在一起，不融合；尾巴、翅膀、角、兽耳，还有人马的马身、蛛形的蜘蛛身，是另外捏的单色部件。腿选「人腿人马」「前后串联」「胯部聚拢」时，多出来的腿是把她自己的胯和腿（连裙子、鞋）复制一份接上去（胯部聚拢时一副紧贴一副，腿往外散开）；「左右并排」、一副胯上三条以上腿时，是把她的胯中间那一段（两条大腿的里侧加上裆部）照原样复制几份排开。好几个上半身时，是把她腰以上（连头发、衣服、手臂）整个复制一份，从腰那里往两边弯开，两份在腰上互相插着。体型除了「体格」都能调：肩宽、腰宽、胯宽、四肢粗细、手臂长短是直接把她的身体和衣服拉宽、拉长，调得多了贴图上的花纹会跟着变形。',
+    t('带头发、衣服和贴图的现成角色，上面「角色」里选是哪一个。多出来的头、手臂、胸是把她自己的复制一份接上去，各块互相插在一起，不融合；尾巴、翅膀、角、兽耳，还有人马的马身、蛛形的蜘蛛身，是另外捏的单色部件。腿选「人腿人马」「前后串联」「胯部聚拢」时，多出来的腿是把她自己的胯和腿（连裙子、鞋）复制一份接上去（胯部聚拢时一副紧贴一副，腿往外散开）；「左右并排」、一副胯上三条以上腿时，是把她的胯中间那一段（两条大腿的里侧加上裆部）照原样复制几份排开。好几个上半身时，是把她腰以上（连头发、衣服、手臂）整个复制一份，从腰那里往两边弯开，两份在腰上互相插着。体型除了「体格」都能调：肩宽、腰宽、胯宽、四肢粗细、手臂长短是直接把她的身体和衣服拉宽、拉长，调得多了贴图上的花纹会跟着变形。'),
 };
-const HAIR_LABEL: Record<HairStyle, string> = { own: '原装', long: '长直发', sidetail: '侧马尾', bob: '波波头', twintails: '双马尾' };
+const HAIR_LABEL: Record<HairStyle, string> = { own: t('原装'), long: t('长直发'), sidetail: t('侧马尾'), bob: t('波波头'), twintails: t('双马尾') };
 /** 常用的发色，点一下就染过去 */
 const HAIR_SWATCHES: readonly [name: string, color: string][] = [
-  ['黑', '#23222a'],
-  ['棕', '#6b4a32'],
-  ['金', '#e8cf7a'],
-  ['银', '#d5dbe6'],
-  ['粉', '#f0a3bd'],
-  ['红', '#c2413b'],
-  ['蓝', '#4f7fd1'],
-  ['绿', '#5fae86'],
-  ['紫', '#8e6ccf'],
+  [t('黑'), '#23222a'],
+  [t('棕'), '#6b4a32'],
+  [t('金'), '#e8cf7a'],
+  [t('银'), '#d5dbe6'],
+  [t('粉'), '#f0a3bd'],
+  [t('红'), '#c2413b'],
+  [t('蓝'), '#4f7fd1'],
+  [t('绿'), '#5fae86'],
+  [t('紫'), '#8e6ccf'],
 ];
 /** 「原装」那一格在白模上叫什么：白模没有自己的头发，不戴就是光头 */
-const HAIR_OWN_LABEL: Record<BodyStyle, string> = { mannequin: '光头', anime: '光头', character: '原装' };
+const HAIR_OWN_LABEL: Record<BodyStyle, string> = { mannequin: t('光头'), anime: t('光头'), character: t('原装') };
 const HAIR_NOTE: Record<'character' | 'clay', string> = {
   character:
-    '几种发型是从别的现成模型上取下来的头发（pixiv 以 CC0 发布的 VRoid 样例），整个换到她头上；多出来的头跟着换。发色是染上去的，发夹、丝带、挑染保持原样；几个头的时候先在「染哪个头」里点一个头，就只染它（兽耳跟着它），点「全部」就几个头一起染。长度只管垂在鼻尖以下的那一段。',
-  clay: '戴的是和成品角色同一批现成的头发，转成了没有颜色的白模，和头融合成一整块；多出来的头各戴一副，角和兽耳长在头发外面。白模没有颜色，发色只有成品角色用得上。长度只管垂在鼻尖以下的那一段。',
+    t('几种发型是从别的现成模型上取下来的头发（pixiv 以 CC0 发布的 VRoid 样例），整个换到她头上；多出来的头跟着换。发色是染上去的，发夹、丝带、挑染保持原样；几个头的时候先在「染哪个头」里点一个头，就只染它（兽耳跟着它），点「全部」就几个头一起染。长度只管垂在鼻尖以下的那一段。'),
+  clay: t('戴的是和成品角色同一批现成的头发，转成了没有颜色的白模，和头融合成一整块；多出来的头各戴一副，角和兽耳长在头发外面。白模没有颜色，发色只有成品角色用得上。长度只管垂在鼻尖以下的那一段。'),
 };
-const POSE_LABEL: Record<Pose, string> = { A: 'A-pose（手臂下垂）', T: 'T-pose（手臂平举）' };
-const GIZMO_LABEL: Record<GizmoMode, string> = { translate: '移动', rotate: '旋转', scale: '缩放' };
+const POSE_LABEL: Record<Pose, string> = { A: t('A-pose（手臂下垂）'), T: t('T-pose（手臂平举）') };
+const GIZMO_LABEL: Record<GizmoMode, string> = { translate: t('移动'), rotate: t('旋转'), scale: t('缩放') };
 const LEG_LABEL: Record<LegLayout, string> = {
-  auto: '自动',
-  taur: '人马式',
-  spider: '蛛形',
-  humantaur: '人腿人马',
-  tandem: '前后串联',
-  row: '左右并排',
-  gather: '胯部聚拢',
-  abreast: '横排多胯',
+  auto: t('自动'),
+  taur: t('人马式'),
+  spider: t('蛛形'),
+  humantaur: t('人腿人马'),
+  tandem: t('前后串联'),
+  row: t('左右并排'),
+  gather: t('胯部聚拢'),
+  abreast: t('横排多胯'),
 };
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -208,6 +212,11 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text 
   if (text) node.textContent = text;
   return node;
 }
+
+/** 几句话接成一段：中文、日文的句子之间不留空，英文要空一格 */
+const joinSentences = (parts: readonly string[]) => parts.filter(Boolean).join(LANG === 'en' ? ' ' : '');
+/** 错误对象里给人看的那句话 */
+const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /* ---------------- 状态 ---------------- */
 
@@ -234,13 +243,23 @@ const gate = (next: BodySpec): BodySpec => (adultOn() ? next : withoutAdult(next
 /** 成人部件的几项要不要显示 */
 const adultShown = () => adultOn() && spec.bodyStyle !== 'character';
 
+/**
+ * 存档、配置文件里的描述：没手改过的规范描述换成现在界面语言的写法（换了语言描述框跟着换），
+ * 手写的原样留着（三种语言解析器都认）
+ */
+function restoredText(saved: unknown): string {
+  if (typeof saved !== 'string') return describeSpec(spec);
+  if (variants('两个头，两对手，两对胸').includes(saved)) return START_TEXT;
+  return LANGS.some((l) => describeSpec(spec, l.key) === saved) ? describeSpec(spec) : saved;
+}
+
 function load() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) {
       const data = JSON.parse(raw);
       spec = gate(normalizeSpec(data));
-      readText(typeof data.text === 'string' ? data.text : describeSpec(spec));
+      readText(restoredText(data.text));
       return;
     }
   } catch {
@@ -350,8 +369,8 @@ for (const preset of PRESETS) {
  * 别的是那一个上半身（改 torsoCounts，见 docs/per-torso-plan.md）。只是界面上的状态，不进配置
  */
 let torsoEdit: 'all' | TorsoSide = 'all';
-const TORSO_EDIT_LABEL: Record<'all' | TorsoSide, string> = { all: '全部一样', L: '左', M: '中', R: '右' };
-const syncTorsoEdit = buildSeg($('segTorso'), ['all', 'L', 'M', 'R'] as const, (v) => TORSO_EDIT_LABEL[v], (side) => {
+const TORSO_EDIT_LABEL: Record<'all' | TorsoSide, string> = { all: tk('全部一样'), L: tk('左@@上半身'), M: tk('中@@上半身'), R: tk('右@@上半身') };
+const syncTorsoEdit = buildSeg($('segTorso'), ['all', 'L', 'M', 'R'] as const, (v) => t(TORSO_EDIT_LABEL[v]), (side) => {
   torsoEdit = side;
   render();
 });
@@ -397,8 +416,8 @@ const steppers = COUNT_DEFS.map((d) => {
     fromParams({ ...spec, counts: { ...spec.counts, [d.key]: spec.counts[d.key] + delta }, torsoCounts });
   };
   minus.type = plus.type = 'button';
-  minus.setAttribute('aria-label', `${d.label}减一`);
-  plus.setAttribute('aria-label', `${d.label}加一`);
+  minus.setAttribute('aria-label', t('{label}减一', { label: d.label }));
+  plus.setAttribute('aria-label', t('{label}加一', { label: d.label }));
   minus.addEventListener('click', step(-1));
   plus.addEventListener('click', step(1));
   const stepper = el('div', 'stepper');
@@ -412,7 +431,7 @@ const steppers = COUNT_DEFS.map((d) => {
     // 全部一样时有上半身单独设过这一样：数后面加个星号
     const mixed = perTorso && !side() && torsoSides(spec.counts.torsos).some((s) => countsOf(spec, s)[d.key] !== spec.counts[d.key]);
     out.classList.toggle('mixed', mixed);
-    out.title = mixed ? '有的上半身单独设过；在「全部一样」下加减会把它们都改成一样' : '';
+    out.title = mixed ? t('有的上半身单独设过；在「全部一样」下加减会把它们都改成一样') : '';
     row.classList.toggle('per-torso', !!side());
     minus.disabled = v <= d.min;
     plus.disabled = v >= d.max;
@@ -490,8 +509,8 @@ const syncPenisRow = (() => {
   const plus = el('button', '', '+');
   const out = el('output');
   minus.type = plus.type = 'button';
-  minus.setAttribute('aria-label', '每排少一根');
-  plus.setAttribute('aria-label', '每排多一根');
+  minus.setAttribute('aria-label', t('每排少一根'));
+  plus.setAttribute('aria-label', t('每排多一根'));
   const step = (delta: number) => () => fromParams({ ...spec, penisRow: clampPenisRow(spec.penisRow + delta) });
   minus.addEventListener('click', step(-1));
   plus.addEventListener('click', step(1));
@@ -499,7 +518,7 @@ const syncPenisRow = (() => {
   return (shown: boolean) => {
     $('penisRowField').hidden = !shown;
     const rows = Math.ceil(spec.counts.penises / spec.penisRow);
-    out.textContent = `${spec.penisRow}（${rows} 排）`;
+    out.textContent = t('{n}（{rows} 排）', { n: spec.penisRow, rows });
     minus.disabled = spec.penisRow <= PENIS_ROW.min;
     plus.disabled = spec.penisRow >= PENIS_ROW.max;
   };
@@ -511,8 +530,8 @@ const syncHipLegs = (() => {
   const plus = el('button', '', '+');
   const out = el('output');
   minus.type = plus.type = 'button';
-  minus.setAttribute('aria-label', '每副胯少一条腿');
-  plus.setAttribute('aria-label', '每副胯多一条腿');
+  minus.setAttribute('aria-label', t('每副胯少一条腿'));
+  plus.setAttribute('aria-label', t('每副胯多一条腿'));
   const step = (delta: number) => () => fromParams({ ...spec, hipLegs: clampHipLegs(spec.hipLegs + delta) });
   minus.addEventListener('click', step(-1));
   plus.addEventListener('click', step(1));
@@ -545,7 +564,7 @@ for (const entry of ROSTER) {
   const card = el('button', 'card');
   card.type = 'button';
   card.setAttribute('role', 'radio');
-  card.title = `${entry.name}：${entry.look}`;
+  card.title = t('{name}：{look}', { name: entry.name, look: entry.look });
   const face = el('img');
   face.alt = '';
   face.src = `${import.meta.env.BASE_URL}character/thumb/${entry.id}.jpg`;
@@ -563,7 +582,7 @@ ownCard.setAttribute('role', 'radio');
 ownCard.hidden = true;
 const ownFace = el('img');
 ownFace.alt = '';
-const ownLabel = el('span', '', '自己的');
+const ownLabel = el('span', '', t('自己的'));
 ownCard.append(ownFace, ownLabel);
 ownCard.addEventListener('click', () => pickCharacter(OWN_CHARACTER));
 characterCards.set(OWN_CHARACTER, ownCard);
@@ -572,7 +591,7 @@ let ownThumb = '';
 /** 自己的 VRM 读好了（刚选的，或者从这台设备上读回来的）：那一格显示出来 */
 function showOwnCard(source: CharacterSource) {
   ownCard.hidden = false;
-  ownCard.title = `${source.title}（${ownFileName()}）`;
+  ownCard.title = t('{title}（{file}）', { title: source.title, file: ownFileName() });
   ownLabel.textContent = source.title;
   if (ownThumb) URL.revokeObjectURL(ownThumb);
   ownThumb = source.thumbnail ? URL.createObjectURL(new Blob([source.thumbnail.bytes as Uint8Array<ArrayBuffer>], { type: source.thumbnail.mime })) : '';
@@ -582,12 +601,18 @@ function showOwnCard(source: CharacterSource) {
 }
 /** 自己的 VRM 的说明：作者、许可，不是 VRoid 做的提醒一句 */
 function ownNote(source: CharacterSource): string {
-  const parts = [
-    `${source.title}（${ownFileName()}）：你自己载入的 VRM。作者 ${source.author || '文件里没写'}；许可 ${source.license || '文件里没写'}${source.licenseUrl ? `（${source.licenseUrl}）` : ''}，用它做的东西发出去时请照它的许可来。`,
-    source.vroid ? '' : '它不是 VRoid 做的：皮肤、衣服、头发是照 VRoid 的材质名认的，认不全时多出来的头、并腿、换发型、染发可能不太对。',
-    '文件只存在这台设备的浏览器里，不会写进配置文件。',
-  ];
-  return parts.filter(Boolean).join('');
+  const blank = t('文件里没写');
+  return joinSentences([
+    t('{title}（{file}）：你自己载入的 VRM。作者 {author}；许可 {license}{url}，用它做的东西发出去时请照它的许可来。', {
+      title: source.title,
+      file: ownFileName(),
+      author: source.author || blank,
+      license: source.license || blank,
+      url: source.licenseUrl ? t('（{url}）', { url: source.licenseUrl }) : '',
+    }),
+    source.vroid ? '' : t('它不是 VRoid 做的：皮肤、衣服、头发是照 VRoid 的材质名认的，认不全时多出来的头、并腿、换发型、染发可能不太对。'),
+    t('文件只存在这台设备的浏览器里，不会写进配置文件。'),
+  ]);
 }
 /** 上次存在这台设备上的那个 VRM：选到成品角色时才去读（文件不小） */
 let ownRestored = false;
@@ -608,27 +633,34 @@ function syncCharacter() {
   }
   if (spec.character === OWN_CHARACTER) {
     const source = characterSource(OWN_CHARACTER);
-    $('characterNote').textContent = source ? ownNote(source) : '还没有载入自己的 VRM：点「载入自己的 VRM…」选一个文件（VRoid Studio 导出的最好）。';
+    $('characterNote').textContent = source ? ownNote(source) : t('还没有载入自己的 VRM：点「载入自己的 VRM…」选一个文件（VRoid Studio 导出的最好）。');
     return;
   }
   const entry = rosterEntry(spec.character);
-  $('characterNote').textContent = `${entry.name}：${entry.look}。作者 ${entry.author}；${entry.license}。${entry.credit ? `用她做的东西发出去时请带上「${entry.credit}」。` : ''}`;
+  $('characterNote').textContent = joinSentences([
+    t('{name}：{look}。作者 {author}；{license}。', { name: entry.name, look: entry.look, author: entry.author, license: entry.license }),
+    entry.credit ? t('用她做的东西发出去时请带上「{credit}」。', { credit: entry.credit }) : '',
+  ]);
 }
 const fileVrm = $<HTMLInputElement>('fileVrm');
 fileVrm.addEventListener('change', async () => {
   const file = fileVrm.files?.[0];
   fileVrm.value = '';
   if (!file) return;
-  setStatus(`正在读 ${file.name}…`);
+  setStatus(t('正在读 {name}…', { name: file.name }));
   try {
     const source = await loadOwnCharacter(file.name, await file.arrayBuffer());
     showOwnCard(source);
     refitNext = true;
     spec = { ...spec, bodyStyle: 'character', character: OWN_CHARACTER };
     commit();
-    setStatus(`已载入 ${file.name}（${source.title}）${source.vroid ? '' : '；它不是 VRoid 做的，有些地方可能认不全'}。`);
+    setStatus(
+      source.vroid
+        ? t('已载入 {name}（{title}）。', { name: file.name, title: source.title })
+        : t('已载入 {name}（{title}）；它不是 VRoid 做的，有些地方可能认不全。', { name: file.name, title: source.title }),
+    );
   } catch (err) {
-    setStatus(`这个 VRM 读不了：${err instanceof Error ? err.message : String(err)}`, true);
+    setStatus(t('这个 VRM 读不了：{err}', { err: errText(err) }), true);
   }
 });
 
@@ -676,8 +708,8 @@ btnHairColor.addEventListener('click', () => dyeHair(''));
 const hairSwatches = HAIR_SWATCHES.map(([name, color]) => {
   const btn = el('button', 'swatch');
   btn.type = 'button';
-  btn.title = `${name}发`;
-  btn.setAttribute('aria-label', `${name}发`);
+  btn.title = t('{name}发', { name });
+  btn.setAttribute('aria-label', t('{name}发', { name }));
   btn.style.background = color;
   btn.addEventListener('click', () => dyeHair(color));
   $('hairSwatches').append(btn);
@@ -685,8 +717,8 @@ const hairSwatches = HAIR_SWATCHES.map(([name, color]) => {
 });
 
 const HAIR_SLIDERS = [
-  { key: 'length', label: '长度', range: HAIR_LENGTH },
-  { key: 'volume', label: '蓬松', range: HAIR_VOLUME },
+  { key: 'length', label: t('长度'), range: HAIR_LENGTH },
+  { key: 'volume', label: t('蓬松'), range: HAIR_VOLUME },
 ] as const;
 const hairSliders = HAIR_SLIDERS.map((d) => {
   const row = el('div', 'slider');
@@ -716,10 +748,10 @@ const hairSliders = HAIR_SLIDERS.map((d) => {
 
 /** 正面看从左往右，几个头各叫什么 */
 const HEAD_SLOT_LABEL: Record<number, readonly string[]> = {
-  2: ['左', '右'],
-  3: ['左', '中', '右'],
-  4: ['最左', '左', '右', '最右'],
-  5: ['最左', '左', '中', '右', '最右'],
+  2: [t('左'), t('右')],
+  3: [t('左'), t('中'), t('右')],
+  4: [t('最左'), t('左'), t('右'), t('最右')],
+  5: [t('最左'), t('左'), t('中'), t('右'), t('最右')],
 };
 /**
  * 第 slot 个位置（正面看从左往右）上是第几个头：角色自己的头（0）在正中（双数时偏右，就是她自己的左边），
@@ -731,7 +763,7 @@ function headAtSlot(slot: number, heads: number) {
 }
 
 /** 好几个上半身时（正面看从左往右）各叫什么 */
-const TORSO_LABEL: Record<number, readonly string[]> = { 2: ['左身', '右身'], 3: ['左身', '中身', '右身'] };
+const TORSO_LABEL: Record<number, readonly string[]> = { 2: [t('左身'), t('右身')], 3: [t('左身'), t('中身'), t('右身')] };
 
 /**
  * 「染哪个头」那一排：全部，加上每个头一格（带一个小圆点，是这个头现在的发色）。
@@ -759,7 +791,7 @@ const syncHairHeads = (() => {
     if (built !== `${heads}×${torsos}`) {
       built = `${heads}×${torsos}`;
       host.replaceChildren();
-      cells = [cell(null, '全部')];
+      cells = [cell(null, t('全部'))];
       for (let body = 0; body < torsos; body++) {
         (heads > 1 ? (HEAD_SLOT_LABEL[heads] ?? []) : ['']).forEach((text, slot) => {
           const where = torsos > 1 ? (TORSO_LABEL[torsos]?.[body] ?? '') : '';
@@ -935,7 +967,7 @@ for (const [key, section] of sections) {
 
 const THEMES = ['auto', 'light', 'dark'] as const;
 type Theme = (typeof THEMES)[number];
-const THEME_LABEL: Record<Theme, string> = { auto: '跟随系统', light: '浅色', dark: '深色' };
+const THEME_LABEL: Record<Theme, string> = { auto: t('跟随系统'), light: t('浅色'), dark: t('深色') };
 
 let theme: Theme = 'auto';
 try {
@@ -948,8 +980,16 @@ try {
 function applyTheme() {
   if (theme === 'auto') delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = theme;
-  $('btnTheme').textContent = `主题：${THEME_LABEL[theme]}`;
+  $('btnTheme').textContent = t('主题：{name}', { name: THEME_LABEL[theme] });
 }
+
+const langPick = $<HTMLSelectElement>('lang');
+for (const l of LANGS) langPick.append(new Option(l.label, l.key));
+langPick.value = LANG;
+langPick.addEventListener('change', () => {
+  save();
+  setLang(langPick.value as Lang);
+});
 
 $('btnTheme').addEventListener('click', () => {
   theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
@@ -999,7 +1039,7 @@ try {
 } catch (err) {
   const msg = $('stageMsg');
   msg.hidden = false;
-  msg.textContent = '这个浏览器没能启动 3D 显示（WebGL）。换用新版 Edge 或 Chrome，或在浏览器设置里打开硬件加速后再试。';
+  msg.textContent = t('这个浏览器没能启动 3D 显示（WebGL）。换用新版 Edge 或 Chrome，或在浏览器设置里打开硬件加速后再试。');
   console.error(err);
 }
 
@@ -1023,7 +1063,7 @@ try {
 }
 const VIEW_DIALS: { key: ViewDial; text: (v: number) => string }[] = [
   { key: 'fov', text: (v) => `${v}°` },
-  { key: 'lightTurn', text: (v) => (v ? `${v > 0 ? '左' : '右'} ${Math.abs(v)}°` : '正前') },
+  { key: 'lightTurn', text: (v) => (v ? (v > 0 ? t('左 {n}°', { n: Math.abs(v) }) : t('右 {n}°', { n: Math.abs(v) })) : t('正前')) },
   { key: 'lightLift', text: (v) => `${v}°` },
 ];
 const viewDials = VIEW_DIALS.map((d) => {
@@ -1063,13 +1103,13 @@ $('btnViewReset').addEventListener('click', () => {
   applyView();
 });
 const VIEW_BUTTONS: [ViewName, string][] = [
-  ['front', '正面'],
-  ['side', '左侧'],
-  ['right', '右侧'],
-  ['back', '背面'],
-  ['top', '俯视'],
-  ['bottom', '仰视'],
-  ['three', '斜侧'],
+  ['front', t('正面')],
+  ['side', t('左侧')],
+  ['right', t('右侧')],
+  ['back', t('背面')],
+  ['top', t('俯视')],
+  ['bottom', t('仰视')],
+  ['three', t('斜侧')],
 ];
 for (const [name, label] of VIEW_BUTTONS) {
   const btn = el('button', 'btn', label);
@@ -1091,7 +1131,7 @@ type RefDial = keyof typeof REF_LIMITS;
 type RefSettings = { name: string; show: boolean; flip: boolean } & Record<RefDial, number>;
 /** 两张参考图怎么摆、现在在调哪张：和「镜头和灯光」一样只记在浏览器里，不进配置、不进撤销 */
 const refs: { slot: RefSlot; onTop: boolean } & Record<RefSlot, RefSettings | null> = { slot: 'front', onTop: false, front: null, side: null };
-const REF_LABEL: Record<RefSlot, string> = { front: '正面', side: '侧面' };
+const REF_LABEL: Record<RefSlot, string> = { front: t('正面'), side: t('侧面') };
 const refDial = (key: RefDial, value: unknown, fallback: number) =>
   typeof value === 'number' && Number.isFinite(value) ? Math.round(Math.max(REF_LIMITS[key][0], Math.min(REF_LIMITS[key][1], value))) : fallback;
 const references = new ReferenceImages();
@@ -1126,8 +1166,8 @@ const syncRefSlot = buildSeg($('segRef'), REF_SLOTS, (v) => REF_LABEL[v], (slot)
 });
 const REF_DIALS: { key: RefDial; text: (v: number) => string }[] = [
   { key: 'height', text: (v) => `${(v / 100).toFixed(2)} m` },
-  { key: 'up', text: (v) => (v ? `${v > 0 ? '↑' : '↓'}${Math.abs(v)} cm` : '贴地') },
-  { key: 'shift', text: (v) => (v ? `${v > 0 ? '→' : '←'}${Math.abs(v)} cm` : '居中') },
+  { key: 'up', text: (v) => (v ? `${v > 0 ? '↑' : '↓'}${Math.abs(v)} cm` : t('贴地')) },
+  { key: 'shift', text: (v) => (v ? `${v > 0 ? '→' : '←'}${Math.abs(v)} cm` : t('居中')) },
   { key: 'opacity', text: (v) => `${v}%` },
 ];
 const refDials = REF_DIALS.map((d) => {
@@ -1171,7 +1211,9 @@ function applyRefs() {
   syncRefSlot(refs.slot, true);
   const r = refs[refs.slot];
   const label = REF_LABEL[refs.slot];
-  $('refName').textContent = r ? `${label}图：${r.name}` : `还没有${label}图。点「选图…」选一张自己画的${label}设定图。`;
+  $('refName').textContent = r
+    ? t('{label}图：{name}', { label, name: r.name })
+    : t('还没有{label}图。点「选图…」选一张自己画的{label}设定图。', { label });
   $<HTMLButtonElement>('btnRefClear').disabled = !r;
   $('refBody').hidden = !r;
   if (r) {
@@ -1202,9 +1244,14 @@ fileRef.addEventListener('change', async () => {
     applyRefs();
     viewport?.frame(slot);
     const kept = await keepFile(refFileKey(slot), { name: file.name, bytes });
-    setStatus(`${REF_LABEL[slot]}参考图已垫上：${file.name}${kept ? '' : '。这个浏览器不让存，下次打开要重新选'}。`);
+    const label = REF_LABEL[slot];
+    setStatus(
+      kept
+        ? t('{label}参考图已垫上：{name}。', { label, name: file.name })
+        : t('{label}参考图已垫上：{name}。这个浏览器不让存，下次打开要重新选。', { label, name: file.name }),
+    );
   } catch (err) {
-    setStatus(`这张图读不了（${err instanceof Error ? err.message : String(err)}）：换成 PNG 或 JPG 再试。`, true);
+    setStatus(t('这张图读不了（{err}）：换成 PNG 或 JPG 再试。', { err: errText(err) }), true);
   }
 });
 $('btnRefClear').addEventListener('click', () => {
@@ -1240,8 +1287,8 @@ for (const slot of REF_SLOTS) {
 const byFinger = Boolean(viewport) && window.matchMedia('(pointer: coarse)').matches;
 /** 右下角那句操作提示：两种模式、鼠标和手指，各有各的说法 */
 const HINTS = {
-  shape: [$('hint').textContent ?? '', '单指拖动旋转 · 双指缩放、平移 · 点一下部件单独调整'],
-  pose: ['拖圆点摆姿势 · 点一下圆点出现旋转环 · 拖空白处转视角', '拖圆点摆姿势 · 点一下圆点出现旋转环 · 双指缩放、平移'],
+  shape: [$('hint').textContent ?? '', t('单指拖动旋转 · 双指缩放、平移 · 点一下部件单独调整')],
+  pose: [t('拖圆点摆姿势 · 点一下圆点出现旋转环 · 拖空白处转视角'), t('拖圆点摆姿势 · 点一下圆点出现旋转环 · 双指缩放、平移')],
 } as const;
 function showHint(which: keyof typeof HINTS) {
   const hint = $('hint');
@@ -1263,7 +1310,7 @@ btnZoom.addEventListener('click', () => {
   if (big) scrollBack = window.scrollY;
   app.classList.toggle('big', big);
   btnZoom.setAttribute('aria-pressed', String(big));
-  btnZoom.textContent = big ? '还原' : '放大';
+  btnZoom.textContent = big ? t('还原') : t('放大');
   if (!big) window.scrollTo(0, scrollBack);
 });
 
@@ -1322,8 +1369,8 @@ let fpsNote = '';
 function drawReadout() {
   if (!metrics) return;
   const items = [
-    el('span', '', `身高 ${metrics.height.toFixed(2)} m`),
-    el('span', '', `约 ${metrics.headRatio.toFixed(1)} 头身`),
+    el('span', '', t('身高 {h} m', { h: metrics.height.toFixed(2) })),
+    el('span', '', t('约 {n} 头身', { n: metrics.headRatio.toFixed(1) })),
     el('span', '', readout.triangles),
   ];
   if (fpsNote) items.push(el('span', '', fpsNote));
@@ -1334,7 +1381,7 @@ function drawReadout() {
 // 地址后面加上 ?fps，读数里就多一格帧率（平时不显示，免得一直跳）
 if (viewport && new URLSearchParams(location.search).has('fps')) {
   viewport.onFps = (fps) => {
-    fpsNote = `${Math.round(fps)} 帧/秒`;
+    fpsNote = t('{n} 帧/秒', { n: Math.round(fps) });
     drawReadout();
   };
 }
@@ -1372,11 +1419,11 @@ function showBounds(box: Box3) {
 }
 
 function showFused() {
-  if (!fusedStats) return showReadout('正在生成网格…');
+  if (!fusedStats) return showReadout(t('正在生成网格…'));
   const { triangles, info, draft, fine } = fusedStats;
   showReadout(
-    `${count(triangles)} 三角面（${draft ? '粗略预览' : fine ? '精细' : '预览'}）`,
-    info.components > 1 ? `网格分成了 ${info.components} 块：有部件没连上身体` : '',
+    t('{n} 三角面（{kind}）', { n: count(triangles), kind: draft ? t('粗略预览') : fine ? t('精细') : t('预览') }),
+    info.components > 1 ? t('网格分成了 {n} 块：有部件没连上身体', { n: info.components }) : '',
   );
 }
 
@@ -1388,7 +1435,7 @@ fused.onUpdate = (stats) => {
   // 摆姿势时：新的网格（和它的权重）到了，把姿势套上去
   if (mode === 'pose') syncPosing();
 };
-fused.onError = (err) => setStatus(`融合网格出错：${err.message}`, true);
+fused.onError = (err) => setStatus(t('融合网格出错：{err}', { err: err.message }), true);
 // 用手指的设备（手机、平板）算得慢：停下来以后换上的细网格少细一些
 if (window.matchMedia('(pointer: coarse)').matches) fused.meshBudget = 60_000;
 
@@ -1413,17 +1460,17 @@ document.addEventListener('visibilitychange', retryLoading);
 function ensureAnimeBody() {
   if (animeLoading || animeReady()) return;
   animeLoading = true;
-  setStatus('正在载入二次元素体…');
+  setStatus(t('正在载入二次元素体…'));
   loadAnimeBody(import.meta.env.BASE_URL)
     .then((buffer) => {
       provideShapes(buffer);
-      setStatus('二次元素体已载入');
+      setStatus(t('二次元素体已载入'));
       refitNext = true;
       scheduleRebuild();
     })
     .catch((err: unknown) => {
       retryOnReturn = err instanceof OfflineError;
-      setStatus(`二次元素体没载入成功，先用白模人台：${err instanceof Error ? err.message : String(err)}`, true);
+      setStatus(t('二次元素体没载入成功，先用白模人台：{err}', { err: errText(err) }), true);
     })
     .finally(() => {
       animeLoading = false;
@@ -1442,11 +1489,11 @@ function ensureCharacter() {
       .then((source) => {
         if (spec.character !== OWN_CHARACTER) return;
         if (!source) {
-          setStatus('这台设备上没有存着自己的 VRM，先用白模人台：点「载入自己的 VRM…」选一个文件。', true);
+          setStatus(t('这台设备上没有存着自己的 VRM，先用白模人台：点「载入自己的 VRM…」选一个文件。'), true);
           return;
         }
         showOwnCard(source);
-        setStatus(`已读回自己的 VRM「${source.title}」`);
+        setStatus(t('已读回自己的 VRM「{title}」', { title: source.title }));
         refitNext = true;
         scheduleRebuild();
       })
@@ -1454,18 +1501,18 @@ function ensureCharacter() {
     return;
   }
   const label = rosterEntry(id).label;
-  setStatus(`正在载入角色「${label}」（十来 MB，稍等）…`);
+  setStatus(t('正在载入角色「{label}」（十来 MB，稍等）…', { label }));
   loadCharacter(id, import.meta.env.BASE_URL)
     .then(() => {
       // 等的时候又换了别的角色：这一个留着，不抢着显示
       if (spec.character !== id) return;
-      setStatus(`角色「${label}」已载入`);
+      setStatus(t('角色「{label}」已载入', { label }));
       refitNext = true;
       scheduleRebuild();
     })
     .catch((err: unknown) => {
       retryOnReturn = err instanceof OfflineError;
-      setStatus(`角色「${label}」没载入成功，先用白模人台：${err instanceof Error ? err.message : String(err)}`, true);
+      setStatus(t('角色「{label}」没载入成功，先用白模人台：{err}', { label, err: errText(err) }), true);
     })
     .finally(() => {
       characterLoading.delete(id);
@@ -1478,15 +1525,15 @@ function ensureHair() {
   const style = spec.hair.style;
   if (style === 'own' || hairDonor(style) || hairLoading.has(style)) return;
   hairLoading.add(style);
-  setStatus(`正在载入发型「${HAIR_LABEL[style]}」…`);
+  setStatus(t('正在载入发型「{name}」…', { name: HAIR_LABEL[style] }));
   loadHair(style, import.meta.env.BASE_URL)
     .then(() => {
-      setStatus(`发型「${HAIR_LABEL[style]}」已载入`);
+      setStatus(t('发型「{name}」已载入', { name: HAIR_LABEL[style] }));
       scheduleRebuild();
     })
     .catch((err: unknown) => {
       retryOnReturn = err instanceof OfflineError;
-      setStatus(`发型「${HAIR_LABEL[style]}」没载入成功，先用原装的头发：${err instanceof Error ? err.message : String(err)}`, true);
+      setStatus(t('发型「{name}」没载入成功，先用原装的头发：{err}', { name: HAIR_LABEL[style], err: errText(err) }), true);
     })
     .finally(() => {
       hairLoading.delete(style);
@@ -1520,16 +1567,16 @@ function ensureHairShape() {
   const style = spec.hair.style;
   if (style === 'own' || hairReady(style) || hairShapeLoading.has(style)) return;
   hairShapeLoading.add(style);
-  setStatus(`正在载入发型「${HAIR_LABEL[style]}」…`);
+  setStatus(t('正在载入发型「{name}」…', { name: HAIR_LABEL[style] }));
   loadHairShape(style, import.meta.env.BASE_URL)
     .then((buffer) => {
       provideHair(style, buffer);
-      setStatus(`发型「${HAIR_LABEL[style]}」已载入`);
+      setStatus(t('发型「{name}」已载入', { name: HAIR_LABEL[style] }));
       scheduleRebuild();
     })
     .catch((err: unknown) => {
       retryOnReturn = err instanceof OfflineError;
-      setStatus(`发型「${HAIR_LABEL[style]}」没载入成功，先光着头：${err instanceof Error ? err.message : String(err)}`, true);
+      setStatus(t('发型「{name}」没载入成功，先光着头：{err}', { name: HAIR_LABEL[style], err: errText(err) }), true);
     })
     .finally(() => {
       hairShapeLoading.delete(style);
@@ -1548,7 +1595,7 @@ function ensureGenital() {
     })
     .catch((err: unknown) => {
       retryOnReturn = err instanceof OfflineError;
-      setStatus(`阴囊的数据没载入成功，先不长：${err instanceof Error ? err.message : String(err)}`, true);
+      setStatus(t('阴囊的数据没载入成功，先不长：{err}', { err: errText(err) }), true);
     })
     .finally(() => {
       genitalLoading = false;
@@ -1569,7 +1616,7 @@ function showCharacter(): boolean {
   } catch (err) {
     character = null;
     tweaked = null;
-    setStatus(`成品角色拼不出来，先用白模人台：${err instanceof Error ? err.message : String(err)}`, true);
+    setStatus(t('成品角色拼不出来，先用白模人台：{err}', { err: errText(err) }), true);
     return false;
   }
   figure = null;
@@ -1581,7 +1628,10 @@ function showCharacter(): boolean {
   characterModel.root.visible = true;
   const stats = characterModel.update(character);
   showBounds(stats.box);
-  showReadout(`${count(stats.triangles)} 三角面`, character.ignored.length ? `成品角色还拼不了：${character.ignored.join('、')}` : '');
+  showReadout(
+    t('{n} 三角面', { n: count(stats.triangles) }),
+    character.ignored.length ? t('成品角色还拼不了：{list}', { list: character.ignored.join(t('、')) }) : '',
+  );
   return true;
 }
 
@@ -1648,7 +1698,7 @@ function rebuildBody() {
   } else {
     const stats = model.update(figure);
     showBounds(stats.box);
-    showReadout(`${count(stats.triangles)} 三角面`);
+    showReadout(t('{n} 三角面', { n: count(stats.triangles) }));
   }
   syncTweak();
   syncBones();
@@ -1699,19 +1749,19 @@ let picker: Picker | null = null;
 let cmPerUnit = 100;
 
 const TWEAK_FIELDS = [
-  { key: 'position', label: '位置', unit: 'cm', step: 0.5, digits: 1 },
-  { key: 'rotation', label: '角度', unit: '°', step: 1, digits: 1 },
-  { key: 'scale', label: '大小', unit: '倍', step: 0.05, digits: 2 },
+  { key: 'position', label: t('位置'), unit: 'cm', step: 0.5, digits: 1 },
+  { key: 'rotation', label: t('角度'), unit: '°', step: 1, digits: 1 },
+  { key: 'scale', label: t('大小'), unit: t('倍'), step: 0.05, digits: 2 },
 ] as const;
 type TweakKey = (typeof TWEAK_FIELDS)[number]['key'];
 
 /** 「大小」的三个方向各是什么意思 */
 const SCALE_HINT: Partial<Record<PartType, string>> = {
-  arm: 'Y 是手臂的长短，X、Z 是粗细',
-  leg: 'Y 是上下的长短，X、Z 是粗细',
-  tail: 'Z 是前后的长短，X 宽、Y 高',
-  wing: 'X 是翼展，Y 高、Z 厚',
-  ear: 'X 宽、Y 长、Z 厚',
+  arm: t('Y 是手臂的长短，X、Z 是粗细'),
+  leg: t('Y 是上下的长短，X、Z 是粗细'),
+  tail: t('Z 是前后的长短，X 宽、Y 高'),
+  wing: t('X 是翼展，Y 高、Z 厚'),
+  ear: t('X 宽、Y 长、Z 厚'),
 };
 
 /** 选中部件现在的微调，换成面板上显示的单位（位置是厘米） */
@@ -1827,9 +1877,10 @@ function renderTweak() {
   const key = names.map((n) => (activeOverrides(spec)[n] ? `${n}*` : n)).join('|');
   if (key !== partListKey) {
     partListKey = key;
-    const options = [new Option('（在模型上点一个部件，或者在这里选）', '')];
+    const options = [new Option(t('（在模型上点一个部件，或者在这里选）'), '')];
     for (const n of names) {
-      options.push(new Option(`${partLabel(n)}${activeOverrides(spec)[n] ? '（已微调）' : ''} · ${n}`, n));
+      const label = activeOverrides(spec)[n] ? t('{name}（已微调）', { name: partLabel(n) }) : partLabel(n);
+      options.push(new Option(`${label} · ${n}`, n));
     }
     tweakPart.replaceChildren(...options);
   }
@@ -1844,17 +1895,16 @@ function renderTweak() {
     mirrorInput.checked = mirror;
     const twin = mirrorName(part.name);
     $('tweakMirrorRow').hidden = !twin;
-    if (twin) $('tweakMirrorText').textContent = `同时调整对侧（${partLabel(twin)}）`;
+    if (twin) $('tweakMirrorText').textContent = t('同时调整对侧（{name}）', { name: partLabel(twin) });
     btnTweakReset.disabled = !activeOverrides(spec)[part.name];
-    const frame = part.type === 'eye' || part.type === 'horn' || part.type === 'ear' ? '这个头的' : '角色的';
-    $('tweakNote').textContent =
-      `X 是${frame}左手边，Y 朝上，Z 朝前；角度绕这三根轴转，以关节为中心。` +
-      `大小：${SCALE_HINT[part.type] ?? 'X 宽、Y 高、Z 厚'}。` +
-      (character
-        ? '成品角色的部件是照骨骼分的：和身体连着的地方（肩膀、腿根、脖子）跟着拉长；复制出来的手臂、角、尾巴、翅膀是整块挪的。'
-        : '');
+    const frame = part.type === 'eye' || part.type === 'horn' || part.type === 'ear' ? t('这个头的') : t('角色的');
+    $('tweakNote').textContent = joinSentences([
+      t('X 是{frame}左手边，Y 朝上，Z 朝前；角度绕这三根轴转，以关节为中心。', { frame }),
+      t('大小：{hint}。', { hint: SCALE_HINT[part.type] ?? t('X 宽、Y 高、Z 厚') }),
+      character ? t('成品角色的部件是照骨骼分的：和身体连着的地方（肩膀、腿根、脖子）跟着拉长；复制出来的手臂、角、尾巴、翅膀是整块挪的。') : '',
+    ]);
   } else {
-    $('tweakNote').textContent = '在模型上点一下某个部件，或者在上面选，就能单独调它的位置、角度和大小。';
+    $('tweakNote').textContent = t('在模型上点一下某个部件，或者在上面选，就能单独调它的位置、角度和大小。');
   }
   // 舞台左下角也标出选中的是谁：面板滚走了也看得见
   syncPicked();
@@ -1865,7 +1915,7 @@ function renderTweak() {
   const host = $('tweaked');
   host.hidden = all.length === 0;
   if (all.length) {
-    const items: HTMLElement[] = [el('span', '', '已微调：')];
+    const items: HTMLElement[] = [el('span', '', t('已微调：'))];
     for (const n of changed) {
       const chip = el('button', n === selected ? 'chip hit' : 'chip', partLabel(n));
       chip.type = 'button';
@@ -1874,9 +1924,9 @@ function renderTweak() {
       items.push(chip);
     }
     if (all.length > changed.length) {
-      items.push(el('span', '', `另有 ${all.length - changed.length} 条对应的部件现在不存在`));
+      items.push(el('span', '', t('另有 {n} 条对应的部件现在不存在', { n: all.length - changed.length })));
     }
-    const clear = el('button', 'btn ghost', '全部还原');
+    const clear = el('button', 'btn ghost', t('全部还原'));
     clear.type = 'button';
     clear.addEventListener('click', () => {
       spec = clearAllOverrides(spec);
@@ -2008,20 +2058,18 @@ const shownGroups = new Set<HandleGroup>(HANDLE_GROUPS.filter((group) => group !
 let grab: { start: PoseState; frame: Frame; pins: Pin[] } | null = null;
 
 const GROUP_LABEL: Record<HandleGroup, string> = {
-  torso: '躯干',
-  head: '头',
-  arm: '手臂',
-  leg: '腿',
-  finger: '手指',
-  tail: '尾巴、翅膀',
-  hair: '头发、衣摆',
-  genital: '阴茎',
+  torso: t('躯干'),
+  head: t('头'),
+  arm: t('手臂'),
+  leg: t('腿'),
+  finger: t('手指'),
+  tail: t('尾巴、翅膀'),
+  hair: t('头发、衣摆'),
+  genital: t('阴茎'),
 };
 
 $('poseNote').textContent =
-  '拖模型上的圆点摆姿势。青色的大圆点是手、脚和胯：拖手脚，肘和膝自己跟着弯，够不着时身体会跟过去。' +
-  '黄色的菱形是手肘、膝盖朝哪边顶。白色的小圆点是别的关节。' +
-  '点一下圆点会出现旋转环，转的是从这个关节往外的那一段。拖空白的地方是转视角。';
+  t('拖模型上的圆点摆姿势。青色的大圆点是手、脚和胯：拖手脚，肘和膝自己跟着弯，够不着时身体会跟过去。黄色的菱形是手肘、膝盖朝哪边顶。白色的小圆点是别的关节。点一下圆点会出现旋转环，转的是从这个关节往外的那一段。拖空白的地方是转视角。');
 
 const pickedHandle = (): Handle | undefined => (joint && kit ? kit.handles.find((h) => h.id === joint) : undefined);
 /** 这个圆点管的是哪条手臂、腿（不是手脚上的点就没有） */
@@ -2181,8 +2229,8 @@ function syncPosing() {
   if (!k) return;
   const ready = ensurePosed();
   // 融合网格的权重要算一小会儿：算好之前圆点先亮着，网格等一下才跟上
-  if (!ready && !poseWaiting) setStatus('正在给网格配上骨骼，马上就能摆…');
-  else if (ready && poseWaiting) setStatus('可以摆姿势了：拖模型上的圆点。');
+  if (!ready && !poseWaiting) setStatus(t('正在给网格配上骨骼，马上就能摆…'));
+  else if (ready && poseWaiting) setStatus(t('可以摆姿势了：拖模型上的圆点。'));
   poseWaiting = !ready;
   // 分部件模式：摆姿势时显示的是另一组能弯的网格
   const flat = !character && spec.meshMode === 'parts';
@@ -2337,7 +2385,7 @@ $('btnPoseGround').addEventListener('click', () => {
 
 /* ---- 自然下垂：头发、裙摆、衣摆、袖子（勾上的话还有尾巴）照重力垂下来 ---- */
 
-const DRAPE_LABEL: Record<DrapeKind, string> = { hair: '头发', cloth: '裙摆、衣摆、袖子', tail: '尾巴' };
+const DRAPE_LABEL: Record<DrapeKind, string> = { hair: t('头发'), cloth: t('裙摆、衣摆、袖子'), tail: t('尾巴') };
 $('btnPoseDrape').addEventListener('click', () => {
   if (!kit || !poseState || !posed) return;
   const { rig } = kit.solver;
@@ -2346,7 +2394,13 @@ $('btnPoseDrape').addEventListener('click', () => {
   if (!bones.size) {
     const hasTails = !tails && drapeBones(rig, true).size > 0;
     setStatus(
-      `${character ? '这个角色没有会垂下来的头发、裙摆' : '白模的头发没有骨骼（整个跟着头动），垂不下来'}${hasTails ? '；要尾巴垂下来，先勾上「尾巴也垂」' : ''}。`,
+      character
+        ? hasTails
+          ? t('这个角色没有会垂下来的头发、裙摆；要尾巴垂下来，先勾上「尾巴也垂」。')
+          : t('这个角色没有会垂下来的头发、裙摆。')
+        : hasTails
+          ? t('白模的头发没有骨骼（整个跟着头动），垂不下来；要尾巴垂下来，先勾上「尾巴也垂」。')
+          : t('白模的头发没有骨骼（整个跟着头动），垂不下来。'),
     );
     return;
   }
@@ -2360,8 +2414,8 @@ $('btnPoseDrape').addEventListener('click', () => {
   });
   showPose();
   commitPose();
-  const kinds = [...new Set(bones.values())].map((kind) => DRAPE_LABEL[kind]).join('、');
-  setStatus(`${kinds}照重力垂下来了；身体再动以后，再点一次「自然下垂」。`);
+  const kinds = [...new Set(bones.values())].map((kind) => DRAPE_LABEL[kind]).join(t('、'));
+  setStatus(t('{kinds}照重力垂下来了；身体再动以后，再点一次「自然下垂」。', { kinds }));
 });
 
 /** 换成另一份姿势（现成的姿势、姿势文件）。ground：套上以后落到地面（换了角色腿长不一样，脚会悬空或者陷下去） */
@@ -2397,9 +2451,9 @@ $('btnPoseSave').addEventListener('click', async () => {
   };
   try {
     const where = await saveText('oc_pose.json', JSON.stringify(file, null, 2));
-    setStatus(`已保存姿势 oc_pose.json，${where}。`);
+    setStatus(t('已保存姿势 oc_pose.json，{where}。', { where }));
   } catch (err) {
-    setStatus(`姿势没存成：${err instanceof Error ? err.message : err}`, true);
+    setStatus(t('姿势没存成：{err}', { err: errText(err) }), true);
   }
 });
 
@@ -2425,9 +2479,9 @@ filePose.addEventListener('change', async () => {
       view.fov = state.fov;
       applyView();
     }
-    setStatus(`已载入姿势 ${file.name}。`);
+    setStatus(t('已载入姿势 {name}。', { name: file.name }));
   } catch {
-    setStatus('这个文件里没有读到姿势。', true);
+    setStatus(t('这个文件里没有读到姿势。'), true);
   }
 });
 
@@ -2435,7 +2489,7 @@ filePose.addEventListener('change', async () => {
 
 type HandSide = 'both' | 'L' | 'R';
 const HAND_SIDES: readonly HandSide[] = ['both', 'L', 'R'];
-const HAND_SIDE_LABEL: Record<HandSide, string> = { both: '两只手', L: '左手', R: '右手' };
+const HAND_SIDE_LABEL: Record<HandSide, string> = { both: t('两只手'), L: t('左手'), R: t('右手') };
 /** 「哪一对手臂」：全部，或者第几对 */
 const HAND_PAIRS = ['all', '1', '2', '3', '4'] as const;
 type HandPair = (typeof HAND_PAIRS)[number];
@@ -2463,14 +2517,14 @@ const syncHandSide = buildSeg($('segHandSide'), HAND_SIDES, (v) => HAND_SIDE_LAB
   handSide = side;
   renderPosePanel();
 });
-const syncHandPair = buildSeg($('segHandPair'), HAND_PAIRS, (v) => (v === 'all' ? '全部' : `第 ${v} 对`), (pair) => {
+const syncHandPair = buildSeg($('segHandPair'), HAND_PAIRS, (v) => (v === 'all' ? t('全部') : t('第 {n} 对', { n: v })), (pair) => {
   handPair = pair;
   renderPosePanel();
 });
 const handPairLabels = [...$('segHandPair').querySelectorAll('label')];
 
 const gestureButtons = GESTURES.map((gesture) => {
-  const btn = el('button', 'btn', gesture.name);
+  const btn = el('button', 'btn', t(gesture.name));
   btn.type = 'button';
   btn.addEventListener('click', () => reshapeHands(() => gesture.shape));
   $('handGestures').append(btn);
@@ -2480,7 +2534,7 @@ const gestureButtons = GESTURES.map((gesture) => {
 /** 正拖着的那个滑块：拖的时候不把它拉回量出来的位置 */
 let handDragging: HTMLInputElement | null = null;
 /** 六个滑块：五根手指各弯多少，再加四指张开多少（finger 是 -1） */
-const handDials = [...FINGER_NAMES.map((name, finger) => ({ label: FINGER_LABEL[name], finger })), { label: '张开', finger: -1 }].map((d) => {
+const handDials = [...FINGER_NAMES.map((name, finger) => ({ label: FINGER_LABEL[name], finger })), { label: t('张开'), finger: -1 }].map((d) => {
   const row = el('div', 'slider');
   const id = `s-hand-${d.finger < 0 ? 'spread' : FINGER_NAMES[d.finger].toLowerCase()}`;
   const label = el('label', '', d.label);
@@ -2515,13 +2569,11 @@ const handDials = [...FINGER_NAMES.map((name, finger) => ({ label: FINGER_LABEL[
 });
 
 const HAND_NOTE = {
-  none: '这个身体上没有带手指的手。',
+  none: t('这个身体上没有带手指的手。'),
   mitten:
-    '并指的手，四根手指是连成一片的：握拳、张开这类整只手一起动的手势像样，「剪刀手」「指」这种一根根分开的摆不出来。' +
-    '要分开摆，到「造型 → 排布 → 手」里换成「分指」。',
+    t('并指的手，四根手指是连成一片的：握拳、张开这类整只手一起动的手势像样，「剪刀手」「指」这种一根根分开的摆不出来。要分开摆，到「造型 → 排布 → 手」里换成「分指」。'),
   usual:
-    '点一个手势，上面选中的手就摆成那样（不分左右）；再用滑块一根手指一根手指地调。' +
-    '想直接拖指尖：在「姿势」栏的「显示哪些圆点」里打开「手指」，把手放大了再拖。',
+    t('点一个手势，上面选中的手就摆成那样（不分左右）；再用滑块一根手指一根手指地调。想直接拖指尖：在「姿势」栏的「显示哪些圆点」里打开「手指」，把手放大了再拖。'),
 };
 
 function renderHand() {
@@ -2548,21 +2600,21 @@ function renderHand() {
 let faceTarget = 'all';
 /** 整张脸的表情（一次一种）；嘴型（一次一种）。名字是 VRM 里规定的那几个 */
 const MOODS = [
-  { key: '', label: '自然' },
-  { key: 'joy', label: '开心' },
-  { key: 'fun', label: '得意' },
-  { key: 'angry', label: '生气' },
-  { key: 'sorrow', label: '难过' },
-  { key: 'surprised', label: '惊讶' },
+  { key: '', label: t('自然') },
+  { key: 'joy', label: t('开心') },
+  { key: 'fun', label: t('得意') },
+  { key: 'angry', label: t('生气') },
+  { key: 'sorrow', label: t('难过') },
+  { key: 'surprised', label: t('惊讶') },
   { key: 'extra', label: '> <' },
 ];
 const MOUTHS = [
-  { key: '', label: '闭着' },
-  { key: 'a', label: '啊' },
-  { key: 'i', label: '衣' },
-  { key: 'u', label: '呜' },
-  { key: 'e', label: '诶' },
-  { key: 'o', label: '哦' },
+  { key: '', label: t('闭着') },
+  { key: 'a', label: t('啊') },
+  { key: 'i', label: t('衣') },
+  { key: 'u', label: t('呜') },
+  { key: 'e', label: t('诶') },
+  { key: 'o', label: t('哦') },
 ];
 /** 尖牙不是规定的表情，是这一批角色的脸上都有的一个变形 */
 const FANG = 'HA_Fung1';
@@ -2656,16 +2708,16 @@ function buildDial(host: HTMLElement, id: string, label: string, range: [number,
   };
 }
 const percent = (v: number) => `${Math.round(v * 100)}%`;
-const syncMoodDial = buildDial($('faceSliders'), 's-face-mood', '表情强度', [0, 1], percent, (v) =>
+const syncMoodDial = buildDial($('faceSliders'), 's-face-mood', t('表情强度'), [0, 1], percent, (v) =>
   editFaces((face) => {
     const mood = leading(face, MOODS).key;
     return mood ? { ...face, [mood]: v } : face;
   }, 'face:mood'),
 );
-const syncBlinkL = buildDial($('faceSliders'), 's-face-blink-l', '闭左眼', [0, 1], percent, (v) => editFaces((face) => ({ ...face, blink_l: v }), 'face:blink_l'));
-const syncBlinkR = buildDial($('faceSliders'), 's-face-blink-r', '闭右眼', [0, 1], percent, (v) => editFaces((face) => ({ ...face, blink_r: v }), 'face:blink_r'));
-const syncFang = buildDial($('faceSliders'), 's-face-fang', '尖牙', [0, 1], percent, (v) => editFaces((face) => ({ ...face, [FANG]: v }), 'face:fang'));
-const syncMouthDial = buildDial($('mouthSliders'), 's-face-mouth', '张多大', [0, 1], percent, (v) =>
+const syncBlinkL = buildDial($('faceSliders'), 's-face-blink-l', t('闭左眼'), [0, 1], percent, (v) => editFaces((face) => ({ ...face, blink_l: v }), 'face:blink_l'));
+const syncBlinkR = buildDial($('faceSliders'), 's-face-blink-r', t('闭右眼'), [0, 1], percent, (v) => editFaces((face) => ({ ...face, blink_r: v }), 'face:blink_r'));
+const syncFang = buildDial($('faceSliders'), 's-face-fang', t('尖牙'), [0, 1], percent, (v) => editFaces((face) => ({ ...face, [FANG]: v }), 'face:fang'));
+const syncMouthDial = buildDial($('mouthSliders'), 's-face-mouth', t('张多大'), [0, 1], percent, (v) =>
   editFaces((face) => {
     const mouth = leading(face, MOUTHS).key;
     return mouth ? { ...face, [mouth]: v } : face;
@@ -2707,11 +2759,11 @@ const gazeNow = (): Gaze | null => {
   const look = character?.morphs?.look;
   return face && eyes && poseState && look ? gazeOf(poseState.local[eyes[0]], look, face) : null;
 };
-const gazeText = (words: [string, string]) => (v: number) => (Math.abs(v) < 0.005 ? '正中' : `${v > 0 ? words[0] : words[1]} ${Math.round(Math.abs(v) * 100)}%`);
-const syncGazeSide = buildDial($('gazeSliders'), 's-gaze-side', '左右', [-1, 1], gazeText(['她的左', '她的右']), (v) =>
+const gazeText = (words: [string, string]) => (v: number) => (Math.abs(v) < 0.005 ? t('正中') : `${v > 0 ? words[0] : words[1]} ${Math.round(Math.abs(v) * 100)}%`);
+const syncGazeSide = buildDial($('gazeSliders'), 's-gaze-side', t('左右'), [-1, 1], gazeText([t('她的左'), t('她的右')]), (v) =>
   setGaze(() => [v, gazeNow()?.[1] ?? 0], 'gaze:side'),
 );
-const syncGazeUp = buildDial($('gazeSliders'), 's-gaze-up', '上下', [-1, 1], gazeText(['上', '下']), (v) => setGaze(() => [gazeNow()?.[0] ?? 0, v], 'gaze:up'));
+const syncGazeUp = buildDial($('gazeSliders'), 's-gaze-up', t('上下'), [-1, 1], gazeText([t('上'), t('下')]), (v) => setGaze(() => [gazeNow()?.[0] ?? 0, v], 'gaze:up'));
 $('btnGazeCamera').addEventListener('click', () => {
   const camera = viewport?.cameraState().position;
   if (!camera || !kit || !poseFrame) return;
@@ -2743,11 +2795,10 @@ $('btnFaceReset').addEventListener('click', () => {
 });
 
 const FACE_NOTE = {
-  none: '表情和视线只有「成品角色」有：白模人台、二次元素体没有嘴和眼球。',
+  none: t('表情和视线只有「成品角色」有：白模人台、二次元素体没有嘴和眼球。'),
   usual:
-    '点一个表情，上面选中的脸就换成它；再用滑块调强度、单独闭一只眼、张嘴。「左眼」「右眼」是她自己的左右。' +
-    '「看镜头」是让眼睛看向你现在看她的这个角度，转了视角要再点一次。',
-  extra: '同一个头上多出来的那几张脸，表情可以各摆各的，眼睛转不了（它们没有自己的眼睛骨骼）。',
+    t('点一个表情，上面选中的脸就换成它；再用滑块调强度、单独闭一只眼、张嘴。「左眼」「右眼」是她自己的左右。「看镜头」是让眼睛看向你现在看她的这个角度，转了视角要再点一次。'),
+  extra: t('同一个头上多出来的那几张脸，表情可以各摆各的，眼睛转不了（它们没有自己的眼睛骨骼）。'),
 };
 /** 「哪张脸」那一排按钮是照哪几张脸做的 */
 let faceWhichFor = '';
@@ -2755,7 +2806,7 @@ let faceWhichFor = '';
 function renderFace() {
   const faces = allFaces();
   $('faceBody').hidden = faces.length === 0;
-  $('faceNote').textContent = faces.length === 0 ? FACE_NOTE.none : FACE_NOTE.usual + (faces.some((face) => !face.eyes) ? FACE_NOTE.extra : '');
+  $('faceNote').textContent = faces.length === 0 ? FACE_NOTE.none : joinSentences([FACE_NOTE.usual, faces.some((face) => !face.eyes) ? FACE_NOTE.extra : '']);
   if (!faces.length) return;
   if (faceTarget !== 'all' && !faces.some((face) => face.key === faceTarget)) faceTarget = 'all';
   // 「哪张脸」：脸的数目变了才重做这一排
@@ -2763,7 +2814,7 @@ function renderFace() {
   if (keys !== faceWhichFor) {
     faceWhichFor = keys;
     $('faceWhich').replaceChildren(
-      ...[{ key: 'all', label: '全部' }, ...faces.map((face) => ({ key: face.key, label: faceLabel(face.key) }))].map((option) => {
+      ...[{ key: 'all', label: t('全部') }, ...faces.map((face) => ({ key: face.key, label: faceLabel(face.key) }))].map((option) => {
         const btn = el('button', 'btn', option.label);
         btn.type = 'button';
         btn.dataset.face = option.key;
@@ -2821,7 +2872,7 @@ function bodyDist(): BodyDist | null {
 
 /* ---- 现成的姿势：套到哪些部位、手臂套给哪一对、套几成。只记在这一页里，不进配置 ---- */
 
-const POSE_REGION_LABEL: Record<PoseRegion, string> = { head: '头和脖子', torso: '躯干', armL: '左手臂', armR: '右手臂', legs: '腿' };
+const POSE_REGION_LABEL: Record<PoseRegion, string> = { head: t('头和脖子'), torso: t('躯干'), armL: t('左手臂'), armR: t('右手臂'), legs: t('腿') };
 const presetParts = new Set<PoseRegion>(POSE_REGIONS);
 /** 手臂套给第几对（0 是第一对）；null 是全部（多出来的手臂照原来的办法跟着第一对，见 pose/fit.ts） */
 let presetPair: number | null = null;
@@ -2837,11 +2888,7 @@ let syncPresetPanel = () => {};
 
 if (POSE_LIBRARY.length) {
   $('poseLibraryNote').textContent =
-    '点一下就套到现在这个角色身上，并且落到地面；不满意接着拖圆点改。这些姿势取自 Quaternius 的 Universal Animation Library（CC0），' +
-    '是给普通人形做的：手指也跟着摆（握着的、张着的、放松的）。套上去时手臂插进身体的（胯宽、胸大时常见），绕肩膀往外让一点。' +
-    '肩部聚拢的几条手臂：姿势和垂着差不多时一起摆（还是散开着），差得多时只摆方向最接近的那一条。' +
-    '别的多出来的手臂跟着原来的那条做同样的动作（上下排的还是错开着；好几个上半身时，每个上半身各自做一整套），' +
-    '碰到身体、别的手臂就让开，让不开的保持自己静止时的样子。尾巴、翅膀保持自己静止时的样子。';
+    t('点一下就套到现在这个角色身上，并且落到地面；不满意接着拖圆点改。这些姿势取自 Quaternius 的 Universal Animation Library（CC0），是给普通人形做的：手指也跟着摆（握着的、张着的、放松的）。套上去时手臂插进身体的（胯宽、胸大时常见），绕肩膀往外让一点。肩部聚拢的几条手臂：姿势和垂着差不多时一起摆（还是散开着），差得多时只摆方向最接近的那一条。别的多出来的手臂跟着原来的那条做同样的动作（上下排的还是错开着；好几个上半身时，每个上半身各自做一整套），碰到身体、别的手臂就让开，让不开的保持自己静止时的样子。尾巴、翅膀保持自己静止时的样子。');
   /**
    * 现成的姿势是给两条腿的人摆的。人马、蛛形的腿和胯不照它摆（马腿照人腿的样子弯会很怪，马身也不该跟着躺下去）：
    * 只套腰以上，下半身保持静止的样子。
@@ -2928,15 +2975,16 @@ if (POSE_LIBRARY.length) {
   /** 点了一个现成的姿势。返回给状态栏的说明 */
   const applyPreset = (preset: (typeof POSE_LIBRARY)[number]): string => {
     if (!kit || !poseState) return '';
-    if (!presetParts.size) return '「套到哪些部位」一个都没勾，先勾上要套的部位。';
+    if (!presetParts.size) return t('「套到哪些部位」一个都没勾，先勾上要套的部位。');
     // 每点一次是新的一步撤销；接着拖强度、改部位的几下合在这一步后面
     lastPreset = { name: preset.name, preset: preset.posing, base: cloneState(poseState), key: `preset-${++clicks}`, result: null };
     history.seal();
     blendPreset();
-    if (whole() && presetAmount === 100) return `姿势：${preset.name}`;
+    if (whole() && presetAmount === 100) return t('姿势：{name}', { name: t(preset.name) });
     const parts = POSE_REGIONS.filter((r) => presetParts.has(r)).map((r) => POSE_REGION_LABEL[r]);
-    const where = parts.length === POSE_REGIONS.length ? '整套' : `只套到${parts.join('、')}`;
-    return `姿势：${preset.name}，${where}${presetPair === null ? '' : `（手臂是第 ${presetPair + 1} 对）`}，强度 ${presetAmount}%。`;
+    const where = parts.length === POSE_REGIONS.length ? t('整套') : t('只套到{parts}', { parts: parts.join(t('、')) });
+    const arm = presetPair === null ? '' : t('（手臂是第 {n} 对）', { n: presetPair + 1 });
+    return t('姿势：{name}，{where}{arm}，强度 {amount}%。', { name: t(preset.name), where, arm, amount: presetAmount });
   };
   /** 拖强度、改部位时：上一次点的姿势之后没拖过圆点、没撤销，就照新的设定重新套 */
   const reblend = () => {
@@ -2973,7 +3021,7 @@ if (POSE_LIBRARY.length) {
       const host = $('segPosePair');
       host.replaceChildren();
       const options = ['all', ...Array.from({ length: count }, (_, k) => String(k))];
-      syncPair = buildSeg(host, options, (v) => (v === 'all' ? '全部' : `第 ${Number(v) + 1} 对`), (v) => {
+      syncPair = buildSeg(host, options, (v) => (v === 'all' ? t('全部') : t('第 {n} 对', { n: Number(v) + 1 })), (v) => {
         presetPair = v === 'all' ? null : Number(v);
         syncPresetPanel();
         reblend();
@@ -2984,7 +3032,7 @@ if (POSE_LIBRARY.length) {
   };
 
   for (const preset of POSE_LIBRARY) {
-    const btn = el('button', 'btn', preset.name);
+    const btn = el('button', 'btn', t(preset.name));
     btn.type = 'button';
     btn.addEventListener('click', () => {
       const note = applyPreset(preset);
@@ -3116,16 +3164,16 @@ const CHARACTER_FILE: Record<ExportKind, string> = {
 /** 导出按钮上的字和悬停提示：白模和成品角色导出来的东西不一样 */
 const EXPORT_HINT: Record<'base' | 'character', Record<ExportKind, [label: string, title: string]>> = {
   base: {
-    glb: ['导出白模（GLB）', '一整块网格，拿去雕刻'],
-    rig: ['带骨骼 GLB', '网格 + 骨架 + 权重'],
-    obj: ['OBJ', '保留四边面'],
-    stl: ['STL', '3D 打印用'],
+    glb: [t('导出白模（GLB）'), t('一整块网格，拿去雕刻')],
+    rig: [t('带骨骼 GLB'), t('网格 + 骨架 + 权重')],
+    obj: ['OBJ', t('保留四边面')],
+    stl: ['STL', t('3D 打印用')],
   },
   character: {
-    glb: ['导出角色（GLB）', '带贴图，不带骨骼'],
-    rig: ['带骨骼 GLB', '带贴图 + 骨架 + 权重'],
-    obj: ['OBJ', '只有形状，没有贴图'],
-    stl: ['STL', '只有形状，没有贴图'],
+    glb: [t('导出角色（GLB）'), t('带贴图，不带骨骼')],
+    rig: [t('带骨骼 GLB'), t('带贴图 + 骨架 + 权重')],
+    obj: ['OBJ', t('只有形状，没有贴图')],
+    stl: ['STL', t('只有形状，没有贴图')],
   },
 };
 const exportButtons: Record<ExportKind, HTMLButtonElement> = {
@@ -3158,7 +3206,7 @@ const posedSkeleton = (pose: ExportPose, rest: Skeleton): Skeleton => ({
 
 /** 融合模式：一整块网格，在 Worker 里按导出精度重新算一遍 */
 async function exportFused(kind: ExportKind, target: Figure, pose: ExportPose | null): Promise<{ blob: Blob; what: string }> {
-  setStatus('正在生成精细网格，稍等几秒…');
+  setStatus(t('正在生成精细网格，稍等几秒…'));
   // 摆过姿势、不带骨骼的：照摆好的姿势重新融合（各部件的形状照骨骼搬过去再融合），不是把静止的网格扯过去——
   // 和屏幕上松手以后换上的那张一样；不这么办的身体（见 refusable）屏幕上是照权重的那张，导出也是。
   // 带骨骼的要权重：还是静止的那张网格照权重搬过去，这样权重、骨架、网格是配套的
@@ -3166,14 +3214,20 @@ async function exportFused(kind: ExportKind, target: Figure, pose: ExportPose | 
   const exact = posedMatrices && refusable(target, posedMatrices) ? posedMatrices : undefined;
   const data = await fused.exportData({ skin: kind === 'rig' || Boolean(pose && !exact), pose: exact });
   if (pose && !exact) {
-    if (!data.skin) throw new Error('没有拿到蒙皮数据');
+    if (!data.skin) throw new Error(t('没有拿到蒙皮数据'));
     skinInPlace(WHITE_BLEND, data.positions, data.normals, data.skin.joints, data.skin.weights, pose.matrices);
   }
   const extra = data.tris ? data.tris.length / 3 : 0;
-  let what = `一整块网格，${kind === 'obj' ? `${count(data.info.quads)} 四边面${extra ? `、${count(extra)} 三角面` : ''}` : `${count(data.info.triangles)} 三角面`}`;
-  if (data.info.components > 1) what += `；注意它分成了 ${data.info.components} 块`;
+  const faces =
+    kind !== 'obj'
+      ? t('{n} 三角面', { n: count(data.info.triangles) })
+      : extra
+        ? t('{quads} 四边面、{tris} 三角面', { quads: count(data.info.quads), tris: count(extra) })
+        : t('{quads} 四边面', { quads: count(data.info.quads) });
+  let what = t('一整块网格，{faces}', { faces });
+  if (data.info.components > 1) what += t('；注意它分成了 {n} 块', { n: data.info.components });
   const credit = footCredit(target);
-  if (credit) what += `；发出去时请署名「${credit}」`;
+  if (credit) what += t('；发出去时请署名「{credit}」', { credit });
   if (kind === 'obj') {
     // OBJ 存得下四边面：导进 Blender 布线更干净
     const text = writeObj([{ name: 'OC_BaseMesh', positions: data.positions, normals: data.normals, faces: data.quads, faceSize: 4, triangles: data.tris }], credit);
@@ -3191,11 +3245,11 @@ async function exportFused(kind: ExportKind, target: Figure, pose: ExportPose | 
   };
   const signed = credit ? { copyright: credit } : {};
   if (kind === 'glb') return { blob: glbBlob(writeGlb([mesh], signed)), what };
-  if (!data.skin) throw new Error('没有拿到蒙皮数据');
+  if (!data.skin) throw new Error(t('没有拿到蒙皮数据'));
   const rest = buildSkeleton(target);
   const skeleton = pose ? posedSkeleton(pose, rest) : rest;
   const glb = writeGlb([{ ...mesh, joints: data.skin.joints, weights: data.skin.weights }], { skeleton, rigName: 'OC_Rig', ...signed });
-  return { blob: glbBlob(glb), what: `${what}，${skeleton.bones.length} 根骨骼` };
+  return { blob: glbBlob(glb), what: t('{what}，{n} 根骨骼', { what, n: skeleton.bones.length }) };
 }
 
 /**
@@ -3212,14 +3266,14 @@ const footCredit = (target: Figure) => {
 
 /** 分部件模式：每个部件一个物体 */
 async function exportParts(kind: ExportKind, target: Figure, pose: ExportPose | null): Promise<{ blob: Blob; what: string }> {
-  setStatus('正在导出…');
+  setStatus(t('正在导出…'));
   const credit = footCredit(target);
-  const note = credit ? `；发出去时请署名「${credit}」` : '';
+  const note = credit ? t('；发出去时请署名「{credit}」', { credit }) : '';
   if (kind === 'glb' && !pose) {
     // 不带骨骼的 GLB 保留父子关系：眼睛、角、耳朵挂在各自的头下面
     const tree = model.baked();
     try {
-      return { blob: await exportGlb(tree, credit), what: `每个部件一个物体${note}` };
+      return { blob: await exportGlb(tree, credit), what: t('每个部件一个物体{note}', { note }) };
     } finally {
       disposeTree(tree);
     }
@@ -3247,19 +3301,19 @@ async function exportParts(kind: ExportKind, target: Figure, pose: ExportPose | 
       meshes.map((m) => ({ name: m.name, positions: m.positions, normals: m.normals, faces: m.indices, faceSize: 3 })),
       credit,
     );
-    return { blob: new Blob([text], { type: 'text/plain' }), what: `每个部件一个物体${note}` };
+    return { blob: new Blob([text], { type: 'text/plain' }), what: t('每个部件一个物体{note}', { note }) };
   }
   if (kind === 'stl') {
     const stl = writeStl(meshes.map((m) => ({ positions: m.positions, triangles: m.indices })));
-    return { blob: new Blob([stl], { type: 'model/stl' }), what: `所有部件的面写在一起；部件之间互相穿插，没有融合${note}` };
+    return { blob: new Blob([stl], { type: 'model/stl' }), what: t('所有部件的面写在一起；部件之间互相穿插，没有融合{note}', { note }) };
   }
   const signed = credit ? { copyright: credit } : {};
   // 摆过姿势、不带骨骼的 GLB：每个部件一个物体，不分父子（一个部件里面弯过了，没法再用父子关系表示）
-  if (kind === 'glb') return { blob: glbBlob(writeGlb(skinned, signed)), what: `每个部件一个物体${note}` };
+  if (kind === 'glb') return { blob: glbBlob(writeGlb(skinned, signed)), what: t('每个部件一个物体{note}', { note }) };
   const skeleton = pose ? posedSkeleton(pose, rest) : rest;
   return {
     blob: glbBlob(writeGlb(skinned, { skeleton, rigName: 'OC_Rig', ...signed })),
-    what: `每个部件一个物体，${skeleton.bones.length} 根骨骼${note}`,
+    what: t('每个部件一个物体，{n} 根骨骼{note}', { n: skeleton.bones.length, note }),
   };
 }
 
@@ -3276,11 +3330,11 @@ function exportCharacter(kind: ExportKind, rest: CharacterBuild, pose: ExportPos
     const credit = own ? undefined : rosterEntry(spec.character as CharacterId).credit;
     const copyright = own ? [own.title, own.author, own.license].filter(Boolean).join(' / ') : credit;
     const glb = characterGlb(build, { rig: kind === 'rig', ...(copyright ? { copyright } : {}) });
-    const what = kind === 'rig' ? `带贴图的成品角色，${build.bones.length} 根骨骼` : '带贴图的成品角色';
-    return { blob: glbBlob(glb), what: credit ? `${what}；发出去时请署名「${credit}」` : what };
+    const what = kind === 'rig' ? t('带贴图的成品角色，{n} 根骨骼', { n: build.bones.length }) : t('带贴图的成品角色');
+    return { blob: glbBlob(glb), what: credit ? t('{what}；发出去时请署名「{credit}」', { what, credit }) : what };
   }
   const shape = characterShape(build);
-  const what = '只有形状，没有贴图和骨骼；各块互相穿插，没有融合';
+  const what = t('只有形状，没有贴图和骨骼；各块互相穿插，没有融合');
   if (kind === 'obj') {
     const text = writeObj([{ name: 'OC_Character', positions: shape.positions, normals: shape.normals, faces: shape.triangles, faceSize: 3 }]);
     return { blob: new Blob([text], { type: 'text/plain' }), what };
@@ -3303,9 +3357,17 @@ async function exportModel(kind: ExportKind) {
       : await (spec.meshMode === 'fused' ? exportFused(kind, target!, pose) : exportParts(kind, target!, pose));
     const fileName = (build ? CHARACTER_FILE : EXPORT_FILE)[kind];
     const where = await saveBlob(fileName, blob);
-    setStatus(`已导出 ${fileName}（${pose ? '摆好的姿势，' : ''}${what}，${sizeText(blob.size)}），${where}。`);
+    setStatus(
+      t('已导出 {file}（{pose}{what}，{size}），{where}。', {
+        file: fileName,
+        pose: pose ? t('摆好的姿势，') : '',
+        what,
+        size: sizeText(blob.size),
+        where,
+      }),
+    );
   } catch (err) {
-    setStatus(`导出失败：${err instanceof Error ? err.message : err}`, true);
+    setStatus(t('导出失败：{err}', { err: errText(err) }), true);
   } finally {
     for (const button of Object.values(exportButtons)) button.disabled = false;
   }
@@ -3319,9 +3381,9 @@ $('btnPng').addEventListener('click', async () => {
   if (!viewport) return;
   try {
     const where = await saveBlob('oc_basemesh.png', await viewport.snapshot());
-    setStatus(`已保存截图 oc_basemesh.png（透明背景），${where}。`);
+    setStatus(t('已保存截图 oc_basemesh.png（透明背景），{where}。', { where }));
   } catch (err) {
-    setStatus(`截图失败：${err instanceof Error ? err.message : err}`, true);
+    setStatus(t('截图失败：{err}', { err: errText(err) }), true);
   }
 });
 
@@ -3351,13 +3413,18 @@ function askVrmMeta(credits?: string, character?: { title: string; terms: string
   // 成品角色：许可照原角色，不能改；填的名字写成「改」，跟在原作者后面
   $('vrmLicenseRow').hidden = Boolean(character);
   $('vrmTerms').hidden = !character;
-  if (character) $('vrmTerms').textContent = `许可照原角色：${character.terms}。不能改，导出的文件里原样写着。`;
-  $('vrmAuthorLabel').textContent = character ? '你的名字（写成「改」，跟在原作者后面）' : '作者';
+  if (character) $('vrmTerms').textContent = t('许可照原角色：{terms}。不能改，导出的文件里原样写着。', { terms: character.terms });
+  $('vrmAuthorLabel').textContent = character ? t('你的名字（写成「改」，跟在原作者后面）') : t('作者');
   // 用到了要求署名的素材（二次元素体的脚、躯干）：选什么许可都照样写上署名
   const showCredit = () => {
     const note = $('vrmCredit');
     note.hidden = !credits;
-    if (credits) note.textContent = `会自动写上署名：${credits}。${vrmLicense.value === 'cc0' ? '选了 CC0 也一样：这几样素材要求署名。' : ''}`;
+    if (credits) {
+      note.textContent = joinSentences([
+        t('会自动写上署名：{credits}。', { credits }),
+        vrmLicense.value === 'cc0' ? t('选了 CC0 也一样：这几样素材要求署名。') : '',
+      ]);
+    }
   };
   vrmLicense.onchange = showCredit;
   showCredit();
@@ -3390,7 +3457,7 @@ function askVrmMeta(credits?: string, character?: { title: string; terms: string
 async function exportCharacterVrm(build: CharacterBuild) {
   const source = characterSource(spec.character);
   if (!source) {
-    setStatus('角色的数据还没载入完，等一下再导出。', true);
+    setStatus(t('角色的数据还没载入完，等一下再导出。'), true);
     return;
   }
   // 许可照原文件：0.x 的原样抄，1.0 的换成 0.x 的写法（见 io/vrm.ts 的 metaFromV1）
@@ -3400,7 +3467,7 @@ async function exportCharacterVrm(build: CharacterBuild) {
   try {
     humanoid = humanoidMap(rest);
   } catch (err) {
-    setStatus(`这个角色导不了 VRM：${err instanceof Error ? err.message : err}`, true);
+    setStatus(t('这个角色导不了 VRM：{err}', { err: errText(err) }), true);
     return;
   }
   const own = spec.character === OWN_CHARACTER;
@@ -3410,7 +3477,7 @@ async function exportCharacterVrm(build: CharacterBuild) {
   const buttons = [...Object.values(exportButtons), $<HTMLButtonElement>('btnVrm')];
   for (const button of buttons) button.disabled = true;
   try {
-    setStatus('正在写 VRM（表情一个个算成形态键），稍等几秒…');
+    setStatus(t('正在写 VRM（表情一个个算成形态键），稍等几秒…'));
     // 让上面那行字先显示出来
     await new Promise((resolve) => setTimeout(resolve, 30));
     const solver = makeSolver(rest.bones);
@@ -3428,24 +3495,24 @@ async function exportCharacterVrm(build: CharacterBuild) {
     const faces = build.morphs?.expressions.length ?? 0;
     const notes = [
       'T-pose',
-      `${build.bones.length} 根骨骼`,
-      ...(faces ? [`${faces} 种表情`] : []),
-      ...(source.springs?.length || hairDonor(spec.hair.style) ? ['头发、裙摆照原角色会晃'] : []),
-      ...(springs.length ? ['尾巴会晃'] : []),
-      ...(mode === 'pose' && isPosed(spec.posing) ? ['摆的姿势、表情不进 VRM'] : []),
-      `许可照原角色：${describeLicense(license)}`,
-      ...(credit ? [`发出去时请署名「${credit}」`] : []),
+      t('{n} 根骨骼', { n: build.bones.length }),
+      ...(faces ? [t('{n} 种表情', { n: faces })] : []),
+      ...(source.springs?.length || hairDonor(spec.hair.style) ? [t('头发、裙摆照原角色会晃')] : []),
+      ...(springs.length ? [t('尾巴会晃')] : []),
+      ...(mode === 'pose' && isPosed(spec.posing) ? [t('摆的姿势、表情不进 VRM')] : []),
+      t('许可照原角色：{terms}', { terms: describeLicense(license) }),
+      ...(credit ? [t('发出去时请署名「{credit}」', { credit })] : []),
     ];
-    setStatus(`已导出 oc_character.vrm（${notes.join('，')}），${where}。`);
+    setStatus(t('已导出 oc_character.vrm（{notes}），{where}。', { notes: notes.join(t('，')), where }));
   } catch (err) {
-    setStatus(`导出失败：${err instanceof Error ? err.message : err}`, true);
+    setStatus(t('导出失败：{err}', { err: errText(err) }), true);
   } finally {
     for (const button of buttons) button.disabled = false;
   }
 }
 
 /** 分部件的白模点 VRM 时说的话（按钮的悬停提示也是它） */
-const VRM_PARTS = 'VRM 要一整块网格：先在「网格」一栏换成「融合成一整块」';
+const VRM_PARTS = t('VRM 要一整块网格：先在「网格」一栏换成「融合成一整块」');
 
 async function exportVrm() {
   if (pending || (!figure && !character)) rebuild();
@@ -3456,7 +3523,7 @@ async function exportVrm() {
   const target = figure;
   if (!target) return;
   if (spec.meshMode !== 'fused') {
-    setStatus(`${VRM_PARTS}。`, true);
+    setStatus(t('VRM 要一整块网格：先在「网格」一栏换成「融合成一整块」。'), true);
     return;
   }
   // 先看人形骨骼对不对得上：对不上就不用问名字了
@@ -3465,7 +3532,7 @@ async function exportVrm() {
   try {
     humanoid = humanoidMap(rest);
   } catch (err) {
-    setStatus(`这个身体导不了 VRM：${err instanceof Error ? err.message : err}`, true);
+    setStatus(t('这个身体导不了 VRM：{err}', { err: errText(err) }), true);
     return;
   }
   const credit = footCredit(target);
@@ -3474,9 +3541,9 @@ async function exportVrm() {
   const buttons = [...Object.values(exportButtons), $<HTMLButtonElement>('btnVrm')];
   for (const button of buttons) button.disabled = true;
   try {
-    setStatus('正在生成精细网格，稍等几秒…');
+    setStatus(t('正在生成精细网格，稍等几秒…'));
     const data = await fused.exportData({ skin: true });
-    if (!data.skin) throw new Error('没有拿到蒙皮数据');
+    if (!data.skin) throw new Error(t('没有拿到蒙皮数据'));
     // 静止的网格照权重搬成 T-pose（权重本来就是手臂平举着算的，搬过去几乎就是算权重时的那张），骨架也换成 T-pose 的
     const solver = makeSolver(rest.bones);
     const frame = forward(solver.rig, stateOf(solver, tPosing(humanoid, rest)));
@@ -3493,16 +3560,16 @@ async function exportVrm() {
     const where = await saveBlob('oc_basemesh.vrm', new Blob([file], { type: 'model/gltf-binary' }));
     const notes = [
       'T-pose',
-      `${count(data.info.triangles)} 三角面`,
-      `${skeleton.bones.length} 根骨骼`,
-      ...(springs.length ? ['尾巴会晃'] : []),
-      ...(mode === 'pose' && isPosed(spec.posing) ? ['摆的姿势不进 VRM'] : []),
-      ...(data.info.components > 1 ? [`注意它分成了 ${data.info.components} 块`] : []),
-      ...(credit ? [`发出去时请署名「${credit}」`] : []),
+      t('{n} 三角面', { n: count(data.info.triangles) }),
+      t('{n} 根骨骼', { n: skeleton.bones.length }),
+      ...(springs.length ? [t('尾巴会晃')] : []),
+      ...(mode === 'pose' && isPosed(spec.posing) ? [t('摆的姿势不进 VRM')] : []),
+      ...(data.info.components > 1 ? [t('注意它分成了 {n} 块', { n: data.info.components })] : []),
+      ...(credit ? [t('发出去时请署名「{credit}」', { credit })] : []),
     ];
-    setStatus(`已导出 oc_basemesh.vrm（${notes.join('，')}），${where}。`);
+    setStatus(t('已导出 oc_basemesh.vrm（{notes}），{where}。', { notes: notes.join(t('，')), where }));
   } catch (err) {
-    setStatus(`导出失败：${err instanceof Error ? err.message : err}`, true);
+    setStatus(t('导出失败：{err}', { err: errText(err) }), true);
   } finally {
     for (const button of buttons) button.disabled = false;
   }
@@ -3512,9 +3579,9 @@ $('btnVrm').addEventListener('click', () => void exportVrm());
 $('btnJson').addEventListener('click', async () => {
   try {
     const where = await saveText('oc_config.json', serializeSpec(spec, text));
-    setStatus(`已保存配置 oc_config.json，${where}。`);
+    setStatus(t('已保存配置 oc_config.json，{where}。', { where }));
   } catch (err) {
-    setStatus(`配置没存成：${err instanceof Error ? err.message : err}`, true);
+    setStatus(t('配置没存成：{err}', { err: errText(err) }), true);
   }
 });
 
@@ -3527,14 +3594,13 @@ fileJson.addEventListener('change', async () => {
     const data: unknown = JSON.parse(await file.text());
     if (typeof data !== 'object' || data === null || !('counts' in data)) throw new Error('not a config');
     spec = gate(normalizeSpec(data));
-    const saved = (data as { text?: unknown }).text;
-    readText(typeof saved === 'string' ? saved : describeSpec(spec));
+    readText(restoredText((data as { text?: unknown }).text));
     desc.value = text;
     refitNext = true;
     commit();
-    setStatus(`已载入 ${file.name}。`);
+    setStatus(t('已载入 {name}。', { name: file.name }));
   } catch {
-    setStatus('这个文件不是有效的配置文件。', true);
+    setStatus(t('这个文件不是有效的配置文件。'), true);
   }
 });
 
@@ -3547,7 +3613,7 @@ function renderEcho() {
   const host = $('echo');
   host.replaceChildren();
   if (!text.trim()) {
-    host.append(el('span', 'empty', '（还没有写描述）'));
+    host.append(el('span', 'empty', t('（还没有写描述）')));
     return;
   }
   const tier = new Array<MatchTier | null>(text.length).fill(null);
@@ -3561,10 +3627,10 @@ function renderEcho() {
     let j = i + 1;
     while (j < text.length && tier[j] === tier[i]) j++;
     const piece = text.slice(i, j);
-    const t = tier[i];
-    if (t) {
+    const here = tier[i];
+    if (here) {
       const mark = el('mark', '', piece);
-      mark.dataset.tier = t;
+      mark.dataset.tier = here;
       host.append(mark);
     } else {
       host.append(piece);
@@ -3575,7 +3641,7 @@ function renderEcho() {
 
 function render() {
   const chips = summarize(spec).map((c) => el('span', hits.has(c.key) ? 'chip hit' : 'chip', c.label));
-  if (text.trim() && matches.length === 0) chips.unshift(el('span', 'chip', '没认出部件，试试「三对手」「九条尾巴」'));
+  if (text.trim() && matches.length === 0) chips.unshift(el('span', 'chip', t('没认出部件，试试「三对手」「九条尾巴」')));
   $('chips').replaceChildren(...chips);
   // 改哪个上半身：两个以上才有；上半身少了、改的那个不在了就回到全部一样
   const sides = torsoSides(spec.counts.torsos);
@@ -3614,15 +3680,15 @@ function render() {
   const btnVrm = $<HTMLButtonElement>('btnVrm');
   btnVrm.classList.toggle('unavailable', vrmBlocked);
   btnVrm.setAttribute('aria-disabled', String(vrmBlocked));
-  btnVrm.title = vrmBlocked ? VRM_PARTS : finished ? '给 VTuber 软件、VRoid Hub 用的 VRM：T-pose、人形骨骼、表情，头发、裙摆会晃' : '给 VTuber 软件、VRoid Hub 用的 VRM：T-pose、人形骨骼，尾巴会晃';
+  btnVrm.title = vrmBlocked ? VRM_PARTS : finished ? t('给 VTuber 软件、VRoid Hub 用的 VRM：T-pose、人形骨骼、表情，头发、裙摆会晃') : t('给 VTuber 软件、VRoid Hub 用的 VRM：T-pose、人形骨骼，尾巴会晃');
   btnUndo.disabled = !history.canUndo;
   btnRedo.disabled = !history.canRedo;
   renderPosePanel();
   $('meshNote').textContent = finished
-    ? '成品角色用的是她自带的网格和贴图：各块互相插在一起，不融合，这一栏对它不起作用。'
+    ? t('成品角色用的是她自带的网格和贴图：各块互相插在一起，不融合，这一栏对它不起作用。')
     : spec.meshMode === 'fused'
-      ? '一整块封闭的网格，导进 Blender 可以直接雕刻。拖动时屏幕上是较粗的预览，停下来会换成细的，导出时另算精细的；眼睛只是位置标记，不导出。'
-      : 'v1 的做法：每个部件是一个独立的物体，互相穿插，没有融合。';
+      ? t('一整块封闭的网格，导进 Blender 可以直接雕刻。拖动时屏幕上是较粗的预览，停下来会换成细的，导出时另算精细的；眼睛只是位置标记，不导出。')
+      : t('v1 的做法：每个部件是一个独立的物体，互相穿插，没有融合。');
   renderEcho();
   scheduleRebuild();
 
@@ -3647,62 +3713,62 @@ const tourShape = (key?: string) => () => {
 };
 const tour = new Tour([
   {
-    title: '欢迎来到 OC 白模工坊',
-    text: '写一句身体设定，就能生成能导进 Blender 的多肢体角色模型。下面花半分钟认一认几个地方；不想看就点「跳过」，以后点标题旁边的「新手引导」可以再看。',
+    title: t('欢迎来到 OC 白模工坊'),
+    text: t('写一句身体设定，就能生成能导进 Blender 的多肢体角色模型。下面花半分钟认一认几个地方；不想看就点「跳过」，以后点标题旁边的「新手引导」可以再看。'),
     before: () => {
       if (btnZoom.getAttribute('aria-pressed') === 'true') btnZoom.click();
     },
   },
   {
-    title: '身体描述',
-    text: '用中文写想要的身体，比如「三个头，两对手臂，九条尾巴」，写完模型马上跟着变。下面亮起来的小标签是认出来的部件；展开「能认哪些写法」能看到全部说法。',
+    title: t('身体描述'),
+    text: t('用中文写想要的身体，比如「三个头，两对手臂，九条尾巴」，写完模型马上跟着变。下面亮起来的小标签是认出来的部件；展开「能认哪些写法」能看到全部说法。'),
     target: () => $('desc'),
     before: tourShape('desc'),
   },
   {
-    title: '预设',
-    text: '不想写字就点一个现成的：双头、阿修罗、半人马、蜘蛛女……点完还能接着改。',
+    title: t('预设'),
+    text: t('不想写字就点一个现成的：双头、阿修罗、半人马、蜘蛛女……点完还能接着改。'),
     target: () => sections.get('presets') ?? null,
     before: tourShape('presets'),
   },
   {
-    title: '部件数量',
-    text: '用 − 和 + 一样一样地调：头、手臂、胸、腿、尾巴、翅膀、角、眼睛、兽耳。下面的「排布」管多出来的怎么长（比如腿是人马还是蛛形）。',
+    title: t('部件数量'),
+    text: t('用 − 和 + 一样一样地调：头、手臂、胸、腿、尾巴、翅膀、角、眼睛、兽耳。下面的「排布」管多出来的怎么长（比如腿是人马还是蛛形）。'),
     target: () => sections.get('counts') ?? null,
     before: tourShape('counts'),
   },
   {
-    title: '身体样式',
-    text: '三种：白模人台是素白的人台；二次元素体是现成的二次元裸素体；成品角色带头发、衣服和贴图，能换角色、换发型、染发。',
+    title: t('身体样式'),
+    text: t('三种：白模人台是素白的人台；二次元素体是现成的二次元裸素体；成品角色带头发、衣服和贴图，能换角色、换发型、染发。'),
     target: () => $('segBody').closest('.field'),
     before: tourShape('shape'),
   },
   {
-    title: '3D 视图',
+    title: t('3D 视图'),
     text: byFinger
-      ? '单指拖动旋转，双指缩放、平移。点一下某个部件（一条手臂、一个头），可以单独挪动、旋转、缩放它。'
-      : '拖动旋转，滚轮缩放，右键平移。点一下某个部件（一条手臂、一个头），可以单独挪动、旋转、缩放它。',
+      ? t('单指拖动旋转，双指缩放、平移。点一下某个部件（一条手臂、一个头），可以单独挪动、旋转、缩放它。')
+      : t('拖动旋转，滚轮缩放，右键平移。点一下某个部件（一条手臂、一个头），可以单独挪动、旋转、缩放它。'),
     target: () => $('stage'),
     before: tourShape(),
   },
   {
-    title: '造型和摆姿势',
-    text: '身体定好了切到「摆姿势」：拖关节上的圆点摆动作，还有现成的姿势、手势和表情。',
+    title: t('造型和摆姿势'),
+    text: t('身体定好了切到「摆姿势」：拖关节上的圆点摆动作，还有现成的姿势、手势和表情。'),
     target: () => document.querySelector('.mode'),
   },
   {
-    title: '视角和撤销',
-    text: '一下切到正面、侧面、背面看；改错了点「撤销」（Ctrl+Z）。「骨骼」把骨架显示出来。',
+    title: t('视角和撤销'),
+    text: t('一下切到正面、侧面、背面看；改错了点「撤销」（Ctrl+Z）。「骨骼」把骨架显示出来。'),
     target: () => document.querySelector('.dock'),
   },
   {
-    title: '导出',
-    text: '「导出白模」是一整块网格，拿去雕刻；「带骨骼 GLB」进了 Blender 能直接摆姿势；还有 OBJ、3D 打印用的 STL 和截图。Blender 里用「文件 → 导入 → glTF 2.0」。',
+    title: t('导出'),
+    text: t('「导出白模」是一整块网格，拿去雕刻；「带骨骼 GLB」进了 Blender 能直接摆姿势；还有 OBJ、3D 打印用的 STL 和截图。Blender 里用「文件 → 导入 → glTF 2.0」。'),
     target: () => document.querySelector('.export'),
   },
   {
-    title: '就这些',
-    text: '设定会自动存在这个浏览器里，下次打开还在。想再看一遍引导，点这里。',
+    title: t('就这些'),
+    text: t('设定会自动存在这个浏览器里，下次打开还在。想再看一遍引导，点这里。'),
     target: () => $('btnTour'),
     before: () => $('btnTour').closest('header')?.scrollIntoView({ block: 'center' }),
   },

@@ -3,6 +3,7 @@
  * 能选的角色记在 roster.ts 里，文件放在 public/character/ 下面，选到哪个才取哪个（每个十来 MB）。
  * 换发型用的几副头发是从 pixiv 的 CC0 样例里取下来的（见 tools/build-hair.mjs），放在 public/character/hair/，也是用到时才取。
  */
+import { t } from '../i18n';
 import { fetchFile } from '../io/fetchFile';
 import { keepFile, keptFile } from '../io/keepFile';
 import { type CharacterChoice, type CharacterId, type HairStyle, OWN_CHARACTER } from '../model/spec';
@@ -155,7 +156,7 @@ async function lightImage(source: CharacterSource, index: number): Promise<{ ima
 export function loadCharacter(id: CharacterId, base = '/'): Promise<CharacterSource> {
   let pending = loading.get(id);
   if (!pending) {
-    pending = fetchFile(`${base}${characterUrl(id)}`, '角色文件')
+    pending = fetchFile(`${base}${characterUrl(id)}`, t('角色文件'))
       .then(async (buffer) => {
         const source = readCharacter(buffer, rosterEntry(id));
         // 量不出头发的颜色不要紧：尾巴和兽耳退回去用材质的底色
@@ -220,7 +221,7 @@ export const hairDonor = (style: HairStyle): HairDonor | null => hairs.get(style
 export function loadHair(style: Exclude<HairStyle, 'own'>, base = '/'): Promise<HairDonor> {
   let pending = hairLoading.get(style);
   if (!pending) {
-    pending = fetchFile(`${base}${hairUrl(style)}`, '头发文件')
+    pending = fetchFile(`${base}${hairUrl(style)}`, t('头发文件'))
       .then(async (buffer) => {
         const donor = readHair(buffer);
         donor.source.hairColor = await hairColor(donor.source).catch(() => undefined);

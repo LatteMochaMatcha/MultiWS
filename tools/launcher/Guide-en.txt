@@ -1,0 +1,384 @@
+OC Base Mesh Workshop v2 — a base mesh generator for multi-limbed characters
+============================================================================
+
+
+[What this is]
+
+A small tool for making 3D models of original characters (OCs).
+Write one sentence describing the body, for example "two heads, two pairs of arms, nine tails, fox ears",
+and it generates a matching 3D human body model.
+After exporting, you can keep sculpting it in Blender, rig it with bones, or pose it. You can also take
+screenshots and hand them to an image-generation AI as a reference for the body structure.
+
+Parts it can make: 1-3 upper bodies (branching off from the waist, each with its own heads, arms and breasts),
+1-5 heads, 0-4 pairs of arms, 0-4 pairs of breasts,
+1-12 legs (an odd number is fine; centaur or spider lower bodies, or the all-human-legs "humantaur"),
+0-9 tails, 0-3 pairs of wings, horns, animal ears (cat, fox, rabbit and elf ears), and multiple eyes.
+
+The first time you open it, a "Tour" shows you several areas of the interface one step at a time;
+click "Skip" if you don't want it. To see it again later, click "Tour" under the title.
+
+The body comes in three styles. Switch them under "Body style" in the "Body shape" section of the right-hand panel:
+
+  Mannequin             A colorless, smooth human body: one closed mesh, ready to sculpt right away.
+                        Every part can be added and the body shape can be adjusted freely.
+                        This is the default style and the one with the most features.
+  Anime body            A base mesh with the proportions of an anime girl: slender limbs, a head with a pointed chin,
+                        hands with fingers, feet with toes. No clothes; hair can be worn separately.
+  Ready-made            Ready-made characters with hair, clothes, a face and textures, ten in all. Click the portraits
+                        in the row under "Body shape" to switch (the default is the one with silver hair,
+                        odd-colored eyes and a cyber-style dress). Each one needs a second or two to load the first
+                        time it is selected.
+                        You can also click "Load your own VRM…" under that row of portraits to use a character
+                        you made yourself in VRoid Studio (VRM 0.x and 1.0 both work). The file is stored only on
+                        this device and is still there the next time you open it.
+                        Extra heads and arms are made by copying her own head or arm and attaching it; the export
+                        carries textures and bones.
+                        Centaur and spider lower bodies are separately made single-color horse and spider bodies,
+                        attached under her skirt.
+                        Humantaur adds a second copy of her own waist, pelvis and legs (skirt and shoes included)
+                        behind her.
+                        With legs "Side by side", the middle section of her pelvis is copied as is and spread out,
+                        and the middle legs are assembled; with "Tandem", her pelvis and legs (skirt and shoes
+                        included) are copied several times and attached one behind the other under the same section
+                        of waist; "Gather at pelvis" works the same way, except that each pelvis sits tight
+                        against the next and the legs spread outward.
+                        With an odd number of legs, the one in the middle is her two legs merged into one.
+                        Her hair can be swapped and dyed.
+
+All three styles can wear hair: see the "Hair" entry under "How to use it" below.
+
+
+[How to open it]
+
+You need: Windows 10 or 11, and any one of Edge / Chrome / Firefox (the Edge that comes with Windows is fine).
+No installation and no internet connection needed.
+
+1. First extract the zip file (don't double-click inside the zip).
+2. Double-click "OC白模工坊.exe".
+   - The first time, a blue "Windows protected your PC" screen may appear: click "More info", then "Run anyway".
+     This is because the program isn't digitally signed, so Windows doesn't recognize it; every small tool made
+     by an individual behaves this way.
+   - If your antivirus software asks whether to allow it, choose allow. It only starts a local web page on your
+     own computer; it doesn't go online and doesn't write anything to the disk.
+3. A small black window appears, and at the same time your browser opens the workshop page automatically.
+   If the browser doesn't open, copy the address in the black window (http://localhost:5210/) into the browser.
+4. Don't close the black window while you are using the workshop. When you're done, close it and the program exits.
+
+
+[Using it on a phone]
+
+This exe works on computers only. Android phones have a separate installer, "OC白模工坊.apk"
+(it is not in this zip and has to be sent separately):
+
+1. Send the apk file to the phone (QQ, WeChat, a USB cable, anything works) and open it on the phone.
+2. The phone will stop you with a warning about apps from unknown sources: choose allow, continue installing,
+   or install anyway (each phone maker words it differently).
+3. After it is installed there is a cyan "OC" icon on the home screen. Tap it to open the workshop; no internet needed.
+
+It needs Android 10 or newer; iPhones and HarmonyOS NEXT phones can't install it.
+Hold the phone upright: the model is in the top half of the screen and the settings are in the bottom half, and the
+model stays visible as you scroll down; "Enlarge" at the top right makes the model fill the whole screen.
+Drag with one finger to rotate, pinch with two fingers to zoom, drag with two fingers to pan, and tap a part to
+select it.
+Exported models and configs are in the "OC白模工坊" folder inside the phone's Downloads folder, and screenshots are
+in the "OC白模工坊" album in the gallery.
+
+
+[How to use it]
+
+On the left is the 3D view: left-drag to rotate, scroll to zoom, right-drag to pan. At the bottom left you can
+switch Front / Side / Back / 3/4, Undo / Redo, and show the bones.
+On the right is the settings panel, from top to bottom:
+
+  Body description   Write the body in the box; the model updates by itself after you stop typing. Examples:
+                     "two heads", "three pairs of arms", "nine tails", "four horns", "no tail",
+                     "Asura", "centaur", "spider girl", "cat ears",
+                     "165 cm", "male", "T-pose".
+                     The Chinese phrasings work too, for example 「两个头」「三对手臂」「九条尾巴」「每个头四只角」
+                     「没有尾巴」「三头六臂」「三面六臂」「九尾」「六翼」「阿修罗」「半人马」「蜘蛛女」「猫耳」
+                     「身高 165」「八头身」「男性」「T-pose」.
+                     "three heads" gives three heads huddled in a cluster; "three faces", 「三面六臂」 and "Asura"
+                     give one head with three faces.
+                     "humantaur" (人腿人马): like a centaur, but behind the body there isn't a horse body, there is a
+                     section of human waist followed by another human pelvis and legs.
+                     Hairstyles such as "twin tails", "long hair" and "bob cut" are recognized too; hair colors
+                     such as "blonde hair" or "black hair" can only be used with Ready-made characters.
+                     "two torsos", "three torsos" or "Geryon": one pelvis and set of legs carries two or three
+                     upper bodies standing side by side and fanning out to both sides; each upper body gets
+                     the full set of heads, arms and breasts. The two middle arms are changed to reach forward
+                     (hanging down they would poke into the neighboring body).
+                     The pelvis is 10% wider than one person's, so that the upper bodies can stand side by side on
+                     it as in the drawings; the sides of the waist run smoothly, without a ring of bulges.
+                     With the Anime body, the two upper bodies separate right from the pelvis: each has its own
+                     waist and belly, and the V between them opens all the way to the top of the pelvis.
+                     With a Ready-made character, everything above her waist (hair and clothes included) is copied
+                     once and bent apart at the waist.
+  Presets            12 ready-made combinations; click one to switch to it.
+  Part counts        Adjust them one by one with the plus and minus buttons.
+  Layout             "Multiple heads": "Clustered", "1 head, N faces" (one head with several faces) or "Wide torso";
+                     "Multiple pairs of arms": "Stacked along the torso" or "Gathered at shoulders" (fanned out from
+                     the shoulders);
+                     "Three or more legs": "Auto", "Centaur", "Arachne", "Humantaur", "Tandem" (human legs front to
+                     back), "Side by side" (in a row, sideways),
+                     "Gather at pelvis" (the pelvis is still as wide as one person's, several pairs of legs are
+                     packed under it and spread out below like a fan),
+                     or "Pelvis row" (several complete pelvises in a row, two legs each; writing
+                     "side by side hips" or 「横排多胯」 in the description works too).
+                     With the Anime body, two heads set to "Wide torso" and a "Pelvis row" of two pelvises (4 legs),
+                     the two people are merged from shoulder to hip into one wide torso:
+                     two necks, a row of four breasts, the arms growing on the outer sides, and below that it
+                     splits into two pelvises.
+                     With an odd number of human legs, the extra one grows on the center line. For "Humantaur" and
+                     "Tandem" you can also choose how many legs each pelvis carries, with
+                     "Legs per pelvis (Humantaur, Tandem)": 6 legs with 3 per pelvis is "three front, three back"
+                     (writing "6 legs, humantaur, 3 legs per pelvis" or 「前三后三」 in the description works too).
+  Hair               Hairstyle: long straight, side ponytail, bob, twin tails, all taken from ready-made characters.
+                     All three body styles can wear them.
+                     The Mannequin and the Anime body are bald by default; once hair is put on, it is a
+                     colorless base-mesh hair, joined with the head into one piece.
+                     Ready-made characters wear their original hair by default; after changing it, the whole thing
+                     is replaced by the new hair, with its colors and textures.
+                     Hair color (Ready-made characters only): click a color to dye it, use "Custom" to pick your own,
+                     and "Original color" to go back. Hairpins and ribbons are not dyed.
+                     With several heads, click a head under "Dye which head" below (labeled L, C, R…; with
+                     several upper bodies, "L body", "Mid body", "R body") and then choose a color, and only that
+                     head is dyed; "All" dyes them together.
+                     "Length" controls the part hanging below the face; "Volume" scales the whole hairstyle up or
+                     down a little.
+                     The first time you pick a certain hairstyle you wait a second or two (the data is being fetched).
+  Body shape         Body style, gender, pose (A-pose / T-pose), and sliders for height, heads tall, bust
+                     size, shoulder width, waist width, hip width, limb thickness, arm length, leg length and so on.
+                     Pushed to either end they give very exaggerated cartoon proportions (limbs up to 3 times
+                     thicker or down to 0.35 times).
+                     Leg length doesn't change the height: when the legs are lengthened, the whole figure is scaled
+                     down proportionally so it is still as tall as set.
+                     On the Anime body, once the bust size is raised past 1.1 it gradually changes to a
+                     large-breast shape (taken from a ready-made CC0 base body: two round breasts, slightly
+                     drooping, with a fold below them), fully changed at 1.6.
+                     Ready-made characters can be adjusted in everything except "Build"; these sliders stretch the
+                     body together with its clothes, and the patterns on the clothes distort if you push them far.
+  Manual tweaks      Click a part on the model (a particular arm, head or tail) and you can move, rotate and scale
+                     it on its own (move up to 3 m, rotate ±180°, size 0.05-10 times).
+                     With many legs, moving an outer leg makes the pelvis widen or narrow along with it.
+                     Ready-made characters can be tweaked too: the parts follow the bones, and where they join the
+                     body (shoulder, hip joint, neck) they stretch along; copied arms, tails, wings and horns move
+                     as a whole piece; when a leg is moved, the piece of pelvis near that leg moves with it.
+                     Its tweaks are recorded separately from those of the Mannequin and the Anime body.
+  Mesh               "Fused (one piece)" (the default), or every part separate ("Separate parts (v1)").
+  Config             Save all the settings into a file, or read them back.
+
+All the settings are saved automatically in the browser and will still be there next time.
+
+
+[Posing]
+
+Once the body is set, click "Pose" at the top left of the 3D view and a set of handles lights up on the joints.
+Click "Shape" to go back and keep editing the body.
+
+  Large cyan circle    Hands, feet, pelvis. Drag a hand or foot and the elbow or knee bends by itself; if it can't
+                       reach, the body follows. Drag the pelvis and the whole figure moves with the feet pinned
+                       to the ground, and the legs bend by themselves.
+  Yellow diamond       Elbows, knees. Dragging one makes the elbow (knee) point to another side while the hand
+                       or foot stays put.
+  Small white circle   Waist, chest, neck, head, top of the head, shoulders, hip joints, toe tips. Dragging the top
+                       of the head tilts the head, dragging the chest bends over, dragging a shoulder shrugs.
+  Click a handle       A colored rotation ring appears, which turns the segment from that joint outward (click
+                       the wrist to turn the hand, click the shoulder to turn the whole arm).
+                       Click empty space to put it away. Dragging empty space still turns the view.
+
+  Small circle at an end   Tail tips, wing tips; on Ready-made characters, hair tips, skirt hems and sleeve cuffs.
+                           Drag it and the whole chain bends along; a click turns the whole chain.
+                           (The hair and hem handles are folded away normally; turn them on under
+                           "Show which handles" in the "Pose" section.)
+
+Extra arms, legs and heads each have their own handles. In the "Pose" section on the right you can: fold away the
+groups of handles you don't need; choose whether the feet and hands stay in place when you drag elsewhere;
+mirror left to right or flip horizontally; drop to the ground; reset; save a pose as a separate file and read it
+back later, or apply it to another character. Undo / Redo work as usual.
+
+  Hand gestures         The "Hand gestures" section takes care of the fingers. First choose which hand to pose (both
+                        hands / left hand / right hand; with many arms you can also choose which pair), then click a
+                        ready-made gesture: Relaxed, Spread, Together, Fist, Grip, Point,
+                        Peace, 3, 4, Thumbs up, OK, Rock, 6, Gun, Claw, Pinch.
+                        The six sliders below let you set how much each finger bends and spreads, one finger at a time.
+                        To drag the fingertips directly: turn on "Fingers" under "Show which handles" in the "Pose"
+                        section, zoom in on the hand and drag.
+                        The Mannequin has two kinds of hand ("Shape → Layout → Hands"): the default "Separate fingers"
+                        has every finger apart and can make any gesture; with "Joined fingers (mitten)" the four
+                        fingers form one sheet, and only gestures like "Fist" and "Spread" look right.
+
+  Expression & gaze     Ready-made characters only. In the "Expression & gaze" section on the right: click an
+                        expression (Neutral, Happy, Smug, Angry, Sad, Surprised, > <), then use the sliders to set the
+                        strength, close one eye on its own (left and right are her own left and right), open the
+                        mouth, show fangs.
+                        The two "Gaze" sliders turn the eyeballs; "Look at camera" makes her look toward the angle you
+                        are looking at her from, and you click it again after turning the view.
+                        With several heads, an extra row "Which face" appears above: one head can laugh while another
+                        is angry.
+                        Screenshots and exports taken in "Pose" show the face with the expression you set; switching
+                        back to "Shape" shows the face with no expression.
+
+  Pose library          60 poses: the first 8 are soft standing poses (standing naturally, hands on hips, waving,
+                        peace sign, chin on hand…), and the rest are standing, walking, running, jumping, crouching,
+                        sitting, lying down, punching, aiming a gun, swinging a sword… Click one to apply it; the figure
+                        drops to the ground automatically and the fingers are posed too (gripping, open, relaxed).
+                        If you aren't happy with it, keep dragging handles to adjust.
+                        "Random pose" picks one at random. Centaurs and arachnes only take the pose from the waist up.
+                        When a pose is applied and the arms poke into the body (with wide hips or big breasts), they
+                        are pushed out a little; extra arms do the same movement as the arm they came from, and the ones
+                        that can't do it (they would hit the body or other arms) stay as they were.
+  Camera & lighting     Which side to look from; the larger the "FOV", the more exaggerated near-big-far-small
+                        gets; which side the light shines from and how high; whether the ground shadow is shown.
+                        It only affects how things look on screen and in screenshots, not the exported model.
+
+After you have posed, changing between A-pose and T-pose, changing the body style, or adding or removing parts does
+not change the pose along with it.
+Exports and screenshots taken in "Pose" show the posed figure; exports taken in "Shape" are the rest pose.
+
+
+[Export]
+
+The export buttons are at the bottom of the panel. After you click one, the file is in your browser's download folder.
+
+  Export base mesh (GLB)   The mesh. For sculpting; the most common choice.
+  Rigged GLB               Mesh + skeleton + weights (finger bones included). Use it when you want to pose or animate
+                           right away.
+  OBJ                      The mesh, with quad faces kept.
+  STL                      For 3D printing (scale it up 1000 times in the slicer, because the model is made in meters).
+  PNG                      An image of the current view, with a transparent background.
+
+GLB files exported from a Ready-made character carry textures; OBJ and STL have the shape only.
+
+
+[Putting it into Blender]
+
+1. Menu "File → Import → glTF 2.0 (.glb/.gltf)", and select the exported .glb file.
+2. The model stands at the world origin, and the unit is meters. Press Numpad 1 to switch to the front view, and the
+   character faces you.
+3. Base mesh: select it and switch the mode at the top left to Sculpt Mode, and you can sculpt right away.
+   Ready-made character: switch the viewport to Material Preview (the third of the row of spheres at the top right of
+   the viewport) to see the textures.
+4. Files with bones: click the armature, press Ctrl + Tab to enter Pose Mode, click a bone and press R to rotate it.
+   The bone names are the common set (Hips, Spine, UpperArm_L, Head …), and extra parts carry a number
+   (UpperArm_L.002, Head.002).
+
+
+[Things to know]
+
+- The face of the base mesh is very simple: just eye sockets, a nose and a chin, and no mouth. It is a starting point
+  for sculpting, not a finished piece.
+- What you see on screen is a fairly coarse preview, and a fine mesh is computed separately when you export. Hair on a
+  base mesh looks thick and blurry in the preview and only becomes clear after export.
+- The automatically computed weights are good enough for checking poses; real animation needs touching up.
+- Posing bends the mesh directly by the weights: places that bend hard (the knees of a deep squat, a shoulder raised
+  above the head) collapse a little. There are no joint limits, and nothing stops clipping.
+- When "Mesh" is set to "Separate parts (v1)", every part is a separate piece and the joints overlap (like a ball-jointed
+  doll): when an arm is raised, the ball at the shoulder shows. For a continuous skin, use "Fused (one piece)" in "Mesh".
+- When the arms of a base mesh hang down, the shoulders and armpits look slightly different in "Pose" than in "Shape"
+  (the arms are first spread out horizontally and then merged into one piece, so that nothing sticks together
+  as a sheet of skin when they are raised).
+- Posing a base mesh: while you drag a handle you see a preview that follows your hand (shoulders bulge, skin is
+  stretched between the arms); under a second after you let go, the body is fused again to match the pose and swapped in.
+  That is the final look, and it is also what GLB / OBJ / STL exports of a posed figure contain. With many parts, or on
+  a phone, the swap is slower.
+  If you move the pose again while it is still computing, the old one stops immediately and the new one doesn't queue up.
+- When a finer mesh is computed (after you stop, when you let go while posing, on export), several CPU cores are used
+  together, so the CPU suddenly maxes out and then goes idle when it is done.
+  If a game or another program that eats a lot of CPU is running at the same time, both get slower.
+- The Anime body is only re-fused when its arms are set to "Gathered at shoulders" (with one arm on each
+  shoulder, the original shoulder looks more natural and is kept).
+  Its legs are moved over, after fusing, in the old way, the same as what you see while dragging.
+  In poses where the legs move a lot (crouching, sitting, lunging, chopping), the arm next to a leg gets a few
+  stretched faces pulled out of it; this isn't fixed yet.
+- Poses from the pose library applied to arms set to "Gathered at shoulders": if the pose is close to hanging (standing, walking,
+  sitting and the like), the arms are posed together and are still fanned out; if it's very different (arms folded,
+  phoning and the like), only the arm whose direction is closest is posed and the others stay put. It used to pose only
+  the first one, which then overlapped the one that was still hanging.
+- After posing, a wrist that pokes into a thigh or another arm, or two wrists next to each other, usually still gets its
+  hand sewn on; the side that is squeezed keeps a shallow groove hugging the wrist.
+  A few still can't be sewn (more often on the Anime body, when the wrist pokes into a leg that hasn't been moved
+  away yet): that hand seals itself and overlaps in its old place, the mesh is then more than one piece, and the export
+  tells you so; move the hand away a little and it's fine.
+- When you stretch an arm longer or thicker by hand, the hand doesn't deform: it just follows the wrist; when stretched
+  longer the hand stays the same, and when made thicker the hand grows along.
+- If you want the joints of a rigged base mesh to look better once it is in Blender where they turn a lot: click the
+  mesh → Modifiers (blue wrench) → Armature → tick "Preserve Volume".
+- With arms set to "Gathered at shoulders", the several arms on the same shoulder share one lump of shoulder: raise just
+  one, and a little piece of skin gets pulled up between it and the next. For fully independent arms, set "Mesh" to
+  "Separate parts (v1)".
+- The hands of the Mannequin and the Anime body are a ready-made hand (with each finger apart), sewn onto the body
+  at the wrist into one piece; a very shallow seam can be seen around the wrist. If the Mannequin in a setting saved
+  earlier is still on "Joined fingers (mitten)", click "Separate fingers" under "Shape → Layout → Hands".
+- The pieces of a Ready-made character overlap each other without being fused, so the seams are fairly stiff; if manual
+  tweaks move a part far away, the place that joins it to the body stretches.
+  It can't do the number of eyes yet. With legs in tandem, the pelvises are placed overlapping each other and there is a
+  crease in between; with three or more legs on one pelvis, the middle section of the pelvis is copied as is and spread
+  out, so the pattern in the middle repeats a few times, and where each two copies join there is a soft fold.
+  The first time you switch to a centaur or spider there is a half-second stutter while the beast body is computed.
+- The shoulder width, waist width, hip width, limb thickness and build of the Anime body widen, narrow, thicken
+  and thin it from her original shape; hip width only works on the one standing pair of human legs (it stays unchanged
+  for centaur, arachne, a single leg, or three or more legs on one pelvis).
+- The feet of the Anime body are, like the hands, a ready-made foot (taken from Kotori, with five toes), sewn into
+  one piece above the ankle.
+- While you drag a slider on screen, the mesh is a coarse one; a quarter of a second after you stop it is swapped for
+  a fine one (as fine as the export), and small details such as the eyes and the mouth can only be seen clearly after it
+  is swapped in.
+- If all the body-shape sliders are pulled to the minimum at the same time and combined with an "Arachne" or "Gather at
+  pelvis" lower body, one hand or foot of the Anime body can't be sewn on (the mesh has an extra piece, and the
+  export tells you).
+
+
+[FAQ]
+
+The left side is empty and says the 3D view could not start
+    WebGL is not enabled in the browser. Switch to a recent Edge or Chrome, or turn on "hardware acceleration" in the
+    browser settings.
+
+The black window says the port is in use
+    Close the other program and try again. If a workshop is already running, double-clicking again just reopens the
+    page; it won't start a second one.
+
+I want to start over
+    Click "Standard humanoid" in the presets. The body-shape sliders do not reset with it; drag them back yourself.
+
+The page doesn't open any more; or, when switching to "Anime body" or "Ready-made", a message below says
+loading failed… and that it can't reach the workshop program
+    The black window has been closed. The page needs it to work: a page that is already open can still play with the
+    Mannequin, but the data for the other two styles can't be fetched.
+    Just double-click the exe again. Go back to the original page and it will retry by itself.
+
+
+[Assets and licenses]
+
+The poses in the pose library come from Quaternius's Universal Animation Library and Universal Animation Library 2 (CC0);
+the first 8 soft standing poses were posed by the workshop itself.
+
+The "Anime body", the few hairstyles used for changing hair, and the first five Ready-made characters
+(Silver cat, Blonde, Long black, Blue hair, Brown hair)
+all use the old VRoid Studio sample models that pixiv released under CC0 (the female base model, β Ver AvatarSample_1-4,
+Sendagaya Shino; the hair also from AvatarSample_D_Darkness and HairSample_Female): copyright is waived, and you may
+use, modify and redistribute them freely, with no attribution required.
+pixiv's explanation: https://vroid.pixiv.help/hc/en-us/articles/4402614652569
+
+The other five Ready-made characters were made by other authors, each with its own license:
+  Rabbit ears, Wolf ears       七百屋 (なおしま). Terms set on VRoid Hub: anyone may use it, modify it, redistribute it
+                               and use it commercially, with no attribution needed; Wolf ears must not be used for
+                               sexual depictions.
+  Sailor suit                  白い白米. Same terms as above; the author also wrote that it must not be used for NFTs,
+                               politics or religion.
+  Orange                       Alice Chan, by edisonlee55. CC BY-SA 4.0: attribution required; if you modify it and
+                               redistribute it, it must carry the same license.
+  Red skirt                    Kotori, by Fox Jump. CC BY: attribution required.
+For the last two, the attribution is already written into the exported GLB automatically; when you pass images or
+models on, please include
+"Alice Chan © edisonlee55, CC BY-SA 4.0" or "Kotori © Fox Jump, CC BY".
+The feet of the "Anime body" also come from Kotori (CC BY): when you pass on a model exported with the Anime
+body, please include "Foot mesh © Fox Jump (Kotori), CC BY".
+The ups and downs of the "Anime body" torso were informed by Fly_jkey's "Woman" (CC BY 4.0,
+https://sketchfab.com/3d-models/woman-b303b7606140480f8335cda121b9607c); the attribution is written into the exported
+model automatically.
+Part of the mesh in the workshop (not shown by default) comes from "DJP Male Base Mesh Mark 03" by Death Joe Productions
+(https://deathjoeproductions.gumroad.com/l/MaleBM03, CC BY 4.0: https://creativecommons.org/licenses/by/4.0/), with its
+shape modified; models that use it get the attribution written in automatically at export, and please include it when
+you pass them on.

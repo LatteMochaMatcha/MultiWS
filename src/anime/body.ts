@@ -5,6 +5,7 @@
  *
  * 这里只管把数据登记进 sdf/grids；数据怎么读进来（浏览器里 fetch、测试里读文件）由外面决定。
  */
+import { t } from '../i18n';
 import type { V3 } from '../geometry/vec';
 import { fetchFile } from '../io/fetchFile';
 import { hasGrid, registerGrid } from '../sdf/grids';
@@ -63,7 +64,7 @@ export const animeCaps = (piece: AnimePiece): { center: V3; radius: number }[] =
 export function animeJoint(name: string): V3 {
   const joints = meta.joints as Record<string, number[]>;
   const p = joints[`J_Bip_${name}`] ?? joints[`J_Sec_${name}`];
-  if (!p) throw new Error(`素体里没有关节 ${name}`);
+  if (!p) throw new Error(t('素体里没有关节 {name}', { name }));
   return p as V3;
 }
 
@@ -101,7 +102,7 @@ export function installAnimeBody(buffer: ArrayBuffer) {
 }
 
 /** 躯干上的起伏（tools/build-torso.ts）参考了的素材里要求署名的那个（CC BY 4.0）：导出时和脚的署名一起写进去 */
-export const TORSO_CREDIT = '躯干起伏参考了「Woman」© Fly_jkey（sketchfab.com/3d-models/woman-b303b7606140480f8335cda121b9607c），CC BY 4.0';
+export const TORSO_CREDIT = t('躯干起伏参考了「Woman」© Fly_jkey（sketchfab.com/3d-models/woman-b303b7606140480f8335cda121b9607c），CC BY 4.0');
 
 let loading: Promise<ArrayBuffer> | null = null;
 
@@ -110,7 +111,7 @@ let loading: Promise<ArrayBuffer> | null = null;
  * 返回取到的数据：网格是在 Worker 里算的，那边也要登记一份（见 sdf/meshClient 的 provideShapes）。
  */
 export function loadAnimeBody(base = '/'): Promise<ArrayBuffer> {
-  loading ??= fetchFile(`${base}${ANIME_BODY_URL}`, '素体数据')
+  loading ??= fetchFile(`${base}${ANIME_BODY_URL}`, t('素体数据'))
     .then((buffer) => {
       installAnimeBody(buffer);
       return buffer;

@@ -20,6 +20,7 @@ import {
   sub,
 } from '../geometry/vec';
 import type { Skeleton } from '../rig/skeleton';
+import { t } from '../i18n';
 
 export interface GlbMesh {
   name: string;
@@ -204,7 +205,7 @@ export function writeGlb(meshes: GlbMesh[], options: GlbOptions = {}): ArrayBuff
     let made = textureOf.get(index);
     if (made === undefined) {
       const image = options.images?.[index];
-      if (!image) throw new Error(`材质要用第 ${index} 张贴图，但没有给`);
+      if (!image) throw new Error(t('材质要用第 {index} 张贴图，但没有给', { index }));
       made = images.length;
       textureOf.set(index, made);
       images.push({ ...(image.name ? { name: image.name } : {}), mimeType: image.mime, bufferView: addBytes(image.bytes) });
@@ -227,13 +228,13 @@ export function writeGlb(meshes: GlbMesh[], options: GlbOptions = {}): ArrayBuff
     const attributes: Json = { POSITION: add(mesh.positions, 'VEC3', 3, ARRAY_BUFFER, { min, max }) };
     if (mesh.normals) attributes.NORMAL = add(mesh.normals, 'VEC3', 3, ARRAY_BUFFER);
     if (mesh.uvs) {
-      if (mesh.uvs.length !== count * 2) throw new Error(`网格 ${mesh.name} 的贴图坐标和顶点数对不上`);
+      if (mesh.uvs.length !== count * 2) throw new Error(t('网格 {name} 的贴图坐标和顶点数对不上', { name: mesh.name }));
       attributes.TEXCOORD_0 = add(mesh.uvs, 'VEC2', 2, ARRAY_BUFFER);
     }
     const skinned = Boolean(skeleton && mesh.joints && mesh.weights);
     if (skinned) {
       if (mesh.joints!.length !== count * 4 || mesh.weights!.length !== count * 4) {
-        throw new Error(`网格 ${mesh.name} 的蒙皮数据和顶点数对不上`);
+        throw new Error(t('网格 {name} 的蒙皮数据和顶点数对不上', { name: mesh.name }));
       }
       attributes.JOINTS_0 = add(mesh.joints!, 'VEC4', 4, ARRAY_BUFFER);
       attributes.WEIGHTS_0 = add(mesh.weights!, 'VEC4', 4, ARRAY_BUFFER);
@@ -241,7 +242,7 @@ export function writeGlb(meshes: GlbMesh[], options: GlbOptions = {}): ArrayBuff
     const primitive: Json = { attributes, indices: add(mesh.indices, 'SCALAR', 1, ELEMENT_ARRAY_BUFFER), mode: 4 };
     if (mesh.targets?.length) {
       primitive.targets = mesh.targets.map((target) => {
-        if (target.positions.length !== count * 3) throw new Error(`网格 ${mesh.name} 的形态键 ${target.name} 和顶点数对不上`);
+        if (target.positions.length !== count * 3) throw new Error(t('网格 {name} 的形态键 {target} 和顶点数对不上', { name: mesh.name, target: target.name }));
         const lo = [Infinity, Infinity, Infinity];
         const hi = [-Infinity, -Infinity, -Infinity];
         for (let i = 0; i < target.positions.length; i++) {
@@ -282,7 +283,7 @@ export function writeGlb(meshes: GlbMesh[], options: GlbOptions = {}): ArrayBuff
     const shared = mesh.object === undefined ? undefined : objectOf.get(mesh.object);
     if (shared !== undefined) {
       const names = (gltfMeshes[shared].extras as { targetNames?: string[] } | undefined)?.targetNames ?? [];
-      if ((mesh.targets?.length ?? 0) !== names.length) throw new Error(`物体 ${mesh.object} 里几块网格的形态键个数不一样`);
+      if ((mesh.targets?.length ?? 0) !== names.length) throw new Error(t('物体 {object} 里几块网格的形态键个数不一样', { object: mesh.object! }));
       (gltfMeshes[shared].primitives as Json[]).push(primitive);
       continue;
     }
@@ -302,7 +303,7 @@ export function writeGlb(meshes: GlbMesh[], options: GlbOptions = {}): ArrayBuff
           texture,
           meshOf: (object) => {
             const index = objectOf.get(object);
-            if (index === undefined) throw new Error(`没有叫 ${object} 的物体`);
+            if (index === undefined) throw new Error(t('没有叫 {object} 的物体', { object }));
             return index;
           },
         })

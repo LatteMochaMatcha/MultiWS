@@ -2,6 +2,7 @@
  * 「分部件」网格：把每个部件的基本体各自做成几何体再并成一个网格，部件之间不融合。
  * 这是 v1 的做法，留作可选模式；融合成一整块的网格在 SDF 模块里做。
  */
+import { t } from '../i18n';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { graftMeshOf } from '../anime/grafts';
@@ -252,7 +253,7 @@ export function buildPartGeometry(part: Part): THREE.BufferGeometry {
     // 合并要求各块的顶点属性一致：白模用不到 UV，统一去掉
     for (const g of geos) g.deleteAttribute('uv');
     const merged = mergeGeometries(geos, false);
-    if (!merged) throw new Error(`部件 ${part.name} 的网格合并失败`);
+    if (!merged) throw new Error(t('部件 {name} 的网格合并失败', { name: part.name }));
     for (const g of geos) g.dispose();
     geo = merged;
   }

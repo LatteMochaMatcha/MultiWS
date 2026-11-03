@@ -85,8 +85,15 @@ try {
   # 使用说明带上 BOM：老一点的记事本靠它认出这是 UTF-8，不然中文会乱码
   $guide = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'launcher\使用说明.txt') -Raw
   [System.IO.File]::WriteAllText((Join-Path $stage '使用说明.txt'), $guide.Replace("`r`n", "`n").Replace("`n", "`r`n"), [System.Text.UTF8Encoding]::new($true))
+  # 英文、日文版的说明（在的话）也一样处理，一起放进去
+  foreach ($guideName in 'Guide-en.txt', 'ガイド-ja.txt') {
+    $guidePath = Join-Path $PSScriptRoot "launcher\$guideName"
+    if (-not (Test-Path -LiteralPath $guidePath)) { continue }
+    $text = Get-Content -LiteralPath $guidePath -Raw
+    [System.IO.File]::WriteAllText((Join-Path $stage $guideName), $text.Replace("`r`n", "`n").Replace("`n", "`r`n"), [System.Text.UTF8Encoding]::new($true))
+  }
 
-  # release 文件夹里还可能有 npm run apk 生成的安卓安装包：只换自己的这三样
+  # release 文件夹里还可能有 npm run apk 生成的安卓安装包：只换自己的这几样
   if (-not (Test-Path $release)) { New-Item -ItemType Directory -Path $release | Out-Null }
   Copy-Item -Path (Join-Path $stage '*') -Destination $release -Force
   $zip = Join-Path $release "$package.zip"

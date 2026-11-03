@@ -9,6 +9,7 @@
  * 画的时候：Ctrl+Z 撤一笔（不会撤到模型上），Esc 不存了。
  */
 import type { ViteHotContext } from 'vite/types/hot.d.ts';
+import { t } from '../i18n';
 
 export interface AnnotateHooks {
   /** 3D 视图的画布（WebGL，带 preserveDrawingBuffer，读得出最后一帧） */
@@ -54,11 +55,11 @@ export function startAnnotate(hot: ViteHotContext, hooks: AnnotateHooks) {
   const group = document.createElement('div');
   group.className = 'views';
   group.setAttribute('role', 'group');
-  group.setAttribute('aria-label', '问题单');
+  group.setAttribute('aria-label', t('问题单'));
   const open = document.createElement('button');
   open.type = 'button';
-  open.textContent = '标注';
-  open.title = '在 3D 视图上画红圈、写一句话，存成问题单给 Claude 看（只在开发服务器上有）';
+  open.textContent = t('标注');
+  open.title = t('在 3D 视图上画红圈、写一句话，存成问题单给 Claude 看（只在开发服务器上有）');
   group.append(open);
   dock.append(group);
 
@@ -128,7 +129,7 @@ export function startAnnotate(hot: ViteHotContext, hooks: AnnotateHooks) {
     const bar = document.createElement('div');
     bar.className = 'oc-annot-bar';
     const text = document.createElement('textarea');
-    text.placeholder = '哪里不对？写一句（也可以不写，只画圈）';
+    text.placeholder = t('哪里不对？写一句（也可以不写，只画圈）');
     text.rows = 2;
     const row = document.createElement('div');
     row.className = 'oc-annot-row';
@@ -143,17 +144,17 @@ export function startAnnotate(hot: ViteHotContext, hooks: AnnotateHooks) {
     };
     const tip = document.createElement('span');
     tip.className = 'oc-annot-tip';
-    tip.textContent = '在 3D 视图上画红圈；Ctrl+Z 撤一笔，Esc 不存了';
-    const save = button('存成问题单', () => void submit(), true);
-    button('撤一笔', () => {
+    tip.textContent = t('在 3D 视图上画红圈；Ctrl+Z 撤一笔，Esc 不存了');
+    const save = button(t('存成问题单'), () => void submit(), true);
+    button(t('撤一笔'), () => {
       strokes.pop();
       redraw();
     });
-    button('清空', () => {
+    button(t('清空'), () => {
       strokes = [];
       redraw();
     });
-    button('不存了', close);
+    button(t('不存了'), close);
     row.append(tip);
     bar.append(text, row);
     root.append(canvas, bar);
@@ -214,15 +215,15 @@ export function startAnnotate(hot: ViteHotContext, hooks: AnnotateHooks) {
     const gl = hooks.canvas();
     const { text, tip, save } = layer;
     if (!gl || !gl.width || !gl.height) {
-      tip.textContent = '3D 视图现在没有显示出来，存不了';
+      tip.textContent = t('3D 视图现在没有显示出来，存不了');
       return;
     }
     if (!strokes.length && !text.value.trim()) {
-      tip.textContent = '先画个圈，或者写一句';
+      tip.textContent = t('先画个圈，或者写一句');
       return;
     }
     save.disabled = true;
-    tip.textContent = '正在存…';
+    tip.textContent = t('正在存…');
     const note = {
       createdAt: new Date().toISOString(),
       text: text.value.trim(),
@@ -233,7 +234,7 @@ export function startAnnotate(hot: ViteHotContext, hooks: AnnotateHooks) {
     try {
       const images = { 'screen.png': picture(gl, true), 'clean.png': picture(gl, false) };
       const reply = await new Promise<{ ok: boolean; dir?: string; error?: string }>((resolve, reject) => {
-        const timer = window.setTimeout(() => reject(new Error('开发服务器没回话')), SAVE_TIMEOUT);
+        const timer = window.setTimeout(() => reject(new Error(t('开发服务器没回话'))), SAVE_TIMEOUT);
         const onSaved = (data: { ok: boolean; dir?: string; error?: string }) => {
           window.clearTimeout(timer);
           hot.off?.('oc-agent:note-saved', onSaved);
@@ -242,13 +243,13 @@ export function startAnnotate(hot: ViteHotContext, hooks: AnnotateHooks) {
         hot.on('oc-agent:note-saved', onSaved);
         hot.send('oc-agent:note', { note, images });
       });
-      if (!reply.ok) throw new Error(reply.error ?? '没存成');
+      if (!reply.ok) throw new Error(reply.error ?? t('没存成'));
       console.info(`[问题单] 存好了：${reply.dir}`);
       close();
-      flash(`问题单存好了：${reply.dir}`);
+      flash(t('问题单存好了：{dir}', { dir: String(reply.dir) }));
     } catch (err) {
       save.disabled = false;
-      tip.textContent = `没存成：${err instanceof Error ? err.message : String(err)}`;
+      tip.textContent = t('没存成：{reason}', { reason: err instanceof Error ? err.message : String(err) });
     }
   };
 

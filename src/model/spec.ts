@@ -4,6 +4,8 @@
  *
  * 约定：单位米，Y 轴朝上，角色面朝 +Z；_L / _R 以角色自身的左右为准。
  */
+import { t } from '../i18n';
+import { cap } from './partLabel';
 import { type Posing, cleanPosing, emptyPosing } from '../pose/posing';
 
 /* ---------------- 部件数量 ---------------- */
@@ -34,24 +36,24 @@ export interface CountDef {
 
 /** 数量那一栏名字上的悬停说明 */
 export const COUNT_HINTS: Partial<Record<keyof BodyCounts, string>> = {
-  chestPairs: '好几个上半身时每个上半身各长这么多；二次元素体两个人并成一个宽躯干时（两个上半身，或者两个头选了宽躯干，横排两副胯）按一个人算，摆在正中',
+  chestPairs: t('好几个上半身时每个上半身各长这么多；二次元素体两个人并成一个宽躯干时（两个上半身，或者两个头选了宽躯干，横排两副胯）按一个人算，摆在正中'),
 };
 
 export const COUNT_DEFS: readonly CountDef[] = [
   // 好几个上半身时，头、手臂、胸、翅膀是每个上半身各长这么多（见 geometry/torsos.ts）；
   // 二次元素体并成一个宽躯干的（两个头或两个上半身、横排两副胯）胸按一个人算，摆在正中（见 COUNT_HINTS）
-  { key: 'torsos', label: '上半身', unit: '个', min: 1, max: 3, def: 1 },
-  { key: 'heads', label: '头', unit: '个', min: 1, max: 5, def: 1 },
-  { key: 'armPairs', label: '手臂', unit: '对', min: 0, max: 4, def: 1 },
-  { key: 'chestPairs', label: '胸', unit: '对', min: 0, max: 4, def: 1 },
-  { key: 'legs', label: '腿', unit: '条', min: 1, max: 12, def: 2 },
-  { key: 'tails', label: '尾巴', unit: '条', min: 0, max: 9, def: 0 },
-  { key: 'wingPairs', label: '翅膀', unit: '对', min: 0, max: 3, def: 0 },
-  { key: 'hornsPerHead', label: '角', unit: '只 / 每个头', min: 0, max: 4, def: 0 },
-  { key: 'eyesPerHead', label: '眼睛', unit: '只 / 每个头', min: 1, max: 6, def: 2 },
-  { key: 'earPairsPerHead', label: '兽耳', unit: '对 / 每个头', min: 0, max: 2, def: 0 },
+  { key: 'torsos', label: t('上半身'), unit: t('个'), min: 1, max: 3, def: 1 },
+  { key: 'heads', label: cap(t('头')), unit: t('个'), min: 1, max: 5, def: 1 },
+  { key: 'armPairs', label: t('手臂'), unit: t('对'), min: 0, max: 4, def: 1 },
+  { key: 'chestPairs', label: t('胸'), unit: t('对'), min: 0, max: 4, def: 1 },
+  { key: 'legs', label: t('腿'), unit: t('条'), min: 1, max: 12, def: 2 },
+  { key: 'tails', label: t('尾巴'), unit: t('条'), min: 0, max: 9, def: 0 },
+  { key: 'wingPairs', label: t('翅膀'), unit: t('对'), min: 0, max: 3, def: 0 },
+  { key: 'hornsPerHead', label: t('角'), unit: t('只 / 每个头'), min: 0, max: 4, def: 0 },
+  { key: 'eyesPerHead', label: t('眼睛'), unit: t('只 / 每个头'), min: 1, max: 6, def: 2 },
+  { key: 'earPairsPerHead', label: t('兽耳'), unit: t('对 / 每个头'), min: 0, max: 2, def: 0 },
   // 成人部件：设置里打开「显示成人部件」才有（见 model/adult.ts）；好几副胯时每副胯各长这么多
-  { key: 'penises', label: '阴茎', unit: '根 / 每副胯', min: 0, max: 6, def: 0 },
+  { key: 'penises', label: t('阴茎'), unit: t('根 / 每副胯'), min: 0, max: 6, def: 0 },
 ];
 
 export const COUNT_KEYS: readonly CountKey[] = COUNT_DEFS.map((d) => d.key);
@@ -138,19 +140,19 @@ export interface ShapeDef {
 export const BUST_MAX_OTHER = 2.2;
 
 export const SHAPE_DEFS: readonly ShapeDef[] = [
-  { key: 'height', label: '身高', min: 1.2, max: 2.2, step: 0.01, def: 1.62, unit: 'm' },
-  { key: 'headRatio', label: '头身比', min: 6, max: 9, step: 0.1, def: 7.5 },
-  { key: 'build', label: '体格', min: 0.7, max: 1.5, step: 0.01, def: 1, safe: [0.8, 1.3] },
-  { key: 'shoulders', label: '肩宽', min: 0.75, max: 1.6, step: 0.01, def: 1, safe: [0.85, 1.3] },
-  { key: 'bust', label: '胸部大小', min: 0.3, max: 2.3, step: 0.01, def: 1, safe: [0.3, 1.6] },
-  { key: 'waist', label: '腰宽', min: 0.7, max: 1.6, step: 0.01, def: 1, safe: [0.8, 1.3] },
-  { key: 'hips', label: '胯宽', min: 0.7, max: 1.8, step: 0.01, def: 1, safe: [0.8, 1.4] },
-  { key: 'limbs', label: '四肢粗细', min: 0.5, max: 2, step: 0.01, def: 1, safe: [0.8, 1.3] },
-  { key: 'armLength', label: '手臂长短', min: 0.5, max: 2, step: 0.01, def: 1, safe: [1, 1] },
-  { key: 'legLength', label: '腿长短', min: 0.5, max: 1.8, step: 0.01, def: 1, safe: [1, 1] },
-  { key: 'tailFluff', label: '尾巴蓬松', min: 0, max: 3, step: 0.01, def: 0.4, safe: [0, 2] },
-  { key: 'tailLength', label: '尾巴长度', min: 0.3, max: 3, step: 0.01, def: 1, safe: [0.5, 2] },
-  { key: 'penisSize', label: '阴茎大小', min: 0.5, max: 1.6, step: 0.01, def: 1 },
+  { key: 'height', label: t('身高'), min: 1.2, max: 2.2, step: 0.01, def: 1.62, unit: 'm' },
+  { key: 'headRatio', label: t('头身比'), min: 6, max: 9, step: 0.1, def: 7.5 },
+  { key: 'build', label: t('体格'), min: 0.7, max: 1.5, step: 0.01, def: 1, safe: [0.8, 1.3] },
+  { key: 'shoulders', label: t('肩宽'), min: 0.75, max: 1.6, step: 0.01, def: 1, safe: [0.85, 1.3] },
+  { key: 'bust', label: t('胸部大小'), min: 0.3, max: 2.3, step: 0.01, def: 1, safe: [0.3, 1.6] },
+  { key: 'waist', label: t('腰宽'), min: 0.7, max: 1.6, step: 0.01, def: 1, safe: [0.8, 1.3] },
+  { key: 'hips', label: t('胯宽'), min: 0.7, max: 1.8, step: 0.01, def: 1, safe: [0.8, 1.4] },
+  { key: 'limbs', label: t('四肢粗细'), min: 0.5, max: 2, step: 0.01, def: 1, safe: [0.8, 1.3] },
+  { key: 'armLength', label: t('手臂长短'), min: 0.5, max: 2, step: 0.01, def: 1, safe: [1, 1] },
+  { key: 'legLength', label: t('腿长短'), min: 0.5, max: 1.8, step: 0.01, def: 1, safe: [1, 1] },
+  { key: 'tailFluff', label: t('尾巴蓬松'), min: 0, max: 3, step: 0.01, def: 0.4, safe: [0, 2] },
+  { key: 'tailLength', label: t('尾巴长度'), min: 0.3, max: 3, step: 0.01, def: 1, safe: [0.5, 2] },
+  { key: 'penisSize', label: t('阴茎大小'), min: 0.5, max: 1.6, step: 0.01, def: 1 },
 ];
 
 export const SHAPE_KEYS: readonly ShapeKey[] = SHAPE_DEFS.map((d) => d.key);
