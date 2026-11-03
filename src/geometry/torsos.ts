@@ -104,13 +104,16 @@ const UPRIGHT_HEAD_GAP = 0.01;
  * 直立并排时里侧的手臂：肩关节歪过以后离正中线不到 BESIDE_ROOT 的，挪回自己这边（不然伸到旁边那个身子里，两边的交叉着长出来；
  * 两边的根离得太近，融合、算权重时两条粘成一块，摆姿势时一条被另一个身子拽着走），从两个肩膀之间张开的那道 V 里长出来。
  * 姿势固定，不再碰到东西就一档档往上抬：往前伸，离「垂直向下」BESIDE_DROP，往自己那边偏 BESIDE_YAW（两边的分开）；
- * 一个肩膀上聚拢着好几条的，往后一条比前一条再抬 BESIDE_STEP。
+ * 一个肩膀上聚拢着好几条的，往后一条比前一条再抬 BESIDE_STEP，前面那几条的肩关节往下挪（见 besideArms）。
  * 试过垂在身前（手落在自己那边的胯前，照参考图）：胸 1 时好看，大胸时穿进里侧挤在一起的胸里，套姿势时手插进大腿
  */
 const BESIDE_ROOT = 0.045;
 export const BESIDE_DROP = 62 * (Math.PI / 180);
 export const BESIDE_YAW = 15 * (Math.PI / 180);
 const BESIDE_STEP = 30 * (Math.PI / 180);
+/** 一个肩膀上好几条里侧手臂时，前面那几条的肩关节一条比一条往下挪多少；挪下去的碰到胸往上抬，最多抬到比后一条低多少（见 besideArms） */
+const BESIDE_LOWER = 0.07;
+const BESIDE_APART = 15 * (Math.PI / 180);
 /** 往前伸的手臂融合时抬多少：最低的那条正好抬平 */
 const INNER_BIND_LIFT = 90 * (Math.PI / 180) - INNER_ARM_DROP;
 /** 里侧一个肩膀上最多留几条聚拢的手臂，肩关节离多近算同一个肩膀 */
@@ -419,6 +422,7 @@ export function splitTorsos(figure: Figure, count: number, sources: Partial<Reco
           out.filter((p) => p.parent === name && p.side === side && p.type === 'arm'),
           q,
           slot,
+          out.filter((p) => p.parent === name && p.side === side && p.type === 'chest'),
         );
         continue;
       }
@@ -566,20 +570,31 @@ function reachForward(arms: Part[], chests: Part[], q: Quat, toTorso: (p: V3) =>
 /**
  * 直立并排时一个上半身里侧的手臂（见 BESIDE_DROP）：往前伸、往自己那边（slot）偏一点，肩关节靠前的先摆，
  * 一个肩膀上往后一条再抬 BESIDE_STEP。方向照世界算（上半身歪的那一两度不跟着）。
+ * 一个肩膀上聚拢着好几条的（肩部聚拢）：除了最后（抬得最高）那条，前面的肩关节一条比一条往下挪 BESIDE_LOWER——都从一个点出来的话，
+ * 两条只差 BESIDE_STEP，根部融在一起，中间连成一片扁的蹼（正面看一道薄片，斜着看一把扇子）。
+ * 挪下去的离胸近了，碰到同一边的胸（chests）就一档档往上抬，最多抬到比后一条低 BESIDE_APART。
  * 融合、算权重时另摆的姿势（Part.bind）抬到平举往前（和别的里侧手臂一样）
  */
-function besideArms(arms: Part[], q: Quat, slot: number) {
+function besideArms(arms: Part[], q: Quat, slot: number, chests: Part[]) {
   /** 离「垂直向下」drop、往自己那边偏 BESIDE_YAW 的方向，换到上半身的坐标里 */
-  const toward = (drop: number) =>
-    rotate(quatConj(q), [slot * Math.sin(BESIDE_YAW) * Math.sin(drop), -Math.cos(drop), Math.cos(BESIDE_YAW) * Math.sin(drop)]);
-  [...arms]
-    .sort((a, b) => b.pos[2] - a.pos[2])
-    .forEach((part, i) => {
-      const drop = BESIDE_DROP + i * BESIDE_STEP;
-      const dir = toward(drop);
-      part.quat = quatMul(quatBetween(armDir(part), dir), part.quat);
-      if (part.bind) part.bind = quatBetween(dir, toward(Math.max(drop, Math.PI / 2)));
-    });
+  const toward = (drop: number) => rotate(quatConj(q), [slot * Math.sin(BESIDE_YAW) * Math.sin(drop), -Math.cos(drop), Math.cos(BESIDE_YAW) * Math.sin(drop)]);
+  const order = [...arms].sort((a, b) => b.pos[2] - a.pos[2]);
+  order.forEach((part, i) => {
+    let drop = BESIDE_DROP + i * BESIDE_STEP;
+    // 同一个肩膀上排在它后面的还有几条（上下排的各在各的肩膀上，不挪）
+    const below = order.slice(i + 1).filter((other) => len(sub(other.pos, part.pos)) < SAME_SHOULDER).length;
+    if (below > 0) {
+      // 照竖直方向往下挪（上半身歪着，照它自己的「往下」挪的话往正中线凑，两个上半身里侧的肩关节靠得太近）
+      part.pos = add(part.pos, rotate(quatConj(q), [0, -BESIDE_LOWER * below, 0]));
+      const r = Math.max(ARM_RADIUS, ...part.prims.map((p) => (p.kind === 'cone' ? Math.max(p.ra, p.rb) : 0))) * (part.scale ?? 1);
+      const top = drop + BESIDE_STEP - BESIDE_APART;
+      while (drop < top && chests.some((c) => segmentGap(part.pos, toward(drop), ARM_REACH, c.pos) < r + bulk(c) - CROWD_MARGIN)) drop += INNER_ARM_STEP;
+      drop = Math.min(drop, top);
+    }
+    const dir = toward(drop);
+    part.quat = quatMul(quatBetween(armDir(part), dir), part.quat);
+    if (part.bind) part.bind = quatBetween(dir, toward(Math.max(drop, Math.PI / 2)));
+  });
 }
 
 /** 从 from 沿单位向量 dir 走 length 那一段，离点 p 最近多远 */
