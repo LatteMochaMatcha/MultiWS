@@ -12,7 +12,7 @@ import { type Quat, type V3, Q_ID, mul, quatBasis, quatConj, quatMul } from '../
 import { type Hand, findHands } from './fingers';
 import { type Limb, findLimbs, limbFrame } from './limbs';
 import { quatUnit } from './math';
-import { type Posing, POSING_VERSION, mirrorQuat, roundQuat, tidyQuat, tidyRoot, twinBone } from './posing';
+import { type Posing, POSING_VERSION, mirrorQuat, placedTwins, roundQuat, tidyQuat, tidyRoot, twinBone } from './posing';
 import { type PoseRig, type PoseState, type RigBone, cloneState, forward, makeRig, restState } from './rig';
 
 export interface Solver {
@@ -134,8 +134,9 @@ export function posingOf(solver: Solver, state: PoseState, keep?: Posing): Posin
 export function mirrorState(solver: Solver, state: PoseState, from: 'L' | 'R'): PoseState {
   const { rig } = solver;
   const out = cloneState(state);
+  const placed = placedTwins(rig);
   rig.names.forEach((name, j) => {
-    const pair = twinBone(name);
+    const pair = twinBone(name) ?? placed.get(name);
     if (!pair || pair.side !== from) return;
     const other = rig.index.get(pair.twin);
     if (other !== undefined) out.local[other] = mirrorQuat(state.local[j]);

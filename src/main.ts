@@ -106,7 +106,7 @@ import { type Handle, type HandleGroup, HANDLE_GROUPS, buildHandles } from './po
 import { type BodyDist, clearArms } from './pose/clear';
 import { fitArms, followArms } from './pose/fit';
 import { POSE_LIBRARY } from './pose/library';
-import { type Posing, POSING_VERSION, cleanPosing, emptyPosing, flipPosing, isPosed } from './pose/posing';
+import { type Posing, POSING_VERSION, cleanPosing, emptyPosing, flipPosing, isPosed, placedTwins } from './pose/posing';
 import { type Frame, type PoseRig, type PoseState, cloneState, forward, pointOn, poseMatrices, posedBones, shiftRoot, tailOf } from './pose/rig';
 import { type Pin, capturePins, dragAim, dragBend, dragBody, dragReach, turnBone } from './pose/solve';
 import { type Solver, makeSolver, mirrorState, posingOf, stateOf } from './pose/solver';
@@ -1784,6 +1784,7 @@ const GROUP_LABEL: Record<HandleGroup, string> = {
   finger: '手指',
   tail: '尾巴、翅膀',
   hair: '头发、衣摆',
+  genital: '阴茎',
 };
 
 $('poseNote').textContent =
@@ -2083,7 +2084,7 @@ function mirrorSide(from: 'L' | 'R') {
 }
 $('btnPoseL2R').addEventListener('click', () => mirrorSide('L'));
 $('btnPoseR2L').addEventListener('click', () => mirrorSide('R'));
-$('btnPoseFlip').addEventListener('click', () => editPosing(flipPosing(posingNow())));
+$('btnPoseFlip').addEventListener('click', () => editPosing(flipPosing(posingNow(), kit ? placedTwins(kit.solver.rig) : undefined)));
 $('btnPoseReset').addEventListener('click', () => editPosing(emptyPosing()));
 /** 整个人上下挪一下，让最低的地方正好贴着地面。只改屏幕上的姿势，还没存；没什么可挪的返回 false */
 function dropToGround(): boolean {
@@ -2677,7 +2678,7 @@ const groupChecks = HANDLE_GROUPS.map((group) => {
   const wrap = el('label', 'check');
   wrap.append(input, ` ${GROUP_LABEL[group]}`);
   $('poseGroups').append(wrap);
-  return { group, input };
+  return { group, input, wrap };
 });
 
 function renderPosePanel() {
@@ -2690,7 +2691,11 @@ function renderPosePanel() {
   posePin.checked = Boolean(limb && pinned.has(limb.name));
   posePinFeet.checked = pinFeet;
   posePinHands.checked = pinHands;
-  for (const { group, input } of groupChecks) input.checked = shownGroups.has(group);
+  for (const { group, input, wrap } of groupChecks) {
+    input.checked = shownGroups.has(group);
+    // 阴茎那一组只在打开了「显示成人部件」、身上有阴茎时出现
+    if (group === 'genital') wrap.hidden = !(adultShown() && spec.counts.penises > 0);
+  }
   renderHand();
   renderFace();
   const any = isPosed(spec.posing);

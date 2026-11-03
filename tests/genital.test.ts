@@ -6,12 +6,19 @@ import { buildFigure } from '../src/geometry/layout';
 import { buildPartGeometry, triangleCount } from '../src/geometry/partsMesh';
 import { withoutAdult } from '../src/model/adult';
 import { type BodySpec, PENIS_LAYOUTS, SCROTUM_MODES, defaultSpec } from '../src/model/spec';
-import { rotate } from '../src/geometry/vec';
+import { quatEuler, rotate } from '../src/geometry/vec';
+import { buildHandles } from '../src/pose/handles';
+import { flipPosing, placedTwins } from '../src/pose/posing';
+import { forward, poseMatrices, restState } from '../src/pose/rig';
+import { makeSolver, mirrorState } from '../src/pose/solver';
 import { buildSkeleton } from '../src/rig/skeleton';
 import { compileField } from '../src/sdf/field';
 import { VOXEL, fuseParts } from '../src/sdf/fuse';
 import { graftMeshes } from '../src/sdf/graft';
 import { isSampled } from '../src/sdf/posedField';
+import { compilePosedField } from '../src/sdf/posedField';
+import { fusePosed } from '../src/sdf/posedFuse';
+import { runJob } from '../src/sdf/job';
 import { meshField } from '../src/sdf/surfaceNets';
 import { useAnimeBody } from './animeBody';
 import { useGenital } from './genital';
@@ -194,6 +201,81 @@ describe('骨骼', () => {
     expect(rowsOf(make({ penises: 6 }, { penisLayout: 'grid', penisRow: 3 }))).toEqual([3, 3]);
     expect(rowsOf(make({ penises: 5 }, { penisLayout: 'grid', penisRow: 2 }))).toEqual([2, 2, 1]);
     expect(rowsOf(make({ penises: 3 }, { penisLayout: 'grid', penisRow: 4 }))).toEqual([3]);
+  });
+});
+
+describe('摆姿势', () => {
+  const solverOf = (spec: BodySpec) => makeSolver(buildSkeleton({ parts: buildFigure(spec).parts, scale: 1 }).bones);
+
+  it('阴茎、阴囊各有一个圆点，归在「阴茎」那一组', () => {
+    useGenital();
+    const handles = buildHandles(solverOf(make({ penises: 2 }, { scrotum: 'each' }))).filter((h) => h.group === 'genital');
+    expect(handles.map((h) => h.label).sort()).toEqual(['阴囊 1', '阴囊 2', '阴茎 1', '阴茎 2']);
+    // 阴茎的点在龟头那一节的末端，拖它三节一起弯
+    const penis = handles.find((h) => h.label === '阴茎 1')!;
+    expect(penis.id).toBe('Penis_01_03:tip');
+    expect(penis.links.length).toBe(3);
+  });
+
+  it('左右翻转、照到另一侧：照根部的位置配对，正中那根不配', () => {
+    useGenital();
+    const rig = solverOf(make({ penises: 3 }, { penisLayout: 'grid', penisRow: 2, scrotum: 'each' })).rig;
+    const twins = placedTwins(rig);
+    // 几乘几、每排两根：下排两根是一对，上排正中那根自己一个
+    expect(twins.get('Penis_01_02')).toEqual({ side: 'R', twin: 'Penis_02_02' });
+    expect(twins.get('Penis_02_03')).toEqual({ side: 'L', twin: 'Penis_01_03' });
+    expect(twins.has('Penis_03_01')).toBe(false);
+    expect(twins.get('Scrotum_01')?.twin).toBe('Scrotum_02');
+    const q = quatEuler(0.3, 0.2, 0);
+    const flipped = flipPosing({ version: 3, bones: { Penis_01_02: q, Penis_03_02: q } }, twins);
+    expect(Object.keys(flipped.bones).sort()).toEqual(['Penis_02_02', 'Penis_03_02']);
+    // 照到另一侧：左边那根的姿势照到右边那根
+    const solver = solverOf(make({ penises: 2 }));
+    const state = restState(solver.rig);
+    const left = solver.rig.index.get('Penis_02_02')!;
+    state.local[left] = q;
+    const mirrored = mirrorState(solver, state, 'L');
+    expect(mirrored.local[solver.rig.index.get('Penis_01_02')!]).toEqual([q[0], -q[1] + 0, -q[2] + 0, q[3]]);
+  });
+
+  it('带骨骼导出：每根各带的小阴囊跟着自己的骨骼，不跟着大腿', () => {
+    useGenital();
+    const spec = make({ penises: 2 }, { scrotum: 'each' });
+    const figure = buildFigure(spec);
+    // 融合网格按标准人台的尺寸，骨架也照这个尺寸比
+    const skeleton = buildSkeleton({ parts: figure.parts, scale: 1 });
+    const { mesh, skin } = runJob({ parts: figure.parts, voxel: VOXEL.preview, blend: spec.blend, skin: true });
+    const pos = mesh.positions;
+    for (const name of ['Scrotum_01', 'Scrotum_02']) {
+      const index = skeleton.bones.findIndex((b) => b.name === name);
+      const tip = skeleton.bones[index].tail;
+      // 离这根骨骼末端最近的那个顶点（阴囊前面那一块）
+      let nearest = 0;
+      for (let v = 1; v < pos.length / 3; v++)
+        if (Math.hypot(pos[v * 3] - tip[0], pos[v * 3 + 1] - tip[1], pos[v * 3 + 2] - tip[2]) < Math.hypot(pos[nearest * 3] - tip[0], pos[nearest * 3 + 1] - tip[1], pos[nearest * 3 + 2] - tip[2])) nearest = v;
+      let own = 0;
+      for (let k = 0; k < 4; k++) if (skin!.joints[nearest * 4 + k] === index) own += skin!.weights[nearest * 4 + k];
+      expect(own, name).toBeGreaterThan(0.8);
+    }
+  });
+
+  it('弯中间那一节、龟头、转根部：缝口还在，一整块', () => {
+    useGenital();
+    const spec = make({ penises: 2 });
+    const parts = buildFigure(spec).parts;
+    const { rig } = makeSolver(buildSkeleton({ parts, scale: 1 }).bones);
+    const state = restState(rig);
+    const turn = (name: string, x: number, y: number) => (state.local[rig.index.get(name)!] = quatEuler(x, y, 0));
+    turn('Penis_01_02', 0.7, 0);
+    turn('Penis_01_03', 0.4, 0);
+    turn('Penis_02_01', -0.35, -0.25);
+    turn('Penis_02_02', 0, 0.5);
+    const pose = poseMatrices(rig, forward(rig, state));
+    const field = compilePosedField({ parts, scale: 1 }, { blend: spec.blend, minRadius: VOXEL.fine }, pose);
+    const report = { loose: [] as number[] };
+    graftMeshes(meshField(field, VOXEL.fine), parts, VOXEL.fine, pose, report);
+    expect(report.loose).toEqual([]);
+    expect(fusePosed(parts, { voxel: VOXEL.preview, blend: spec.blend, pose }).info.components).toBe(1);
   });
 });
 

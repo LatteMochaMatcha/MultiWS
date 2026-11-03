@@ -55,6 +55,11 @@ const TRIM = 0.02;
  * 各跟各的上半身——以前两边各占一半，一个上半身一弯，两只胸被扯成一根长条
  */
 const APART: [near: number, far: number] = [0.005, 0.02];
+/**
+ * 阴茎、阴囊和别的部件之间的过渡带只有平常的几成：它们小，又贴着大腿、挨着别的那几根，
+ * 照平常那么宽的过渡带，每根各带一个的小阴囊大半跟着大腿走，转它的骨骼时被扯成一根根尖刺
+ */
+const GENITAL_BAND = 0.3;
 
 interface Entry {
   field: CompiledField;
@@ -543,13 +548,15 @@ export function weighVertices(
       apart = t <= 0 ? 1 : t >= 1 ? 0 : 1 - t * t * (3 - 2 * t);
     }
 
-    // 每一伙占多少：它的各个部件的份额加起来
+    // 每一伙占多少：它的各个部件的份额加起来。阴茎、阴囊和别的之间的过渡带窄一些（见 GENITAL_BAND）
     here.length = 0;
+    const genital = first >= 0 && kind[groupOf[nearEntry[first]]] === 'genital';
     for (let k = k0; k < k1; k++) {
       const gap = nearDist[k] - closest;
-      if (gap >= band) continue;
+      const width = genital || kind[groupOf[nearEntry[k]]] === 'genital' ? band * GENITAL_BAND : band;
+      if (gap >= width) continue;
       const other = mine >= 0 && body[groupOf[nearEntry[k]]] >= 0 && body[groupOf[nearEntry[k]]] !== mine;
-      const part = (1 - gap / band) ** 2 * (gate ? gate[k] : 1) * (other ? apart : 1);
+      const part = (1 - gap / width) ** 2 * (gate ? gate[k] : 1) * (other ? apart : 1);
       if (part <= 0) continue;
       const group = groupOf[nearEntry[k]];
       if (groupShare[group] === 0) here.push(group);

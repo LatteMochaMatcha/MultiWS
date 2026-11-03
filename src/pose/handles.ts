@@ -16,8 +16,8 @@ import type { Solver } from './solver';
 /** body 拖胯；reach 拖手、脚；bend 拖肘、膝；aim 带着它的骨头转过去 */
 export type HandleKind = 'body' | 'reach' | 'bend' | 'aim';
 
-/** 圆点分成几组，可以一组一组地收起来。finger 是指尖；tail 是尾巴、翅膀和兽身；hair 是头发、裙摆、袖子这些挂着的 */
-export const HANDLE_GROUPS = ['torso', 'head', 'arm', 'leg', 'finger', 'tail', 'hair'] as const;
+/** 圆点分成几组，可以一组一组地收起来。finger 是指尖；tail 是尾巴、翅膀和兽身；hair 是头发、裙摆、袖子这些挂着的；genital 是阴茎、阴囊 */
+export const HANDLE_GROUPS = ['torso', 'head', 'arm', 'leg', 'finger', 'tail', 'hair', 'genital'] as const;
 export type HandleGroup = (typeof HANDLE_GROUPS)[number];
 
 export interface Handle {
@@ -61,6 +61,8 @@ function chainLabel(name: string): { group: HandleGroup; label: string } {
   if ((m = /^Wing_(\d+)/.exec(name))) return { group: 'tail', label: `翅膀${sideWord(name)}${Number(m[1]) > 1 ? ` ${Number(m[1])}` : ''}` };
   if ((m = /^LowerBody_(\d+)/.exec(name))) return { group: 'tail', label: `兽身 ${Number(m[1])}` };
   if (name === 'Abdomen') return { group: 'tail', label: '腹部' };
+  if ((m = /^Penis_(\d+)/.exec(name))) return { group: 'genital', label: `阴茎 ${Number(m[1])}` };
+  if ((m = /^Scrotum_(\d+)/.exec(name))) return { group: 'genital', label: `阴囊 ${Number(m[1])}` };
   if ((m = /^Hair\D*(\d+)/.exec(name))) return { group: 'hair', label: `头发 ${Number(m[1])}` };
   // 裙摆；新版 VRoid 的外套下摆叫 CoatSkirt…
   if ((m = /^(Coat)?Skirt(Front|Back|Side)?/.exec(name))) {

@@ -167,8 +167,11 @@ function poseJobs(jobs: Job[], parts: Part[], pose: PoseMatrices): Job[] {
       }
     }
     skinVerticesDualInPlace(positions, normals, Uint16Array.from(hand.joints, (j) => bones[j]), hand.weights, matrices);
-    // 整块跟着前臂（小腿）搬：它是网格里唯一不跟着这块网格保持原样的骨骼
-    const root = Object.values(graft.bones).find((name) => !graft.rigid.includes(name));
+    // 整块跟着切口所在的那一节搬：不跟着这块网格保持原样的骨骼里最靠末端的那一根。
+    // 手、脚只有一根（前臂、小腿）；阴茎根部、中间两节都在距离场的圆台里，切口在中间那一节上
+    const root = Object.values(graft.bones)
+      .filter((name) => !graft.rigid.includes(name))
+      .pop();
     const fore = (index.get(root ?? '') ?? bones[0]) * 12;
     const turn: Mat3 = [matrices[fore], matrices[fore + 1], matrices[fore + 2], matrices[fore + 3], matrices[fore + 4], matrices[fore + 5], matrices[fore + 6], matrices[fore + 7], matrices[fore + 8]];
     const moved: V3 = [

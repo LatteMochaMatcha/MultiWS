@@ -104,10 +104,49 @@ export function twinBone(name: string): { side: 'L' | 'R'; twin: string } | null
 export const mirrorQuat = (q: Quat): Quat => [q[0], -q[1] + 0, -q[2] + 0, q[3]];
 
 
-/** 整个姿势左右翻过来：左右两侧互换，中间的骨骼和整个人的位置照镜子 */
-export function flipPosing(posing: Posing): Posing {
+/** 名字里没有左右、照编号排的几套骨骼：几根阴茎（Penis_02_01 …）、几个阴囊（Scrotum_03）。1 哪一套 2 第几节 */
+const PLACED = /^(Penis_\d+|Scrotum_\d+)(_\d+)?$/;
+/** 两套的根部左右对称、差不到这么远（米）算一对；离正中这么近的算在正中 */
+const TWIN_NEAR = 0.01;
+
+/**
+ * 名字里没有左右、却左右成对的骨骼（几根阴茎、几个阴囊照编号排）：照静止时根部的位置配对。
+ * 根部左右对称的两套是一对，同一节对同一节；在正中的、找不到对称那一套的不配（翻转时照镜子转一下就行）
+ */
+export function placedTwins(rig: { names: readonly string[]; head: readonly V3[] }): Map<string, { side: 'L' | 'R'; twin: string }> {
+  const sets = new Map<string, V3>();
+  rig.names.forEach((name, j) => {
+    const m = PLACED.exec(name);
+    if (m && (!m[2] || m[2] === '_01')) sets.set(m[1], rig.head[j]);
+  });
+  const kind = (set: string) => set.replace(/_\d+$/, '');
+  const pairOf = new Map<string, string>();
+  for (const [set, [x, y, z]] of sets) {
+    if (Math.abs(x) < TWIN_NEAR) continue;
+    let best: string | undefined;
+    let least = TWIN_NEAR;
+    for (const [other, h] of sets) {
+      const d = Math.hypot(h[0] + x, h[1] - y, h[2] - z);
+      if (other !== set && kind(other) === kind(set) && d < least) [best, least] = [other, d];
+    }
+    if (best) pairOf.set(set, best);
+  }
+  const out = new Map<string, { side: 'L' | 'R'; twin: string }>();
+  for (const name of rig.names) {
+    const m = PLACED.exec(name);
+    const twin = m && pairOf.get(m[1]);
+    if (twin) out.set(name, { side: sets.get(m[1])![0] > 0 ? 'L' : 'R', twin: `${twin}${m[2] ?? ''}` });
+  }
+  return out;
+}
+
+/**
+ * 整个姿势左右翻过来：左右两侧互换，中间的骨骼和整个人的位置照镜子。
+ * placed：名字里没有左右、照位置配对的骨骼（见 placedTwins），也照它互换
+ */
+export function flipPosing(posing: Posing, placed?: ReadonlyMap<string, { twin: string }>): Posing {
   const bones: Record<string, Quat> = {};
-  for (const [name, q] of Object.entries(posing.bones)) bones[twinBone(name)?.twin ?? name] = mirrorQuat(q);
+  for (const [name, q] of Object.entries(posing.bones)) bones[twinBone(name)?.twin ?? placed?.get(name)?.twin ?? name] = mirrorQuat(q);
   const root = posing.root && tidyRoot([-posing.root[0], posing.root[1], posing.root[2]]);
   // 表情也照镜子：闭的是左眼的，翻过来闭右眼
   return { version: posing.version, bones, ...(root ? { root } : {}), ...(posing.faces ? { faces: flipFaces(posing.faces) } : {}) };
