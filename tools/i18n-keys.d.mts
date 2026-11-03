@@ -18,6 +18,6 @@ export interface Report {
 export const ROOT: string;
 export function normKey(s: string): string;
 export function placeholders(s: string): string[];
-export function loadDict(root: string, lang: 'en' | 'ja'): { dict: Record<string, string>; dups: string[] };
-export function collectKeys(root: string, only?: string[]): { keys: Map<string, Key>; problems: string[] };
-export function report(root: string, only?: string[]): Report;
+export function loadDict(root: string | undefined, lang: 'en' | 'ja'): { dict: Record<string, string>; dups: string[] };
+export function collectKeys(root?: string, only?: string[]): { keys: Map<string, Key>; problems: string[] };
+export function report(root?: string, only?: string[]): Report;

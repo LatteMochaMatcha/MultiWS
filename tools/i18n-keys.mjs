@@ -146,7 +146,7 @@ function scanHtml(file, root, keys) {
 /** 占位符：{name} 和 {name:一|多} 都算 name */
 export const placeholders = (s) => [...s.matchAll(/\{(\w+)(?::[^{}|]*\|[^{}]*)?\}/g)].map((m) => m[1]).sort();
 
-export function loadDict(root, lang) {
+export function loadDict(root = ROOT, lang) {
   const dir = join(root, 'src/i18n', lang);
   const out = {};
   const dups = [];
@@ -161,7 +161,7 @@ export function loadDict(root, lang) {
   return { dict: out, dups };
 }
 
-export function collectKeys(root, only) {
+export function collectKeys(root = ROOT, only) {
   const keys = new Map();
   const problems = [];
   const files = walk(join(root, 'src')).filter((f) => !/[\\/]i18n[\\/]/.test(f));
@@ -174,7 +174,7 @@ export function collectKeys(root, only) {
   return { keys, problems };
 }
 
-export function report(root, only) {
+export function report(root = ROOT, only) {
   const { keys, problems } = collectKeys(root, only);
   const out = { keys, problems: [...problems], missing: {}, unused: {}, badVars: [] };
   for (const lang of ['en', 'ja']) {
