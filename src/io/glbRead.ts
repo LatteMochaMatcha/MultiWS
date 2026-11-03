@@ -4,6 +4,8 @@
  * 纯函数，不依赖浏览器，测试里可以直接跑。
  */
 
+import { t } from '../i18n';
+
 export interface GlbDoc {
   /** glTF 的 JSON。结构松散，这里不逐项声明类型，用的地方自己取 */
   json: any;
@@ -16,8 +18,8 @@ const CHUNK_BIN = 0x004e4942;
 
 export function readGlb(buffer: ArrayBuffer): GlbDoc {
   const view = new DataView(buffer);
-  if (view.byteLength < 20 || view.getUint32(0, true) !== MAGIC) throw new Error('不是 GLB 文件');
-  if (view.getUint32(4, true) !== 2) throw new Error('只认 glTF 2.0 的 GLB');
+  if (view.byteLength < 20 || view.getUint32(0, true) !== MAGIC) throw new Error(t('不是 GLB 文件'));
+  if (view.getUint32(4, true) !== 2) throw new Error(t('只认 glTF 2.0 的 GLB'));
   let offset = 12;
   let json: unknown = null;
   let bin: DataView | null = null;
@@ -29,7 +31,7 @@ export function readGlb(buffer: ArrayBuffer): GlbDoc {
     else if (type === CHUNK_BIN && !bin) bin = new DataView(buffer, start, length);
     offset = start + length;
   }
-  if (!json || !bin) throw new Error('GLB 里缺 JSON 或二进制块');
+  if (!json || !bin) throw new Error(t('GLB 里缺 JSON 或二进制块'));
   return { json, bin };
 }
 

@@ -12,13 +12,14 @@
 import type { V3 } from '../geometry/vec';
 import type { Skeleton } from '../rig/skeleton';
 import { type GlbContext, type GlbImage, type GlbMaterial, type GlbMesh, materialColor, writeGlb } from './glb';
+import { t, tk } from '../i18n';
 
 /** 别人能怎么用：VRM 的许可名，和随之定下的几项「允许谁扮演、暴力、性、商用」 */
 export const VRM_LICENSES = {
-  private: { label: '只许自己用', license: 'Redistribution_Prohibited', allowed: 'OnlyAuthor', use: 'Disallow' },
-  cc0: { label: '随便用（CC0）', license: 'CC0', allowed: 'Everyone', use: 'Allow' },
-  ccby: { label: '署名就能用（CC BY）', license: 'CC_BY', allowed: 'Everyone', use: 'Allow' },
-  ccbync: { label: '署名、不许商用（CC BY-NC）', license: 'CC_BY_NC', allowed: 'Everyone', use: 'Allow' },
+  private: { label: t('只许自己用'), license: 'Redistribution_Prohibited', allowed: 'OnlyAuthor', use: 'Disallow' },
+  cc0: { label: t('随便用（CC0）'), license: 'CC0', allowed: 'Everyone', use: 'Allow' },
+  ccby: { label: t('署名就能用（CC BY）'), license: 'CC_BY', allowed: 'Everyone', use: 'Allow' },
+  ccbync: { label: t('署名、不许商用（CC BY-NC）'), license: 'CC_BY_NC', allowed: 'Everyone', use: 'Allow' },
 } as const;
 export type VrmLicense = keyof typeof VRM_LICENSES;
 
@@ -136,23 +137,23 @@ for (const side of ['left', 'right']) {
 
 /** 少了哪根人形骨骼时给人看的说法 */
 const MISSING: Record<string, string> = {
-  hips: '胯',
-  spine: '腰',
-  chest: '胸腔',
-  neck: '脖子',
-  head: '头',
-  leftUpperArm: '左手臂',
-  leftLowerArm: '左前臂',
-  leftHand: '左手',
-  rightUpperArm: '右手臂',
-  rightLowerArm: '右前臂',
-  rightHand: '右手',
-  leftUpperLeg: '左腿',
-  leftLowerLeg: '左小腿',
-  leftFoot: '左脚',
-  rightUpperLeg: '右腿',
-  rightLowerLeg: '右小腿',
-  rightFoot: '右脚',
+  hips: t('胯'),
+  spine: t('腰'),
+  chest: t('胸腔'),
+  neck: t('脖子'),
+  head: t('头'),
+  leftUpperArm: t('左手臂'),
+  leftLowerArm: t('左前臂'),
+  leftHand: t('左手'),
+  rightUpperArm: t('右手臂'),
+  rightLowerArm: t('右前臂'),
+  rightHand: t('右手'),
+  leftUpperLeg: t('左腿'),
+  leftLowerLeg: t('左小腿'),
+  leftFoot: t('左脚'),
+  rightUpperLeg: t('右腿'),
+  rightLowerLeg: t('右小腿'),
+  rightFoot: t('右脚'),
 };
 
 /**
@@ -179,7 +180,7 @@ export function humanoidMap(skeleton: Skeleton): Map<string, number> {
   }
   const missing = REQUIRED.filter((slot) => !map.has(slot));
   if (missing.length) {
-    throw new Error(`VRM 要一副完整的人形骨骼，这个身体缺：${missing.map((slot) => MISSING[slot] ?? slot).join('、')}（VRM 只认一个头、一对手臂、一对腿的那一套）`);
+    throw new Error(t('VRM 要一副完整的人形骨骼，这个身体缺：{parts}（VRM 只认一个头、一对手臂、一对腿的那一套）', { parts: missing.map((slot) => MISSING[slot] ?? slot).join(t('、')) }));
   }
   return map;
 }
@@ -336,11 +337,11 @@ export function toonFromV1(material: Record<string, any>): Omit<VrmToon, 'textur
 /** VRM 1.0 的许可（VRM 公共许可）里 0.x 写不下的几条，说成人话 */
 function extraTermsV1(meta: Record<string, unknown>): string[] {
   return [
-    meta.allowPoliticalOrReligiousUsage === true ? '' : '不许用于政治、宗教',
-    meta.allowAntisocialOrHateUsage === true ? '' : '不许用于反社会、仇恨',
-    meta.creditNotation === 'unnecessary' ? '' : '要署名',
-    meta.allowRedistribution === true ? '' : '不许再分发',
-    meta.modification === 'allowModificationRedistribution' ? '' : meta.modification === 'allowModification' ? '改过的不许再分发' : '不许改',
+    meta.allowPoliticalOrReligiousUsage === true ? '' : tk('不许用于政治、宗教'),
+    meta.allowAntisocialOrHateUsage === true ? '' : tk('不许用于反社会、仇恨'),
+    meta.creditNotation === 'unnecessary' ? '' : tk('要署名'),
+    meta.allowRedistribution === true ? '' : tk('不许再分发'),
+    meta.modification === 'allowModificationRedistribution' ? '' : meta.modification === 'allowModification' ? tk('改过的不许再分发') : tk('不许改'),
   ].filter(Boolean);
 }
 
@@ -546,34 +547,34 @@ export function describeLicense(meta: Record<string, unknown>): string {
   if ('avatarPermission' in meta || 'authors' in meta) {
     const url = typeof meta.licenseUrl === 'string' ? meta.licenseUrl : '';
     return [
-      /^https?:\/\/vrm\.dev\/licenses\/1\.0\/?$/.test(url) ? 'VRM 公共许可 1.0' : url ? `许可：${url}` : '没写许可',
-      meta.avatarPermission === 'everyone' ? '' : meta.avatarPermission === 'onlySeparatelyLicensedPerson' ? '只许另外得到许可的人扮演' : '只许作者本人扮演',
-      meta.allowExcessivelyViolentUsage === true ? '' : '不许用于暴力表现',
-      meta.allowExcessivelySexualUsage === true ? '' : '不许用于性表现',
-      meta.commercialUsage === 'corporation' ? '' : meta.commercialUsage === 'personalProfit' ? '只许个人商用' : '不许商用',
-      ...extraTermsV1(meta),
+      /^https?:\/\/vrm\.dev\/licenses\/1\.0\/?$/.test(url) ? t('VRM 公共许可 1.0') : url ? t('许可：{url}', { url }) : t('没写许可'),
+      meta.avatarPermission === 'everyone' ? '' : meta.avatarPermission === 'onlySeparatelyLicensedPerson' ? t('只许另外得到许可的人扮演') : t('只许作者本人扮演'),
+      meta.allowExcessivelyViolentUsage === true ? '' : t('不许用于暴力表现'),
+      meta.allowExcessivelySexualUsage === true ? '' : t('不许用于性表现'),
+      meta.commercialUsage === 'corporation' ? '' : meta.commercialUsage === 'personalProfit' ? t('只许个人商用') : t('不许商用'),
+      ...extraTermsV1(meta).map((term) => t(term)),
     ]
       .filter(Boolean)
-      .join('，');
+      .join(t('，'));
   }
   const names: Record<string, string> = {
-    CC0: 'CC0（随便用）',
-    CC_BY: 'CC BY（要署名）',
-    CC_BY_NC: 'CC BY-NC（要署名、不许商用）',
-    CC_BY_SA: 'CC BY-SA（要署名，改过的也只能用这个许可）',
-    CC_BY_NC_SA: 'CC BY-NC-SA（要署名、不许商用，改过的也只能用这个许可）',
-    CC_BY_ND: 'CC BY-ND（要署名、不许改）',
-    CC_BY_NC_ND: 'CC BY-NC-ND（要署名、不许商用、不许改）',
-    Redistribution_Prohibited: '不许再分发',
-    Other: '原作者自己写的条件',
+    CC0: t('CC0（随便用）'),
+    CC_BY: t('CC BY（要署名）'),
+    CC_BY_NC: t('CC BY-NC（要署名、不许商用）'),
+    CC_BY_SA: t('CC BY-SA（要署名，改过的也只能用这个许可）'),
+    CC_BY_NC_SA: t('CC BY-NC-SA（要署名、不许商用，改过的也只能用这个许可）'),
+    CC_BY_ND: t('CC BY-ND（要署名、不许改）'),
+    CC_BY_NC_ND: t('CC BY-NC-ND（要署名、不许商用、不许改）'),
+    Redistribution_Prohibited: t('不许再分发'),
+    Other: t('原作者自己写的条件'),
   };
   const license = typeof meta.licenseName === 'string' ? meta.licenseName : '';
   const notes = [
-    names[license] ?? (license || '没写许可'),
-    meta.allowedUserName === 'OnlyAuthor' ? '只许作者本人扮演' : '',
-    meta.violentUssageName === 'Disallow' ? '不许用于暴力表现' : '',
-    meta.sexualUssageName === 'Disallow' ? '不许用于性表现' : '',
-    meta.commercialUssageName === 'Disallow' ? '不许商用' : '',
+    names[license] ?? (license || t('没写许可')),
+    meta.allowedUserName === 'OnlyAuthor' ? t('只许作者本人扮演') : '',
+    meta.violentUssageName === 'Disallow' ? t('不许用于暴力表现') : '',
+    meta.sexualUssageName === 'Disallow' ? t('不许用于性表现') : '',
+    meta.commercialUssageName === 'Disallow' ? t('不许商用') : '',
   ];
-  return notes.filter(Boolean).join('，');
+  return notes.filter(Boolean).join(t('，'));
 }

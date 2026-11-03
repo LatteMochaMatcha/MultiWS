@@ -7,7 +7,7 @@
  * 每个网格 Worker 和每个帮手之间各开一条通道，活直接从网格 Worker 发给帮手，不经过这里。
  */
 import type { HairShape } from '../hair/shapes';
-import { LANG } from '../i18n';
+import { LANG, t } from '../i18n';
 import type { PortMessage } from './eval.worker';
 import type { FuseJob, FuseResult } from './job';
 import type { CancelMessage, GenitalMessage, HairMessage, HelpersMessage, MeshReply, MeshRequest, PhoneMessage, ShapesMessage, SpreadMessage } from './mesh.worker';
@@ -158,7 +158,7 @@ export class MeshClient {
     worker.onerror = (event) => {
       const done = this.running;
       this.running = null;
-      done?.reject(new Error(event.message || '网格线程出错'));
+      done?.reject(new Error(event.message || t('网格线程出错')));
       this.pump();
     };
     return worker;

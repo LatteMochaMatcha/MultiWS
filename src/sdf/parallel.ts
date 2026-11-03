@@ -19,6 +19,7 @@ import { type Staged, VOXEL } from './fuse';
 import { type BakedChest, type ChestPlan, adoptChests, bakeChestLayers, bakedChests, keepChest, neededChests, planChest } from './grids';
 import { surfaceLocks, surfaceMoves } from './surfaceQuality';
 import { type FuseJob, type FuseResult, stageJob } from './job';
+import { t } from '../i18n';
 import {
   type BlockMemo,
   type BlockPlan,
@@ -536,7 +537,7 @@ export function helperDesk(): (message: ChunkRequest | SkinRequest | RefineReque
       if (!made) jobs.set(job, (made = {}));
       if ('blocks' in message) {
         if (!made.field || !made.plan) {
-          if (!message.task) throw new Error('没收到这个任务');
+          if (!message.task) throw new Error(t('没收到这个任务'));
           made.field = stageJob(message.task).field;
           made.plan = planBlocks(made.field, message.task.voxel);
         }
@@ -545,11 +546,11 @@ export function helperDesk(): (message: ChunkRequest | SkinRequest | RefineReque
       }
       if (message.step === 'refine') {
         if (!made.field) {
-          if (!message.task) throw new Error('没收到这个任务');
+          if (!message.task) throw new Error(t('没收到这个任务'));
           made.field = stageJob(message.task).field;
         }
         if (!made.rough) {
-          if (!message.rough) throw new Error('没收到校正之前的网格');
+          if (!message.rough) throw new Error(t('没收到校正之前的网格'));
           made.rough = { ...message.rough, plan: planBlocks(made.field, message.rough.voxel) };
         }
         const { rough } = made;
@@ -557,7 +558,7 @@ export function helperDesk(): (message: ChunkRequest | SkinRequest | RefineReque
         return { reply: { job, chunk, moved }, transfer: [moved.buffer] };
       }
       if (!made.skin) {
-        if (!message.task || !message.positions) throw new Error('没收到这个任务');
+        if (!message.task || !message.positions) throw new Error(t('没收到这个任务'));
         const figure = skinnedFigure(message.task.parts);
         made.skin = planSkin(figure, buildSkeleton(figure), message.positions);
       }
@@ -566,7 +567,7 @@ export function helperDesk(): (message: ChunkRequest | SkinRequest | RefineReque
         const near = nearParts(made.skin, from, to);
         return { reply: { job, chunk, near }, transfer: [near.offsets.buffer, near.entry.buffer, near.dist.buffer, near.owner.buffer] };
       }
-      if (!message.near) throw new Error('没带上这一段的第 1、2 步');
+      if (!message.near) throw new Error(t('没带上这一段的第 1、2 步'));
       const weights = { joints: new Uint16Array((to - from) * 4), weights: new Float32Array((to - from) * 4) };
       weighVertices(made.skin, message.near, message.gate ?? null, from, to, weights.joints, weights.weights);
       return { reply: { job, chunk, weights }, transfer: [weights.joints.buffer, weights.weights.buffer] };
