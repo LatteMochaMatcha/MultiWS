@@ -20,7 +20,7 @@ import {
 } from '../anime/genital';
 import type { PenisLayout, ScrotumMode } from '../model/spec';
 import type { BoneHint, Graft, Part } from './figure';
-import { type Quat, type V3, add, mul, quatEuler, quatMul, rotate, sub } from './vec';
+import { type Quat, type V3, add, len, mul, quatEuler, quatMul, rotate, sub } from './vec';
 
 // 同 layout.ts 的 pad、bone（layout.ts 要引这个文件，不反过来引它）
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -36,30 +36,43 @@ const STUB_OUT = 0.015;
 const SOFT = 0.02;
 const FADE: [from: number, to: number] = [0.03, 0.05];
 /**
- * 相邻两根的根部隔多远：切口一圈最宽的半径的两倍（素体的单位），再空出 GAP（素体的单位）、至少 GAP_MIN（身上的米）。
- * 空当比融合的体素还窄的话，两根在切口那里融成一片，找不到干净的切口，缝不上
+ * 几根的根部挤在小腹正中一处（二次元插画里多根差不多都这么画：根部长在一起，往外才分开）：
+ * 相邻两根的根部隔几个 ROOT_STEP（素体的单位，大约两根正好挨着），往外各自转开，
+ * 转到切口那一圈彼此隔开 GAP（素体的单位）、至少 GAP_MIN（身上的米）为止。
+ * 切口挨着的话两根在那里融成一片，找不到干净的切口，缝不上；RIM_WIDE 是切口一圈最宽的半径
  */
-const RIM_WIDE = 0.0305;
+const ROOT_STEP = 0.04;
+const RIM_WIDE = 0.03;
 const GAP = 0.008;
 const GAP_MIN = 0.015;
-/** 左右并排的几根往外转多少（按离中线多远，弧度 / 米）：顺着小腹往两边弯过去的表面 */
-const ROW_FOLLOW = 2.5;
-/** 扇形散开：根部挨得近一些（SPACING 的几成），相邻两根往外多转多少（弧度） */
-const FAN_SPACING = 0.85;
-const FAN_STEP = 0.45;
 /**
- * 上下叠：上下隔得比并排远（SPACING 的几倍）。阴茎往前上方翘，下面那根的切口比根部高，
- * 挨得近了切口那一圈会碰上上面那根的根部、融成一片，找不到干净的切口，缝不上
+ * 每种排法根部隔几个 ROOT_STEP（root）、转开的角度是刚好隔开的几倍（wide）、最外面那根最多转多少弧度（most）：
+ * 左右并排根部挨着、几乎平行地往前伸；扇形散开根部挤得更紧、往两边张开；
+ * 上下叠的根部左右错开半根、一根比一根高 rise，上面的往上翘、下面的往前伸（往上翘多了贴到肚子上，往下多了戳进两腿中间）
  */
-const STACK_SPACING = 1.3;
+const ROW = { root: 1.2, wide: 1, most: 0.9 };
+const FAN = { root: 0.8, wide: 1.8, most: 1.1 };
+const STACK = { root: 1, rise: 0.7, wide: 1, most: 0.55 };
+/** 转那么多还隔不开的（根数多、排得挤）：根部再隔开一点，每次多几成，最多几次 */
+const ROOT_MORE = 0.15;
+const ROOT_TRIES = 6;
 /** 阴囊：比素体上的位置往上挪多少；贴着身体的那一面往身体（大腿前面）里埋多深（素体的单位） */
 const SAC_UP = 0.012;
 const SAC_INSET = 0.01;
-/** 每根各带一个阴囊时，每个缩成几成；共用一个时每多一根宽多少 */
+/**
+ * 每根各带一个阴囊时，每个缩成几成；共用一个时每多一根整个大多少。
+ * 共用的只往宽里拉的话，顶上那一面比挤在一起的几根根部宽，两边露出一圈扁平的台子
+ */
 const SAC_EACH = 0.72;
-const SAC_WIDEN = 0.3;
-/** 并排挂着的几个阴囊（上下叠、每根各带一个时）：相邻两个隔开它们宽度的几成（稍微挤着） */
-const SAC_ROW = 0.85;
+const SAC_GROW = 0.12;
+/**
+ * 每根各带一个时，几个阴囊挨着挂在根部底下（根部挤在一起，各挂在各的底下就叠成一个了）：
+ * 站着的左右排开，身体底下的往后排开；相邻两个隔开它们宽（长）的几成（稍微挤着）。SAC_LONG 是阴囊前后多长（素体的单位）
+ */
+const SAC_ROW = 0.78;
+const SAC_LONG = 0.071;
+/** 挂成两排时下排比上排低多少（素体的单位） */
+const SAC_DROP = 0.032;
 /** 阴囊的骨骼：从贴着身体那一面的正中往下、往前到哪（素体的单位） */
 const SAC_BONE: V3 = [0, -0.025, 0.035];
 
@@ -73,7 +86,7 @@ export interface Mount {
   quat: Quat;
   /**
    * 挂在身体底下：几根一律从挂点往后、顺着肚子排（左右并排、扇形的试过，更容易碰上腿，切口融成一片缝不上；
-   * 往前排会碰上前面那副胯的腿），阴囊挂在最后面那根的后面（每根各带一个时各挂在各的后面）
+   * 往前排会碰上前面那副胯的腿），阴囊挂在最后面那根的后面（每根各带一个时一个接一个往后排开）
    */
   under?: boolean;
   /** 骨骼接在哪一根上 */
@@ -138,8 +151,8 @@ function penisPart(index: number, base: V3, quat: Quat, scale: number, parent: s
   };
 }
 
-/** 一个阴囊：贴着身体那一面的正中在 root，朝向 quat，宽 widen 倍 */
-function scrotumPart(index: number, root: V3, quat: Quat, scale: number, widen: number, parent: string): Part {
+/** 一个阴囊：贴着身体那一面的正中在 root，朝向 quat */
+function scrotumPart(index: number, root: V3, quat: Quat, scale: number, parent: string): Part {
   const name = `Scrotum_${pad(index)}`;
   return {
     name,
@@ -148,7 +161,6 @@ function scrotumPart(index: number, root: V3, quat: Quat, scale: number, widen: 
     pos: root,
     quat,
     scale,
-    ...(widen !== 1 ? { stretch: [widen, 1, 1] as V3 } : {}),
     material: 'clay',
     prims: [{ kind: 'grid', name: 'Scrotum', grid: SCROTUM_GRID, soft: SOFT, fade: FADE }],
     bones: [bone(name, [0, 0, 0], SAC_BONE, parent)],
@@ -163,27 +175,58 @@ export function genitalParts(o: GenitalOptions): Part[] {
   const { origin, quat, parent, under: below } = o.mount;
   const layout = below ? 'stack' : o.layout;
   const world = (p: V3): V3 => add(origin, rotate(quat, p));
-  const step = 2 * RIM_WIDE * s + Math.max(GAP * s, GAP_MIN);
   const mid = (n - 1) / 2;
-  /** 第 k 根的根部离正中多远（左右、上下），往外转多少 */
+  const style = layout === 'stack' ? STACK : layout === 'fan' ? FAN : ROW;
+  /**
+   * 第 k 根的根部离正中几个 ROOT_STEP（左右 du、上下 dv），往哪边转开、转多少（su、sv：每份转开的角度乘几）。
+   * 身体底下的从挂点往后排（往前排会碰上前面那副胯的腿）；站着的从小腹往上排
+   */
   const places = Array.from({ length: n }, (_, k) => {
     const off = k - mid;
-    // 身体底下的从挂点往后排（往前排会碰上前面那副胯的腿）；站着的从小腹往上排
-    if (layout === 'stack') return { du: 0, dv: (below ? k - 2 * mid : k) * step * STACK_SPACING, yaw: 0 };
-    if (layout === 'fan') return { du: off * step * FAN_SPACING, dv: 0, yaw: off * FAN_STEP };
-    return { du: off * step, dv: 0, yaw: off * step * ROW_FOLLOW };
+    if (below) return { du: 0, dv: (k - (n - 1)) * STACK.rise, su: 0, sv: k - (n - 1) };
+    if (layout === 'stack') return { du: n > 1 ? (k % 2 ? 0.5 : -0.5) * STACK.root : 0, dv: k * STACK.rise, su: 0, sv: off };
+    return { du: off * style.root, dv: 0, su: off, sv: 0 };
   });
   /** 根部的中心：(u, v) 那里的表面往外，和素体上根部离小腹一样远 */
   const baseAt = (u: number, v: number): V3 => {
     const w = o.surface(u, v) ?? o.surface(0, v) ?? 0;
     return [u, v, w + (PENIS_BASE[2] - DJP_PUBIS_Z) * s];
   };
-  const parts: Part[] = [];
-  const bases = places.map((p, k) => {
-    const base = baseAt(p.du, p.dv);
-    parts.push(penisPart(o.firstPenis + k, world(base), p.yaw ? quatMul(quat, quatEuler(0, p.yaw, 0)) : quat, s, parent));
-    return base;
-  });
+  /** 每份转开 t（弧度）时第 k 根往哪转：绕着和 (su, sv) 垂直的那根轴，往外的那头朝 (su, sv) 那边倒 */
+  const tilt = (k: number, t: number): Quat => {
+    const { su, sv } = places[k];
+    const m = Math.hypot(su, sv);
+    if (!m || !t) return [0, 0, 0, 1];
+    const half = (t * m) / 2;
+    const f = Math.sin(half) / m;
+    return [-sv * f, su * f, 0, Math.cos(half)];
+  };
+  // 转开到切口那一圈彼此隔开为止：先找刚好隔开的那一份角度（二分），再照排法乘几倍
+  const reach = mul(sub(PENIS_CUT, PENIS_BASE), s);
+  const need = 2 * RIM_WIDE * s + Math.max(GAP * s, GAP_MIN);
+  const most = style.most / Math.max(...places.map((p) => Math.hypot(p.su, p.sv)), 1e-9);
+  const apart = (bases: V3[], t: number) => {
+    const cuts = bases.map((base, k) => add(base, rotate(tilt(k, t), reach)));
+    let least = Infinity;
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) least = Math.min(least, len(sub(cuts[i], cuts[j])));
+    return least;
+  };
+  let bases: V3[] = [];
+  for (let tries = 0; tries <= ROOT_TRIES; tries++) {
+    const step = ROOT_STEP * s * (1 + ROOT_MORE * tries);
+    bases = places.map((p) => baseAt(p.du * step, p.dv * step));
+    if (n < 2 || apart(bases, most) >= need) break;
+  }
+  let lo = 0;
+  let hi = most;
+  if (n > 1 && apart(bases, hi) >= need)
+    for (let i = 0; i < 24; i++) {
+      const t = (lo + hi) / 2;
+      if (apart(bases, t) >= need) hi = t;
+      else lo = t;
+    }
+  const splay = Math.min(hi * style.wide, most);
+  const parts: Part[] = bases.map((base, k) => penisPart(o.firstPenis + k, world(base), n > 1 ? quatMul(quat, tilt(k, splay)) : quat, s, parent));
 
   /** 阴囊：在 base 那根的底下，贴着身体（大腿前面）放；half 是它的半宽 */
   const sacAt = (base: V3, size: number, half: number): V3 => {
@@ -197,14 +240,22 @@ export function genitalParts(o: GenitalOptions): Part[] {
   const lowest = bases.reduce((a, b) => (b[1] < a[1] ? b : a));
   if (o.scrotum === 'each') {
     const size = s * SAC_EACH;
-    // 上下叠的，上面几根底下是下面那根：几个阴囊并排挂在最下面那根底下
-    const under = layout === 'stack' && !below ? bases.map((_, k): V3 => [(k - mid) * 2 * SCROTUM_HALF * size * SAC_ROW, lowest[1], lowest[2]]) : bases;
-    under.forEach((base, k) => parts.push(scrotumPart(o.firstScrotum + k, sacAt(base, size, SCROTUM_HALF * size), quat, size, 1, parent)));
+    // 几个挨着挂在最下面（身体底下的是最后面）那根底下：站着的左右排开，身体底下的往后排开（两边是腿）
+    // 站着的三个以上挂成上下两排（一排排开太宽，挂到大腿上去）：上排多一个，下排错开挂在上排两个中间
+    const top = n < 3 ? n : Math.ceil(n / 2);
+    const under = bases.map((_, k): V3 => {
+      if (below) return [0, lowest[1] - k * SAC_LONG * size * SAC_ROW, lowest[2]];
+      const row = k < top ? 0 : 1;
+      const j = row ? k - top : k;
+      const count = row ? n - top : top;
+      return [(j - (count - 1) / 2) * 2 * SCROTUM_HALF * size * SAC_ROW, lowest[1] - row * SAC_DROP * size, lowest[2]];
+    });
+    under.forEach((base, k) => parts.push(scrotumPart(o.firstScrotum + k, sacAt(base, size, SCROTUM_HALF * size), quat, size, parent)));
   } else {
-    // 共用一个：上下叠的在最下面那根底下；并排、扇形的在正中，根数多了变宽
-    const widen = layout === 'stack' ? 1 : 1 + SAC_WIDEN * (n - 1);
-    const center: V3 = [0, lowest[1], layout === 'stack' ? lowest[2] : baseAt(0, lowest[1])[2]];
-    parts.push(scrotumPart(o.firstScrotum, sacAt(center, s, SCROTUM_HALF * s * widen), quat, s, widen, parent));
+    // 共用一个：在最下面那根底下的正中，根数多了整个大一些（身体底下的不变：两边是腿）
+    const size = s * (below ? 1 : 1 + SAC_GROW * (n - 1));
+    const center: V3 = [0, lowest[1], baseAt(0, lowest[1])[2]];
+    parts.push(scrotumPart(o.firstScrotum, sacAt(center, size, SCROTUM_HALF * size), quat, size, parent));
   }
   return parts;
 }
