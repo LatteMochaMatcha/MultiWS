@@ -8,7 +8,17 @@ import { makeSolver, stateOf } from '../src/pose/solver';
 import { buildSkeleton } from '../src/rig/skeleton';
 import { VOXEL } from '../src/sdf/fuse';
 import { type FuseJob, type FuseResult, runJob, stageJob } from '../src/sdf/job';
-import { type ChunkDrop, type ChunkRequest, type HelperLink, MIN_BLOCKS, type SkinRequest, fuseSpread, helperDesk } from '../src/sdf/parallel';
+import {
+  type BakeRequest,
+  type ChunkDrop,
+  type ChunkRequest,
+  type HelperLink,
+  MIN_BLOCKS,
+  type RefineRequest,
+  type SkinRequest,
+  fuseSpread,
+  helperDesk,
+} from '../src/sdf/parallel';
 import { planBlocks } from '../src/sdf/surfaceNets';
 import { useAnimeBody } from './animeBody';
 
@@ -25,7 +35,7 @@ const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
  */
 function fakeHelper(kind: 'ok' | 'dead' | 'broken' | 'late' | 'slow' = 'ok') {
   const desk = helperDesk();
-  const got: (ChunkRequest | SkinRequest | ChunkDrop)[] = [];
+  const got: (ChunkRequest | SkinRequest | RefineRequest | BakeRequest | ChunkDrop)[] = [];
   const helper: HelperLink = {
     onReply: null,
     send(message) {
@@ -47,7 +57,9 @@ function fakeHelper(kind: 'ok' | 'dead' | 'broken' | 'late' | 'slow' = 'ok') {
     helper,
     got,
     chunks: () => got.filter((m): m is ChunkRequest => 'blocks' in m),
-    skin: () => got.filter((m): m is SkinRequest => 'range' in m),
+    skin: () => got.filter((m): m is SkinRequest => 'step' in m && m.step !== 'refine'),
+    refine: () => got.filter((m): m is RefineRequest => 'step' in m && m.step === 'refine'),
+    bakes: () => got.filter((m): m is BakeRequest => 'bake' in m),
   };
 }
 
@@ -72,22 +84,38 @@ describe('大活分给帮手一起算', () => {
     const parts = partsOf(anime);
     const solver = makeSolver(buildSkeleton({ parts, scale: 1 }).bones);
     const sit = POSE_LIBRARY.find((one) => one.name === '坐着')!;
+    const still: FuseJob = { parts, voxel: VOXEL.preview, blend: 0.02, labels: true };
     const cases: [string, FuseJob][] = [
       ['白模 静止', plain],
       ['白模 三对手臂 带权重', { parts: partsOf(make({ armPairs: 3 }, { armLayout: 'fan' })), voxel: VOXEL.preview, blend: 0.02, skin: true }],
       ['二次元素体 坐着', { parts, voxel: VOXEL.preview, blend: 0.02, pose: poseMatrices(solver.rig, forward(solver.rig, stateOf(solver, sit.posing))) }],
+      // 静止的二次元素体：收尾的表面校正也分开算
+      ['二次元素体 静止', still],
+      ['二次元素体 带权重', { parts, voxel: VOXEL.preview, blend: 0.02, skin: true }],
     ];
     for (const [label, job] of cases) {
       const fakes = [fakeHelper(), fakeHelper(), fakeHelper()];
       const made = await fuseSpread(7, job, fakes.map((f) => f.helper), never);
       expectSame(made!, runJob(job), label);
+      if (job.labels) expect(made!.labels, label).toEqual(runJob(job).labels);
       for (const fake of fakes) {
         const chunks = fake.chunks();
         expect(chunks.length, label).toBeGreaterThan(0);
         expect(chunks[0].task, label).toBe(job);
-        expect(chunks.slice(1).every((m) => !m.task), label).toBe(true);
+        expect(chunks.slice(1).every((m) => !m.task && !m.chests), label).toBe(true);
         expect(chunks.every((m) => m.job === 7), label).toBe(true);
         expect(fake.got[fake.got.length - 1], label).toEqual({ drop: 7 });
+        // 二次元素体：融合线程烤好的胸随头一份交给帮手
+        if (job.parts === parts && !job.pose) expect(chunks[0].chests?.length, label).toBeGreaterThan(0);
+        // 表面校正：分到了；校正之前的网格只在头一份里带上
+        const refine = fake.refine();
+        if (job.parts === parts && !job.pose) {
+          expect(refine.length, label).toBeGreaterThan(0);
+          expect(refine[0].rough?.positions, label).toHaveLength(made!.mesh.positions.length);
+          expect(refine.slice(1).every((m) => !m.task && !m.rough), label).toBe(true);
+        } else {
+          expect(refine, label).toEqual([]);
+        }
         // 要权重的：第 1 步、第 3 步都分到了；算权重的任务（连同顶点）也只在头一份里带上
         const skin = fake.skin();
         if (!job.skin) {
@@ -122,6 +150,18 @@ describe('大活分给帮手一起算', () => {
     // 等晚到的都交回来（这时任务已经算完了，没人收）
     await new Promise((resolve) => setTimeout(resolve, 200));
   }, 60_000);
+
+  it('胸没烤过：先按层分给帮手一起烤，再融合，结果和一个线程从头算的一样', async () => {
+    useAnimeBody();
+    // 这副胸别的测试没用过：这个线程里还没烤
+    const job: FuseJob = { parts: partsOf(make({ chestPairs: 2 }, { bodyStyle: 'anime', shape: { ...defaultSpec().shape, bust: 1.37 } })), voxel: VOXEL.preview, blend: 0.02 };
+    const fakes = [fakeHelper(), fakeHelper(), fakeHelper()];
+    const made = await fuseSpread(11, job, fakes.map((f) => f.helper), never);
+    const bakes = fakes.flatMap((f) => f.bakes());
+    expect(bakes.length).toBeGreaterThan(3);
+    expect(fakes.every((f) => f.bakes().length > 0)).toBe(true);
+    expectSame(made!, runJob(job), '分开烤胸');
+  }, 120_000);
 
   it('一个帮手都没有：自己一份一份地算完，结果一样', async () => {
     const made = await fuseSpread(1, plain, [], never);

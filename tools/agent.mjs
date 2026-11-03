@@ -7,7 +7,12 @@
  *   npm run agent -- logs --errors       同样能用
  */
 import { writeFileSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { listNotes } from './agent-monitor/notes.mjs';
+
+/** 问题单存在哪（开发服务器存进来的，见 agent-monitor/notes.mjs） */
+const NOTES = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'notes');
 
 const HELP = `用法：node tools/agent.mjs <命令> [参数] [选项]      （或 npm run agent -- <命令> …）
 
@@ -24,6 +29,10 @@ const HELP = `用法：node tools/agent.mjs <命令> [参数] [选项]      （�
   eval -f <文件>          同上，代码从文件里读
   shot [文件.png]         截 3D 视图（缺省存成 agent-shot.png）；--view front|side|back|three|…，--width / --height
                          页面藏着也能截（临时按 900×1200 画一张），画完镜头还原
+  notes [条数]            用户在页面上画红圈存下的问题单，新的在前（直接读 notes/ 文件夹，服务器关着也行）
+  notes latest           最新一张：那句话、截图在哪、当时的模式、读数、镜头（--full 整份 note.json）
+  notes replay [文件夹名]  把一张问题单（缺省最新一张）的设定、姿势、模式、镜头原样摆到页面上，复现用；
+                         会改那个页面，所以一定要用 --page 指定自己开的标签页
 
 选项
   --url <地址>            开发服务器，缺省看环境变量 OC_AGENT_URL，再不行在 5173–5179 上找
@@ -44,7 +53,7 @@ const flags = {};
 const rest = [];
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
-  if (a === '--errors' || a === '--warn' || a === '--cached' || a === '-h' || a === '--help') flags[a.replace(/^-+/, '')] = true;
+  if (a === '--errors' || a === '--warn' || a === '--cached' || a === '--full' || a === '-h' || a === '--help') flags[a.replace(/^-+/, '')] = true;
   else if (a === '-f' || a === '-n' || a.startsWith('--')) flags[a.replace(/^-+/, '')] = args[++i];
   else rest.push(a);
 }
@@ -171,6 +180,64 @@ switch (command) {
     writeFileSync(out, Buffer.from(await res.arrayBuffer()));
     console.log(out);
     console.error(`（页面 ${res.headers.get('x-oc-page')}，${res.headers.get('x-oc-size')}）`);
+    break;
+  }
+  case 'notes': {
+    if (params[0] === 'replay') {
+      // 会改页面上的设定：不许落到缺省选中的那个（通常是用户自己正在用的）
+      if (!flags.page) fail('notes replay 会改页面上的设定和镜头：用 --page 指定自己开的标签页（node tools/agent.mjs pages 里认）');
+      const all = listNotes(NOTES, 1000);
+      const pick = params[1] ? all.find((n) => n.name === params[1] || n.name.startsWith(params[1])) : all[0];
+      if (!pick) fail(params[1] ? `没有这张问题单：${params[1]}` : `还没有问题单（${NOTES}）`);
+      const s = JSON.parse(readFileSync(join(pick.dir, 'note.json'), 'utf8')).snapshot ?? {};
+      if (!s.spec) fail(`这张问题单里没有设定：${pick.dir}`);
+      const code = [
+        `oc.setMode('shape');`,
+        `oc.set(${JSON.stringify(s.spec)});`,
+        `await settle({ timeout: 60000 });`,
+        s.mode === 'pose' ? `oc.setMode('pose'); await settle({ timeout: 60000 });` : '',
+        s.camera ? `oc.viewport?.setCamera(${JSON.stringify(s.camera)});` : '',
+        `return { mode: oc.mode(), description: snapshot().description, readout: snapshot().readout };`,
+      ].join('\n');
+      const body = await getJson(`/eval${query({ timeout: flags.timeout ?? 90000 })}`, { method: 'POST', headers: { 'content-type': 'text/plain; charset=utf-8' }, body: code });
+      print({ note: pick.name, ...body.value });
+      console.error(`（在页面 ${body.page} 里摆好了；截图对比：node tools/agent.mjs shot 复现.png --page ${flags.page}）`);
+      break;
+    }
+    if (params[0] === 'latest') {
+      const [last] = listNotes(NOTES, 1);
+      if (!last) fail(`还没有问题单（${NOTES}）：在工坊页面上点 3D 视图左下角的「标注」画一张`);
+      const note = JSON.parse(readFileSync(join(last.dir, 'note.json'), 'utf8'));
+      if (flags.full) {
+        print(note);
+        break;
+      }
+      const s = note.snapshot ?? {};
+      print({
+        dir: last.dir,
+        images: last.files.map((file) => join(last.dir, file)),
+        createdAt: note.createdAt,
+        text: note.text,
+        strokes: note.strokes?.length ?? 0,
+        view: note.view,
+        mode: s.mode,
+        description: s.description,
+        readout: s.readout,
+        warnings: s.warnings,
+        selected: s.selected,
+        camera: s.camera,
+        page: note.page?.url,
+      });
+      console.error('（整份设定、姿势在 note.json 的 snapshot.spec 里；--full 全部打出来）');
+      break;
+    }
+    const list = listNotes(NOTES, Number(params[0] ?? flags.n ?? 20));
+    if (!list.length) {
+      console.log(`还没有问题单（${NOTES}）`);
+      break;
+    }
+    for (const n of list) console.log(`${n.name}  ${n.mode === 'pose' ? '摆姿势' : '造型'}  ${n.strokes} 笔  ${n.text || '（没写字）'}`);
+    console.error(`（在 ${NOTES}；最新一张的详情：node tools/agent.mjs notes latest）`);
     break;
   }
   default:

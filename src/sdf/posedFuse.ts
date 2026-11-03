@@ -39,6 +39,23 @@ function bindOf(parts: Part[], blend: number) {
   return lastBind;
 }
 
+/** 「拖着的时候」那张网格（静止姿势、预览精度、带权重） */
+export interface BindMesh {
+  positions: Float32Array;
+  normals: Float32Array;
+  joints: Uint16Array;
+  weights: Float32Array;
+}
+
+/**
+ * 收下别处算好的那张（摆姿势时预览 Worker 已经照同样的部件算过一张带权重的预览网格，见 job.ts 的 FuseJob.bind）：
+ * 和 bindOf 自己算的一模一样，这个线程里就不用再算一遍（单线程要好几秒）
+ */
+export function provideBind(parts: Part[], blend: number, bind: BindMesh) {
+  const key = `${blend}|${JSON.stringify(parts)}`;
+  if (lastBind?.key !== key) lastBind = { key, ...bind };
+}
+
 /** 12 个数的矩阵（旋转按行排，后面是平移）a · b⁻¹，写进 out 的第 o 个数起 */
 function over(m: PoseMatrices, a: number, b: number, out: Float64Array, o: number) {
   // b⁻¹：旋转转置，平移 −Rᵀ t

@@ -681,13 +681,29 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
 export function chestDist(p: ChestShape, piece = false, voxel = 0): { fn: Dist; min: V3; max: V3; outer: { min: V3; max: V3 } } {
   // 烤成的格子：最细一档 BAKE，融合的体素粗的话跟着粗（草图那档拖滑块时要快）
   const cell = voxel > 0 ? Math.min(BAKE_COARSE, Math.max(BAKE, voxel * 0.6)) : BAKE;
-  const key = piece ? '' : `${chestVersion()} ${cell} ${JSON.stringify(p)}`;
+  const shape = piece ? '' : `${cell} ${JSON.stringify(p)}`;
+  const key = shape && `${chestVersion()} ${shape}`;
   const known = key ? BAKED.get(key) : undefined;
   if (known) {
     BAKED.delete(key);
     BAKED.set(key, known);
     return known;
   }
+  const exact = chestExact(p, piece);
+  if (piece) return exact;
+  // 只是看看要烤哪些（见 neededChests）：先不烤，现算的对付这一遍
+  if (wanted) {
+    wanted.set(shape, { shape, p, cell });
+    return exact;
+  }
+  const box = chestBox(exact, cell);
+  if (!box) return exact;
+  const grid = bakeGrid(exact.fn, box.lo, box.hi, cell);
+  return keepBaked(key, { shape, min: box.lo, max: box.hi, outer: exact.outer, grid });
+}
+
+/** 胸照 p 现算的距离（不烤）。piece：分部件用，只取胸根以内 */
+function chestExact(p: ChestShape, piece: boolean): { fn: Dist; min: V3; max: V3; outer: { min: V3; max: V3 } } {
   const frame = p.wide ? wideFrame(p.body) : chestFrame();
   const region = chestRegion(p, frame) ?? { min: [0, 0, 0] as V3, max: [0, 0, 0] as V3 };
   // 胸在并好的宽躯干外面贴（ChestShape.wide）才带着 twin；一个上半身、躯干在胯上分成两副的（D），胸那一截就是一个人的躯干，
@@ -709,8 +725,14 @@ export function chestDist(p: ChestShape, piece = false, voxel = 0): { fn: Dist; 
     max: sub(d.max, p.origin),
     outer: { min: sub(d.outer.min, p.origin), max: sub(d.outer.max, p.origin) },
   };
-  if (piece) return exact;
-  // 框的范围是照躯干的加宽、加长、胯宽一起放大的，比胸大好几倍：粗扫一遍，只框到里面和离表面不到一个粗格的地方
+  return exact;
+}
+
+/**
+ * 胸要烤哪一块。框的范围是照躯干的加宽、加长、胯宽一起放大的，比胸大好几倍：粗扫一遍，只框到里面和离表面不到一个粗格的地方。
+ * 一点都没扫到返回 null（不烤，现算）
+ */
+function chestBox(exact: { fn: Dist; min: V3; max: V3 }, cell: number): { lo: V3; hi: V3 } | null {
   const step = cell * 3;
   const lo: V3 = [Infinity, Infinity, Infinity];
   const hi: V3 = [-Infinity, -Infinity, -Infinity];
@@ -726,11 +748,115 @@ export function chestDist(p: ChestShape, piece = false, voxel = 0): { fn: Dist; 
       }
     }
   }
-  if (!Number.isFinite(lo[0])) return exact;
-  const baked = { ...exact, min: lo, max: hi, fn: bake(exact.fn, lo, hi, cell) };
+  return Number.isFinite(lo[0]) ? { lo, hi } : null;
+}
+
+/** 一个要烤的胸：哪个（BakedChest.shape）、照哪个 ChestShape、格子多大 */
+export interface ChestOrder {
+  shape: string;
+  p: ChestShape;
+  cell: number;
+}
+
+/** 一个要烤的胸，范围定好了（见 planChest）：从 lo 起每 cell 一个格点，nx × ny × nz 个 */
+export interface ChestPlan extends ChestOrder {
+  lo: V3;
+  hi: V3;
+  outer: { min: V3; max: V3 };
+  nx: number;
+  ny: number;
+  nz: number;
+}
+
+/** 只看要烤哪些胸的时候记在这里（见 neededChests）；平时是 null */
+let wanted: Map<string, ChestOrder> | null = null;
+
+/**
+ * 照 run 编译一遍场，看要烤哪些胸（这个线程里还没烤过的）：这一遍一个都不烤，编译出来的场也别用。
+ * 要烤的可以先分给几个线程一起烤（见 parallel.ts 的 spreadBake），收下以后再正式编译，就都是烤好的了
+ */
+export function neededChests(run: () => void): ChestOrder[] {
+  const before = wanted;
+  wanted = new Map();
+  try {
+    run();
+    return [...wanted.values()];
+  } finally {
+    wanted = before;
+  }
+}
+
+/** 定下一个要烤的胸烤哪一块（要现算着扫一遍）。什么都没扫到的返回 null：不烤，用到时现算 */
+export function planChest(order: ChestOrder): ChestPlan | null {
+  const exact = chestExact(order.p, false);
+  const box = chestBox(exact, order.cell);
+  if (!box) return null;
+  return { ...order, lo: box.lo, hi: box.hi, outer: exact.outer, ...gridSize(box.lo, box.hi, order.cell) };
+}
+
+/** 现算的胸，按 shape 记几个：分给帮手一层一层地烤时，同一个胸的几份活不用每份都重新准备 */
+const EXACT = new Map<string, Dist>();
+
+/** 烤第 from 到 to（不含）层（沿 z）的格点，和整块一起烤的逐值一样（见 bakeLayers） */
+export function bakeChestLayers(plan: ChestPlan, from: number, to: number): Float32Array {
+  let fn = EXACT.get(plan.shape);
+  if (!fn) {
+    fn = chestExact(plan.p, false).fn;
+    EXACT.set(plan.shape, fn);
+    if (EXACT.size > 16) EXACT.delete(EXACT.keys().next().value!);
+  }
+  return bakeLayers(fn, plan.lo, plan.cell, plan.nx, plan.ny, plan.nz, from, to);
+}
+
+/** 各层都烤好了（layers 是全部的格点，z 最慢）：收下，以后这个胸直接用 */
+export function keepChest(plan: ChestPlan, layers: Float32Array) {
+  const [x0, y0, z0] = plan.lo;
+  const grid: BakedGrid = { x0, y0, z0, cell: plan.cell, nx: plan.nx, ny: plan.ny, nz: plan.nz, data: layers };
+  keepBaked(`${chestVersion()} ${plan.shape}`, { shape: plan.shape, min: plan.lo, max: plan.hi, outer: plan.outer, grid });
+}
+
+/**
+ * 一个烤好的胸。能原样交给别的线程（见 parallel.ts：网格 Worker 烤好的随活一起交给帮手，帮手不用再烤一遍），
+ * 那边照同一份格子插值，求出来的值和自己烤的一模一样
+ */
+export interface BakedChest {
+  /** 哪个胸、哪档格子（不带胸数据的版本号：各线程收到的胸数据是同一份，各自照自己的版本号存） */
+  shape: string;
+  min: V3;
+  max: V3;
+  outer: { min: V3; max: V3 };
+  grid: BakedGrid;
+}
+
+/** 这个线程里烤好的胸，最近用过的排在后面 */
+export function bakedChests(): BakedChest[] {
+  return [...BAKED.values()].map(({ shape, min, max, outer, grid }) => ({ shape, min, max, outer, grid }));
+}
+
+/** 收下别的线程烤好的胸；这边已经有的不换 */
+export function adoptChests(list: readonly BakedChest[]) {
+  for (const chest of list) {
+    const key = `${chestVersion()} ${chest.shape}`;
+    if (!BAKED.has(key)) keepBaked(key, chest);
+  }
+}
+
+/** 记下一个烤好的胸；烤好的加起来超过 BAKED_BYTES 就扔掉最久没用的 */
+function keepBaked(key: string, chest: BakedChest): Baked {
+  const baked: Baked = { ...chest, fn: readGrid(chest.grid) };
   BAKED.set(key, baked);
-  if (BAKED.size > 12) BAKED.delete(BAKED.keys().next().value!);
+  bakedBytes += chest.grid.data.byteLength;
+  while (bakedBytes > BAKED_BYTES && BAKED.size > 1) {
+    const oldest = BAKED.keys().next().value!;
+    bakedBytes -= BAKED.get(oldest)!.grid.data.byteLength;
+    BAKED.delete(oldest);
+  }
   return baked;
+}
+
+/** 这个线程里烤好的胸有几个、一共占多少字节（测试、量内存用） */
+export function bakedSize(): { count: number; bytes: number } {
+  return { count: BAKED.size, bytes: bakedBytes };
 }
 
 /** 现量的展开图（见 wideFrame）每行隔多高、每列隔几度（弧度），量哪一段高度（加长以前的，上头再加上加长的） */
@@ -828,30 +954,65 @@ const BAKE_STRIDE = 2;
 /** 胸烤成的格子每格多大：最细一档和躯干的格子（5 毫米）、胸型放大以后的格子差不多（融合最细一档的体素 6 毫米）；粗的几档最粗到 BAKE_COARSE */
 const BAKE = 0.004;
 const BAKE_COARSE = 0.012;
+/**
+ * 烤好的胸最多留这么多字节（每个线程各一份）。
+ * 原来按个数留 12 个：几个上半身、几排胸的身体一副就有七八个胸，粗网格、预览、精细三档轮着算的时候互相挤掉，
+ * 拖手臂、腿（胸根本没变）也要重烤，精细那档单线程要两秒
+ */
+const BAKED_BYTES = 96 * 2 ** 20;
+type Baked = BakedChest & { fn: Dist };
 /** 烤好的胸，最近用过的排在后面 */
-const BAKED = new Map<string, { fn: Dist; min: V3; max: V3; outer: { min: V3; max: V3 } }>();
+const BAKED = new Map<string, Baked>();
+let bakedBytes = 0;
 
-/** 把一个距离场在 [min, max] 里每 cell 采一个点存起来，求值时三线性插值；出了范围照边上的值加上到边的距离 */
-function bake(fn: Dist, min: V3, max: V3, cell: number): Dist {
-  const [x0, y0, z0] = min;
-  // 格点数凑成 BAKE_STRIDE 的整数倍再加一：粗的那一遍正好落在细格点上
+/** 烤成的格子：从 (x0, y0, z0) 起每 cell 一个格点，nx × ny × nz 个，x 变得最快 */
+export interface BakedGrid {
+  x0: number;
+  y0: number;
+  z0: number;
+  cell: number;
+  nx: number;
+  ny: number;
+  nz: number;
+  data: Float32Array;
+}
+
+/** 在 [min, max] 里每 cell 一个格点要多少个：凑成 BAKE_STRIDE 的整数倍再加一，粗的那一遍正好落在细格点上 */
+function gridSize(min: V3, max: V3, cell: number): { nx: number; ny: number; nz: number } {
   const count = (span: number) => Math.max(1, Math.ceil(span / cell / BAKE_STRIDE)) * BAKE_STRIDE + 1;
-  const nx = count(max[0] - x0);
-  const ny = count(max[1] - y0);
-  const nz = count(max[2] - z0);
+  return { nx: count(max[0] - min[0]), ny: count(max[1] - min[1]), nz: count(max[2] - min[2]) };
+}
+
+/** 把一个距离场在 [min, max] 里每 cell 采一个点存起来（求值见 readGrid） */
+function bakeGrid(fn: Dist, min: V3, max: V3, cell: number): BakedGrid {
+  const [x0, y0, z0] = min;
+  const { nx, ny, nz } = gridSize(min, max, cell);
+  return { x0, y0, z0, cell, nx, ny, nz, data: bakeLayers(fn, min, cell, nx, ny, nz, 0, nz) };
+}
+
+/**
+ * 烤格子里第 from 到 to（不含）层（沿 z）的格点。
+ * 先每 BAKE_STRIDE 格取一个粗点；一个粗格子八个角离表面都比格子的对角线（再宽一点）远的，表面穿不过这个格子：
+ * 里面的细格点照八个角插值，只有表面附近的粗格子才逐点算（胸那一块里大半是空的、或者埋在躯干里，现算又慢）。
+ * 一层细格点只用得到上下相邻的几层粗点、几层粗格子，所以分成几段各烤各的（分给几个线程，见 parallel.ts 的 spreadBake），
+ * 拼起来和整块一起烤的逐值一样
+ */
+function bakeLayers(fn: Dist, min: V3, cell: number, nx: number, ny: number, nz: number, from: number, to: number): Float32Array {
+  const [x0, y0, z0] = min;
   const nxy = nx * ny;
-  const data = new Float32Array(nxy * nz);
-  // 先每 BAKE_STRIDE 格取一个粗点；一个粗格子八个角离表面都比格子的对角线（再宽一点）远的，表面穿不过这个格子：
-  // 里面的细格点照八个角插值，只有表面附近的粗格子才逐点算（胸那一块里大半是空的、或者埋在躯干里，现算又慢）
+  const data = new Float32Array(nxy * (to - from));
   const step = cell * BAKE_STRIDE;
   const [cx, cy, cz] = [(nx - 1) / BAKE_STRIDE + 1, (ny - 1) / BAKE_STRIDE + 1, (nz - 1) / BAKE_STRIDE + 1];
-  const coarse = new Float32Array(cx * cy * cz);
-  for (let k = 0, o = 0; k < cz; k++) for (let j = 0; j < cy; j++) for (let i = 0; i < cx; i++) coarse[o++] = fn(x0 + i * step, y0 + j * step, z0 + k * step);
+  // 盖着这几层的粗格子（第 K 个盖着第 K·STRIDE 到 (K+1)·STRIDE 层），和它们的上下两层粗点
+  const first = Math.max(0, Math.floor(from / BAKE_STRIDE) - 1);
+  const last = Math.min(cz - 2, Math.floor((to - 1) / BAKE_STRIDE));
+  const coarse = new Float32Array(cx * cy * (last - first + 2));
+  for (let k = first, o = 0; k <= last + 1; k++) for (let j = 0; j < cy; j++) for (let i = 0; i < cx; i++) coarse[o++] = fn(x0 + i * step, y0 + j * step, z0 + k * step);
   const far = step * Math.sqrt(3) * 1.05;
-  const at = (i: number, j: number, k: number) => coarse[i + cx * (j + cy * k)];
+  const at = (i: number, j: number, k: number) => coarse[i + cx * (j + cy * (k - first))];
   // 哪些细格点要逐点算：表面附近的粗格子里的（每个点只算一次）
-  const needs = new Uint8Array(nxy * nz);
-  for (let K = 0; K < cz - 1; K++)
+  const needs = new Uint8Array(nxy * (to - from));
+  for (let K = first; K <= last; K++)
     for (let J = 0; J < cy - 1; J++)
       for (let I = 0; I < cx - 1; I++) {
         let near = false;
@@ -860,11 +1021,14 @@ function bake(fn: Dist, min: V3, max: V3, cell: number): Dist {
           near = (v < 0 ? -v : v) < far;
         }
         if (!near) continue;
-        for (let k = 0; k <= BAKE_STRIDE; k++)
+        for (let k = 0; k <= BAKE_STRIDE; k++) {
+          const gk = K * BAKE_STRIDE + k;
+          if (gk < from || gk >= to) continue;
           for (let j = 0; j <= BAKE_STRIDE; j++)
-            for (let i = 0; i <= BAKE_STRIDE; i++) needs[I * BAKE_STRIDE + i + nx * (J * BAKE_STRIDE + j) + nxy * (K * BAKE_STRIDE + k)] = 1;
+            for (let i = 0; i <= BAKE_STRIDE; i++) needs[I * BAKE_STRIDE + i + nx * (J * BAKE_STRIDE + j) + nxy * (gk - from)] = 1;
+        }
       }
-  for (let gk = 0, o = 0; gk < nz; gk++)
+  for (let gk = from, o = 0; gk < to; gk++)
     for (let gj = 0; gj < ny; gj++)
       for (let gi = 0; gi < nx; gi++, o++) {
         const [I, J, K] = [Math.min(Math.floor(gi / BAKE_STRIDE), cx - 2), Math.min(Math.floor(gj / BAKE_STRIDE), cy - 2), Math.min(Math.floor(gk / BAKE_STRIDE), cz - 2)];
@@ -882,6 +1046,12 @@ function bake(fn: Dist, min: V3, max: V3, cell: number): Dist {
           data[o] = g + (h - g) * w;
         }
       }
+  return data;
+}
+
+/** 照烤好的格子求值：三线性插值；出了范围照边上的值加上到边的距离 */
+function readGrid({ x0, y0, z0, cell, nx, ny, nz, data }: BakedGrid): Dist {
+  const nxy = nx * ny;
   const inv = 1 / cell;
   return (x, y, z) => {
     let fx = (x - x0) * inv;

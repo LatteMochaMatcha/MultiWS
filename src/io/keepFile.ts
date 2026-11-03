@@ -41,6 +41,22 @@ export async function keepFile(key: string, file: KeptFile): Promise<boolean> {
   }
 }
 
+/** 删掉存过的文件；本来就没有、删不掉都不报错 */
+export async function forgetFile(key: string): Promise<void> {
+  try {
+    const db = await open();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch {
+    // 删不掉就留着：下次选图会把它换掉
+  }
+}
+
 /** 取存过的文件；没存过、取不出来都是 null */
 export async function keptFile(key: string): Promise<KeptFile | null> {
   try {

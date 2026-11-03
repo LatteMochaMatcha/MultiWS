@@ -6,6 +6,7 @@ import { GENITAL_CREDIT, genitalReady, loadGenital } from './anime/genital';
 import { adultOn, setAdult, withoutAdult } from './model/adult';
 import { type CharacterBuild, assembleCharacter } from './character/assemble';
 import { characterGlb, characterShape, characterSkeleton, poseBuild } from './character/export';
+import { characterVrm } from './character/vrm';
 import { type FaceInstance, type FaceWeights, type Gaze, applyFaces, faceLabel, gazeAt, gazeOf, gazeTurns, hasExpression } from './character/face';
 import { characterSource, hairDonor, hairLit, lightenHair, loadCharacter, loadHair, loadOwnCharacter, ownFileName, restoreOwnCharacter } from './character/load';
 import type { CharacterSource } from './character/source';
@@ -16,11 +17,13 @@ import { describeClashes, findClashes } from './geometry/clash';
 import { type Figure, type FigureMetrics, type PartType, nthName } from './geometry/figure';
 import { buildFigure } from './geometry/layout';
 import { partFrame } from './geometry/tweak';
-import { type V3, Q_ID, UP, len, norm, quatBetween, quatMul, sub } from './geometry/vec';
+import { type Quat, type V3, Q_ID, UP, len, norm, quatBetween, quatMul, sub } from './geometry/vec';
 import { inAndroidShell, saveBlob, saveText } from './io/download';
 import { exportGlb } from './io/exportGlb';
 import { OfflineError } from './io/fetchFile';
 import { type GlbMesh, writeGlb } from './io/glb';
+import { forgetFile, keepFile, keptFile } from './io/keepFile';
+import { type VrmLicense, type VrmMeta, type VrmSpring, VRM_LICENSES, describeLicense, humanoidMap, writeVrm } from './io/vrm';
 import { writeObj, writeStl } from './io/meshFiles';
 import { History } from './model/history';
 import { activeOverrides, clearAllOverrides, clearOverride, mirrorName, setOverride } from './model/overrides';
@@ -104,6 +107,8 @@ import {
 } from './pose/fingers';
 import { type Handle, type HandleGroup, HANDLE_GROUPS, buildHandles } from './pose/handles';
 import { type BodyDist, clearArms } from './pose/clear';
+import { type PoseRegion, POSE_REGIONS, armPairOf, blendPose, regionOf } from './pose/blend';
+import { type DrapeKind, BodySurface, boneRadius, drape, drapeBones } from './pose/drape';
 import { fitArms, followArms } from './pose/fit';
 import { POSE_LIBRARY } from './pose/library';
 import { type Posing, POSING_VERSION, cleanPosing, emptyPosing, flipPosing, isPosed, placedTwins } from './pose/posing';
@@ -124,6 +129,7 @@ import { type GizmoMode, GIZMO_MODES, Gizmo } from './view/gizmo';
 import { MATERIAL_INFO } from './view/materials';
 import { type BakedMesh, PartsModel, disposeTree } from './view/partsModel';
 import { PoseHandles } from './view/poseHandles';
+import { type RefSlot, REF_SLOTS, ReferenceImages, loadPicture } from './view/references';
 import { Tour } from './view/tour';
 import { type SkinSource, FlatParts, PosedMeshes, WHITE_BLEND } from './view/posedMeshes';
 import { type CameraState, type ViewName, VIEW_DEFAULTS, VIEW_LIMITS, Viewport } from './view/viewport';
@@ -258,6 +264,9 @@ const history = new History<Snapshot>(
   { equals: (a, b) => a.text === b.text && JSON.stringify(a.spec) === JSON.stringify(b.spec) },
 );
 
+/** 正拖着操纵杆（见 gizmo.onDrag）：每动一下只记撤销、重建模型，存档和刷新整个面板等松手再做 */
+let tweaking = false;
+
 /**
  * 设定改完了：记进撤销历史、存档、刷新界面。
  * key 相同的连续修改（拖同一个滑块、连着打字）合并成一步。
@@ -265,6 +274,14 @@ const history = new History<Snapshot>(
 function commit(key?: string) {
   spec = gate(spec);
   history.push({ spec, text }, key);
+  // 只认操纵杆自己的改动：万一没收到松手，别的改动（滑块、撤销）照常存档、刷新
+  if (tweaking && key?.startsWith('gizmo:')) {
+    // 拖操纵杆只改了微调：面板上别的都没变，微调那几格数字在重建以后跟着同步（见 syncTweak）
+    btnUndo.disabled = !history.canUndo;
+    btnRedo.disabled = !history.canRedo;
+    scheduleRebuild();
+    return;
+  }
   save();
   render();
 }
@@ -1007,6 +1024,161 @@ for (const [name, label] of VIEW_BUTTONS) {
 }
 applyView();
 
+/* ---------- 参考图 ---------- */
+
+const REFS_KEY = 'oc-basemesh-refs';
+/** 图本身存在 IndexedDB 里（和自己的 VRM 在一起），用这个 key */
+const refFileKey = (slot: RefSlot) => `ref-${slot}`;
+/** 大小、上下、左右是厘米，不透明度是百分数 */
+const REF_LIMITS = { height: [30, 600], up: [-150, 150], shift: [-300, 300], opacity: [10, 100] } as const;
+type RefDial = keyof typeof REF_LIMITS;
+/** 一张参考图：文件名、显不显示、翻不翻，和怎么摆 */
+type RefSettings = { name: string; show: boolean; flip: boolean } & Record<RefDial, number>;
+/** 两张参考图怎么摆、现在在调哪张：和「镜头和灯光」一样只记在浏览器里，不进配置、不进撤销 */
+const refs: { slot: RefSlot; onTop: boolean } & Record<RefSlot, RefSettings | null> = { slot: 'front', onTop: false, front: null, side: null };
+const REF_LABEL: Record<RefSlot, string> = { front: '正面', side: '侧面' };
+const refDial = (key: RefDial, value: unknown, fallback: number) =>
+  typeof value === 'number' && Number.isFinite(value) ? Math.round(Math.max(REF_LIMITS[key][0], Math.min(REF_LIMITS[key][1], value))) : fallback;
+const references = new ReferenceImages();
+viewport?.backdrop.add(references.root);
+try {
+  const saved: unknown = JSON.parse(localStorage.getItem(REFS_KEY) ?? 'null');
+  if (typeof saved === 'object' && saved !== null) {
+    const s = saved as Record<string, unknown>;
+    refs.onTop = s.onTop === true;
+    if (s.slot === 'side') refs.slot = 'side';
+    for (const slot of REF_SLOTS) {
+      const r = s[slot] as Record<string, unknown> | null | undefined;
+      if (typeof r !== 'object' || r === null || typeof r.name !== 'string') continue;
+      refs[slot] = {
+        name: r.name,
+        show: r.show !== false,
+        flip: r.flip === true,
+        height: refDial('height', r.height, 165),
+        up: refDial('up', r.up, 0),
+        shift: refDial('shift', r.shift, 0),
+        opacity: refDial('opacity', r.opacity, 60),
+      };
+    }
+  }
+} catch {
+  // 读不到就当没有参考图
+}
+
+const syncRefSlot = buildSeg($('segRef'), REF_SLOTS, (v) => REF_LABEL[v], (slot) => {
+  refs.slot = slot;
+  applyRefs();
+});
+const REF_DIALS: { key: RefDial; text: (v: number) => string }[] = [
+  { key: 'height', text: (v) => `${(v / 100).toFixed(2)} m` },
+  { key: 'up', text: (v) => (v ? `${v > 0 ? '↑' : '↓'}${Math.abs(v)} cm` : '贴地') },
+  { key: 'shift', text: (v) => (v ? `${v > 0 ? '→' : '←'}${Math.abs(v)} cm` : '居中') },
+  { key: 'opacity', text: (v) => `${v}%` },
+];
+const refDials = REF_DIALS.map((d) => {
+  const input = $<HTMLInputElement>(`s-ref${d.key[0].toUpperCase()}${d.key.slice(1)}`);
+  input.min = String(REF_LIMITS[d.key][0]);
+  input.max = String(REF_LIMITS[d.key][1]);
+  input.step = d.key === 'opacity' ? '5' : '1';
+  input.addEventListener('input', () => {
+    const r = refs[refs.slot];
+    if (!r) return;
+    r[d.key] = refDial(d.key, Number(input.value), r[d.key]);
+    applyRefs();
+  });
+  return (r: RefSettings) => {
+    if (Number(input.value) !== r[d.key]) input.value = String(r[d.key]);
+    $(`o-${input.id.slice(2)}`).textContent = d.text(r[d.key]);
+  };
+});
+for (const [id, key] of [['refShow', 'show'], ['refFlip', 'flip']] as const) {
+  const box = $<HTMLInputElement>(id);
+  box.addEventListener('change', () => {
+    const r = refs[refs.slot];
+    if (!r) return;
+    r[key] = box.checked;
+    applyRefs();
+  });
+}
+$<HTMLInputElement>('refOnTop').addEventListener('change', (e) => {
+  refs.onTop = (e.target as HTMLInputElement).checked;
+  applyRefs();
+});
+
+/** 把两张参考图摆到 3D 视图里，面板跟着变，顺手存起来 */
+function applyRefs() {
+  for (const slot of REF_SLOTS) {
+    const r = refs[slot];
+    const placement = r && { height: r.height / 100, up: r.up / 100, shift: r.shift / 100, opacity: r.opacity / 100, flip: r.flip };
+    references.place(slot, placement, !!r?.show);
+  }
+  if (viewport) viewport.backdropOnTop = refs.onTop;
+  syncRefSlot(refs.slot, true);
+  const r = refs[refs.slot];
+  const label = REF_LABEL[refs.slot];
+  $('refName').textContent = r ? `${label}图：${r.name}` : `还没有${label}图。点「选图…」选一张自己画的${label}设定图。`;
+  $<HTMLButtonElement>('btnRefClear').disabled = !r;
+  $('refBody').hidden = !r;
+  if (r) {
+    for (const sync of refDials) sync(r);
+    $<HTMLInputElement>('refShow').checked = r.show;
+    $<HTMLInputElement>('refFlip').checked = r.flip;
+  }
+  $<HTMLInputElement>('refOnTop').checked = refs.onTop;
+  try {
+    localStorage.setItem(REFS_KEY, JSON.stringify(refs));
+  } catch {
+    // 存不了也照样用
+  }
+}
+
+/** 选图、刚打开时从浏览器里取图：按现在的身高对齐（脚踩在地上、居中） */
+const fitHeight = () => refDial('height', Math.round((metrics?.height ?? 1.65) * 100), 165);
+const fileRef = $<HTMLInputElement>('fileRef');
+fileRef.addEventListener('change', async () => {
+  const file = fileRef.files?.[0];
+  fileRef.value = '';
+  if (!file) return;
+  const slot = refs.slot;
+  try {
+    const bytes = await file.arrayBuffer();
+    references.setImage(slot, await loadPicture(bytes));
+    refs[slot] = { name: file.name, show: true, flip: refs[slot]?.flip ?? false, height: fitHeight(), up: 0, shift: 0, opacity: refs[slot]?.opacity ?? 60 };
+    applyRefs();
+    viewport?.frame(slot);
+    const kept = await keepFile(refFileKey(slot), { name: file.name, bytes });
+    setStatus(`${REF_LABEL[slot]}参考图已垫上：${file.name}${kept ? '' : '。这个浏览器不让存，下次打开要重新选'}。`);
+  } catch (err) {
+    setStatus(`这张图读不了（${err instanceof Error ? err.message : String(err)}）：换成 PNG 或 JPG 再试。`, true);
+  }
+});
+$('btnRefClear').addEventListener('click', () => {
+  const slot = refs.slot;
+  refs[slot] = null;
+  references.setImage(slot, null);
+  applyRefs();
+  void forgetFile(refFileKey(slot));
+});
+$('btnRefFit').addEventListener('click', () => {
+  const r = refs[refs.slot];
+  if (!r) return;
+  Object.assign(r, { height: fitHeight(), up: 0, shift: 0 });
+  applyRefs();
+});
+applyRefs();
+// 上次垫过的图从浏览器里取回来；取不回来（清过浏览器数据）就当没有
+for (const slot of REF_SLOTS) {
+  if (!refs[slot]) continue;
+  void keptFile(refFileKey(slot))
+    .then((file) => (file ? loadPicture(file.bytes) : null))
+    .catch(() => null)
+    .then((picture) => {
+      if (picture) references.setImage(slot, picture);
+      else refs[slot] = null;
+      applyRefs();
+    });
+}
+
 /* ---------- 手机、触屏 ---------- */
 
 // 用手指的屏幕：操作提示换成手指的说法，先亮在 3D 视图上，第一次碰到模型就收起来
@@ -1710,8 +1882,12 @@ if (gizmo) {
   gizmo.onDrag = (active) => {
     // 每次拖动单独算一步撤销
     history.seal();
-    // 松手以后再同步一次：操纵杆回到按存下来的数值算出的位置（数值被取整、限幅过）
-    if (!active) scheduleRebuild();
+    tweaking = active;
+    // 松手以后存档、刷新面板，再同步一次：操纵杆回到按存下来的数值算出的位置（数值被取整、限幅过）
+    if (!active) {
+      save();
+      render();
+    }
   };
 }
 
@@ -1891,7 +2067,8 @@ function showPose() {
   const { rig } = kit.solver;
   const frame = (poseFrame = forward(rig, poseState));
   const matrices = poseMatrices(rig, frame);
-  posed?.apply(matrices);
+  // 正拖着圆点、转着旋转环时，包围盒不逐个顶点重算（松手以后同步那一次再算准的）
+  posed?.apply(matrices, Boolean(grab));
   if (figure && !character && spec.meshMode === 'fused') {
     const unit = figure.scale;
     // 屏幕上先是照权重跟着骨骼动的那张；姿势停下来以后，后台照它重新融合一张换上（见 FusedModel.pose）。
@@ -2101,6 +2278,35 @@ function dropToGround(): boolean {
 }
 $('btnPoseGround').addEventListener('click', () => {
   if (dropToGround()) commitPose();
+});
+
+/* ---- 自然下垂：头发、裙摆、衣摆、袖子（勾上的话还有尾巴）照重力垂下来 ---- */
+
+const DRAPE_LABEL: Record<DrapeKind, string> = { hair: '头发', cloth: '裙摆、衣摆、袖子', tail: '尾巴' };
+$('btnPoseDrape').addEventListener('click', () => {
+  if (!kit || !poseState || !posed) return;
+  const { rig } = kit.solver;
+  const tails = $<HTMLInputElement>('poseDrapeTails').checked;
+  const bones = drapeBones(rig, tails);
+  if (!bones.size) {
+    const hasTails = !tails && drapeBones(rig, true).size > 0;
+    setStatus(
+      `${character ? '这个角色没有会垂下来的头发、裙摆' : '白模的头发没有骨骼（整个跟着头动），垂不下来'}${hasTails ? '；要尾巴垂下来，先勾上「尾巴也垂」' : ''}。`,
+    );
+    return;
+  }
+  // 身体表面：现在摆着的和静止时的，头发、裙摆自己不算
+  const { now, rest, own } = posed.sample(new Set(bones.keys()));
+  poseState = drape(rig, poseState, bones, {
+    now: new BodySurface(now.points, now.normals),
+    rest: new BodySurface(rest.points, rest.normals),
+    floor: 0,
+    radius: boneRadius(rig, own),
+  });
+  showPose();
+  commitPose();
+  const kinds = [...new Set(bones.values())].map((kind) => DRAPE_LABEL[kind]).join('、');
+  setStatus(`${kinds}照重力垂下来了；身体再动以后，再点一次「自然下垂」。`);
 });
 
 /** 换成另一份姿势（现成的姿势、姿势文件）。ground：套上以后落到地面（换了角色腿长不一样，脚会悬空或者陷下去） */
@@ -2558,6 +2764,22 @@ function bodyDist(): BodyDist | null {
   return armRoom.dist;
 }
 
+/* ---- 现成的姿势：套到哪些部位、手臂套给哪一对、套几成。只记在这一页里，不进配置 ---- */
+
+const POSE_REGION_LABEL: Record<PoseRegion, string> = { head: '头和脖子', torso: '躯干', armL: '左手臂', armR: '右手臂', legs: '腿' };
+const presetParts = new Set<PoseRegion>(POSE_REGIONS);
+/** 手臂套给第几对（0 是第一对）；null 是全部（多出来的手臂照原来的办法跟着第一对，见 pose/fit.ts） */
+let presetPair: number | null = null;
+/** 套几成，百分数 */
+let presetAmount = 100;
+/**
+ * 上一次点的现成姿势：点之前的样子、点的是哪个、存下来的是哪一份。
+ * 接着拖「强度」、改部位时，设定里的姿势还是 result（中间没拖过圆点、没撤销），就从点之前的样子重新套
+ */
+let lastPreset: { name: string; preset: Posing; base: PoseState; key: string; result: Posing | null } | null = null;
+/** 「手臂套给哪一对」照现在的身体排好（手臂有几对就几格） */
+let syncPresetPanel = () => {};
+
 if (POSE_LIBRARY.length) {
   $('poseLibraryNote').textContent =
     '点一下就套到现在这个角色身上，并且落到地面；不满意接着拖圆点改。这些姿势取自 Quaternius 的 Universal Animation Library（CC0），' +
@@ -2604,10 +2826,115 @@ if (POSE_LIBRARY.length) {
     const body = bodyDist();
     return body && figure ? clearArms(kit.solver, next, body, figure.scale, spec.shape.limbs, followers) : next;
   };
+
+  /* ---- 只套一部分、只套几成（照 Blender 姿态库，见 pose/blend.ts） ---- */
+
+  /** 只把姿势里的手臂套给第 pair 对：姿势里第一对的手臂骨骼换成那一对的名字（别的手臂不动，见 presetPick） */
+  const pairPosing = (posing: Posing, pair: number): Posing => {
+    const own = fittedTorsos(fittedLegs(posing));
+    const bones = { ...own.bones };
+    for (const [name, turn] of Object.entries(posing.bones)) if (armPairOf(name) === 0) bones[nthName(name, pair)] = turn;
+    return { ...own, bones };
+  };
+  /** 点的姿势套到这副骨架上的样子；眼睛照原来的留着（和 usePosing 一样） */
+  const presetState = (preset: Posing, base: PoseState): PoseState => {
+    const posing = presetPair === null ? fitted(preset) : pairPosing(preset, presetPair);
+    const target = stateOf(kit!.solver, posing);
+    for (const face of allFaces()) {
+      const eyes = eyesOf(face);
+      if (!eyes || face.eyes!.some((name) => name in posing.bones)) continue;
+      for (const eye of eyes) target.local[eye] = base.local[eye];
+    }
+    return target;
+  };
+  /** 全选、手臂是全部：整个换成这个姿势（头发、尾巴这些挂着的也照它，和以前点一下一样） */
+  const whole = () => presetParts.size === POSE_REGIONS.length && presetPair === null;
+  /** 哪些骨骼照姿势摆：全选时是全部骨骼，不然是选中的部位（手臂只是选中的那一对） */
+  const presetPick = (rig: PoseRig) => {
+    if (whole()) return () => true;
+    return (j: number) => {
+      const region = regionOf(rig.names[j]);
+      const pair = armPairOf(rig.names[j]);
+      return region !== null && presetParts.has(region) && (presetPair === null || pair < 0 || pair === presetPair);
+    };
+  };
+  /** 照现在的部位、强度，把上一次点的姿势从点之前的样子重新套一遍 */
+  const blendPreset = () => {
+    if (!kit || !lastPreset) return;
+    const { rig } = kit.solver;
+    const target = presetState(lastPreset.preset, lastPreset.base);
+    poseState = blendPose(rig, lastPreset.base, target, presetAmount / 100, presetPick(rig), whole() || presetParts.has('torso'));
+    showPose();
+    dropToGround();
+    commitPose(spec.posing, lastPreset.key);
+    lastPreset.result = spec.posing;
+  };
+  let clicks = 0;
+  /** 点了一个现成的姿势。返回给状态栏的说明 */
+  const applyPreset = (preset: (typeof POSE_LIBRARY)[number]): string => {
+    if (!kit || !poseState) return '';
+    if (!presetParts.size) return '「套到哪些部位」一个都没勾，先勾上要套的部位。';
+    // 每点一次是新的一步撤销；接着拖强度、改部位的几下合在这一步后面
+    lastPreset = { name: preset.name, preset: preset.posing, base: cloneState(poseState), key: `preset-${++clicks}`, result: null };
+    history.seal();
+    blendPreset();
+    if (whole() && presetAmount === 100) return `姿势：${preset.name}`;
+    const parts = POSE_REGIONS.filter((r) => presetParts.has(r)).map((r) => POSE_REGION_LABEL[r]);
+    const where = parts.length === POSE_REGIONS.length ? '整套' : `只套到${parts.join('、')}`;
+    return `姿势：${preset.name}，${where}${presetPair === null ? '' : `（手臂是第 ${presetPair + 1} 对）`}，强度 ${presetAmount}%。`;
+  };
+  /** 拖强度、改部位时：上一次点的姿势之后没拖过圆点、没撤销，就照新的设定重新套 */
+  const reblend = () => {
+    if (lastPreset && lastPreset.result === spec.posing && mode === 'pose') blendPreset();
+  };
+
+  for (const region of POSE_REGIONS) {
+    const input = el('input');
+    input.type = 'checkbox';
+    input.checked = true;
+    input.addEventListener('change', () => {
+      if (input.checked) presetParts.add(region);
+      else presetParts.delete(region);
+      if (presetParts.size) reblend();
+    });
+    const wrap = el('label', 'check');
+    wrap.append(input, ` ${POSE_REGION_LABEL[region]}`);
+    $('posePartChecks').append(wrap);
+  }
+  const amountInput = $<HTMLInputElement>('s-poseAmount');
+  amountInput.addEventListener('input', () => {
+    presetAmount = Number(amountInput.value);
+    $('o-poseAmount').textContent = `${presetAmount}%`;
+    reblend();
+  });
+  // 手臂有几对，「手臂套给哪一对」就有几格（一对的时候不显示）。身体变了才重排
+  let pairCount = 0;
+  let syncPair: ((value: string, enabled: boolean) => void) | null = null;
+  syncPresetPanel = () => {
+    const count = kit ? Math.max(0, ...kit.solver.rig.names.map(armPairOf)) + 1 : 1;
+    if (count !== pairCount) {
+      pairCount = count;
+      if (presetPair !== null && presetPair >= count) presetPair = null;
+      const host = $('segPosePair');
+      host.replaceChildren();
+      const options = ['all', ...Array.from({ length: count }, (_, k) => String(k))];
+      syncPair = buildSeg(host, options, (v) => (v === 'all' ? '全部' : `第 ${Number(v) + 1} 对`), (v) => {
+        presetPair = v === 'all' ? null : Number(v);
+        syncPresetPanel();
+        reblend();
+      });
+    }
+    $('posePairRow').hidden = count < 2;
+    syncPair?.(presetPair === null ? 'all' : String(presetPair), true);
+  };
+
   for (const preset of POSE_LIBRARY) {
     const btn = el('button', 'btn', preset.name);
     btn.type = 'button';
-    btn.addEventListener('click', () => usePosing(fitted(preset.posing), true));
+    btn.addEventListener('click', () => {
+      const note = applyPreset(preset);
+      if (note) setStatus(note, !presetParts.size);
+    });
     $('poseLibrary').append(btn);
   }
   let last = -1;
@@ -2616,8 +2943,8 @@ if (POSE_LIBRARY.length) {
     let pick = Math.floor(Math.random() * POSE_LIBRARY.length);
     if (pick === last) pick = (pick + 1) % POSE_LIBRARY.length;
     last = pick;
-    usePosing(fitted(POSE_LIBRARY[pick].posing), true);
-    setStatus(`姿势：${POSE_LIBRARY[pick].name}`);
+    const note = applyPreset(POSE_LIBRARY[pick]);
+    if (note) setStatus(note, !presetParts.size);
   });
 }
 $('btnPoseJointDone').addEventListener('click', () => selectJoint(null));
@@ -2696,6 +3023,7 @@ function renderPosePanel() {
     // 阴茎那一组只在打开了「显示成人部件」、身上有阴茎时出现
     if (group === 'genital') wrap.hidden = !(adultShown() && spec.counts.penises > 0);
   }
+  syncPresetPanel();
   renderHand();
   renderFace();
   const any = isPosed(spec.posing);
@@ -2938,6 +3266,211 @@ $('btnPng').addEventListener('click', async () => {
     setStatus(`截图失败：${err instanceof Error ? err.message : err}`, true);
   }
 });
+
+/* ---- VRM：给 VTuber 软件、VRoid Hub 用（见 io/vrm.ts）。现在只有融合模式的白模（成品角色见 docs/vrm-plan.md 第 2 期） ---- */
+
+const VRM_KEY = 'oc-basemesh-vrm';
+/**
+ * VRM 的静止姿势是 T-pose：第一对手臂平举、手心朝下、五指并拢伸直。
+ * 姿势数据里上臂、前臂、手、手指本来就是从这个样子算起的（见 pose/posing.ts），这几根不转就是 T-pose。
+ * 平举的是进了人形骨骼对照表的那一对（好几个上半身时右手臂是第一个上半身里侧的那条，UpperArm_R.002），
+ * 再加上不带序号的那一对（两边对称）；别的骨骼（多出来的手臂、头、腿）保持静止时的样子
+ */
+function tPosing(humanoid: Map<string, number>, rest: Skeleton): Posing {
+  const bones: Record<string, Quat> = {};
+  for (const s of ['L', 'R']) {
+    for (const name of ['UpperArm', 'LowerArm', 'Hand']) bones[`${name}_${s}`] = Q_ID;
+    for (const finger of FINGER_NAMES) for (let k = 1; k <= 3; k++) bones[`${finger}${k}_${s}`] = Q_ID;
+  }
+  for (const [slot, i] of humanoid) {
+    if (/^(left|right)(UpperArm|LowerArm|Hand|Thumb|Index|Middle|Ring|Little)/.test(slot)) bones[rest.bones[i].name] = Q_ID;
+  }
+  return { version: POSING_VERSION, bones };
+}
+/** 尾巴是会晃的弹簧骨骼：每条一串，从尾根晃到尾尖 */
+function tailSprings(skeleton: Skeleton): VrmSpring[] {
+  const roots = skeleton.bones.flatMap((b, i) => (/^Tail_\d+_01$/.test(b.name) ? [i] : []));
+  return roots.length ? [{ comment: 'Tail', roots, stiffness: 1, gravity: 0.05, drag: 0.4, hitRadius: 0.03 }] : [];
+}
+
+const vrmDialog = $<HTMLDialogElement>('vrmDialog');
+const vrmName = $<HTMLInputElement>('vrmName');
+const vrmAuthor = $<HTMLInputElement>('vrmAuthor');
+const vrmLicense = $<HTMLSelectElement>('vrmLicense');
+for (const [key, terms] of Object.entries(VRM_LICENSES)) vrmLicense.append(new Option(terms.label, key));
+const isLicense = (v: unknown): v is VrmLicense => typeof v === 'string' && v in VRM_LICENSES;
+
+/** 弹出小框填名字、作者、许可；取消返回 null。上次填的记在这个浏览器里 */
+function askVrmMeta(credits?: string, character?: { title: string; terms: string }): Promise<VrmMeta | null> {
+  let saved: Record<string, unknown> = {};
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(VRM_KEY) ?? '{}');
+    if (typeof raw === 'object' && raw !== null) saved = raw as Record<string, unknown>;
+  } catch {
+    // 读不到就空着
+  }
+  vrmName.value = character ? character.title : typeof saved.title === 'string' ? saved.title : 'OC';
+  vrmAuthor.value = typeof saved.author === 'string' ? saved.author : '';
+  vrmLicense.value = isLicense(saved.license) ? saved.license : 'private';
+  // 成品角色：许可照原角色，不能改；填的名字写成「改」，跟在原作者后面
+  $('vrmLicenseRow').hidden = Boolean(character);
+  $('vrmTerms').hidden = !character;
+  if (character) $('vrmTerms').textContent = `许可照原角色：${character.terms}。不能改，导出的文件里原样写着。`;
+  $('vrmAuthorLabel').textContent = character ? '你的名字（写成「改」，跟在原作者后面）' : '作者';
+  // 用到了要求署名的素材（二次元素体的脚、躯干）：选什么许可都照样写上署名
+  const showCredit = () => {
+    const note = $('vrmCredit');
+    note.hidden = !credits;
+    if (credits) note.textContent = `会自动写上署名：${credits}。${vrmLicense.value === 'cc0' ? '选了 CC0 也一样：这几样素材要求署名。' : ''}`;
+  };
+  vrmLicense.onchange = showCredit;
+  showCredit();
+  vrmDialog.returnValue = '';
+  vrmDialog.showModal();
+  return new Promise((resolve) => {
+    vrmDialog.addEventListener(
+      'close',
+      () => {
+        if (vrmDialog.returnValue !== 'ok') {
+          resolve(null);
+          return;
+        }
+        const license = isLicense(vrmLicense.value) ? vrmLicense.value : 'private';
+        const meta: VrmMeta = { title: vrmName.value.trim() || 'OC', author: vrmAuthor.value.trim(), license, ...(credits ? { credits } : {}) };
+        try {
+          // 成品角色的名字是原角色的，不记（下次导白模还是白模上次填的）
+          localStorage.setItem(VRM_KEY, JSON.stringify({ title: character ? saved.title : meta.title, author: meta.author, license: character ? saved.license : license }));
+        } catch {
+          // 存不了下次重新填
+        }
+        resolve(meta);
+      },
+      { once: true },
+    );
+  });
+}
+
+/** 成品角色：贴图、卡通着色、表情、视线照原角色，许可原样带上（见 character/vrm.ts） */
+async function exportCharacterVrm(build: CharacterBuild) {
+  const source = characterSource(spec.character);
+  if (!source) {
+    setStatus('角色的数据还没载入完，等一下再导出。', true);
+    return;
+  }
+  if (!source.vrmMeta) {
+    setStatus('这个角色文件是 VRM 1.0 的，导出成 VRM 还在做：现在先用「带骨骼 GLB」。', true);
+    return;
+  }
+  const rest = characterSkeleton(build);
+  let humanoid: Map<string, number>;
+  try {
+    humanoid = humanoidMap(rest);
+  } catch (err) {
+    setStatus(`这个角色导不了 VRM：${err instanceof Error ? err.message : err}`, true);
+    return;
+  }
+  const own = spec.character === OWN_CHARACTER;
+  const credit = own ? undefined : rosterEntry(spec.character as CharacterId).credit;
+  const meta = await askVrmMeta(credit, { title: source.title, terms: describeLicense(source.vrmMeta) });
+  if (!meta) return;
+  const buttons = [...Object.values(exportButtons), $<HTMLButtonElement>('btnVrm')];
+  for (const button of buttons) button.disabled = true;
+  try {
+    setStatus('正在写 VRM（表情一个个算成形态键），稍等几秒…');
+    // 让上面那行字先显示出来
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const solver = makeSolver(rest.bones);
+    const frame = forward(solver.rig, stateOf(solver, tPosing(humanoid, rest)));
+    const springs = tailSprings(rest);
+    const file = characterVrm(build, source, {
+      matrices: poseMatrices(solver.rig, frame),
+      bones: posedBones(solver.rig, frame),
+      title: meta.title,
+      editor: meta.author,
+      ...(credit ? { credit } : {}),
+      springs,
+    });
+    const where = await saveBlob('oc_character.vrm', new Blob([file], { type: 'model/gltf-binary' }));
+    const faces = build.morphs?.expressions.length ?? 0;
+    const notes = [
+      'T-pose',
+      `${build.bones.length} 根骨骼`,
+      ...(faces ? [`${faces} 种表情`] : []),
+      ...(source.springs?.length || hairDonor(spec.hair.style) ? ['头发、裙摆照原角色会晃'] : []),
+      ...(springs.length ? ['尾巴会晃'] : []),
+      ...(mode === 'pose' && isPosed(spec.posing) ? ['摆的姿势、表情不进 VRM'] : []),
+      `许可照原角色：${describeLicense(source.vrmMeta)}`,
+      ...(credit ? [`发出去时请署名「${credit}」`] : []),
+    ];
+    setStatus(`已导出 oc_character.vrm（${notes.join('，')}），${where}。`);
+  } catch (err) {
+    setStatus(`导出失败：${err instanceof Error ? err.message : err}`, true);
+  } finally {
+    for (const button of buttons) button.disabled = false;
+  }
+}
+
+async function exportVrm() {
+  if (pending || (!figure && !character)) rebuild();
+  if (character) {
+    await exportCharacterVrm(character);
+    return;
+  }
+  const target = figure;
+  if (!target) return;
+  if (spec.meshMode !== 'fused') {
+    setStatus('VRM 要一整块网格：先在「网格」一栏换成「融合成一整块」。', true);
+    return;
+  }
+  // 先看人形骨骼对不对得上：对不上就不用问名字了
+  const rest = buildSkeleton(target);
+  let humanoid: Map<string, number>;
+  try {
+    humanoid = humanoidMap(rest);
+  } catch (err) {
+    setStatus(`这个身体导不了 VRM：${err instanceof Error ? err.message : err}`, true);
+    return;
+  }
+  const credit = footCredit(target);
+  const meta = await askVrmMeta(credit);
+  if (!meta) return;
+  const buttons = [...Object.values(exportButtons), $<HTMLButtonElement>('btnVrm')];
+  for (const button of buttons) button.disabled = true;
+  try {
+    setStatus('正在生成精细网格，稍等几秒…');
+    const data = await fused.exportData({ skin: true });
+    if (!data.skin) throw new Error('没有拿到蒙皮数据');
+    // 静止的网格照权重搬成 T-pose（权重本来就是手臂平举着算的，搬过去几乎就是算权重时的那张），骨架也换成 T-pose 的
+    const solver = makeSolver(rest.bones);
+    const frame = forward(solver.rig, stateOf(solver, tPosing(humanoid, rest)));
+    const matrices = poseMatrices(solver.rig, frame);
+    skinInPlace(WHITE_BLEND, data.positions, data.normals, data.skin.joints, data.skin.weights, matrices);
+    const skeleton = posedSkeleton({ rig: solver.rig, frame, matrices }, rest);
+    const springs = tailSprings(skeleton);
+    const file = writeVrm(
+      { positions: data.positions, normals: data.normals, indices: data.triangles, joints: data.skin.joints, weights: data.skin.weights, color: MATERIAL_INFO.clay.color },
+      skeleton,
+      meta,
+      springs,
+    );
+    const where = await saveBlob('oc_basemesh.vrm', new Blob([file], { type: 'model/gltf-binary' }));
+    const notes = [
+      'T-pose',
+      `${count(data.info.triangles)} 三角面`,
+      `${skeleton.bones.length} 根骨骼`,
+      ...(springs.length ? ['尾巴会晃'] : []),
+      ...(mode === 'pose' && isPosed(spec.posing) ? ['摆的姿势不进 VRM'] : []),
+      ...(data.info.components > 1 ? [`注意它分成了 ${data.info.components} 块`] : []),
+      ...(credit ? [`发出去时请署名「${credit}」`] : []),
+    ];
+    setStatus(`已导出 oc_basemesh.vrm（${notes.join('，')}），${where}。`);
+  } catch (err) {
+    setStatus(`导出失败：${err instanceof Error ? err.message : err}`, true);
+  } finally {
+    for (const button of buttons) button.disabled = false;
+  }
+}
+$('btnVrm').addEventListener('click', () => void exportVrm());
 
 $('btnJson').addEventListener('click', async () => {
   try {

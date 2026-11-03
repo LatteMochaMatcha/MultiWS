@@ -40,6 +40,11 @@ export interface GlbMesh {
   uvs?: Float32Array;
   /** 材质：名字、底色（sRGB，0xRRGGBB）、是不是双面；带贴图的材质见 GlbMaterial 里其余几项 */
   material?: GlbMaterial;
+  /**
+   * 形态键（glTF 的 morph target）：每个是每个顶点挪多少。同一个物体（object）的几块网格要有同样的几个形态键，
+   * 名字照第一块的写进 mesh.extras.targetNames（Blender、UniVRM 都照这个起名）
+   */
+  targets?: { name: string; positions: Float32Array }[];
 }
 
 export interface GlbMaterial {
@@ -73,6 +78,23 @@ export interface GlbOptions {
   images?: GlbImage[];
   /** 署名：写进文件的 asset.copyright（用了要求署名的素材时带上） */
   copyright?: string;
+  /**
+   * 骨骼节点朝哪：along（缺省）是节点自己的 +Y 沿着骨头（Blender 照这根轴画骨骼）；
+   * none 是节点都不转、只有位置（VRM 0.x 要求这样）
+   */
+  boneAxes?: 'along' | 'none';
+  /**
+   * 加进文件顶层的扩展（VRM 就是一个叫 VRM 的扩展）。节点的下标：骨骼排在最前面、照骨架的顺序，然后才是网格。
+   * data 可以是一个函数：材质、贴图排好以后才调用，拿得到最后的材质顺序、某张图片的贴图下标、某个物体的网格下标
+   */
+  extensions?: { used: string[]; data: Record<string, unknown> | ((context: GlbContext) => Record<string, unknown>) };
+}
+
+/** 写扩展时要知道的：文件里材质的顺序（和 materials 一一对应）、图片 → 贴图下标、物体名 → 网格下标 */
+export interface GlbContext {
+  materials: GlbMaterial[];
+  texture(image: number): number;
+  meshOf(object: string): number;
 }
 
 const FLOAT = 5126;
@@ -132,13 +154,14 @@ export function writeGlb(meshes: GlbMesh[], options: GlbOptions = {}): ArrayBuff
     const { bones } = skeleton;
     const turns: Quat[] = bones.map((bone) => {
       const along = sub(bone.tail, bone.head);
-      return len(along) > 1e-9 ? quatBetween(UP, norm(along)) : Q_ID;
+      return options.boneAxes !== 'none' && len(along) > 1e-9 ? quatBetween(UP, norm(along)) : Q_ID;
     });
     bones.forEach((bone, i) => {
       // 相对父骨骼的位置和朝向
       const up = bone.parent >= 0 ? quatConj(turns[bone.parent]) : Q_ID;
       const from: V3 = bone.parent >= 0 ? bones[bone.parent].head : [0, 0, 0];
-      nodes.push({ name: bone.name, translation: rotate(up, sub(bone.head, from)), rotation: quatMul(up, turns[i]) });
+      const translation = rotate(up, sub(bone.head, from));
+      nodes.push(options.boneAxes === 'none' ? { name: bone.name, translation } : { name: bone.name, translation, rotation: quatMul(up, turns[i]) });
     });
     bones.forEach((bone, i) => {
       if (bone.parent < 0) {
@@ -166,6 +189,8 @@ export function writeGlb(meshes: GlbMesh[], options: GlbOptions = {}): ArrayBuff
   }
 
   const materials: Json[] = [];
+  /** 和 materials 一一对应：写扩展时（VRM 的材质设定）照它排 */
+  const materialSources: GlbMaterial[] = [];
   const materialIndex = new Map<string, number>();
   const gltfMeshes: Json[] = [];
   // 贴图：用到哪张存哪张，一张图对应一个 texture
@@ -210,6 +235,19 @@ export function writeGlb(meshes: GlbMesh[], options: GlbOptions = {}): ArrayBuff
       attributes.WEIGHTS_0 = add(mesh.weights!, 'VEC4', 4, ARRAY_BUFFER);
     }
     const primitive: Json = { attributes, indices: add(mesh.indices, 'SCALAR', 1, ELEMENT_ARRAY_BUFFER), mode: 4 };
+    if (mesh.targets?.length) {
+      primitive.targets = mesh.targets.map((target) => {
+        if (target.positions.length !== count * 3) throw new Error(`网格 ${mesh.name} 的形态键 ${target.name} 和顶点数对不上`);
+        const lo = [Infinity, Infinity, Infinity];
+        const hi = [-Infinity, -Infinity, -Infinity];
+        for (let i = 0; i < target.positions.length; i++) {
+          const v = target.positions[i];
+          if (v < lo[i % 3]) lo[i % 3] = v;
+          if (v > hi[i % 3]) hi[i % 3] = v;
+        }
+        return { POSITION: add(target.positions, 'VEC3', 3, ARRAY_BUFFER, { min: lo, max: hi }) };
+      });
+    }
 
     if (mesh.material) {
       const m = mesh.material;
@@ -218,6 +256,7 @@ export function writeGlb(meshes: GlbMesh[], options: GlbOptions = {}): ArrayBuff
       if (index === undefined) {
         index = materials.length;
         materialIndex.set(key, index);
+        materialSources.push(m);
         if (m.unlit) unlit = true;
         materials.push({
           name: m.name,
@@ -238,15 +277,32 @@ export function writeGlb(meshes: GlbMesh[], options: GlbOptions = {}): ArrayBuff
 
     const shared = mesh.object === undefined ? undefined : objectOf.get(mesh.object);
     if (shared !== undefined) {
+      const names = (gltfMeshes[shared].extras as { targetNames?: string[] } | undefined)?.targetNames ?? [];
+      if ((mesh.targets?.length ?? 0) !== names.length) throw new Error(`物体 ${mesh.object} 里几块网格的形态键个数不一样`);
       (gltfMeshes[shared].primitives as Json[]).push(primitive);
       continue;
     }
     if (mesh.object !== undefined) objectOf.set(mesh.object, gltfMeshes.length);
     const name = mesh.object ?? mesh.name;
-    gltfMeshes.push({ name, primitives: [primitive] });
+    gltfMeshes.push({ name, primitives: [primitive], ...(mesh.targets?.length ? { extras: { targetNames: mesh.targets.map((t) => t.name) } } : {}) });
     sceneNodes.push(nodes.length);
     nodes.push({ name, mesh: gltfMeshes.length - 1, ...(skinned ? { skin: 0 } : {}) });
   }
+
+  // 扩展里要用的贴图（缩略图这类）也在这时候存进去，所以要在拼 JSON 之前算
+  const ext = options.extensions;
+  const extensionData =
+    typeof ext?.data === 'function'
+      ? ext.data({
+          materials: materialSources,
+          texture,
+          meshOf: (object) => {
+            const index = objectOf.get(object);
+            if (index === undefined) throw new Error(`没有叫 ${object} 的物体`);
+            return index;
+          },
+        })
+      : ext?.data;
 
   const json: Json = {
     asset: { version: '2.0', generator: 'OC Basemesh Workshop v2', ...(options.copyright ? { copyright: options.copyright } : {}) },
@@ -263,7 +319,10 @@ export function writeGlb(meshes: GlbMesh[], options: GlbOptions = {}): ArrayBuff
           samplers: [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }],
         }
       : {}),
-    ...(unlit ? { extensionsUsed: ['KHR_materials_unlit'] } : {}),
+    ...(unlit || options.extensions?.used.length
+      ? { extensionsUsed: [...(unlit ? ['KHR_materials_unlit'] : []), ...(options.extensions?.used ?? [])] }
+      : {}),
+    ...(extensionData ? { extensions: extensionData } : {}),
     ...(skins.length ? { skins } : {}),
     accessors,
     bufferViews,

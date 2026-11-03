@@ -11,6 +11,7 @@
 import { Vector2 } from 'three';
 import type { ViteHotContext } from 'vite/types/hot.d.ts';
 import type { Viewport, ViewName } from '../view/viewport';
+import { startAnnotate } from './annotate';
 import { toPlain } from './plain';
 
 /** main.ts 里 __oc 用到的那几样（只读它们，别的照原样交给 eval） */
@@ -269,6 +270,12 @@ function start(hot: ViteHotContext) {
   }, POLL_MS);
 
   forwardConsole(hot, id);
+
+  // 3D 视图左下角的「标注」：画红圈、写一句话，存成问题单（见 annotate.ts）
+  startAnnotate(hot, {
+    canvas: () => oc()?.viewport?.renderer.domElement ?? null,
+    context: () => ({ page: pageInfo(), snapshot: toPlain(snapshot()) as Record<string, unknown> }),
+  });
 }
 
 /** 控制台的输出、没接住的异常转给服务器（原样照常打印） */

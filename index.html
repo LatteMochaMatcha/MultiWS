@@ -250,6 +250,8 @@
               <button type="button" class="btn" id="btnPoseR2L" title="把右半边的姿势照到左半边">右边 → 左边</button>
               <button type="button" class="btn" id="btnPoseFlip" title="整个姿势照镜子">左右翻转</button>
               <button type="button" class="btn" id="btnPoseGround" title="整个人上下挪一下，最低的地方正好贴着地面">落到地面</button>
+              <button type="button" class="btn" id="btnPoseDrape" title="头发、裙摆、衣摆、袖子照重力垂下来，碰到身体、地面就停在外面">自然下垂</button>
+              <label class="check" title="尾巴本来是翘着的；勾上以后「自然下垂」也让尾巴往下垂一些"><input type="checkbox" id="poseDrapeTails"> 尾巴也垂</label>
               <button type="button" class="btn wide" id="btnPoseReset">还原成静止姿势</button>
               <button type="button" class="btn" id="btnPoseSave" title="把现在的姿势（连同看的角度）存成一个文件">保存姿势</button>
               <label class="btn file" for="filePose" title="读一个姿势文件，套到现在这个角色身上">载入姿势…<input type="file" id="filePose" accept=".json,application/json" hidden></label>
@@ -312,6 +314,20 @@
         <section data-key="poses" data-mode="pose">
           <h2><button type="button" class="fold">现成的姿势</button></h2>
           <div class="body">
+            <div class="field">
+              <span>套到哪些部位</span>
+              <div class="checks" id="posePartChecks"></div>
+            </div>
+            <div class="field" id="posePairRow" hidden>
+              <span>手臂套给哪一对</span>
+              <div class="seg" id="segPosePair" role="radiogroup" aria-label="手臂套给哪一对"></div>
+            </div>
+            <div class="slider">
+              <label for="s-poseAmount">强度</label>
+              <input type="range" id="s-poseAmount" min="10" max="100" step="5" value="100">
+              <output id="o-poseAmount" for="s-poseAmount">100%</output>
+            </div>
+            <p class="note">点了姿势以后接着拖「强度」、改部位，刚点的那个姿势跟着重新套；拖了圆点、撤销过以后再改，就只管下一次点的（只想给下一个换强度：改完按一次撤销）。</p>
             <div class="presets" id="poseLibrary"></div>
             <div class="actions">
               <button type="button" class="btn wide" id="btnPoseRandom">随便来一个</button>
@@ -352,6 +368,49 @@
           </div>
         </section>
 
+        <section data-key="refs">
+          <h2><button type="button" class="fold">参考图</button></h2>
+          <div class="body">
+            <div class="seg" id="segRef" role="radiogroup" aria-label="哪一张参考图"></div>
+            <p class="note" id="refName"></p>
+            <div class="actions">
+              <label class="btn file" for="fileRef">选图…<input type="file" id="fileRef" accept="image/*" hidden></label>
+              <button type="button" class="btn" id="btnRefClear">去掉这张</button>
+            </div>
+            <div class="tweak" id="refBody" hidden>
+              <label class="check"><input type="checkbox" id="refShow"> 显示这张图</label>
+              <div class="sliders">
+                <div class="slider">
+                  <label for="s-refHeight">大小</label>
+                  <input type="range" id="s-refHeight">
+                  <output id="o-refHeight" for="s-refHeight"></output>
+                </div>
+                <div class="slider">
+                  <label for="s-refUp">上下</label>
+                  <input type="range" id="s-refUp">
+                  <output id="o-refUp" for="s-refUp"></output>
+                </div>
+                <div class="slider">
+                  <label for="s-refShift">左右</label>
+                  <input type="range" id="s-refShift">
+                  <output id="o-refShift" for="s-refShift"></output>
+                </div>
+                <div class="slider">
+                  <label for="s-refOpacity">不透明度</label>
+                  <input type="range" id="s-refOpacity">
+                  <output id="o-refOpacity" for="s-refOpacity"></output>
+                </div>
+              </div>
+              <label class="check"><input type="checkbox" id="refFlip"> 左右翻转</label>
+              <div class="actions">
+                <button type="button" class="btn wide" id="btnRefFit">按现在的身高重新对齐</button>
+              </div>
+            </div>
+            <label class="check"><input type="checkbox" id="refOnTop"> 盖在模型上面（半透明，比轮廓用）</label>
+            <p class="note">把自己画的正面、侧面设定图垫在模型后面，对着它调体型。正面图从「正面」「背面」看得见，侧面图从「左侧」「右侧」看得见（画里的人脸朝左时从「左侧」看是正的，朝右的点「左右翻转」），转到斜着看会淡掉。「大小」是画里的人（去掉四周空白）有多高，选图时按现在的身高对齐、脚踩在地上。透视调小（10°–15°）比得更准。图只存在这个浏览器里，不进配置文件、撤销、截图和导出。</p>
+          </div>
+        </section>
+
         <section data-key="config">
           <h2><button type="button" class="fold">配置</button></h2>
           <div class="body">
@@ -368,6 +427,7 @@
         <div class="export">
           <button type="button" class="btn primary" id="btnGlb" title="一整块网格，拿去雕刻">导出白模（GLB）</button>
           <button type="button" class="btn" id="btnRig" title="网格 + 骨架 + 权重">带骨骼 GLB</button>
+          <button type="button" class="btn" id="btnVrm" title="给 VTuber 软件、VRoid Hub 用的 VRM：T-pose、人形骨骼、尾巴会晃">VRM</button>
           <button type="button" class="btn" id="btnObj" title="保留四边面">OBJ</button>
           <button type="button" class="btn" id="btnStl" title="3D 打印用">STL</button>
           <button type="button" class="btn" id="btnPng" title="透明背景">截图</button>
@@ -376,6 +436,21 @@
       </footer>
     </aside>
   </div>
+  <dialog class="vrm-dialog" id="vrmDialog" aria-labelledby="vrmTitle">
+    <form method="dialog">
+      <h2 id="vrmTitle">导出 VRM</h2>
+      <p class="note">给 VTuber 软件（VSeeFace、Warudo…）、VRoid Hub、Unity、Blender 的 VRM 插件用。静止姿势是 T-pose（VRM 规定的），摆的姿势不进文件；VRM 只认一个头、一对手臂、一对腿，多出来的挂在骨架上、不会被软件带着动。</p>
+      <label class="field"><span>名字</span><input id="vrmName" maxlength="60" autocomplete="off"></label>
+      <label class="field"><span id="vrmAuthorLabel">作者</span><input id="vrmAuthor" maxlength="60" autocomplete="off" placeholder="写进文件里，别人看得到"></label>
+      <label class="field" id="vrmLicenseRow"><span>别人能怎么用</span><select id="vrmLicense"></select></label>
+      <p class="note" id="vrmTerms" hidden></p>
+      <p class="note" id="vrmCredit" hidden></p>
+      <div class="actions">
+        <button type="submit" class="btn" value="cancel">取消</button>
+        <button type="submit" class="btn primary" value="ok" id="vrmOk">导出</button>
+      </div>
+    </form>
+  </dialog>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

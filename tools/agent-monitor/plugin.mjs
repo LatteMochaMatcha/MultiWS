@@ -10,7 +10,8 @@
  */
 import { version as viteVersion } from 'vite';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
+import { listNotes, saveNote } from './notes.mjs';
 
 const PREFIX = '/__agent';
 const BRIDGE = '/src/dev/agentBridge.ts';
@@ -37,11 +38,15 @@ const ENDPOINTS = {
   'GET  /__agent/history': '最近的模型变化（谁、什么时候、改成了什么）；?limit=',
   'GET  /__agent/logs': '服务器和页面的日志；?level=error|warn|info &source=server|page &since=序号 &limit=',
   'POST /__agent/eval': '请求体是一段 JS，在页面里跑（能用 oc = window.__oc、settle()、snapshot()），回结果',
+  'GET  /__agent/notes': '用户在页面上画红圈存下的问题单，新的在前（文件在 notes/，见 agent-monitor/notes.mjs）；?limit=',
   '通用参数': '?page=页面 id（或开头几位）选页面，缺省选前台、最近有人动过的那个；?timeout=毫秒',
 };
 
-/** @returns {import('vite').Plugin} */
-export function agentMonitor() {
+/**
+ * @param {{ notesDir?: string }} [options] notesDir：问题单存在哪，缺省是项目里的 notes/
+ * @returns {import('vite').Plugin}
+ */
+export function agentMonitor(options = {}) {
   const startedAt = Date.now();
   /** @type {{seq:number, at:number, source:'server'|'page', level:'error'|'warn'|'info', text:string, page?:string}[]} */
   const logs = [];
@@ -55,6 +60,8 @@ export function agentMonitor() {
   /** @type {Map<number, {resolve:Function, reject:Function, timer:any}>} */
   const calls = new Map();
   let callSeq = 0;
+  /** 问题单存在哪 */
+  const notesRoot = () => options.notesDir ?? resolve(config?.root ?? '.', 'notes');
   /** @type {import('vite').ViteDevServer | null} */
   let server = null;
   /** @type {import('vite').ResolvedConfig | null} */
@@ -237,6 +244,9 @@ export function agentMonitor() {
           });
           return res.end(png);
         }
+        case '/notes':
+          want('GET');
+          return json(res, 200, listNotes(notesRoot(), clampInt(q.get('limit'), 20, 1, 200)).map((n) => ({ ...n, dir: relative(config.root, n.dir) })));
         case '/history':
           want('GET');
           return json(res, 200, history.slice(-clampInt(q.get('limit'), 30, 1, HISTORY_LIMIT)).map((h) => ({ at: iso(h.at), page: h.page, change: h.change })));
@@ -335,6 +345,17 @@ export function agentMonitor() {
         record('page', level, text, id);
       });
       ws.on('oc-agent:reply', (data) => onReply(data));
+      // 页面上画红圈存的问题单（src/dev/annotate.ts）：写进 notes/ 的一个文件夹，回话告诉页面存在哪
+      ws.on('oc-agent:note', (data, client) => {
+        try {
+          const dir = relative(config.root, saveNote(notesRoot(), data)).split('\\').join('/');
+          record('page', 'info', `[agent] 存了一张问题单：${dir}`, data?.note?.page?.id);
+          client.send('oc-agent:note-saved', { ok: true, dir });
+        } catch (err) {
+          record('server', 'warn', `[agent] 问题单没存成：${err.message}`);
+          client.send('oc-agent:note-saved', { ok: false, error: err.message });
+        }
+      });
       ws.on('vite:client:disconnect', (_data, client) => {
         for (const page of pages.values()) {
           if (page.client !== client || !page.connected) continue;

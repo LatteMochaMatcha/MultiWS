@@ -47,6 +47,14 @@ export interface CharacterBuild {
   faces: FaceInstance[];
   /** 表情的数据（就是角色文件里读出来的那一份）；角色没有表情就没有这一项 */
   morphs?: FaceMorphs;
+  /** 每根骨骼是从文件里哪根骨骼来的（和 bones 一一对应）：导出 VRM 时照它抄弹簧骨骼、碰撞球 */
+  origins?: (BoneOrigin | null)[];
+}
+
+/** 拼好的一根骨骼是文件里哪根骨骼（复制出来的也算那一根）：body 是角色自己，hair 是换上的发型；工坊后加的（尾巴、兽身、新的锁骨）没有 */
+export interface BoneOrigin {
+  file: 'body' | 'hair';
+  bone: number;
 }
 
 const DEG = Math.PI / 180;
@@ -562,6 +570,8 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
 
   /* ---- 骨架和网格的工作副本（后面一路往里加、往上改） ---- */
   const names = boneNames(source.bones);
+  /** 每根骨骼是从文件里哪根来的（见 BoneOrigin）：往骨架里加骨骼的地方都跟着加一项 */
+  const origin: (BoneOrigin | null)[] = source.bones.map((_, bone) => ({ file: 'body', bone }));
   /**
    * 只是标记位置用的骨骼，最后不导出：末端的 xxx_end、Hips 上面那几层 Root 之类的，
    * 还有不带任何顶点的梢（比如头发每一缕的最后一节）
@@ -840,6 +850,7 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
     const boneOf = bones.map((bone, i) => {
       if (i === 0) return head;
       names.push(donorNames[i]);
+      origin.push({ file: 'hair', bone: i });
       marker.push(idleTip[i] || bone.name.endsWith('_end'));
       parent.push(-1);
       rest.push(place(bone.pos[0], bone.pos[1], bone.pos[2]));
@@ -1099,6 +1110,7 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
         }
         map.set(b, names.length);
         names.push(nthName(names[b], bones.index));
+        origin.push(origin[b]);
         marker.push(marker[b]);
         parent.push(roots.includes(b) ? bones.rootParent : map.get(parent[b])!);
         rest.push(place(rest[b], true, 1));
@@ -1257,6 +1269,7 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
         // 新的锁骨：从脊柱旁边伸到新的肩关节；复制出来的手臂接在它下面
         const collar = names.length;
         names.push(nthName(`Shoulder_${tag(side)}`, i));
+        origin.push(null);
         marker.push(false);
         parent.push(stacked ? spineAt(y) : upperChest);
         rest.push([side * 0.025, y + 0.012, jz]);
@@ -2142,6 +2155,7 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
       if (i === 0) return hips;
       ends.set(names.length, onBeast(b.tail));
       names.push(b.name);
+      origin.push(null);
       marker.push(false);
       parent.push(-1);
       rest.push(onBeast(b.head));
@@ -2188,6 +2202,7 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
       own.push(names.length);
       ends.set(names.length, b.tail);
       names.push(b.name);
+      origin.push(null);
       marker.push(false);
       parent.push(to >= 0 ? to : hips);
       rest.push(b.head);
@@ -2546,5 +2561,6 @@ export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair:
     ignored,
     faces: faceList,
     ...(source.face && faceList.length ? { morphs: source.face } : {}),
+    origins: order.map((b) => origin[b]),
   };
 }

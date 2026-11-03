@@ -9,7 +9,7 @@ import { type CompiledField, compileField } from './field';
 import { graftMeshes, wristRooms } from './graft';
 import { type PoseMatrices, compilePosedField } from './posedField';
 import { type BlockMemo, type FusedMesh, meshField } from './surfaceNets';
-import { refineSurface } from './surfaceQuality';
+import { refineSurface, settleSurface, surfaceLocks } from './surfaceQuality';
 
 /** 体素大小（按 1.76 m 的人台算）：拖动时用 draft，停下来换 preview，导出用 fine */
 export const VOXEL = { draft: 0.02, preview: 0.012, fine: 0.006 } as const;
@@ -40,6 +40,12 @@ export interface Staged<T> {
   field: CompiledField;
   voxel: number;
   finish(memo?: BlockMemo): T;
+  /**
+   * 收尾最后一步是表面校正（静止的二次元素体）时，可以拆开：rough 给出校正之前的网格，
+   * 各顶点挪到哪另外算好（surfaceQuality.ts 的 surfaceMoves，可以分给帮手，见 parallel.ts），交给 polish 做完。
+   * rough + polish 出来的和 finish 一模一样
+   */
+  refine?: { rough(memo?: BlockMemo): FusedMesh; polish(mesh: FusedMesh, moved: Float32Array): T };
 }
 
 export function stageParts(parts: Part[], options: FuseOptions): Staged<FusedMesh> {
@@ -60,7 +66,13 @@ export function stageParts(parts: Part[], options: FuseOptions): Staged<FusedMes
     };
     // 静止的二次元素体：缝合完成后校正身体曲面，避免改变缝合圈的选取。
     const refine = voxel <= VOXEL.preview && parts.some((p) => p.prims.some((shape) => shape.kind === 'grid' && shape.grid.startsWith('anime/')));
-    return { field, voxel, finish: refine ? (memo) => refineSurface(finish(memo), field) : finish };
+    if (!refine) return { field, voxel, finish };
+    return {
+      field,
+      voxel,
+      finish: (memo) => refineSurface(finish(memo), field),
+      refine: { rough: finish, polish: (mesh, moved) => settleSurface(mesh, moved, surfaceLocks(mesh), performance.now()) },
+    };
   }
   const field = compilePosedField(figure, shape, pose);
   const finish = (memo: BlockMemo = {}) => {

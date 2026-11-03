@@ -20,3 +20,6 @@ docs/accept/*/*_*.png
 # 派 Codex 干活的日志、任务说明、临时渲染图，和它对讲用的本机钩子
 .harness-tmp/
 .codex/
+
+# 用户在工坊页面上画红圈存下的问题单（截图、当时的设定），只给 agent 看
+notes/

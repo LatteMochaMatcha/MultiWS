@@ -163,7 +163,13 @@ export function characterParts(build: Pick<CharacterBuild, 'bones' | 'meshes'>):
   return parts;
 }
 
-/** 每个顶点跟着这个部件挪多少（0 到 1） */
+/**
+ * 按骨骼认的部件每个顶点跟着挪多少，只和这块网格的骨骼、权重有关（微调只挪顶点，不改权重）：照权重数组、
+ * 部件的骨骼记着，拖操纵杆时不用每一帧都重算
+ */
+const BONE_WEIGHTS = new WeakMap<ArrayLike<number>, Map<string, Float32Array | null>>();
+
+/** 每个顶点跟着这个部件挪多少（0 到 1）。返回的数组是记着的那一份，不要改它 */
 function weightsOf(part: CharacterPart, chunk: Chunk, set: ReadonlySet<number>): Float32Array | null {
   const count = chunk.positions.length / 3;
   if (part.meshes) {
@@ -172,6 +178,11 @@ function weightsOf(part: CharacterPart, chunk: Chunk, set: ReadonlySet<number>):
     for (let v = 0; v < count; v++) out[v] = !part.side || chunk.positions[v * 3] * part.side > 0 ? 1 : 0;
     return out;
   }
+  let known = BONE_WEIGHTS.get(chunk.weights);
+  if (!known) BONE_WEIGHTS.set(chunk.weights, (known = new Map()));
+  const key = part.bones.join(',');
+  const kept = known.get(key);
+  if (kept !== undefined) return kept;
   let any = false;
   const out = new Float32Array(count);
   for (let v = 0; v < count; v++) {
@@ -180,7 +191,9 @@ function weightsOf(part: CharacterPart, chunk: Chunk, set: ReadonlySet<number>):
     out[v] = Math.min(1, w);
     if (w) any = true;
   }
-  return any ? out : null;
+  const result = any ? out : null;
+  known.set(key, result);
+  return result;
 }
 
 /** 照网格认的部件的关节：角是它贴着头的那一圈，胸是那一边的正中 */

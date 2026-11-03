@@ -74,6 +74,35 @@ npm run agent -- eval -f 我的检查.js
 
 `settle()` 在标签页藏着时会先替它 `oc.rebuild()` 一次：藏着的标签页里 `requestAnimationFrame` 不跑，改了设定不会自己重建。
 
+## 问题单：用户在页面上画红圈（2026-11-02 新加）
+
+用户发现哪里不对，不用再截图、画红圈、贴过来：开发服务器上的工坊页面，3D 视图左下角那排按钮最后多一个**「标注」**。
+
+1. 点「标注」，3D 视图上盖一层透明的画布（这时拖它不转视角、不动圆点）。
+2. 用鼠标、手指画红圈，在上面的框里写一句哪里不对（也可以只画圈不写）。Ctrl+Z 撤一笔，Esc 或「不存了」退出。
+3. 点「存成问题单」。底下状态栏说「问题单存好了：notes/…」。
+
+存在项目里的 `notes/` 文件夹（不进仓库，`.gitignore` 里有），一张一个文件夹，名字是时间加那句话的头几个字：
+
+| 文件 | 内容 |
+| --- | --- |
+| `screen.png` | 当时屏幕上的 3D 视图，画着红圈（圆点、操纵杆、参考图都在，和用户看到的一样） |
+| `clean.png` | 同一张，不带红圈 |
+| `note.json` | 那句话；红圈的每一笔（按画面宽高算的 0–1 坐标）；画面多大；页面；`snapshot`：和 `/model` 一样的快照——模式、读数、警告、选中的部件、镜头、**完整的设定和姿势**（`snapshot.spec`） |
+
+agent 这边：
+
+```bash
+npm run agent -- notes                          # 列出问题单，新的在前（直接读 notes/，服务器关着也行）
+npm run agent -- notes latest                   # 最新一张：那句话、两张图在哪、模式、读数、镜头（--full 整份 note.json）
+npm run agent -- notes replay --page <自己的页面>   # 把最新一张的设定、姿势、模式、镜头摆到页面上，复现用
+curl http://localhost:5173/__agent/notes        # 同样的列表，从服务器拿
+```
+
+看图直接打开 `screen.png`。`replay` 会改页面上的设定，所以一定要 `--page` 指定自己开的标签页（缺省会选到用户正在用的那个，它拒绝跑）；摆好以后 `shot` 一张和 `clean.png` 对比。
+
+「标注」只在开发服务器上有（和别的监控接口一样由插件塞进页面），exe、apk、放到网上的网页里没有。
+
 ## 别动用户正在用的页面
 
 几个页面连着时，缺省选**在前台、有焦点、最近有人动过**的那个——通常就是用户自己正在用的。读（`model`、`logs`、`screenshot`）不改任何东西；**`eval` 里改设定、换模式会直接改到那个页面上**，用户看得见，设定也会存进那个浏览器。
@@ -94,4 +123,7 @@ npm run agent -- eval -f 我的检查.js
 | `src/dev/agentBridge.ts` | 页面那一头：插件开发时塞进 `index.html`；借 Vite 的 HMR 连接报快照、转日志、替接口跑代码和截图 |
 | `src/dev/plain.ts` | 把页面里的值变成能 JSON 的样子 |
 | `tools/agent.mjs` | 命令行（`npm run agent`） |
+| `src/dev/annotate.ts` | 页面上的「标注」：画红圈、写一句话，把截图和快照送给服务器 |
+| `tools/agent-monitor/notes.mjs` | 问题单怎么存、怎么列（服务器和命令行共用） |
+| `tests/notes.test.ts` | 问题单的起名、存、列 |
 | `tests/agentMonitor.test.ts` | 起一个真的开发服务器、用 WebSocket 假扮页面来测 |
