@@ -3,12 +3,13 @@
  * 二次元素体的人腿用它：素体本来的脚是给穿鞋做的（像一只鞋楦），脚趾又比融合的格子还细，
  * 所以和手一样不过距离场，融合完以后在脚踝上面一点缝到腿上（见 sdf/graft.ts）。右脚是左脚翻过来。
  */
+import { t } from '../i18n';
 import type { V3 } from '../geometry/vec';
 import { type GraftMesh, decodeGraftMesh } from './graftMesh';
 import meta from './footMesh.json';
 
 /** 用了这只脚的模型发出去时要带的署名（CC BY）：导出的 GLB 里写进 asset.copyright，状态栏上也提一句 */
-export const FOOT_CREDIT = '脚部网格 © Fox Jump（Kotori），CC BY';
+export const FOOT_CREDIT = t('脚部网格 © Fox Jump（Kotori），CC BY');
 
 let cached: GraftMesh | null = null;
 

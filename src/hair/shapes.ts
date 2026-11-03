@@ -8,6 +8,7 @@
  *
  * 这里只管把数据登记进 sdf/grids；数据怎么读进来（浏览器里 fetch、测试里读文件）由外面决定。
  */
+import { t } from '../i18n';
 import type { V3 } from '../geometry/vec';
 import { fetchFile } from '../io/fetchFile';
 import type { HairStyle } from '../model/spec';
@@ -63,7 +64,7 @@ const loading = new Map<HairShape, Promise<ArrayBuffer>>();
 export function loadHairShape(style: HairShape, base = '/'): Promise<ArrayBuffer> {
   let pending = loading.get(style);
   if (!pending) {
-    pending = fetchFile(`${base}${hairShapeUrl(style)}`, '头发数据')
+    pending = fetchFile(`${base}${hairShapeUrl(style)}`, t('头发数据'))
       .then((buffer) => {
         installHairShape(style, buffer);
         return buffer;

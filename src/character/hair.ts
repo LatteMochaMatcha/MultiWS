@@ -5,6 +5,7 @@
  *
  * 纯函数，不依赖浏览器。
  */
+import { t } from '../i18n';
 import type { V3 } from '../geometry/vec';
 import { readGlb } from '../io/glbRead';
 import { type CharacterSource, readCharacter } from './source';
@@ -44,11 +45,11 @@ export function readHair(buffer: ArrayBuffer): HairDonor {
   const head = isRecord(info) ? info.head : null;
   const joint = isRecord(head) ? numbers(head.joint, 3) : null;
   if (!isRecord(info) || !isRecord(head) || !joint || typeof head.top !== 'number' || typeof head.chin !== 'number' || !(head.top > head.chin)) {
-    throw new Error('这不是工坊的头发文件（缺原主人的头的尺寸）');
+    throw new Error(t('这不是工坊的头发文件（缺原主人的头的尺寸）'));
   }
   // 哪种材质是头发本身、哪种是自带的兽耳，文件里按材质名记着
   const source = readCharacter(buffer, { dye: anyOf(names(info.dye)), ears: anyOf(names(info.ears)) });
-  if (source.bones[0]?.parent !== -1 || source.bones.some((bone, i) => i > 0 && bone.parent < 0)) throw new Error('头发文件的骨骼应该都挂在第一根（头）下面');
+  if (source.bones[0]?.parent !== -1 || source.bones.some((bone, i) => i > 0 && bone.parent < 0)) throw new Error(t('头发文件的骨骼应该都挂在第一根（头）下面'));
   const scalp = numbers(info.scalp, 3);
   return {
     meta: {

@@ -6,6 +6,7 @@
  * 这里的坐标是白模人台的那一套（地面在 y = 0，面朝 +Z，没有缩放）；摆到角色身上时由 assemble.ts 缩放、挪位置。
  * 兽身只跟腿的对数有关，算一次就记下来，拖别的滑块时不用重算。
  */
+import { t } from '../i18n';
 import type { Part } from '../geometry/figure';
 import { beastLift, bone, lowerParts } from '../geometry/layout';
 import { type V3, Q_ID } from '../geometry/vec';
@@ -79,7 +80,7 @@ function build(form: BeastForm, pairs: number): BeastBody {
     pelvisY: 0.93,
     tailRoot: [0, 0.99, -0.11],
     humanLeg: () => {
-      throw new Error('兽身上没有人腿');
+      throw new Error(t('兽身上没有人腿'));
     },
   });
   // 座位：上半身在白模人台上抬高、前移到的那个位置，正上方打一条射线下来碰到的背

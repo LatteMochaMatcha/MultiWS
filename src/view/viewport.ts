@@ -1,6 +1,7 @@
 /**
  * 3D 视口：渲染器、相机、灯光、地面阴影、视角按钮。不关心模型是怎么来的，只管显示。
  */
+import { t } from '../i18n';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
@@ -262,13 +263,13 @@ export class Viewport {
   /** 当前画面的 PNG，背景透明，不带地上的参照圈、选中高亮和操纵杆 */
   snapshot(): Promise<Blob> {
     const canvas = this.renderer.domElement;
-    if (!canvas.width || !canvas.height) return Promise.reject(new Error('3D 视图现在没有显示出来'));
+    if (!canvas.width || !canvas.height) return Promise.reject(new Error(t('3D 视图现在没有显示出来')));
     this.ring.visible = this.overlay.visible = false;
     this.renderer.render(this.scene, this.camera);
     this.ring.visible = this.groundOn;
     this.overlay.visible = true;
     return new Promise((resolve, reject) => {
-      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('浏览器没能生成图片'))), 'image/png');
+      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error(t('浏览器没能生成图片')))), 'image/png');
     });
   }
 }

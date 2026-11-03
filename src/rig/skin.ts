@@ -22,6 +22,7 @@
  * 不然食指弯的时候会把旁边的中指带歪。带着几股的那根骨骼（手）除了自己那一段，
  * 从它的关节到每一股的根也算它的地盘：手掌边上的顶点不会因为离指根近就跟着手指走。
  */
+import { t } from '../i18n';
 import { graftMeshOf } from '../anime/grafts';
 import { type Figure, type Part, worldTransforms } from '../geometry/figure';
 import { type CompiledField, compilePartField, fieldAt } from '../sdf/field';
@@ -471,7 +472,7 @@ export function joinNear(plan: SkinPlan, parts: readonly NearParts[]): NearParts
   let used = 0;
   let next = 0;
   for (const part of parts) {
-    if (part.first !== next) throw new Error('顶点没接上');
+    if (part.first !== next) throw new Error(t('顶点没接上'));
     const size = part.owner.length;
     for (let i = 0; i < size; i++) offsets[part.first + i] = used + part.offsets[i];
     entry.set(part.entry, used);
@@ -480,7 +481,7 @@ export function joinNear(plan: SkinPlan, parts: readonly NearParts[]): NearParts
     used += part.entry.length;
     next += size;
   }
-  if (next !== plan.count) throw new Error('顶点没接上');
+  if (next !== plan.count) throw new Error(t('顶点没接上'));
   offsets[plan.count] = used;
   return { first: 0, offsets, entry, dist, owner };
 }

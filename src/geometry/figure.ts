@@ -6,6 +6,7 @@
  * 基本体写在部件自己的局部坐标里；部件的 pos / quat / scale 是相对父部件的摆放。
  * 乘上 Figure.scale 之后单位是米。
  */
+import { t } from '../i18n';
 import type { LegForm } from '../model/spec';
 import type { Stretch } from '../sdf/stretch';
 import { type Mat3, type Quat, type V3, add, mat3Apply, mat3Mul, mul, quatMul, rotate, scaleAlong } from './vec';
@@ -470,7 +471,7 @@ export function worldTransforms(figure: Pick<Figure, 'parts' | 'scale'>): Map<st
   const out = new Map<string, WorldXf>();
   for (const part of figure.parts) {
     const parent = part.parent ? out.get(part.parent) : root;
-    if (!parent) throw new Error(`部件 ${part.name} 的父部件 ${part.parent} 不存在或排在它后面`);
+    if (!parent) throw new Error(t('部件 {name} 的父部件 {parent} 不存在或排在它后面', { name: part.name, parent: part.parent ?? '' }));
     out.set(part.name, {
       pos: add(parent.pos, mul(rotate(parent.quat, part.pos), parent.scale)),
       quat: quatMul(parent.quat, part.quat),

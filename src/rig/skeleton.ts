@@ -7,6 +7,7 @@
  * 多出来的同类骨骼加序号后缀（UpperArm_L.002、Head.002），尾巴是 Tail_01_03（第 1 条尾巴的第 3 节），
  * 翅膀是 Wing_02_L。_L / _R 是角色自己的左 / 右。
  */
+import { t } from '../i18n';
 import { type Figure, graftFrame, shapeMatrix, worldTransforms } from '../geometry/figure';
 import { type V3, add, mat3Apply, mul, rotate } from '../geometry/vec';
 
@@ -61,14 +62,14 @@ export function buildSkeleton(figure: Pick<Figure, 'parts' | 'scale'>): Skeleton
   if (byName.size !== loose.length) {
     const seen = new Set<string>();
     const twice = loose.find((b) => seen.size === seen.add(b.name).size);
-    throw new Error(`骨骼重名：${twice?.name}`);
+    throw new Error(t('骨骼重名：{name}', { name: twice?.name ?? '' }));
   }
   const roots = loose.filter((b) => !b.parentName);
-  if (roots.length !== 1) throw new Error(`应该正好有一根根骨骼，现在有 ${roots.length} 根`);
+  if (roots.length !== 1) throw new Error(t('应该正好有一根根骨骼，现在有 {n} 根', { n: roots.length }));
   const children = new Map<string, Loose[]>();
   for (const b of loose) {
     if (!b.parentName) continue;
-    if (!byName.has(b.parentName)) throw new Error(`骨骼 ${b.name} 的父骨骼 ${b.parentName} 不存在`);
+    if (!byName.has(b.parentName)) throw new Error(t('骨骼 {name} 的父骨骼 {parent} 不存在', { name: b.name, parent: b.parentName }));
     const list = children.get(b.parentName);
     if (list) list.push(b);
     else children.set(b.parentName, [b]);
@@ -82,6 +83,6 @@ export function buildSkeleton(figure: Pick<Figure, 'parts' | 'scale'>): Skeleton
     for (const child of children.get(b.name) ?? []) visit(child, index);
   };
   visit(roots[0], -1);
-  if (bones.length !== loose.length) throw new Error('有骨骼没有连到根骨骼上（父子关系成了环）');
+  if (bones.length !== loose.length) throw new Error(t('有骨骼没有连到根骨骼上（父子关系成了环）'));
   return { bones };
 }

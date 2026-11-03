@@ -9,6 +9,7 @@
  *
  * 纯计算：在主线程、Web Worker、单元测试里都能用。数据和躯干一起放在 body.bin 里，登记见 anime/body.ts。
  */
+import { t } from '../i18n';
 import type { ChestShape } from '../geometry/figure';
 import type { Skin } from '../sdf/grids';
 import { unstretch } from '../sdf/stretch';
@@ -60,20 +61,20 @@ export function registerChest(frame: ChestFrame, patches: Record<ChestKind, Ches
   FRAME = frame;
   VERSION++;
   for (const [name, p] of Object.entries(patches) as [ChestKind, ChestPatch][]) {
-    if (p.data.length !== p.nu * p.nv * p.nh) throw new Error(`胸型 ${name} 的数据长度和尺寸对不上`);
+    if (p.data.length !== p.nu * p.nv * p.nh) throw new Error(t('胸型 {name} 的数据长度和尺寸对不上', { name }));
     PATCHES.set(name, p);
     COLUMNS.delete(p);
   }
 }
 
 export function chestFrame(): ChestFrame {
-  if (!FRAME) throw new Error('胸的数据还没有载入');
+  if (!FRAME) throw new Error(t('胸的数据还没有载入'));
   return FRAME;
 }
 
 export function chestPatch(kind: ChestKind): ChestPatch {
   const p = PATCHES.get(kind);
-  if (!p) throw new Error(`胸型 ${kind} 还没有载入`);
+  if (!p) throw new Error(t('胸型 {kind} 还没有载入', { kind }));
   return p;
 }
 

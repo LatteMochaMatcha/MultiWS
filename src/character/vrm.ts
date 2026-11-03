@@ -10,6 +10,7 @@
  * - 弹簧骨骼：头发、裙摆、胸照原文件的参数晃，碰撞球照原文件挂；复制出来的头、手臂、胸上的跟着复制（见 springsOf）。
  * - meta：许可、允许谁用、暴力、性、商用照原文件原样带上；作者写原作者加改的人，出处写「改自原角色」和要求的署名。
  */
+import { t } from '../i18n';
 import { type Quat, type V3, Q_ID, cross, len, norm, quatBasis, quatBetween, quatConj, quatMul, rotate, sub } from '../geometry/vec';
 import { type GlbMaterial, type GlbMesh, materialColor } from '../io/glb';
 import { type VrmColliders, type VrmExpression, type VrmSpring, type VrmToon, linearColor, metaFromV1, plainToon, srgbColor, writeVrmModel } from '../io/vrm';
@@ -272,9 +273,9 @@ export function characterVrm(build: CharacterBuild, source: CharacterSource, opt
     meta: {
       title: options.title,
       version: '1.0',
-      author: [source.author ? `${source.author}（原作者）` : '', options.editor ? `${options.editor}（改）` : ''].filter(Boolean).join('、') || '不详',
+      author: [source.author ? t('{author}（原作者）', { author: source.author }) : '', options.editor ? t('{editor}（改）', { editor: options.editor }) : ''].filter(Boolean).join(t('、')) || t('不详'),
       contactInformation: text(raw.contactInformation),
-      reference: [`改自「${source.title}」（用 OC 白模工坊改）`, options.credit ?? '', text(raw.reference)].filter(Boolean).join('；'),
+      reference: [t('改自「{title}」（用 OC 白模工坊改）', { title: source.title }), options.credit ?? '', text(raw.reference)].filter(Boolean).join(t('；')),
       allowedUserName: text(raw.allowedUserName, 'OnlyAuthor'),
       violentUssageName: text(raw.violentUssageName, 'Disallow'),
       sexualUssageName: text(raw.sexualUssageName, 'Disallow'),

@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import {
   type ArmLayout,
   type BodyCounts,
@@ -22,19 +23,19 @@ export interface Preset {
 }
 
 export const PRESETS: readonly Preset[] = [
-  { name: '标准人形' },
-  { name: '双头', counts: { heads: 2 } },
-  { name: '四臂', counts: { armPairs: 2 } },
-  { name: '两对胸', counts: { chestPairs: 2 } },
+  { name: t('标准人形') },
+  { name: t('双头'), counts: { heads: 2 } },
+  { name: t('四臂'), counts: { armPairs: 2 } },
+  { name: t('两对胸'), counts: { chestPairs: 2 } },
   // 阿修罗是「三面六臂」：一个头上三张脸，不是三个头
-  { name: '阿修罗', counts: { heads: 3, armPairs: 3 }, headLayout: 'faces', armLayout: 'fan' },
-  { name: '半人马', counts: { legs: 4 }, legLayout: 'taur' },
-  { name: '蜘蛛女', counts: { legs: 8 }, legLayout: 'spider' },
-  { name: '九尾狐', counts: { tails: 9, earPairsPerHead: 1 }, earShape: 'fox', shape: { tailFluff: 1.4 } },
-  { name: '六翼天使', counts: { wingPairs: 3 } },
-  { name: '三眼', counts: { eyesPerHead: 3 } },
-  { name: '龙娘', counts: { hornsPerHead: 2, wingPairs: 1, tails: 1 }, shape: { tailFluff: 0.2 } },
-  { name: '兽耳娘', counts: { earPairsPerHead: 1, tails: 1 }, earShape: 'cat', shape: { tailFluff: 0.6 } },
+  { name: t('阿修罗'), counts: { heads: 3, armPairs: 3 }, headLayout: 'faces', armLayout: 'fan' },
+  { name: t('半人马'), counts: { legs: 4 }, legLayout: 'taur' },
+  { name: t('蜘蛛女'), counts: { legs: 8 }, legLayout: 'spider' },
+  { name: t('九尾狐'), counts: { tails: 9, earPairsPerHead: 1 }, earShape: 'fox', shape: { tailFluff: 1.4 } },
+  { name: t('六翼天使'), counts: { wingPairs: 3 } },
+  { name: t('三眼'), counts: { eyesPerHead: 3 } },
+  { name: t('龙娘'), counts: { hornsPerHead: 2, wingPairs: 1, tails: 1 }, shape: { tailFluff: 0.2 } },
+  { name: t('兽耳娘'), counts: { earPairsPerHead: 1, tails: 1 }, earShape: 'cat', shape: { tailFluff: 0.6 } },
 ];
 
 /**
