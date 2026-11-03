@@ -5,8 +5,10 @@ import { describe, expect, it } from 'vitest';
 import { assembleCharacter } from '../src/character/assemble';
 import { OWN_READ } from '../src/character/load';
 import { characterUrl } from '../src/character/roster';
-import { type CharacterSource, readCharacter } from '../src/character/source';
+import { type CharacterSource, type SourceSpring, readCharacter } from '../src/character/source';
+import { characterVrm } from '../src/character/vrm';
 import { readAccessor, readGlb } from '../src/io/glbRead';
+import { describeLicense, linearColor, srgbColor, toonFromV1 } from '../src/io/vrm';
 import { OWN_CHARACTER, defaultSpec, normalizeSpec } from '../src/model/spec';
 
 const original = () => {
@@ -99,10 +101,62 @@ function toV1(): ArrayBuffer {
     else if (group.name) custom[group.name] = { morphTargetBinds: binds };
   }
   const range = (curve: { yRange: number }) => ({ inputMaxValue: 90, outputScale: curve.yRange });
+  // 卡通着色：0.x 的数照 1.0 的算法换过去（明暗分界的两头对上），写进每个材质自己的扩展
+  const toon = new Map<string, { floatProperties: Record<string, number>; vectorProperties: Record<string, number[]> }>(
+    v0.materialProperties.map((p: { name: string }) => [p.name.replace(/ \(Instance\)$/, ''), p]),
+  );
+  for (const m of json.materials) {
+    const p = toon.get(m.name.replace(/ \(Instance\)$/, ''));
+    if (!p) continue;
+    const f = p.floatProperties;
+    const low = f._ShadeShift;
+    const high = 1 + (f._ShadeShift - 1) * f._ShadeToony;
+    m.extensions = {
+      ...m.extensions,
+      VRMC_materials_mtoon: {
+        specVersion: '1.0',
+        shadingShiftFactor: -(low + high) / 2,
+        shadingToonyFactor: 1 - (high - low) / 2,
+        // 0.x 存的颜色是 sRGB，1.0 是线性的
+        shadeColorFactor: linearColor(p.vectorProperties._ShadeColor).slice(0, 3),
+        giEqualizationFactor: 1 - f._IndirectLightIntensity,
+        outlineWidthMode: ['none', 'worldCoordinates', 'screenCoordinates'][f._OutlineWidthMode],
+        outlineWidthFactor: f._OutlineWidth / 100,
+        outlineColorFactor: linearColor(p.vectorProperties._OutlineColor).slice(0, 3),
+        outlineLightingMixFactor: f._OutlineColorMode === 1 ? f._OutlineLightingMix : 0,
+      },
+    };
+  }
+  // 弹簧骨骼：每组的每个根写成一串（只写第一节），每个碰撞球写成一个碰撞体。0.x 存的方向（UniVRM 的写法）x 取反就是面朝 +Z
+  type Xyz = { x: number; y: number; z: number };
+  const sa = v0.secondaryAnimation;
+  const colliders: unknown[] = [];
+  const colliderGroups = sa.colliderGroups.map((g: { node: number; colliders: { offset: Xyz; radius: number }[] }) => ({
+    colliders: g.colliders.map((c) => colliders.push({ node: g.node, shape: { sphere: { offset: [-c.offset.x, c.offset.y, c.offset.z], radius: c.radius } } }) - 1),
+  }));
+  type Group = { comment: string; bones: number[]; hitRadius: number; stiffiness: number; gravityPower: number; gravityDir: Xyz; dragForce: number; colliderGroups: number[] };
+  const springs = sa.boneGroups.flatMap((g: Group) =>
+    g.bones.map((node) => ({
+      name: g.comment,
+      joints: [{ node, hitRadius: g.hitRadius, stiffness: g.stiffiness, gravityPower: g.gravityPower, gravityDir: [-g.gravityDir.x, g.gravityDir.y, g.gravityDir.z], dragForce: g.dragForce }],
+      colliderGroups: g.colliderGroups,
+    })),
+  );
   json.extensions = {
+    VRMC_springBone: { specVersion: '1.0', colliders, colliderGroups, springs },
     VRMC_vrm: {
       specVersion: '1.0',
-      meta: { name: v0.meta.title, authors: [v0.meta.author, '第二位作者'], licenseUrl: 'https://vrm.dev/licenses/1.0/', thumbnailImage: json.textures[v0.meta.texture].source },
+      meta: {
+        name: v0.meta.title,
+        authors: [v0.meta.author, '第二位作者'],
+        licenseUrl: 'https://vrm.dev/licenses/1.0/',
+        thumbnailImage: json.textures[v0.meta.texture].source,
+        avatarPermission: 'everyone',
+        commercialUsage: 'personalProfit',
+        creditNotation: 'required',
+        allowRedistribution: true,
+        modification: 'allowModification',
+      },
       humanoid: { humanBones: Object.fromEntries(v0.humanoid.humanBones.map((h: { bone: string; node: number }) => [thumbV1(h.bone), { node: h.node }])) },
       expressions: { preset, custom },
       lookAt: {
@@ -113,7 +167,7 @@ function toV1(): ArrayBuffer {
       },
     },
   };
-  json.extensionsUsed = ['VRMC_vrm'];
+  json.extensionsUsed = ['VRMC_vrm', 'VRMC_springBone', 'VRMC_materials_mtoon'];
   return writeGlb(json, bin);
 }
 
@@ -206,6 +260,97 @@ describe('载入自己的 VRM', () => {
       bin,
     };
     expect([...readAccessor(doc, 0)]).toEqual([0, 0, 0, 0, 0, 0, 1.5, -2, 0.25]);
+  });
+
+  it('VRM 1.0 的卡通着色换成 0.x：Blender 的 VRM 插件从 kotori 的 0.x 转出来的数，换回去和原来的一样', () => {
+    // 插件转出来的皮肤材质：明暗分界 −0.2 / 0.2、描边 0.75 毫米（世界坐标）、描边不混光照；原来 0.x 是 −0.6 / 0、0.075 厘米、固定颜色
+    const toon = toonFromV1({
+      name: 'F00_002_02_Body_00_SKIN',
+      alphaMode: 'MASK',
+      pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1] },
+      extensions: {
+        VRMC_materials_mtoon: {
+          shadingShiftFactor: -0.2,
+          shadingToonyFactor: 0.2,
+          giEqualizationFactor: 0.9,
+          outlineWidthMode: 'worldCoordinates',
+          outlineWidthFactor: 0.00075,
+          outlineLightingMixFactor: 0,
+          shadeColorFactor: [0.94, 0.63, 0.72],
+          uvAnimationScrollYSpeedFactor: 0.5,
+        },
+      },
+    })!;
+    const f = toon.floatProperties;
+    expect(f._ShadeShift).toBeCloseTo(-0.6, 6);
+    expect(f._ShadeToony).toBeCloseTo(0, 6);
+    expect(f._OutlineWidth).toBeCloseTo(0.075, 6);
+    expect(f._OutlineWidthMode).toBe(1);
+    expect(f._OutlineColorMode).toBe(0);
+    expect(f._IndirectLightIntensity).toBeCloseTo(0.1, 6);
+    expect(f._BlendMode).toBe(1);
+    expect(toon.renderQueue).toBe(2450);
+    // 颜色：1.0 是线性的，0.x 存 sRGB；纵向滚动两版方向相反
+    toon.vectorProperties._ShadeColor.forEach((v, k) => expect(v).toBeCloseTo(srgbColor([0.94, 0.63, 0.72, 1])[k], 6));
+    expect(toon.vectorProperties._ShadeColor[0]).toBeGreaterThan(0.94);
+    expect(f._UvAnimScrollY).toBe(-0.5);
+    // 头发是 0.x 的 1 / 1（转出来 1.0 是 −1 / 1）：分母是 0 的那种也换得回去
+    const hair = toonFromV1({ extensions: { VRMC_materials_mtoon: { shadingShiftFactor: -1, shadingToonyFactor: 1 } } })!;
+    expect(hair.floatProperties._ShadeShift).toBe(1);
+    expect(hair.floatProperties._ShadeToony).toBe(1);
+    expect(toonFromV1({ name: '不是 MToon' })).toBeNull();
+  });
+
+  it('VRM 1.0：卡通着色、弹簧骨骼、碰撞球换成 0.x 的写法，和 0.x 那份读出来的一样', () => {
+    const v0 = read(original());
+    const v1 = read(toV1());
+    for (const [name, toon] of v0.toon!) {
+      const back = v1.toon!.get(name)!;
+      expect(back, name).toBeTruthy();
+      for (const key of ['_ShadeShift', '_ShadeToony', '_OutlineWidthMode', '_OutlineColorMode', '_IndirectLightIntensity']) {
+        expect(back.floatProperties[key], `${name} ${key}`).toBeCloseTo(toon.floatProperties[key], 5);
+      }
+      // 不画描边时 0.x 里的宽度没用（1.0 写的是 0）
+      if (toon.floatProperties._OutlineWidthMode) expect(back.floatProperties._OutlineWidth, name).toBeCloseTo(toon.floatProperties._OutlineWidth, 5);
+      // 颜色换成线性再换回 sRGB，和原来的一样
+      for (const key of ['_ShadeColor', '_OutlineColor']) {
+        toon.vectorProperties[key].slice(0, 3).forEach((v, k) => expect(back.vectorProperties[key][k], `${name} ${key}`).toBeCloseTo(v, 5));
+      }
+    }
+    // 1.0 一串一个根：每个根的晃法、碰的碰撞球和 0.x 那一组一样
+    const flat = (s: CharacterSource) =>
+      s.springs!.flatMap((g) => g.roots.map((root) => ({ root, stiffness: g.stiffness, gravity: g.gravity, drag: g.drag, hitRadius: g.hitRadius, gravityDir: g.gravityDir })));
+    expect(flat(v1)).toEqual(flat(v0));
+    // 碰撞球：每根骨骼上的球心、大小一样（1.0 是一个碰撞体一组）
+    const balls = (s: CharacterSource) =>
+      s.colliders!.flatMap((c) => c.spheres.map((b) => `${c.bone}:${b.offset.map((v) => v.toFixed(5)).join(',')}:${b.radius.toFixed(5)}`)).sort();
+    expect(balls(v1)).toEqual(balls(v0));
+    const hits = (s: CharacterSource, g: SourceSpring) => [...new Set(g.colliders.map((c) => s.colliders![c].bone))].sort();
+    v1.springs!.forEach((g) => {
+      const was = v0.springs!.find((x) => x.roots.includes(g.roots[0]))!;
+      expect(hits(v1, g)).toEqual(hits(v0, was));
+    });
+  });
+
+  it('VRM 1.0 的角色导出 VRM：许可写 Other、条款网址指向 VRM 公共许可，0.x 写不下的条件接在出处后面；小框里说成人话', () => {
+    const v1 = read(toV1());
+    const build = assembleCharacter(v1, spec());
+    const identity = new Float64Array(build.bones.length * 12);
+    for (let j = 0; j < build.bones.length; j++) identity.set([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], j * 12);
+    const vrm = readGlb(characterVrm(build, v1, { matrices: identity, bones: build.bones, title: '测试', editor: '我' })).json.extensions.VRM;
+    expect(vrm.meta.licenseName).toBe('Other');
+    expect(vrm.meta.otherLicenseUrl).toBe('https://vrm.dev/licenses/1.0/');
+    expect(vrm.meta.allowedUserName).toBe('Everyone');
+    expect(vrm.meta.commercialUssageName).toBe('Disallow');
+    expect(vrm.meta.sexualUssageName).toBe('Disallow');
+    expect(vrm.meta.author).toContain('第二位作者');
+    expect(vrm.meta.reference).toContain('不许用于政治、宗教');
+    expect(vrm.meta.reference).toContain('改过的不许再分发');
+    expect(vrm.secondaryAnimation.boneGroups.length).toBeGreaterThan(5);
+    expect(vrm.materialProperties.some((p: { floatProperties: Record<string, number> }) => p.floatProperties._ShadeToony !== 0.75)).toBe(true);
+    expect(describeLicense(v1.vrm1Meta!)).toBe(
+      'VRM 公共许可 1.0，不许用于暴力表现，不许用于性表现，只许个人商用，不许用于政治、宗教，不许用于反社会、仇恨，要署名，改过的不许再分发',
+    );
   });
 
   it('配置里记「用的是自己的」，读回来还是', () => {

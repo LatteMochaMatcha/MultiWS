@@ -11,8 +11,8 @@
  * - meta：许可、允许谁用、暴力、性、商用照原文件原样带上；作者写原作者加改的人，出处写「改自原角色」和要求的署名。
  */
 import { type Quat, type V3, Q_ID, cross, len, norm, quatBasis, quatBetween, quatConj, quatMul, rotate, sub } from '../geometry/vec';
-import type { GlbMaterial, GlbMesh } from '../io/glb';
-import { type VrmColliders, type VrmExpression, type VrmSpring, type VrmToon, materialColor, plainToon, writeVrmModel } from '../io/vrm';
+import { type GlbMaterial, type GlbMesh, materialColor } from '../io/glb';
+import { type VrmColliders, type VrmExpression, type VrmSpring, type VrmToon, linearColor, metaFromV1, plainToon, srgbColor, writeVrmModel } from '../io/vrm';
 import { type CharacterBone, type CharacterBuild, isHairBone } from './assemble';
 import { characterSkeleton, mergeByMaterial, poseBuild } from './export';
 import { applyFaces } from './face';
@@ -56,16 +56,22 @@ function faceTarget(build: CharacterBuild, rest: Chunk, posed: Chunk, name: stri
   return moved ? positions : null;
 }
 
-/** 原角色的卡通着色照抄：贴图换成工坊的，染过色的把亮面、暗面一起按染的比例换掉 */
-function copiedToon(toon: Omit<VrmToon, 'textureProperties'>, material: GlbMaterial): VrmToon {
+/**
+ * 原角色的卡通着色照抄，贴图换成工坊的。染过色的（底色和原文件里同名材质的底色 before 不一样）：
+ * 亮面换成染的颜色，暗面按同样的比例变。比例在线性空间里算，存回 sRGB（见 io/vrm.ts 的 srgbColor）。
+ * 不拿 _Color 和底色比：两个一个是 sRGB、一个是线性，有的导出程序还两个写成一样的
+ */
+function copiedToon(toon: Omit<VrmToon, 'textureProperties'>, material: GlbMaterial, before: readonly number[] | undefined): VrmToon {
   const vectors = { ...toon.vectorProperties };
   const color = materialColor(material);
-  const was = vectors._Color;
-  if (was && was.length >= 3 && color.some((c, k) => k < 3 && Math.abs(c - was[k]) > 1e-3)) {
-    const ratio = [0, 1, 2].map((k) => (was[k] > 1e-4 ? color[k] / was[k] : 1));
-    vectors._Color = [color[0], color[1], color[2], was[3] ?? color[3]];
+  if (before && color.some((c, k) => k < 3 && Math.abs(c - before[k]) > 1e-4)) {
+    const ratio = [0, 1, 2].map((k) => (before[k] > 1e-4 ? color[k] / before[k] : 1));
+    vectors._Color = [...srgbColor(color).slice(0, 3), vectors._Color?.[3] ?? color[3]];
     const shade = vectors._ShadeColor;
-    if (shade && shade.length >= 3) vectors._ShadeColor = [0, 1, 2].map((k) => Math.min(1, shade[k] * ratio[k])).concat(shade[3] ?? 1);
+    if (shade && shade.length >= 3) {
+      const lit = linearColor(shade);
+      vectors._ShadeColor = srgbColor([0, 1, 2].map((k) => Math.min(1, lit[k] * ratio[k]))).concat(shade[3] ?? 1);
+    }
   }
   return {
     ...toon,
@@ -255,7 +261,7 @@ export function characterVrm(build: CharacterBuild, source: CharacterSource, opt
     ...e,
     binds: e.binds.map((b) => ({ ...b, target: targetOf.get(b.target)! })),
   }));
-  const raw = source.vrmMeta ?? {};
+  const raw = source.vrmMeta ?? (source.vrm1Meta ? metaFromV1(source.vrm1Meta) : {});
   const text = (v: unknown, fallback = '') => (typeof v === 'string' ? v : fallback);
   const sway = springsOf(build, source, options.bones);
   const images = source.thumbnail ? [...build.images, source.thumbnail] : build.images;
@@ -268,7 +274,7 @@ export function characterVrm(build: CharacterBuild, source: CharacterSource, opt
       version: '1.0',
       author: [source.author ? `${source.author}（原作者）` : '', options.editor ? `${options.editor}（改）` : ''].filter(Boolean).join('、') || '不详',
       contactInformation: text(raw.contactInformation),
-      reference: [`改自「${source.title}」（用 OC 白模工坊改）`, options.credit ?? ''].filter(Boolean).join('；'),
+      reference: [`改自「${source.title}」（用 OC 白模工坊改）`, options.credit ?? '', text(raw.reference)].filter(Boolean).join('；'),
       allowedUserName: text(raw.allowedUserName, 'OnlyAuthor'),
       violentUssageName: text(raw.violentUssageName, 'Disallow'),
       sexualUssageName: text(raw.sexualUssageName, 'Disallow'),
@@ -280,8 +286,10 @@ export function characterVrm(build: CharacterBuild, source: CharacterSource, opt
     ...(source.thumbnail ? { thumbnail: build.images.length } : {}),
     copyright: options.credit ?? [source.title, source.author, source.license].filter(Boolean).join(' / '),
     toon: (material) => {
-      const toon = source.toon?.get(material.name);
-      return toon ? copiedToon(toon, material) : plainToon(material);
+      // 分开染的头（…_Head_02）、改成两面的（…_Both）是拼的时候改过名的同一种材质：照原来的名字找
+      const name = source.toon?.has(material.name) ? material.name : material.name.replace(/(?:_Head_\d+)?(?:_Both)?$/, '');
+      const toon = source.toon?.get(name);
+      return toon ? copiedToon(toon, material, source.materials.find((m) => m.name === name)?.color) : plainToon(material);
     },
     expressions,
     ...(build.morphs ? { look: build.morphs.look } : {}),

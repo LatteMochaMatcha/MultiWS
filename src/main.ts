@@ -17,13 +17,14 @@ import { describeClashes, findClashes } from './geometry/clash';
 import { type Figure, type FigureMetrics, type PartType, nthName } from './geometry/figure';
 import { buildFigure } from './geometry/layout';
 import { partFrame } from './geometry/tweak';
-import { type Quat, type V3, Q_ID, UP, len, norm, quatBetween, quatMul, sub } from './geometry/vec';
+import { type V3, Q_ID, UP, len, norm, quatBetween, quatMul, sub } from './geometry/vec';
 import { inAndroidShell, saveBlob, saveText } from './io/download';
 import { exportGlb } from './io/exportGlb';
 import { OfflineError } from './io/fetchFile';
 import { type GlbMesh, writeGlb } from './io/glb';
 import { forgetFile, keepFile, keptFile } from './io/keepFile';
-import { type VrmLicense, type VrmMeta, type VrmSpring, VRM_LICENSES, describeLicense, humanoidMap, writeVrm } from './io/vrm';
+import { type VrmLicense, type VrmMeta, VRM_LICENSES, describeLicense, humanoidMap, writeVrm } from './io/vrm';
+import { tPosing, tailSprings } from './io/vrmRig';
 import { writeObj, writeStl } from './io/meshFiles';
 import { History } from './model/history';
 import { activeOverrides, clearAllOverrides, clearOverride, mirrorName, setOverride } from './model/overrides';
@@ -3273,31 +3274,9 @@ $('btnPng').addEventListener('click', async () => {
   }
 });
 
-/* ---- VRM：给 VTuber 软件、VRoid Hub 用（见 io/vrm.ts）。现在只有融合模式的白模（成品角色见 docs/vrm-plan.md 第 2 期） ---- */
+/* ---- VRM：给 VTuber 软件、VRoid Hub 用（写文件见 io/vrm.ts，成品角色见 character/vrm.ts）。白模要融合模式；成品角色、载入的 VRM（0.x、1.0）都能导 ---- */
 
 const VRM_KEY = 'oc-basemesh-vrm';
-/**
- * VRM 的静止姿势是 T-pose：第一对手臂平举、手心朝下、五指并拢伸直。
- * 姿势数据里上臂、前臂、手、手指本来就是从这个样子算起的（见 pose/posing.ts），这几根不转就是 T-pose。
- * 平举的是进了人形骨骼对照表的那一对（好几个上半身时右手臂是第一个上半身里侧的那条，UpperArm_R.002），
- * 再加上不带序号的那一对（两边对称）；别的骨骼（多出来的手臂、头、腿）保持静止时的样子
- */
-function tPosing(humanoid: Map<string, number>, rest: Skeleton): Posing {
-  const bones: Record<string, Quat> = {};
-  for (const s of ['L', 'R']) {
-    for (const name of ['UpperArm', 'LowerArm', 'Hand']) bones[`${name}_${s}`] = Q_ID;
-    for (const finger of FINGER_NAMES) for (let k = 1; k <= 3; k++) bones[`${finger}${k}_${s}`] = Q_ID;
-  }
-  for (const [slot, i] of humanoid) {
-    if (/^(left|right)(UpperArm|LowerArm|Hand|Thumb|Index|Middle|Ring|Little)/.test(slot)) bones[rest.bones[i].name] = Q_ID;
-  }
-  return { version: POSING_VERSION, bones };
-}
-/** 尾巴是会晃的弹簧骨骼：每条一串，从尾根晃到尾尖 */
-function tailSprings(skeleton: Skeleton): VrmSpring[] {
-  const roots = skeleton.bones.flatMap((b, i) => (/^Tail_\d+_01$/.test(b.name) ? [i] : []));
-  return roots.length ? [{ comment: 'Tail', roots, stiffness: 1, gravity: 0.05, drag: 0.4, hitRadius: 0.03 }] : [];
-}
 
 const vrmDialog = $<HTMLDialogElement>('vrmDialog');
 const vrmName = $<HTMLInputElement>('vrmName');
@@ -3363,10 +3342,8 @@ async function exportCharacterVrm(build: CharacterBuild) {
     setStatus('角色的数据还没载入完，等一下再导出。', true);
     return;
   }
-  if (!source.vrmMeta) {
-    setStatus('这个角色文件是 VRM 1.0 的，导出成 VRM 还在做：现在先用「带骨骼 GLB」。', true);
-    return;
-  }
+  // 许可照原文件：0.x 的原样抄，1.0 的换成 0.x 的写法（见 io/vrm.ts 的 metaFromV1）
+  const license = source.vrmMeta ?? source.vrm1Meta ?? {};
   const rest = characterSkeleton(build);
   let humanoid: Map<string, number>;
   try {
@@ -3377,7 +3354,7 @@ async function exportCharacterVrm(build: CharacterBuild) {
   }
   const own = spec.character === OWN_CHARACTER;
   const credit = own ? undefined : rosterEntry(spec.character as CharacterId).credit;
-  const meta = await askVrmMeta(credit, { title: source.title, terms: describeLicense(source.vrmMeta) });
+  const meta = await askVrmMeta(credit, { title: source.title, terms: describeLicense(license) });
   if (!meta) return;
   const buttons = [...Object.values(exportButtons), $<HTMLButtonElement>('btnVrm')];
   for (const button of buttons) button.disabled = true;
@@ -3405,7 +3382,7 @@ async function exportCharacterVrm(build: CharacterBuild) {
       ...(source.springs?.length || hairDonor(spec.hair.style) ? ['头发、裙摆照原角色会晃'] : []),
       ...(springs.length ? ['尾巴会晃'] : []),
       ...(mode === 'pose' && isPosed(spec.posing) ? ['摆的姿势、表情不进 VRM'] : []),
-      `许可照原角色：${describeLicense(source.vrmMeta)}`,
+      `许可照原角色：${describeLicense(license)}`,
       ...(credit ? [`发出去时请署名「${credit}」`] : []),
     ];
     setStatus(`已导出 oc_character.vrm（${notes.join('，')}），${where}。`);
@@ -3416,6 +3393,9 @@ async function exportCharacterVrm(build: CharacterBuild) {
   }
 }
 
+/** 分部件的白模点 VRM 时说的话（按钮的悬停提示也是它） */
+const VRM_PARTS = 'VRM 要一整块网格：先在「网格」一栏换成「融合成一整块」';
+
 async function exportVrm() {
   if (pending || (!figure && !character)) rebuild();
   if (character) {
@@ -3425,7 +3405,7 @@ async function exportVrm() {
   const target = figure;
   if (!target) return;
   if (spec.meshMode !== 'fused') {
-    setStatus('VRM 要一整块网格：先在「网格」一栏换成「融合成一整块」。', true);
+    setStatus(`${VRM_PARTS}。`, true);
     return;
   }
   // 先看人形骨骼对不对得上：对不上就不用问名字了
@@ -3572,6 +3552,12 @@ function render() {
     exportButtons[kind].textContent = label;
     exportButtons[kind].title = title;
   }
+  // VRM 要一整块网格：分部件的白模把按钮淡下去。不真的禁用——手机上没有悬停提示，点了要能说为什么（见 exportVrm）
+  const vrmBlocked = !finished && spec.meshMode !== 'fused';
+  const btnVrm = $<HTMLButtonElement>('btnVrm');
+  btnVrm.classList.toggle('unavailable', vrmBlocked);
+  btnVrm.setAttribute('aria-disabled', String(vrmBlocked));
+  btnVrm.title = vrmBlocked ? VRM_PARTS : finished ? '给 VTuber 软件、VRoid Hub 用的 VRM：T-pose、人形骨骼、表情，头发、裙摆会晃' : '给 VTuber 软件、VRoid Hub 用的 VRM：T-pose、人形骨骼，尾巴会晃';
   btnUndo.disabled = !history.canUndo;
   btnRedo.disabled = !history.canRedo;
   renderPosePanel();

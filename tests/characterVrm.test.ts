@@ -4,11 +4,12 @@ import { describe, expect, it } from 'vitest';
 import { assembleCharacter } from '../src/character/assemble';
 import { type HairDonor, readHair } from '../src/character/hair';
 import { CHARACTER, hairUrl } from '../src/character/load';
+import { characterUrl, rosterEntry } from '../src/character/roster';
 import { type CharacterSource, readCharacter } from '../src/character/source';
 import { characterVrm } from '../src/character/vrm';
 import type { V3 } from '../src/geometry/vec';
 import { readAccessor, readGlb } from '../src/io/glbRead';
-import { describeLicense } from '../src/io/vrm';
+import { describeLicense, linearColor, plainToon, srgbColor } from '../src/io/vrm';
 import { type BodySpec, defaultSpec } from '../src/model/spec';
 
 const bufferOf = (path: string) => {
@@ -112,20 +113,52 @@ describe('成品角色导出 VRM', () => {
   });
 });
 
-describe('成品角色导出 VRM：染过的头发', () => {
-  it('亮面换成染的颜色，暗面按同样的比例变', () => {
+describe('成品角色导出 VRM：卡通着色的颜色（0.x 存 sRGB）', () => {
+  type Props = { name: string; renderQueue: number; vectorProperties: Record<string, number[]>; floatProperties: Record<string, number> };
+  const propsOf = (json: { extensions: { VRM: { materialProperties: Props[] } } }) => json.extensions.VRM.materialProperties;
+  const close = (a: number[], b: number[], digits = 5) => a.forEach((v, k) => expect(v, `第 ${k} 个`).toBeCloseTo(b[k], digits));
+
+  it('白模的单色材质：亮面就是屏幕上的颜色（0xRRGGBB 除以 255）', () => {
+    const toon = plainToon({ name: 'OC_Clay', color: 0x8899aa });
+    close(toon.vectorProperties._Color, [0x88 / 255, 0x99 / 255, 0xaa / 255, 1]);
+  });
+
+  it('染过的头发：亮面存染的颜色，暗面在线性空间里按同样的比例变', () => {
     const { json } = exported({ hair: { ...defaultSpec().hair, color: '#3060ff' } });
-    const dyed = (json.extensions.VRM.materialProperties as { name: string; vectorProperties: Record<string, number[]> }[]).find(
-      (p) => /HAIR/.test(p.name) && source().toon?.has(p.name),
-    )!;
+    const dyed = propsOf(json).find((p) => /HAIR/.test(p.name) && source().toon?.has(p.name))!;
+    // 文件里这个材质的底色（线性）就是染的颜色；原来的底色从角色文件里读
+    const now = json.materials.find((m: { name: string }) => m.name === dyed.name).pbrMetallicRoughness.baseColorFactor as number[];
+    const before = source().materials.find((m) => m.name === dyed.name)!.color;
     const raw = source().toon!.get(dyed.name)!.vectorProperties;
-    const color = dyed.vectorProperties._Color;
-    // 蓝色比红色多（染成了偏蓝）；暗面照亮面的比例变
-    expect(color[2]).toBeGreaterThan(color[0]);
-    for (const k of [0, 1, 2]) {
-      if (raw._Color[k] > 1e-3 && raw._ShadeColor[k] * (color[k] / raw._Color[k]) < 1) {
-        expect(dyed.vectorProperties._ShadeColor[k]).toBeCloseTo(raw._ShadeColor[k] * (color[k] / raw._Color[k]), 4);
-      }
+    close(dyed.vectorProperties._Color.slice(0, 3), srgbColor(now).slice(0, 3));
+    expect(dyed.vectorProperties._Color[2]).toBeGreaterThan(dyed.vectorProperties._Color[0]);
+    const shade = linearColor(raw._ShadeColor);
+    close(dyed.vectorProperties._ShadeColor.slice(0, 3), srgbColor([0, 1, 2].map((k) => Math.min(1, (shade[k] * now[k]) / before[k]))));
+  });
+
+  it('没染过的照原样抄：绿发红裙有几个材质的 _Color 不是白的，也不当成染过', () => {
+    const kotori = readCharacter(bufferOf(characterUrl('kotori')), rosterEntry('kotori'));
+    const build = assembleCharacter(kotori, { ...defaultSpec(), bodyStyle: 'character' });
+    const identity = new Float64Array(build.bones.length * 12);
+    for (let j = 0; j < build.bones.length; j++) identity.set([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], j * 12);
+    const json = readGlb(characterVrm(build, kotori, { matrices: identity, bones: build.bones, title: '测试', editor: '我' })).json;
+    const copied = propsOf(json).filter((p) => kotori.toon?.has(p.name));
+    expect(copied.some((p) => p.vectorProperties._Color.slice(0, 3).some((v) => Math.abs(v - 1) > 0.01))).toBe(true);
+    for (const p of copied) {
+      expect(p.vectorProperties._Color, p.name).toEqual(kotori.toon!.get(p.name)!.vectorProperties._Color);
+      expect(p.vectorProperties._ShadeColor, p.name).toEqual(kotori.toon!.get(p.name)!.vectorProperties._ShadeColor);
+    }
+  });
+
+  it('分开染的头（材质改名成 …_Head_02）、改成两面的（…_Both）照样抄原角色的卡通着色', () => {
+    const { json } = exported({ counts: { ...defaultSpec().counts, heads: 2 }, hair: { ...defaultSpec().hair, heads: ['', '#3060ff'] } });
+    const renamed = propsOf(json).filter((p) => /_Head_\d+|_Both$/.test(p.name));
+    expect(renamed.some((p) => /_Head_02/.test(p.name))).toBe(true);
+    for (const p of renamed) {
+      const raw = source().toon?.get(p.name.replace(/(?:_Head_\d+)?(?:_Both)?$/, ''));
+      if (!raw) continue;
+      expect(p.renderQueue, p.name).toBe(raw.renderQueue);
+      for (const key of ['_ShadeShift', '_ShadeToony', '_OutlineWidth', '_OutlineWidthMode']) expect(p.floatProperties[key], `${p.name} ${key}`).toBe(raw.floatProperties[key]);
     }
   });
 });

@@ -109,6 +109,10 @@ const linear = (c: number) => {
   return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
 };
 
+/** 材质的底色（线性 RGBA，glTF 的 baseColorFactor）：给了 factor 用它，不然照 color 换 */
+export const materialColor = (m: GlbMaterial): number[] =>
+  m.factor ? [...m.factor] : [linear((m.color >> 16) & 255), linear((m.color >> 8) & 255), linear(m.color & 255), 1];
+
 type Json = Record<string, unknown>;
 
 export function writeGlb(meshes: GlbMesh[], options: GlbOptions = {}): ArrayBuffer {
@@ -261,7 +265,7 @@ export function writeGlb(meshes: GlbMesh[], options: GlbOptions = {}): ArrayBuff
         materials.push({
           name: m.name,
           pbrMetallicRoughness: {
-            baseColorFactor: m.factor ?? [linear((m.color >> 16) & 255), linear((m.color >> 8) & 255), linear(m.color & 255), 1],
+            baseColorFactor: materialColor(m),
             ...(m.image === undefined ? {} : { baseColorTexture: { index: texture(m.image) } }),
             metallicFactor: 0,
             roughnessFactor: m.unlit ? 0.9 : 0.8,
