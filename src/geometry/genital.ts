@@ -1,6 +1,7 @@
 /**
  * 阴茎、阴囊的摆位（白模人台、二次元素体）。形状是从 DJP 男性素体上取下来的（见 anime/genital.ts）：
- * 阴茎从小腹伸出一截圆台，融合完在圆台上缝上原样的网格；阴囊是距离场格子，搁在阴茎根部底下、大腿前面。
+ * 阴茎从根部到切口（根部往外 11.5 厘米，快到龟头）那一截是距离场格子（照素体原样采的，往身体里伸进去 6 厘米），
+ * 融合完在切口上缝上原样的网格（龟头那一截）；阴囊也是距离场格子，搁在阴茎根部底下、大腿前面。
  *
  * 部件都写在素体模型自己的单位里（Part.scale 把它缩放到身上），原点是根部：阴茎是根部的中心，阴囊是贴着身体那一面的正中。
  * 它们只在根部和身体圆滑地融合（见 sdf/field.ts 的 REST_ROOT_BLEND），再往外是硬接：阴囊挨着大腿不会扯出蹼，
@@ -8,13 +9,10 @@
  */
 import {
   PENIS_BASE,
-  PENIS_BASE_DIR,
   PENIS_CUT,
-  PENIS_CUT_DIR,
+  PENIS_GRID,
   PENIS_JOINTS,
   PENIS_LINE,
-  PENIS_RADIUS,
-  PENIS_RIM,
   SCROTUM_GRID,
   SCROTUM_HALF,
   SCROTUM_ROOT,
@@ -22,7 +20,7 @@ import {
 } from '../anime/genital';
 import type { PenisLayout, ScrotumMode } from '../model/spec';
 import type { BoneHint, Graft, Part } from './figure';
-import { type Quat, type V3, add, len, mul, quatEuler, quatMul, rotate, sub } from './vec';
+import { type Quat, type V3, add, dot, len, mul, norm, quatConj, quatEuler, quatMul, rotate, sub } from './vec';
 
 // 同 layout.ts 的 pad、bone（layout.ts 要引这个文件，不反过来引它）
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -30,14 +28,7 @@ const bone = (name: string, head: V3, tail: V3, parent: string): BoneHint => ({ 
 
 /** 素体在阴茎根部那么高的地方，小腹正中的表面往前到哪（z）：根部离小腹多远照这个搬 */
 const DJP_PUBIS_Z = 0.088;
-/**
- * 伸出来的那截圆台：从根部往身体里多深、根部那头粗细是阴茎半径的几倍、过了切口再多长（素体的单位）。
- * 切口在根部往外 11.5 厘米（快到龟头），圆台占了大半根：根部挤在一起的几根在这一截里贴着，到切口才分开
- */
-const STUB_IN = 0.06;
-const STUB_ROOT = 1.05;
-const STUB_OUT = 0.015;
-/** 阴茎根部那截圆台和阴囊之间（还有并排的几根之间）圆滑过渡的半径；离根部 FADE 这一段以内才过渡，再往外硬接 */
+/** 阴茎根部那一截和阴囊之间（还有并排的几根之间）圆滑过渡的半径；离根部 FADE 这一段以内才过渡，再往外硬接 */
 const SOFT = 0.02;
 const FADE: [from: number, to: number] = [0.03, 0.05];
 /**
@@ -45,7 +36,7 @@ const FADE: [from: number, to: number] = [0.03, 0.05];
  * 相邻两根的根部隔几个 ROOT_STEP（素体的单位，大约两根正好挨着），往外各自转开，
  * 转到切口往外那一截（缝上去的网格）和别的那根彼此隔开 GAP（素体的单位）、至少 GAP_MIN（身上的米）为止。
  * 切口挨着的话两根在那里融成一片，找不到干净的切口，缝不上；RIM_WIDE 是切口一圈最宽的半径。
- * 切口往根部是距离场里的圆台，挨着、融成一团都不要紧（往根部 3 厘米以内也算上的话，转开的角度大得多，试过不必要）
+ * 切口往根部在距离场里，挨着、融成一团都不要紧（往根部 3 厘米以内也算上的话，转开的角度大得多，试过不必要）
  */
 const ROOT_STEP = 0.045;
 const RIM_WIDE = 0.025;
@@ -64,8 +55,28 @@ const GRID = { root: 1, rise: 1, wide: 1, most: 0.8 };
 /** 转那么多还隔不开的（根数多、排得挤）：根部再隔开一点，每次多几成，最多几次 */
 const ROOT_MORE = 0.1;
 const ROOT_TRIES = 12;
-/** 中心线上切口往外的那一截（缝上去的网格那一段） */
-const BEYOND = PENIS_LINE.slice(PENIS_LINE.reduce((best, p, k) => (len(sub(p, PENIS_CUT)) < len(sub(PENIS_LINE[best], PENIS_CUT)) ? k : best), 0));
+/**
+ * 中心线上从切口往根部 SEW_BACK（素体的单位）起往外的那一截（缝上去的网格那一段，再加上缝的时候下刀的地方：
+ * 在切口往根部一点切开，那里也要隔开。那里的截面照素体原样，底下那边比切口还鼓）
+ */
+const SEW_BACK = 0.01;
+const BEYOND_FROM = PENIS_LINE.findIndex((p) => len(sub(p, PENIS_CUT)) <= SEW_BACK);
+const BEYOND = PENIS_LINE.slice(BEYOND_FROM);
+/**
+ * 这一根切口往外那一截还要离别的那根的中段（根部融成一团的那一截往外、到 BEYOND 之前）至少 GAP：
+ * 身体底下往后排的几排，前一排中段的腹面（照素体原样往下鼓，还带一点弯）朝后，正对着后一排的切口。
+ * 中段的截面不是正圆：左右半宽 SHAFT_SIDE、背面 SHAFT_TOP、腹面 SHAFT_BELLY（素体的单位，这一段里最大的）。
+ * MID 是中段的中心线（隔一个取一个），带着每一点朝背面的方向
+ */
+const SHAFT_SIDE = 0.0255;
+const SHAFT_TOP = 0.0245;
+const SHAFT_BELLY = 0.032;
+const MID = PENIS_LINE.map((at, k) => {
+  const way = norm(sub(PENIS_LINE[Math.min(k + 2, PENIS_LINE.length - 1)], PENIS_LINE[Math.max(k - 2, 0)]));
+  return { at, up: norm([0, way[2], -way[1]]), from: len(sub(at, PENIS_BASE)) };
+}).filter((p, k) => k < BEYOND_FROM && p.from >= FADE[1] && k % 2 === 0);
+/** 切口往外那一截隔一个取一个（看离别的那根中段多远用） */
+const TIPS = BEYOND.filter((_, k) => k % 2 === 0);
 /** 看离身体多远的两处：切口、中间那一节的末端 */
 const CLEAR_AT = [PENIS_CUT, PENIS_JOINTS[2]];
 /** 阴囊：比素体上的位置往上挪多少；贴着身体的那一面往身体（大腿前面）里埋多深（素体的单位） */
@@ -144,8 +155,9 @@ function penisPart(index: number, base: V3, quat: Quat, scale: number, parent: s
     bones: penisBones(boneName),
     pivot: PENIS_CUT,
     reach: sub(PENIS_CUT, PENIS_BASE),
-    // 根部、中间两节在圆台里：手动拉长拉粗时照部件走；龟头那一节整个在缝上去的网格里，跟着网格保持原样
+    // 根部、中间两节在距离场里：手动拉长拉粗时照部件走；龟头那一节整个在缝上去的网格里，跟着网格保持原样
     rigid: [boneName('Penis3')],
+    matched: true,
   };
   return {
     name,
@@ -155,18 +167,7 @@ function penisPart(index: number, base: V3, quat: Quat, scale: number, parent: s
     quat,
     scale,
     material: 'clay',
-    prims: [
-      {
-        kind: 'cone',
-        name: 'PenisRoot',
-        a: mul(PENIS_BASE_DIR, -STUB_IN),
-        b: local(add(PENIS_CUT, mul(PENIS_CUT_DIR, STUB_OUT))),
-        ra: PENIS_RADIUS * STUB_ROOT,
-        rb: PENIS_RIM,
-        soft: SOFT,
-        fade: FADE,
-      },
-    ],
+    prims: [{ kind: 'grid', name: 'PenisRoot', grid: PENIS_GRID, soft: SOFT, fade: FADE }],
     grafts: [graft],
     bones: PENIS_JOINTS.slice(0, -1).map((j, k) => bone(`${name}_${pad(k + 1)}`, local(j), local(PENIS_JOINTS[k + 1]), k ? `${name}_${pad(k)}` : parent)),
   };
@@ -250,6 +251,32 @@ export function genitalParts(o: GenitalOptions): Part[] {
     for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (const a of lines[i]) for (const b of lines[j]) least = Math.min(least, len(sub(a, b)));
     return least;
   };
+  /** 每根切口往外那一截离别的那根中段的表面最近多远（减去切口的半径；中段的截面照方向算，见 SHAFT_SIDE） */
+  const crowd = (bases: V3[], t: number) => {
+    const turns = bases.map((_, k) => tilt(k, t));
+    let least = Infinity;
+    for (let i = 0; i < n; i++) {
+      const tips = TIPS.map((p) => add(bases[i], rotate(turns[i], mul(sub(p, PENIS_BASE), s))));
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        const back = quatConj(turns[j]);
+        for (const x of tips) {
+          // 搬到第 j 根自己的坐标里（素体的单位）
+          const q = add(mul(rotate(back, sub(x, bases[j])), 1 / s), PENIS_BASE);
+          for (const { at, up } of MID) {
+            const d = sub(q, at);
+            const side = d[0];
+            const lift = dot(d, up);
+            const across = Math.hypot(side, lift);
+            if (across < 1e-9) return -Infinity;
+            const reach = Math.hypot(side * SHAFT_SIDE, lift * (lift < 0 ? SHAFT_BELLY : SHAFT_TOP)) / across;
+            least = Math.min(least, len(d) - reach);
+          }
+        }
+      }
+    }
+    return (least - RIM_WIDE) * s;
+  };
   /** 切口附近离身体表面还有多远（中心线上那一点在表面外面多远，减去切口的半径）：往上翘的贴到肚子上，切口和肚皮融成一片也缝不上 */
   const clear = (bases: V3[], t: number) => {
     let least = Infinity;
@@ -306,8 +333,12 @@ export function genitalParts(o: GenitalOptions): Part[] {
       const most = style.most / Math.max(...places.map((p) => Math.hypot(p.su, p.sv)), 1e-9);
       const top = clear(free, most) >= gap ? most : bisect((t) => clear(free, t) >= gap, false, most);
       splay = top;
-      if (apart(free, top) < need) continue;
-      splay = Math.min(bisect((t) => apart(free, t) >= need, true, top) * style.wide, top);
+      const ok = (t: number) => apart(free, t) >= need && crowd(free, t) >= gap;
+      if (!ok(top)) continue;
+      const just = bisect(ok, true, top);
+      splay = Math.min(just * style.wide, top);
+      // 转得比刚好隔开的多（扇形）反而让龟头凑到别的那根中段上的，就照刚好隔开的
+      if (!ok(splay)) splay = just;
       break;
     }
     if (off && !last) continue;

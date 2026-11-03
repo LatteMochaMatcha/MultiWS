@@ -6,7 +6,7 @@ import { buildFigure } from '../src/geometry/layout';
 import { buildPartGeometry, triangleCount } from '../src/geometry/partsMesh';
 import { withoutAdult } from '../src/model/adult';
 import { type BodySpec, PENIS_LAYOUTS, SCROTUM_MODES, defaultSpec, normalizeSpec, serializeSpec } from '../src/model/spec';
-import { quatEuler, rotate } from '../src/geometry/vec';
+import { dot, norm, quatEuler, rotate, sub } from '../src/geometry/vec';
 import { buildHandles } from '../src/pose/handles';
 import { flipPosing, placedTwins } from '../src/pose/posing';
 import { forward, poseMatrices, restState } from '../src/pose/rig';
@@ -327,7 +327,7 @@ describe('融合', () => {
           const mesh = graftMeshes(meshField(field, VOXEL.fine), parts, VOXEL.fine, undefined, report);
           expect(report.loose, `${penisLayout} ${scrotum} ${n}`).toEqual([]);
           expect(mesh.info.components, `${penisLayout} ${scrotum} ${n}`).toBe(1);
-          // 每根都接上了现成的网格（只有一截圆台的话，上面两条也照样成立）
+          // 每根都接上了现成的网格（只有根部那一截的话，上面两条也照样成立）
           expect(mesh.tris?.length ?? 0, `${penisLayout} ${scrotum} ${n}`).toBeGreaterThanOrEqual(n * penisMesh().triangles.length);
         }
   });
@@ -363,6 +363,16 @@ describe('融合', () => {
     }
   });
 
+  it('切口那一圈是平的，缝的轴和它垂直（不然缝口一边凹下去一块）', () => {
+    useGenital();
+    const mesh = penisMesh();
+    const axis = norm(sub(mesh.end, mesh.root));
+    for (const v of mesh.loop) {
+      const p: [number, number, number] = [mesh.positions[v * 3], mesh.positions[v * 3 + 1], mesh.positions[v * 3 + 2]];
+      expect(Math.abs(dot(sub(p, mesh.end), axis))).toBeLessThan(0.001);
+    }
+  });
+
   it('预览的粗网格上也缝得上（第一遍缝不上时退回去重来，最后还是一整块）', () => {
     useGenital();
     for (const size of [0.5, 1, 1.6]) {
@@ -378,7 +388,7 @@ describe('融合', () => {
 });
 
 describe('分部件、穿模', () => {
-  it('分部件模式：阴茎（圆台加缝上去的网格）、阴囊各是一块', () => {
+  it('分部件模式：阴茎（根部那一截加缝上去的网格）、阴囊各是一块', () => {
     useGenital();
     for (const part of genitals(make({ penises: 2 }, { scrotum: 'each' }))) expect(triangleCount(buildPartGeometry(part)), part.name).toBeGreaterThan(100);
   });

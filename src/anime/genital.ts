@@ -1,11 +1,12 @@
 /**
  * 现成的阴茎、阴囊：DJP Male Base Mesh Mark 03（Death Joe Productions，CC BY 4.0），由 tools/build-genital.ts 取下来。
- * 阴茎不过距离场：融合完以后缝到身体上伸出来的一小截圆柱上（见 sdf/graft.ts），龟头的细节才保得住。
- * 阴囊采成了距离场格子（public/genital.bin），和身体融在一起。
+ * 阴茎从根部到切口那一截采成了距离场格子，和身体融在一起；切口往外（龟头那一截）不过距离场，
+ * 融合完以后缝在切口上（见 sdf/graft.ts），龟头的细节才保得住。
+ * 阴囊也采成了距离场格子（两块格子都在 public/genital.bin 里）。
  *
  * 两样都写在素体模型自己的坐标里（米，面朝 +Z，左手边是 +X；素体身高 1.48 米）。
  */
-import type { V3 } from '../geometry/vec';
+import { type V3, len, mul, sub } from '../geometry/vec';
 import { fetchFile } from '../io/fetchFile';
 import { registerGrid } from '../sdf/grids';
 import meta from './genitalMeta.json';
@@ -14,20 +15,19 @@ import penis from './penisMesh.json';
 
 /** 导出时写进去的署名（CC BY 4.0 要求） */
 export const GENITAL_CREDIT = meta.credit;
-/** 数据文件（阴囊的格子）：public 下面的路径 */
+/** 数据文件（阴囊、阴茎根部那一截的格子）：public 下面的路径 */
 export const GENITAL_URL = 'genital.bin';
-/** 阴囊的格子登记用的名字 */
+/** 阴囊、阴茎根部到切口那一截的格子登记用的名字。阴茎那块以根部（PENIS_BASE）为原点 */
 export const SCROTUM_GRID = 'genital/scrotum';
+export const PENIS_GRID = 'genital/penis';
 
-/** 阴茎根部（横截面开始变粗的地方）的中心、那里中心线的方向（朝龟头） */
+/** 阴茎根部（横截面开始变粗的地方）的中心 */
 export const PENIS_BASE = penis.base as V3;
-export const PENIS_BASE_DIR = penis.baseDir as V3;
-/** 切口的中心、那里中心线的方向：距离场里伸出来的圆柱要过了它再收住 */
+/** 切口的中心、那里中心线的方向（朝龟头；切口那一刀垂直于它） */
 export const PENIS_CUT = penis.cut as V3;
 export const PENIS_CUT_DIR = penis.cutDir as V3;
-/** 阴茎的平均半径、切口一圈的平均半径、从根部到龟头沿中心线多长 */
+/** 阴茎的平均半径、从根部到龟头沿中心线多长 */
 export const PENIS_RADIUS = penis.radius;
-export const PENIS_RIM = penis.rim;
 export const PENIS_LENGTH = penis.length;
 /** 三节骨骼的关节：根部、两个中间、龟头；中心线（从根部到龟头） */
 export const PENIS_JOINTS = penis.jointsAt as V3[];
@@ -38,9 +38,13 @@ export const SCROTUM_HALF = (meta.scrotum.bounds.max[0] - meta.scrotum.bounds.mi
 
 let cached: GraftMesh | null = null;
 
-/** 现成的阴茎：切口那一头的关节（end）是切口的中心，往里一节（root）是根部；骨骼名 Penis1、Penis2、Penis3 */
+/**
+ * 现成的阴茎：切口那一头（end）是切口的中心，root 顺着切口处的中心线往根部退回根部那么远；骨骼名 Penis1、Penis2、Penis3。
+ * 缝的时候沿 root → end 量远近、横着切开身体那边：这根轴要和切口那一刀垂直。照根部到切口的连线的话差 8° 左右，
+ * 身体那边的开口斜着切，一边和切口之间多出一道楔形的空当，缝出来是一道折痕
+ */
 export function penisMesh(): GraftMesh {
-  cached ??= decodeGraftMesh(penis, PENIS_CUT, PENIS_BASE);
+  cached ??= decodeGraftMesh(penis, PENIS_CUT, sub(PENIS_CUT, mul(PENIS_CUT_DIR, len(sub(PENIS_CUT, PENIS_BASE)))));
   return cached;
 }
 
@@ -50,17 +54,21 @@ export const penisBones = (name: (base: string) => string): Record<string, strin
 
 let installed = false;
 
-/** 把阴囊的格子登记好（浏览器里 fetch 回来，测试和工具里从磁盘读） */
+/** 把阴囊、阴茎根部那一截的格子登记好（浏览器里 fetch 回来，测试和工具里从磁盘读） */
 export function installGenital(buffer: ArrayBuffer) {
-  const s = meta.scrotum;
-  registerGrid(SCROTUM_GRID, {
-    min: s.min as V3,
-    dims: s.dims as [number, number, number],
-    cell: s.cell,
-    band: s.band,
-    data: new Int16Array(buffer, s.offset * 2, s.length),
-    bounds: { min: s.bounds.min as V3, max: s.bounds.max as V3 },
-  });
+  for (const [name, s] of [
+    [SCROTUM_GRID, meta.scrotum],
+    [PENIS_GRID, meta.penis],
+  ] as const) {
+    registerGrid(name, {
+      min: s.min as V3,
+      dims: s.dims as [number, number, number],
+      cell: s.cell,
+      band: s.band,
+      data: new Int16Array(buffer, s.offset * 2, s.length),
+      bounds: { min: s.bounds.min as V3, max: s.bounds.max as V3 },
+    });
+  }
   installed = true;
 }
 
@@ -69,7 +77,7 @@ export const genitalReady = () => installed;
 let loading: Promise<ArrayBuffer> | null = null;
 
 /**
- * 浏览器里用：把阴囊的数据（不到 0.5 MB）取回来登记好，只取一次。
+ * 浏览器里用：把阴囊、阴茎根部那一截的数据（不到 1 MB）取回来登记好，只取一次。
  * 返回取到的数据：网格是在 Worker 里算的，那边也要登记一份（见 sdf/meshClient 的 provideGenital）。
  */
 export function loadGenital(base = '/'): Promise<ArrayBuffer> {

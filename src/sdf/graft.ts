@@ -15,7 +15,7 @@
  */
 import { graftMeshOf } from '../anime/grafts';
 import { skinVerticesDualInPlace } from '../character/pose';
-import { type Graft, type Part, graftFrame, worldTransforms } from '../geometry/figure';
+import { type Graft, type Part, graftFrame, shapeMatrix, worldTransforms } from '../geometry/figure';
 import { type Mat3, type V3, mat3Mul, quatMat3 } from '../geometry/vec';
 import { buildSkeleton } from '../rig/skeleton';
 import type { PoseMatrices } from './posedField';
@@ -49,6 +49,8 @@ interface Job {
   origin: V3;
   /** 摆好姿势以后每个顶点在哪、朝哪（没摆就没有：照 linear、origin 摆） */
   placed?: { positions: Float32Array; normals: Float32Array };
+  /** 切口两边本来就对得上，开口不用照切口收（见 Graft.matched；部件被拉得不成比例的不算） */
+  matched: boolean;
 }
 
 function jobsOf(parts: Part[]): Job[] {
@@ -66,6 +68,7 @@ function jobsOf(parts: Part[]): Job[] {
       jobs.push({
         part: part.name,
         graft,
+        matched: !!graft.matched && !shapeMatrix(part),
         linear: mat3Mul(outer, frame.matrix),
         origin: [
           xf.pos[0] + outer[0] * o[0] + outer[1] * o[1] + outer[2] * o[2],
@@ -168,7 +171,7 @@ function poseJobs(jobs: Job[], parts: Part[], pose: PoseMatrices): Job[] {
     }
     skinVerticesDualInPlace(positions, normals, Uint16Array.from(hand.joints, (j) => bones[j]), hand.weights, matrices);
     // 整块跟着切口所在的那一节搬：不跟着这块网格保持原样的骨骼里最靠末端的那一根。
-    // 手、脚只有一根（前臂、小腿）；阴茎根部、中间两节都在距离场的圆台里，切口在中间那一节上
+    // 手、脚只有一根（前臂、小腿）；阴茎根部、中间两节都在距离场里，切口在中间那一节上
     const root = Object.values(graft.bones)
       .filter((name) => !graft.rigid.includes(name))
       .pop();
@@ -316,11 +319,13 @@ export function graftMeshes(mesh: FusedMesh, parts: Part[], voxel: number, pose?
     reach: number;
     far: number;
     turnRim: number;
+    /** 开口不用照切口收（见 Job.matched） */
+    matched: boolean;
   }
   const hands: Hand[] = [];
   /** 摆过姿势的手：缝完以后要换成摆好的位置（从第几个顶点开始、换成什么） */
   const posed: { base: number; placed: NonNullable<Job['placed']> }[] = [];
-  jobs.forEach(({ graft, linear, origin, placed }, index) => {
+  jobs.forEach(({ graft, linear, origin, placed, matched }, index) => {
     const hand = meshes[index];
     const handCount = hand.positions.length / 3;
     const base = total;
@@ -424,6 +429,7 @@ export function graftMeshes(mesh: FusedMesh, parts: Part[], voxel: number, pose?
       reach: rimWide * 2 + 1.5 * voxel,
       far: rimFrom + 0.1 * stretch + 2 * voxel,
       turnRim: winding(rimPolar.map((p) => p.angle)),
+      matched,
     });
   });
 
@@ -734,8 +740,9 @@ export function graftMeshes(mesh: FusedMesh, parts: Part[], voxel: number, pose?
     const ringPolar = ring.map(h.polar);
     const rimRadius = profile(h.rimPolar.map((p) => p.angle), h.rimPolar.map((p) => p.radius));
     const ringRadius = profile(ringPolar.map((p) => p.angle), ringPolar.map((p) => p.radius));
-    // 只动连着开口的那些顶点（顺着留下来的面一圈圈往手肘那边找），旁边路过的别的部件不动
-    const linked = new Set(ring);
+    // 只动连着开口的那些顶点（顺着留下来的面一圈圈往手肘那边找），旁边路过的别的部件不动。
+    // 两边本来就对得上的（阴茎）一个都不动：开口比切口靠里一点，那里更粗，照切口收就凹下去一圈
+    const linked = new Set(h.matched ? [] : ring);
     for (let grew = true; grew; ) {
       grew = false;
       for (const q of kept) {
