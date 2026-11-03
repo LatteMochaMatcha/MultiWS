@@ -9,6 +9,7 @@ OC 白模工坊 v2：多肢体角色白模生成器（Vite + TypeScript + three.
 - 跑 tools 里的 TS 脚本（Vite SSR 加载，能 import src）：`node tools/run.mjs tools/<脚本>.ts <参数>`
 - 验收图：`npm run accept -- <输出目录> --only S1`（说明见 docs/accept/README.md）；拼总图 `uv run -q --with pillow python -I tools/accept-sheet.py <输出目录> --title <标题>`
 - Python 一律用 `uv run`（系统 python 是商店版 3.11）。
+- 界面有中、英、日三语：给用户看的中文用 `t('…')` 包（`src/i18n`），英文、日文译文补进 `src/i18n/en/*.json`、`src/i18n/ja/*.json`，再跑 `npx vitest run tests/i18n.test.ts`；改了解析器或规范描述再跑 `tests/parseI18n.test.ts`。规矩和术语表见 `docs/i18n.md`。
 
 ## 环境
 
