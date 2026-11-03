@@ -7,6 +7,7 @@
  */
 import type { V3 } from '../geometry/vec';
 import { type GlbDoc, readAccessor, readBufferView, readGlb } from '../io/glbRead';
+import type { VrmToon } from '../io/vrm';
 
 export interface SourceBone {
   /** 文件里的骨骼名，例如 J_Bip_L_UpperArm */
@@ -113,6 +114,13 @@ export interface CharacterSource {
    * 贴图本来就是浅色的（颜色在材质的底色里）就没有这一项
    */
   hairLight?: Map<number, { image: number; tone: [number, number, number] }>;
+  /**
+   * VRM 0.x 文件里每个材质的卡通着色（MToon）设定，按材质名（去掉「 (Instance)」）：导出 VRM 时照抄。
+   * 贴图那几项不留（这里只读了底色贴图），导出时照工坊的材质重新填。1.0 的文件没有这一项
+   */
+  toon?: Map<string, Omit<VrmToon, 'textureProperties'>>;
+  /** VRM 0.x 文件的 meta 原样：导出 VRM 时照抄许可、允许谁用、作者这几项。1.0 的文件没有这一项 */
+  vrmMeta?: Record<string, unknown>;
 }
 
 export interface ReadOptions {
@@ -412,6 +420,20 @@ export function readCharacter(buffer: ArrayBuffer, options: ReadOptions = {}): C
   const thumbInfo = thumbIndex === undefined ? undefined : json.images?.[thumbIndex];
   const thumbnail: SourceImage | undefined =
     thumbInfo?.bufferView === undefined ? undefined : { name: thumbInfo.name ?? 'Thumbnail', mime: thumbInfo.mimeType ?? 'image/png', bytes: readBufferView(doc, thumbInfo.bufferView) };
+  // 0.x 的卡通着色设定，按材质名留着（导出 VRM 时照抄）
+  type RawToon = Partial<VrmToon> & { name?: string };
+  const toon = new Map<string, Omit<VrmToon, 'textureProperties'>>();
+  for (const p of (vrm0?.materialProperties ?? []) as RawToon[]) {
+    if (typeof p?.name !== 'string' || typeof p.shader !== 'string') continue;
+    toon.set(p.name.replace(/ \(Instance\)$/, ''), {
+      shader: p.shader,
+      renderQueue: typeof p.renderQueue === 'number' ? p.renderQueue : 2000,
+      floatProperties: { ...(p.floatProperties ?? {}) },
+      vectorProperties: { ...(p.vectorProperties ?? {}) },
+      keywordMap: { ...(p.keywordMap ?? {}) },
+      tagMap: { ...(p.tagMap ?? {}) },
+    });
+  }
   return {
     title: (vrm1 ? meta.name : meta.title) || 'Character',
     author: vrm1 ? ((meta.authors ?? []) as string[]).join('、') : (meta.author ?? ''),
@@ -427,5 +449,7 @@ export function readCharacter(buffer: ArrayBuffer, options: ReadOptions = {}): C
     earMaterials: materials.flatMap((m, i) => (options.ears?.test(m.name) ? [i] : [])),
     dyeMaterials: materials.flatMap((m, i) => (options.dye?.test(m.name) ? [i] : [])),
     ...(face ? { face } : {}),
+    ...(toon.size ? { toon } : {}),
+    ...(vrm0?.meta ? { vrmMeta: { ...vrm0.meta } } : {}),
   };
 }

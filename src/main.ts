@@ -4,6 +4,7 @@ import { TORSO_CREDIT, animeGrid, animeReady, loadAnimeBody } from './anime/body
 import { FOOT_CREDIT } from './anime/foot';
 import { type CharacterBuild, assembleCharacter } from './character/assemble';
 import { characterGlb, characterShape, characterSkeleton, poseBuild } from './character/export';
+import { characterVrm } from './character/vrm';
 import { type FaceInstance, type FaceWeights, type Gaze, applyFaces, faceLabel, gazeAt, gazeOf, gazeTurns, hasExpression } from './character/face';
 import { characterSource, hairDonor, hairLit, lightenHair, loadCharacter, loadHair, loadOwnCharacter, ownFileName, restoreOwnCharacter } from './character/load';
 import type { CharacterSource } from './character/source';
@@ -20,7 +21,7 @@ import { exportGlb } from './io/exportGlb';
 import { OfflineError } from './io/fetchFile';
 import { type GlbMesh, writeGlb } from './io/glb';
 import { forgetFile, keepFile, keptFile } from './io/keepFile';
-import { type VrmLicense, type VrmMeta, type VrmSpring, VRM_LICENSES, humanoidMap, writeVrm } from './io/vrm';
+import { type VrmLicense, type VrmMeta, type VrmSpring, VRM_LICENSES, describeLicense, humanoidMap, writeVrm } from './io/vrm';
 import { writeObj, writeStl } from './io/meshFiles';
 import { History } from './model/history';
 import { activeOverrides, clearAllOverrides, clearOverride, mirrorName, setOverride } from './model/overrides';
@@ -3189,7 +3190,7 @@ for (const [key, terms] of Object.entries(VRM_LICENSES)) vrmLicense.append(new O
 const isLicense = (v: unknown): v is VrmLicense => typeof v === 'string' && v in VRM_LICENSES;
 
 /** 弹出小框填名字、作者、许可；取消返回 null。上次填的记在这个浏览器里 */
-function askVrmMeta(credits?: string): Promise<VrmMeta | null> {
+function askVrmMeta(credits?: string, character?: { title: string; terms: string }): Promise<VrmMeta | null> {
   let saved: Record<string, unknown> = {};
   try {
     const raw: unknown = JSON.parse(localStorage.getItem(VRM_KEY) ?? '{}');
@@ -3197,9 +3198,14 @@ function askVrmMeta(credits?: string): Promise<VrmMeta | null> {
   } catch {
     // 读不到就空着
   }
-  vrmName.value = typeof saved.title === 'string' ? saved.title : 'OC';
+  vrmName.value = character ? character.title : typeof saved.title === 'string' ? saved.title : 'OC';
   vrmAuthor.value = typeof saved.author === 'string' ? saved.author : '';
   vrmLicense.value = isLicense(saved.license) ? saved.license : 'private';
+  // 成品角色：许可照原角色，不能改；填的名字写成「改」，跟在原作者后面
+  $('vrmLicenseRow').hidden = Boolean(character);
+  $('vrmTerms').hidden = !character;
+  if (character) $('vrmTerms').textContent = `许可照原角色：${character.terms}。不能改，导出的文件里原样写着。`;
+  $('vrmAuthorLabel').textContent = character ? '你的名字（写成「改」，跟在原作者后面）' : '作者';
   // 用到了要求署名的素材（二次元素体的脚、躯干）：选什么许可都照样写上署名
   const showCredit = () => {
     const note = $('vrmCredit');
@@ -3221,7 +3227,8 @@ function askVrmMeta(credits?: string): Promise<VrmMeta | null> {
         const license = isLicense(vrmLicense.value) ? vrmLicense.value : 'private';
         const meta: VrmMeta = { title: vrmName.value.trim() || 'OC', author: vrmAuthor.value.trim(), license, ...(credits ? { credits } : {}) };
         try {
-          localStorage.setItem(VRM_KEY, JSON.stringify({ title: meta.title, author: meta.author, license }));
+          // 成品角色的名字是原角色的，不记（下次导白模还是白模上次填的）
+          localStorage.setItem(VRM_KEY, JSON.stringify({ title: character ? saved.title : meta.title, author: meta.author, license: character ? saved.license : license }));
         } catch {
           // 存不了下次重新填
         }
@@ -3232,10 +3239,69 @@ function askVrmMeta(credits?: string): Promise<VrmMeta | null> {
   });
 }
 
+/** 成品角色：贴图、卡通着色、表情、视线照原角色，许可原样带上（见 character/vrm.ts） */
+async function exportCharacterVrm(build: CharacterBuild) {
+  const source = characterSource(spec.character);
+  if (!source) {
+    setStatus('角色的数据还没载入完，等一下再导出。', true);
+    return;
+  }
+  if (!source.vrmMeta) {
+    setStatus('这个角色文件是 VRM 1.0 的，导出成 VRM 还在做：现在先用「带骨骼 GLB」。', true);
+    return;
+  }
+  const rest = characterSkeleton(build);
+  let humanoid: Map<string, number>;
+  try {
+    humanoid = humanoidMap(rest);
+  } catch (err) {
+    setStatus(`这个角色导不了 VRM：${err instanceof Error ? err.message : err}`, true);
+    return;
+  }
+  const own = spec.character === OWN_CHARACTER;
+  const credit = own ? undefined : rosterEntry(spec.character as CharacterId).credit;
+  const meta = await askVrmMeta(credit, { title: source.title, terms: describeLicense(source.vrmMeta) });
+  if (!meta) return;
+  const buttons = [...Object.values(exportButtons), $<HTMLButtonElement>('btnVrm')];
+  for (const button of buttons) button.disabled = true;
+  try {
+    setStatus('正在写 VRM（表情一个个算成形态键），稍等几秒…');
+    // 让上面那行字先显示出来
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const solver = makeSolver(rest.bones);
+    const frame = forward(solver.rig, stateOf(solver, tPosing(humanoid, rest)));
+    const springs = tailSprings(rest);
+    const file = characterVrm(build, source, {
+      matrices: poseMatrices(solver.rig, frame),
+      bones: posedBones(solver.rig, frame),
+      title: meta.title,
+      editor: meta.author,
+      ...(credit ? { credit } : {}),
+      springs,
+    });
+    const where = await saveBlob('oc_character.vrm', new Blob([file], { type: 'model/gltf-binary' }));
+    const faces = build.morphs?.expressions.length ?? 0;
+    const notes = [
+      'T-pose',
+      `${build.bones.length} 根骨骼`,
+      ...(faces ? [`${faces} 种表情`] : []),
+      ...(springs.length ? ['尾巴会晃'] : []),
+      ...(mode === 'pose' && isPosed(spec.posing) ? ['摆的姿势、表情不进 VRM'] : []),
+      `许可照原角色：${describeLicense(source.vrmMeta)}`,
+      ...(credit ? [`发出去时请署名「${credit}」`] : []),
+    ];
+    setStatus(`已导出 oc_character.vrm（${notes.join('，')}），${where}。`);
+  } catch (err) {
+    setStatus(`导出失败：${err instanceof Error ? err.message : err}`, true);
+  } finally {
+    for (const button of buttons) button.disabled = false;
+  }
+}
+
 async function exportVrm() {
   if (pending || (!figure && !character)) rebuild();
   if (character) {
-    setStatus('成品角色导出 VRM 还在做（贴图、表情、头发的弹簧骨骼要一起带上）：现在先用「带骨骼 GLB」。', true);
+    await exportCharacterVrm(character);
     return;
   }
   const target = figure;

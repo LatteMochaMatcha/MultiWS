@@ -11,7 +11,7 @@
  */
 import type { V3 } from '../geometry/vec';
 import type { Skeleton } from '../rig/skeleton';
-import { writeGlb } from './glb';
+import { type GlbContext, type GlbImage, type GlbMaterial, type GlbMesh, writeGlb } from './glb';
 
 /** 别人能怎么用：VRM 的许可名，和随之定下的几项「允许谁扮演、暴力、性、商用」 */
 export const VRM_LICENSES = {
@@ -192,16 +192,35 @@ const linear = (c: number) => {
   return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
 };
 
-/** 单色的 MToon（VRM 的卡通材质）：亮面是底色，暗面暗一些，没有描边 */
-function mtoon(name: string, color: number) {
-  const lit = [linear((color >> 16) & 255), linear((color >> 8) & 255), linear(color & 255), 1];
-  const shade = [lit[0] * 0.62, lit[1] * 0.64, lit[2] * 0.7, 1];
+/** VRM 0.x 一个材质的卡通着色（MToon）设定，照 materialProperties 的写法；textureProperties 的值是图片在 images 里的下标 */
+export interface VrmToon {
+  shader: string;
+  renderQueue: number;
+  floatProperties: Record<string, number>;
+  vectorProperties: Record<string, number[]>;
+  textureProperties: Record<string, number>;
+  keywordMap: Record<string, boolean>;
+  tagMap: Record<string, string>;
+}
+
+/** 材质的底色（线性 RGBA）：给了 factor 用它，不然照 color 换 */
+export const materialColor = (m: GlbMaterial): number[] =>
+  m.factor ? [...m.factor] : [linear((m.color >> 16) & 255), linear((m.color >> 8) & 255), linear(m.color & 255), 1];
+
+/**
+ * 照材质自己的样子配一份 MToon：亮面是底色（有贴图就是贴图乘底色），暗面暗一些，没有描边；
+ * 透明、镂空、双面照材质的设定
+ */
+export function plainToon(m: GlbMaterial): VrmToon {
+  const lit = materialColor(m);
+  const shade = [lit[0] * 0.62, lit[1] * 0.64, lit[2] * 0.7, lit[3]];
+  const mode = m.alphaMode ?? 'OPAQUE';
+  const blend = mode === 'BLEND';
   return {
-    name,
     shader: 'VRM/MToon',
-    renderQueue: 2000,
+    renderQueue: blend ? 3000 : mode === 'MASK' ? 2450 : 2000,
     floatProperties: {
-      _Cutoff: 0.5,
+      _Cutoff: m.alphaCutoff ?? 0.5,
       _BumpScale: 1,
       _ReceiveShadowRate: 1,
       _ShadingGradeRate: 1,
@@ -220,14 +239,14 @@ function mtoon(name: string, color: number) {
       _UvAnimRotation: 0,
       _MToonVersion: 38,
       _DebugMode: 0,
-      _BlendMode: 0,
+      _BlendMode: blend ? 2 : mode === 'MASK' ? 1 : 0,
       _OutlineWidthMode: 0,
       _OutlineColorMode: 0,
-      _CullMode: 2,
+      _CullMode: m.doubleSided ? 0 : 2,
       _OutlineCullMode: 1,
-      _SrcBlend: 1,
-      _DstBlend: 0,
-      _ZWrite: 1,
+      _SrcBlend: blend ? 5 : 1,
+      _DstBlend: blend ? 10 : 0,
+      _ZWrite: blend ? 0 : 1,
       _AlphaToMask: 0,
     },
     vectorProperties: {
@@ -239,101 +258,194 @@ function mtoon(name: string, color: number) {
       _RimColor: [0, 0, 0, 1],
       _OutlineColor: [0, 0, 0, 1],
     },
-    textureProperties: {},
-    keywordMap: {},
-    tagMap: { RenderType: 'Opaque' },
+    textureProperties: m.image === undefined ? {} : { _MainTex: m.image, _ShadeTexture: m.image },
+    keywordMap: blend ? { _ALPHABLEND_ON: true } : mode === 'MASK' ? { _ALPHATEST_ON: true } : {},
+    tagMap: { RenderType: blend ? 'Transparent' : mode === 'MASK' ? 'TransparentCutout' : 'Opaque' },
   };
 }
 
-/** lookAt 的曲线（没有眼睛骨骼时用不上，但 VRM 0.x 要求写着） */
-const CURVE = { curve: [0, 0, 0, 1, 1, 1, 1, 0], xRange: 90, yRange: 10 };
+/** lookAt 的曲线：输入转 90°（xRange）时眼珠转 range 度（yRange） */
+const curve = (range: number) => ({ curve: [0, 0, 0, 1, 1, 1, 1, 0], xRange: 90, yRange: range });
+
+/** 一个表情组（VRM 0.x 的 blendShapeGroup）：开哪个物体的哪几个形态键、开到多少（0–1） */
+export interface VrmExpression {
+  name: string;
+  /** VRM 规定的名字（joy、blink_l、a …）；不是规定的写 unknown */
+  preset: string;
+  binds: { object: string; target: number; weight: number }[];
+}
+
+/** 一个完整的 VRM：网格、贴图、骨架都是 T-pose、面朝 +Z、米 */
+export interface VrmModel {
+  meshes: GlbMesh[];
+  images?: GlbImage[];
+  skeleton: Skeleton;
+  /** VRM 0.x 的 meta，除了缩略图（见 thumbnail）都写全 */
+  meta: Record<string, unknown>;
+  /** 缩略图在 images 里的下标 */
+  thumbnail?: number;
+  /** 写进文件 asset.copyright 的署名 */
+  copyright?: string;
+  /** 每个材质的卡通着色 */
+  toon(material: GlbMaterial): VrmToon;
+  expressions?: VrmExpression[];
+  /** 眼珠最多转多少度（往外、往里、往下、往上）；没有眼睛骨骼就不给 */
+  look?: { outer: number; inner: number; down: number; up: number };
+  springs?: VrmSpring[];
+}
+
+/** 写成 VRM 0.x。一定要有的人形骨骼对不上时报错（见 humanoidMap） */
+export function writeVrmModel(model: VrmModel): ArrayBuffer {
+  const { skeleton, look, springs = [], expressions = [] } = model;
+  const humanoid = humanoidMap(skeleton);
+  const turned: Skeleton = { bones: skeleton.bones.map((b) => ({ ...b, head: turn(b.head), tail: turn(b.tail) })) };
+  // 每块网格都记上属于哪个物体（没给的就是它自己）：表情组、第一人称要照物体找网格
+  const meshes: GlbMesh[] = model.meshes.map((m) => ({
+    ...m,
+    object: m.object ?? m.name,
+    positions: turnArray(m.positions),
+    ...(m.normals ? { normals: turnArray(m.normals) } : {}),
+    ...(m.targets ? { targets: m.targets.map((t) => ({ name: t.name, positions: turnArray(t.positions) })) } : {}),
+  }));
+  const objects = [...new Set(meshes.map((m) => m.object ?? m.name))];
+  // 节点的下标：骨骼照骨架的顺序排在最前面，网格是后面几个（见 writeGlb）
+  const head = humanoid.get('head')!;
+  const data = (context: GlbContext) => ({
+    VRM: {
+      exporterVersion: 'OC Basemesh Workshop v2',
+      specVersion: '0.0',
+      meta: { ...model.meta, ...(model.thumbnail === undefined ? {} : { texture: context.texture(model.thumbnail) }) },
+      humanoid: {
+        humanBones: [...humanoid].map(([bone, node]) => ({ bone, node, useDefaultValues: true })),
+        armStretch: 0.05,
+        legStretch: 0.05,
+        upperArmTwist: 0.5,
+        lowerArmTwist: 0.5,
+        upperLegTwist: 0.5,
+        lowerLegTwist: 0.5,
+        feetSpacing: 0,
+        hasTranslationDoF: false,
+      },
+      firstPerson: {
+        firstPersonBone: head,
+        firstPersonBoneOffset: { x: 0, y: 0.06, z: 0 },
+        meshAnnotations: objects.map((object) => ({ mesh: context.meshOf(object), firstPersonFlag: 'Auto' })),
+        lookAtTypeName: 'Bone',
+        lookAtHorizontalInner: curve(look?.inner ?? 10),
+        lookAtHorizontalOuter: curve(look?.outer ?? 10),
+        lookAtVerticalDown: curve(look?.down ?? 10),
+        lookAtVerticalUp: curve(look?.up ?? 10),
+      },
+      blendShapeMaster: {
+        blendShapeGroups: expressions.map((e) => ({
+          name: e.name,
+          presetName: e.preset,
+          binds: e.binds.map((b) => ({ mesh: context.meshOf(b.object), index: b.target, weight: Math.round(b.weight * 1000) / 10 })),
+          materialValues: [],
+          isBinary: false,
+        })),
+      },
+      secondaryAnimation: {
+        boneGroups: springs
+          .filter((s) => s.roots.length)
+          .map((s) => ({
+            comment: s.comment,
+            stiffiness: s.stiffness,
+            gravityPower: s.gravity,
+            gravityDir: { x: 0, y: -1, z: 0 },
+            dragForce: s.drag,
+            center: -1,
+            hitRadius: s.hitRadius,
+            bones: s.roots,
+            colliderGroups: [],
+          })),
+        colliderGroups: [],
+      },
+      // 和文件里的材质一一对应；贴图那几项从图片下标换成贴图下标
+      materialProperties: context.materials.map((m) => {
+        const toon = model.toon(m);
+        return {
+          name: m.name,
+          ...toon,
+          textureProperties: Object.fromEntries(Object.entries(toon.textureProperties).map(([key, image]) => [key, context.texture(image)])),
+        };
+      }),
+    },
+  });
+  return writeGlb(meshes, {
+    skeleton: turned,
+    rigName: 'OC_Rig',
+    boneAxes: 'none',
+    ...(model.images ? { images: model.images } : {}),
+    ...(model.copyright ? { copyright: model.copyright } : {}),
+    extensions: { used: ['VRM'], data },
+  });
+}
+
+/** 白模填的那几项 → VRM 0.x 的 meta */
+export function licenseMeta(meta: VrmMeta): Record<string, unknown> {
+  const terms = VRM_LICENSES[meta.license];
+  return {
+    title: meta.title,
+    version: '1.0',
+    author: meta.author,
+    contactInformation: '',
+    reference: meta.credits ?? '',
+    allowedUserName: terms.allowed,
+    violentUssageName: terms.use,
+    sexualUssageName: terms.use,
+    commercialUssageName: meta.license === 'ccbync' ? 'Disallow' : terms.use,
+    otherPermissionUrl: '',
+    licenseName: terms.license,
+    otherLicenseUrl: '',
+  };
+}
 
 /**
- * 写成 VRM 0.x。mesh、skeleton 是 T-pose、面朝 +Z、米；springs 是会晃的几串骨骼。
+ * 白模写成 VRM 0.x：一整块单色的网格。mesh、skeleton 是 T-pose、面朝 +Z、米；springs 是会晃的几串骨骼。
  * 一定要有的人形骨骼对不上时报错（见 humanoidMap）
  */
 export function writeVrm(mesh: VrmMesh, skeleton: Skeleton, meta: VrmMeta, springs: VrmSpring[] = []): ArrayBuffer {
-  const humanoid = humanoidMap(skeleton);
-  const turned: Skeleton = { bones: skeleton.bones.map((b) => ({ ...b, head: turn(b.head), tail: turn(b.tail) })) };
-  const material = 'OC_Clay';
-  const terms = VRM_LICENSES[meta.license];
-  // 节点的下标：骨骼照骨架的顺序排在最前面，网格是下一个（见 writeGlb）
-  const head = humanoid.get('head')!;
-  const vrm = {
-    exporterVersion: 'OC Basemesh Workshop v2',
-    specVersion: '0.0',
-    meta: {
-      title: meta.title,
-      version: '1.0',
-      author: meta.author,
-      contactInformation: '',
-      reference: meta.credits ?? '',
-      allowedUserName: terms.allowed,
-      violentUssageName: terms.use,
-      sexualUssageName: terms.use,
-      commercialUssageName: meta.license === 'ccbync' ? 'Disallow' : terms.use,
-      otherPermissionUrl: '',
-      licenseName: terms.license,
-      otherLicenseUrl: '',
-    },
-    humanoid: {
-      humanBones: [...humanoid].map(([bone, node]) => ({ bone, node, useDefaultValues: true })),
-      armStretch: 0.05,
-      legStretch: 0.05,
-      upperArmTwist: 0.5,
-      lowerArmTwist: 0.5,
-      upperLegTwist: 0.5,
-      lowerLegTwist: 0.5,
-      feetSpacing: 0,
-      hasTranslationDoF: false,
-    },
-    firstPerson: {
-      firstPersonBone: head,
-      firstPersonBoneOffset: { x: 0, y: 0.06, z: 0 },
-      meshAnnotations: [{ mesh: 0, firstPersonFlag: 'Auto' }],
-      lookAtTypeName: 'Bone',
-      lookAtHorizontalInner: CURVE,
-      lookAtHorizontalOuter: CURVE,
-      lookAtVerticalDown: CURVE,
-      lookAtVerticalUp: CURVE,
-    },
-    blendShapeMaster: { blendShapeGroups: [] },
-    secondaryAnimation: {
-      boneGroups: springs
-        .filter((s) => s.roots.length)
-        .map((s) => ({
-          comment: s.comment,
-          stiffiness: s.stiffness,
-          gravityPower: s.gravity,
-          gravityDir: { x: 0, y: -1, z: 0 },
-          dragForce: s.drag,
-          center: -1,
-          hitRadius: s.hitRadius,
-          bones: s.roots,
-          colliderGroups: [],
-        })),
-      colliderGroups: [],
-    },
-    materialProperties: [mtoon(material, mesh.color)],
-  };
-  return writeGlb(
-    [
+  return writeVrmModel({
+    meshes: [
       {
         name: 'OC_Body',
-        positions: turnArray(mesh.positions),
-        normals: turnArray(mesh.normals),
+        positions: mesh.positions,
+        normals: mesh.normals,
         indices: mesh.indices,
         joints: mesh.joints,
         weights: mesh.weights,
-        material: { name: material, color: mesh.color },
+        material: { name: 'OC_Clay', color: mesh.color },
       },
     ],
-    {
-      skeleton: turned,
-      rigName: 'OC_Rig',
-      boneAxes: 'none',
-      ...(meta.credits ? { copyright: meta.credits } : {}),
-      extensions: { used: ['VRM'], data: { VRM: vrm } },
-    },
-  );
+    skeleton,
+    meta: licenseMeta(meta),
+    ...(meta.credits ? { copyright: meta.credits } : {}),
+    toon: plainToon,
+    springs,
+  });
+}
+
+/** 原角色的许可说成人话（导出前的小框里给人看）：许可名，再加上几条「不许」 */
+export function describeLicense(meta: Record<string, unknown>): string {
+  const names: Record<string, string> = {
+    CC0: 'CC0（随便用）',
+    CC_BY: 'CC BY（要署名）',
+    CC_BY_NC: 'CC BY-NC（要署名、不许商用）',
+    CC_BY_SA: 'CC BY-SA（要署名，改过的也只能用这个许可）',
+    CC_BY_NC_SA: 'CC BY-NC-SA（要署名、不许商用，改过的也只能用这个许可）',
+    CC_BY_ND: 'CC BY-ND（要署名、不许改）',
+    CC_BY_NC_ND: 'CC BY-NC-ND（要署名、不许商用、不许改）',
+    Redistribution_Prohibited: '不许再分发',
+    Other: '原作者自己写的条件',
+  };
+  const license = typeof meta.licenseName === 'string' ? meta.licenseName : '';
+  const notes = [
+    names[license] ?? (license || '没写许可'),
+    meta.allowedUserName === 'OnlyAuthor' ? '只许作者本人扮演' : '',
+    meta.violentUssageName === 'Disallow' ? '不许用于暴力表现' : '',
+    meta.sexualUssageName === 'Disallow' ? '不许用于性表现' : '',
+    meta.commercialUssageName === 'Disallow' ? '不许商用' : '',
+  ];
+  return notes.filter(Boolean).join('，');
 }
