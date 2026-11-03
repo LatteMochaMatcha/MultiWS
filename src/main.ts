@@ -237,13 +237,22 @@ const gate = (next: BodySpec): BodySpec => (adultOn() ? next : withoutAdult(next
 /** 成人部件的几项要不要显示 */
 const adultShown = () => adultOn() && spec.bodyStyle !== 'character';
 
+/**
+ * 存档、配置文件里的描述：没手改过的规范描述换成现在界面语言的写法（换了语言描述框跟着换），
+ * 手写的原样留着（三种语言解析器都认）
+ */
+function restoredText(saved: unknown): string {
+  if (typeof saved !== 'string') return describeSpec(spec);
+  return LANGS.some((l) => describeSpec(spec, l.key) === saved) ? describeSpec(spec) : saved;
+}
+
 function load() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) {
       const data = JSON.parse(raw);
       spec = gate(normalizeSpec(data));
-      readText(typeof data.text === 'string' ? data.text : describeSpec(spec));
+      readText(restoredText(data.text));
       return;
     }
   } catch {
@@ -3533,8 +3542,7 @@ fileJson.addEventListener('change', async () => {
     const data: unknown = JSON.parse(await file.text());
     if (typeof data !== 'object' || data === null || !('counts' in data)) throw new Error('not a config');
     spec = gate(normalizeSpec(data));
-    const saved = (data as { text?: unknown }).text;
-    readText(typeof saved === 'string' ? saved : describeSpec(spec));
+    readText(restoredText((data as { text?: unknown }).text));
     desc.value = text;
     refitNext = true;
     commit();

@@ -75,7 +75,10 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);fo
 /* ---------- 面板 ---------- */
 .panel{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;background:var(--panel);border-left:1px solid var(--line)}
 .panel-scroll{flex:1;min-height:0;overflow-y:auto;padding-block:22px 24px;padding-inline:20px;display:flex;flex-direction:column;gap:16px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
-.title{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.title{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px}
+/* 英文、日文的应用名长：放不下时语言和主题挪到下一行靠右 */
+.title-tools{display:flex;align-items:center;gap:8px;margin-left:auto}
+:root[data-lang="en"] header h1{font-size:22px}
 header h1{font-weight:700;font-size:26px;line-height:1.1;margin:0;letter-spacing:.02em}
 header h1 small{font-family:var(--f-mono);font-size:13px;font-weight:400;color:var(--muted);letter-spacing:0}
 header p{margin:6px 0 0;color:var(--muted);font-size:13px}
@@ -103,7 +106,7 @@ textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border
 @media (hover:hover){.btn:hover{border-color:var(--accent);color:var(--accent)}}
 .btn:focus-visible,.stepper button:focus-visible,.seg label:focus-within{outline:2px solid var(--accent);outline-offset:1px}
 .btn.ghost{font-size:12px;color:var(--muted);white-space:nowrap;padding:4px 8px}
-.title .lang{width:auto;margin-left:auto;font-size:12px;color:var(--muted);padding:3px 6px}
+.title .lang{width:auto;font-size:12px;color:var(--muted);padding:3px 6px}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:500}
 @media (hover:hover){.btn.primary:hover{filter:brightness(1.08);color:var(--accent-ink)}}
 .btn:disabled{opacity:.45;cursor:not-allowed;filter:none}
@@ -253,7 +256,7 @@ button,label,summary,select,input{touch-action:manipulation}
 }
 @media (max-height:520px) and (orientation:landscape) and (min-width:601px){
   .panel-scroll{padding-block:12px 14px;padding-inline:14px;gap:12px}
-  header h1{font-size:20px}
+  header h1,:root[data-lang="en"] header h1{font-size:20px}
   .panel-foot{padding:8px 10px;gap:6px}
 }
 /* 手机上（竖屏、横屏都算）屏幕矮：导出按钮排成一行 */
