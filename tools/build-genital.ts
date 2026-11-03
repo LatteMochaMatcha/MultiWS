@@ -4,8 +4,9 @@
 //
 // 阴茎：照手的做法（tools/build-hand.ts）不过距离场。融合网格是按 6–12 毫米的格子重新生成表面的，
 //   龟头的冠状沟比格子还细，过一遍就成了一个圆头。所以在根部往外一点横着切一刀，切口以外原样留下，
-//   写成 src/anime/penisMesh.json，融合完缝到身体上伸出来的一小截圆柱上（见 src/sdf/graft.ts）。
+//   写成 src/anime/penisMesh.json，融合完缝在切口上（见 src/sdf/graft.ts）。
 //   原件没有骨骼：顺着中心线分三节，权重照每个顶点在中心线上的位置现算。
+//   切口以内（根部到切口那一截）照原样采成距离场格子，接在阴囊的格子后面。
 // 阴囊：取下来，切口往身体里压进去封好，采成距离场格子，写进 public/genital.bin（尺寸记在 src/anime/genitalMeta.json）。
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -28,6 +29,18 @@ const BLEND = 0.015;
  * 弯下一节时缝口不被扯歪（关节本来在三等分处，切口挪到快到龟头以后正好落在关节上，一圈的权重从两成多到全是龟头那节）
  */
 const RIM_CLEAR = 0.003;
+/**
+ * 根部到切口那一截采成距离场格子（融合时几根的根部挤在这一截里贴着）：从根部往外 SHAFT_FROM（米）起照原样取
+ * （再往根部横截面连着阴囊、小腹），从那一圈起照它的截面顺着根部的方向拉直，一直伸进身体里 SHAFT_IN；过了切口再多 SHAFT_OUT 收住。
+ * 格子每格多大、距离存到多远（米）
+ */
+const SHAFT_FROM = 0.01;
+const SHAFT_IN = 0.06;
+const SHAFT_OUT = 0.015;
+const SHAFT_CELL = 0.0025;
+const SHAFT_BAND = 0.02;
+/** 求最近距离时三角形按这么大（米）的方块分桶 */
+const BUCKET = 0.01;
 /** 细分几次；新加的点往外鼓多少（同 build-hand.ts） */
 const LEVELS = 1;
 const BULGE = 0.75;
@@ -184,6 +197,64 @@ function reachable(polys: number[][], keep: (v: number) => boolean, start: numbe
   return [...seen].sort((a, b) => a - b);
 }
 
+/**
+ * 网格在平面（过 at、法线 dir）前面、连着顶点 start 的那一块，照平面切齐：整个在前面的三角形原样留，
+ * 跨着平面的只留前面那一块（交点按边记，相邻两个面用同一个点）。返回取下来的顶点、法线、三角形（编号从 0 起）
+ */
+function clipPiece(points: V3[], normals: V3[], polys: number[][], at: V3, dir: V3, start: number) {
+  const ahead = (p: V3) => dot(sub(p, at), dir);
+  const all: V3[] = [...points];
+  const allNormals: V3[] = [...normals];
+  const onEdge = new Map<number, number>();
+  const meet = (a: number, b: number) => {
+    const key = edgeKey(a, b);
+    let id = onEdge.get(key);
+    if (id === undefined) {
+      const t = ahead(points[a]) / (ahead(points[a]) - ahead(points[b]));
+      id = all.length;
+      all.push(add(points[a], scale(sub(points[b], points[a]), t)));
+      allNormals.push(unit(add(scale(normals[a], 1 - t), scale(normals[b], t))));
+      onEdge.set(key, id);
+    }
+    return id;
+  };
+  const clipped: number[][] = [];
+  for (const f of polys) {
+    for (let k = 1; k + 1 < f.length; k++) {
+      const t = [f[0], f[k], f[k + 1]];
+      const front = t.map((v) => ahead(points[v]) > 0);
+      if (front.every(Boolean)) clipped.push(t);
+      if (front.every(Boolean) || !front.some(Boolean)) continue;
+      // 跨着平面：沿三条边走一圈，前面的顶点和过平面的交点按顺序连起来（三个或四个点）
+      const ring: number[] = [];
+      for (let j = 0; j < 3; j++) {
+        const a = t[j];
+        const b = t[(j + 1) % 3];
+        if (front[j]) ring.push(a);
+        if (front[j] !== front[(j + 1) % 3]) ring.push(meet(a, b));
+      }
+      for (let j = 1; j + 1 < ring.length; j++) clipped.push([ring[0], ring[j], ring[j + 1]]);
+    }
+  }
+  const used = new Map<number, number>();
+  const out = { points: [] as V3[], normals: [] as V3[], triangles: [] as number[][] };
+  for (const i of reachable(clipped, () => true, start)) {
+    out.triangles.push(
+      clipped[i].map((v) => {
+        let id = used.get(v);
+        if (id === undefined) {
+          id = out.points.length;
+          used.set(v, id);
+          out.points.push(all[v]);
+          out.normals.push(allNormals[v]);
+        }
+        return id;
+      }),
+    );
+  }
+  return out;
+}
+
 /** 只属于一个面的边，顺着面的方向连成一圈（同 build-hand.ts） */
 function boundaryLoops(triangles: number[][]): number[][] {
   const uses = new Map<number, number>();
@@ -315,26 +386,12 @@ export async function main(args: string[], root: string) {
   const cutAt = CUT_OUT;
   const cut = pointAt(line, cutAt);
   const cutDir = unit(sub(pointAt(line, cutAt + 0.01), pointAt(line, Math.max(cutAt - 0.01, 0))));
-  const outside = (v: number) => dot(sub(points[v], cut), cutDir) > 0;
-  const kept = reachable(polys, outside, tipIndex);
-  const used = new Map<number, number>();
-  const piecePoints: V3[] = [];
-  const pieceNormals: V3[] = [];
-  const take = (v: number) => {
-    let id = used.get(v);
-    if (id === undefined) {
-      id = piecePoints.length;
-      used.set(v, id);
-      piecePoints.push(points[v]);
-      pieceNormals.push(normals[v]);
-    }
-    return id;
-  };
-  let triangles: number[][] = [];
-  for (const i of kept) {
-    const f = polys[i].map(take);
-    for (let k = 1; k + 1 < f.length; k++) triangles.push([f[0], f[k], f[k + 1]]);
-  }
+  // 照切面切齐（见 clipPiece）：切口那一圈是锯齿的话，缝的时候往前伸得远的那几处（那里已经变细）把身体那边往里拽，缝口凹下去一块
+  const piece = clipPiece(points, normals, polys, cut, cutDir, tipIndex);
+  const piecePoints = piece.points;
+  const pieceNormals = piece.normals;
+  let triangles = piece.triangles;
+  const kept = triangles.length;
   const loops0 = boundaryLoops(triangles);
   if (loops0.length !== 1) throw new Error(`切口应该是一圈，现在是 ${loops0.length} 圈（${loops0.map((l) => l.length).join('、')} 个顶点）`);
   for (let level = 0; level < LEVELS; level++) triangles = subdivide(piecePoints, pieceNormals, triangles);
@@ -342,7 +399,7 @@ export async function main(args: string[], root: string) {
   const rimRadius = loop.map((v) => len(sub(piecePoints[v], cut)));
   console.log(
     `阴茎：切口在根部往外 ${cutAt} 米 (${round(cut, 3).join(', ')})，方向 (${round(cutDir, 3).join(', ')})；` +
-      `留下 ${kept.length} 个面，细分后 ${piecePoints.length} 个顶点、${triangles.length} 个三角面；切口一圈 ${loop.length} 个顶点，半径 ${Math.min(...rimRadius).toFixed(4)}–${Math.max(...rimRadius).toFixed(4)}`,
+      `留下 ${kept} 个三角面，细分后 ${piecePoints.length} 个顶点、${triangles.length} 个三角面；切口一圈 ${loop.length} 个顶点，半径 ${Math.min(...rimRadius).toFixed(4)}–${Math.max(...rimRadius).toFixed(4)}`,
   );
 
   /* ---- 阴茎：骨骼和权重 ---- */
@@ -418,6 +475,76 @@ export async function main(args: string[], root: string) {
     writeObj(join(debug, 'penis.obj'), piecePoints, triangles);
     writeObj(join(debug, 'centerline.obj'), [...line, ...joints], []);
   }
+
+  /* ---- 阴茎：根部到切口那一截采成距离场格子 ---- */
+  // 照原样取：往上弯、根部粗往前渐细、截面上下比左右高（底下那道棱）。原来是一根直的圆台，看着像根管子。
+  // 往根部拉直的方向照根部（差不多平着往前，左右的一点歪不要）：照弯上去以后的方向往回拉的话越往身体里越低，压住阴囊
+  const from = pointAt(line, SHAFT_FROM);
+  const rootWay = sub(line[Math.min(2, line.length - 1)], line[0]);
+  const fromDir = unit([0, rootWay[1], rootWay[2]]);
+  const ahead = (p: V3) => dot(sub(p, from), fromDir);
+  // 照那个平面切齐：只留整个在前面的面的话，那一圈是锯齿，拉直的那一截从锯齿上接出去，根部一圈毛糙
+  const shaft = clipPiece(points, normals, polys, from, fromDir, tipIndex);
+  const shaftPoints = shaft.points;
+  const shaftNormals = shaft.normals;
+  let shaftTris = shaft.triangles;
+  for (let level = 0; level < LEVELS; level++) shaftTris = subdivide(shaftPoints, shaftNormals, shaftTris);
+  const shaftLoops = boundaryLoops(shaftTris);
+  if (shaftLoops.length !== 1) throw new Error(`阴茎根部那一圈应该是一圈，现在是 ${shaftLoops.length} 圈`);
+  // 那一圈往根部拉直成一圈墙，拉到格子外面封上（封口那一面不算距离，只用来数射线穿过几次分里外）
+  const [rim] = shaftLoops;
+  const back = SHAFT_FROM + SHAFT_IN + SHAFT_BAND;
+  const pulled = rim.map((v) => sub(shaftPoints[v], scale(fromDir, ahead(shaftPoints[v]) + back)));
+  const tri = (t: number[]): [V3, V3, V3] => [shaftPoints[t[0]], shaftPoints[t[1]], shaftPoints[t[2]]];
+  const walls: [V3, V3, V3][] = [
+    ...shaftTris.map(tri),
+    ...rim.flatMap((v, k): [V3, V3, V3][] => {
+      const n = (k + 1) % rim.length;
+      return [
+        [shaftPoints[v], shaftPoints[rim[n]], pulled[n]],
+        [shaftPoints[v], pulled[n], pulled[k]],
+      ];
+    }),
+  ];
+  const plug = mean(pulled);
+  const closed = [...walls, ...pulled.map((p, k): [V3, V3, V3] => [p, pulled[(k + 1) % pulled.length], plug])];
+  // 留下的范围：拉直那一截伸进身体 SHAFT_IN 为止，往外过了切口 SHAFT_OUT 为止
+  const inner = -(SHAFT_FROM + SHAFT_IN);
+  const end = add(cut, scale(cutDir, SHAFT_OUT));
+  const shaftRoot = round(baseRing.center);
+  const kept3 = [...shaftPoints.filter((p) => dot(sub(p, end), cutDir) <= 0), ...pulled.map((p) => add(p, scale(fromDir, SHAFT_BAND)))];
+  const shaftLo: V3 = [0, 1, 2].map((k) => Math.min(...kept3.map((p) => p[k]))) as V3;
+  const shaftHi: V3 = [0, 1, 2].map((k) => Math.max(...kept3.map((p) => p[k]))) as V3;
+  const shaftMargin = SHAFT_BAND + SHAFT_CELL;
+  const shaftMin = sub(sub(shaftLo, [shaftMargin, shaftMargin, shaftMargin]), shaftRoot);
+  const shaftDims = [0, 1, 2].map((k) => Math.ceil((shaftHi[k] - shaftLo[k] + 2 * shaftMargin) / SHAFT_CELL) + 1) as [number, number, number];
+  const [sx, sy, sz] = shaftDims;
+  const cellAt = (i: number, j: number, k: number): V3 => add(shaftRoot, [shaftMin[0] + i * SHAFT_CELL, shaftMin[1] + j * SHAFT_CELL, shaftMin[2] + k * SHAFT_CELL]);
+  const t1 = Date.now();
+  const nearest = nearestTo(walls, SHAFT_BAND);
+  const shaftData = new Int16Array(sx * sy * sz);
+  for (let j = 0; j < sy; j++) {
+    for (let i = 0; i < sx; i++) {
+      const hits = zHits(closed, cellAt(i, j, 0));
+      for (let k = 0; k < sz; k++) {
+        const p = cellAt(i, j, k);
+        const inside = hits.filter((z) => z > p[2]).length % 2 === 1;
+        const d = Math.max(nearest(p) * (inside ? -1 : 1), inner - ahead(p), dot(sub(p, end), cutDir));
+        shaftData[i + sx * (j + sy * k)] = Math.round(Math.max(-1, Math.min(1, d / SHAFT_BAND)) * 32767);
+      }
+    }
+  }
+  console.log(`阴茎根部那一截的格子：${shaftDims.join(' × ')}，每格 ${SHAFT_CELL * 1000} 毫米，用了 ${((Date.now() - t1) / 1000).toFixed(1)} 秒；取了 ${shaftTris.length} 个三角面，根部那一圈 ${rim.length} 个顶点`);
+  const shaftMeta = {
+    /** 格子的坐标以阴茎根部（penisMesh.json 的 base）为原点 */
+    root: shaftRoot,
+    min: round(shaftMin, 5),
+    dims: shaftDims,
+    cell: SHAFT_CELL,
+    band: SHAFT_BAND,
+    bounds: { min: round(sub(shaftLo, shaftRoot)), max: round(sub(shaftHi, shaftRoot)) },
+  };
+  if (debug) writeObj(join(debug, 'shaft-closed.obj'), closed.flat(), closed.map((_, t) => [t * 3, t * 3 + 1, t * 3 + 2]));
 
   /* ---- 阴囊：从最前面那一点往外长，碰到阴茎、大腿、身体就停 ---- */
   const base = baseRing.center;
@@ -542,9 +669,13 @@ export async function main(args: string[], root: string) {
   const sacHi2 = sub(box.max, sacRoot);
   console.log(`阴囊格子：${dims.join(' × ')}，每格 ${SCROTUM_CELL * 1000} 毫米，用了 ${((Date.now() - t0) / 1000).toFixed(1)} 秒；里面 ${insideCells} 格；射线看了 ${column.length} 个三角形，距离看了 ${near.length} 个`);
   const binary = join(root, 'public/genital.bin');
-  writeFileSync(binary, new Uint8Array(data.buffer));
+  // 阴囊的格子在前，阴茎根部那一截的接在后面
+  const both = new Int16Array(data.length + shaftData.length);
+  both.set(data);
+  both.set(shaftData, data.length);
+  writeFileSync(binary, new Uint8Array(both.buffer));
   const meta = {
-    note: 'DJP Male Base Mesh Mark 03（Death Joe Productions，CC BY 4.0）的阴囊，由 tools/build-genital.ts 生成，不要手改',
+    note: 'DJP Male Base Mesh Mark 03（Death Joe Productions，CC BY 4.0）的阴囊、阴茎根部到切口那一截，由 tools/build-genital.ts 生成，不要手改',
     credit: CREDIT,
     scrotum: {
       /** 格子的坐标以框的后面正中（贴着身体那一面）为原点；它在素体模型里的位置 */
@@ -557,9 +688,52 @@ export async function main(args: string[], root: string) {
       offset: 0,
       length: data.length,
     },
+    penis: { ...shaftMeta, offset: data.length, length: shaftData.length },
   };
   writeFileSync(join(root, 'src/anime/genitalMeta.json'), `${JSON.stringify(meta, null, 2)}\n`);
-  console.log(`写到 ${binary}（${(data.byteLength / 1024).toFixed(0)} KB）和 src/anime/genitalMeta.json`);
+  console.log(`写到 ${binary}（${(both.byteLength / 1024).toFixed(0)} KB）和 src/anime/genitalMeta.json`);
+}
+
+/** 过 p 沿 z 的一条直线和三角形相交处的 z（只看 xy 投影盖得住 p 的；比 p 大的有单数个就是在里面） */
+function zHits(tris: [V3, V3, V3][], p: V3): number[] {
+  const xs = p[0] + 1.3e-7;
+  const ys = p[1] + 0.7e-7;
+  const hits: number[] = [];
+  for (const [a, b, c] of tris) {
+    const d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+    if (Math.abs(d) < 1e-14) continue;
+    const u = ((b[1] - c[1]) * (xs - c[0]) + (c[0] - b[0]) * (ys - c[1])) / d;
+    const v = ((c[1] - a[1]) * (xs - c[0]) + (a[0] - c[0]) * (ys - c[1])) / d;
+    if (u < 0 || v < 0 || u + v > 1) continue;
+    hits.push(u * a[2] + v * b[2] + (1 - u - v) * c[2]);
+  }
+  return hits;
+}
+
+/** 点到一堆三角形最近的距离，比 cap 远的一律当 cap：三角形照外接盒子胀 cap 分进 BUCKET 大的方块，一个点只看它那一块里的 */
+function nearestTo(tris: [V3, V3, V3][], cap: number): (p: V3) => number {
+  const lo = [0, 1, 2].map((k) => Math.min(...tris.flatMap((t) => t.map((q) => q[k]))) - cap - BUCKET);
+  const key = (i: number, j: number, k: number) => i + 1024 * (j + 1024 * k);
+  const cellOf = (v: number, k: number) => Math.floor((v - lo[k]) / BUCKET);
+  const buckets = new Map<number, number[]>();
+  tris.forEach((t, n) => {
+    const a = [0, 1, 2].map((k) => cellOf(Math.min(t[0][k], t[1][k], t[2][k]) - cap, k));
+    const b = [0, 1, 2].map((k) => cellOf(Math.max(t[0][k], t[1][k], t[2][k]) + cap, k));
+    for (let i = a[0]; i <= b[0]; i++) {
+      for (let j = a[1]; j <= b[1]; j++) {
+        for (let k = a[2]; k <= b[2]; k++) {
+          const list = buckets.get(key(i, j, k)) ?? [];
+          list.push(n);
+          buckets.set(key(i, j, k), list);
+        }
+      }
+    }
+  });
+  return (p) => {
+    let best = cap * cap;
+    for (const n of buckets.get(key(cellOf(p[0], 0), cellOf(p[1], 1), cellOf(p[2], 2))) ?? []) best = Math.min(best, distance2(p, ...tris[n]));
+    return Math.sqrt(best);
+  };
 }
 
 /** 圆滑的取交：a、b 都在里面的才算里面，交界处倒半径 k 的圆角 */

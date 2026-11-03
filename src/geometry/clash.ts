@@ -17,7 +17,7 @@ import {
 } from './figure';
 import { getGrid } from '../sdf/grids';
 import { chestBulk } from '../anime/chest';
-import { PENIS_BASE, PENIS_LINE, PENIS_RADIUS } from '../anime/genital';
+import { PENIS_BASE, PENIS_GRID, PENIS_LINE, PENIS_RADIUS } from '../anime/genital';
 import { sampleTube } from './shapes';
 import { type V3, add, dot, lerp, mat3Apply, mul, rotate, sub } from './vec';
 
@@ -55,7 +55,7 @@ const ROOT_FREE: Partial<Record<PartType, number>> = {
   neck: 0.07,
   horn: 0.04,
   ear: 0.05,
-  // 阴茎根部的圆台往身体里埋了好几厘米，阴囊贴着身体那一面埋在大腿前面
+  // 阴茎根部那一截往身体里埋了好几厘米，阴囊贴着身体那一面埋在大腿前面
   genital: 0.09,
 };
 /** 同类部件之间（两条腿、两只角）根部挨得近，多放宽一些 */
@@ -173,9 +173,11 @@ function toBody(part: Part, xf: WorldXf): Body {
   const shape = shapeMatrix(part);
   const thin = shapeThin(part);
   const place = (q: V3): V3 => add(xf.pos, mul(rotate(xf.quat, shape ? mat3Apply(shape, q) : q), xf.scale));
-  // 缝上去的阴茎不在基本体里：顺着它的中心线另放一串圆棒（粗细取九成，宁小勿大）
+  // 缝上去的阴茎不在基本体里：顺着它的中心线另放一串圆棒（粗细取九成，宁小勿大）。
+  // 根部那一截的格子是弯的，照外接盒子放一根直棒不准，也照这一串算
   const grafted = part.grafts?.some((g) => g.mesh === 'penis') ? penisRods() : [];
-  const rods = [...part.prims.flatMap(primRods), ...grafted].map((r) => ({
+  const prims = part.prims.filter((p) => p.kind !== 'grid' || p.grid !== PENIS_GRID);
+  const rods = [...prims.flatMap(primRods), ...grafted].map((r) => ({
     a: place(r.a),
     b: place(r.b),
     ra: r.ra * xf.scale * thin,
