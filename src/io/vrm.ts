@@ -39,6 +39,16 @@ export interface VrmSpring {
   gravity: number;
   drag: number;
   hitRadius: number;
+  /** 重力朝哪边（面朝 +Z 的写法），不给就是朝下 */
+  gravityDir?: V3;
+  /** 和哪几组碰撞球碰（VrmModel.colliders 的下标） */
+  colliders?: number[];
+}
+
+/** 挂在一根骨骼（下标照骨架）上的一组碰撞球：offset 是球心离关节多远（米，面朝 +Z、T-pose 时的方向） */
+export interface VrmColliders {
+  bone: number;
+  spheres: { offset: V3; radius: number }[];
 }
 
 export interface VrmMesh {
@@ -292,11 +302,18 @@ export interface VrmModel {
   /** 眼珠最多转多少度（往外、往里、往下、往上）；没有眼睛骨骼就不给 */
   look?: { outer: number; inner: number; down: number; up: number };
   springs?: VrmSpring[];
+  colliders?: VrmColliders[];
 }
+
+/**
+ * 弹簧骨骼里的方向（碰撞球的位置、重力）照 UniVRM 的写法存：它导出时把 z 翻过（three-vrm 读的时候翻回来），
+ * 工坊面朝 +Z 的写法转成面朝 -Z 再翻 z，正好是 x 取反
+ */
+const springVector = (v: V3) => ({ x: -v[0], y: v[1], z: v[2] });
 
 /** 写成 VRM 0.x。一定要有的人形骨骼对不上时报错（见 humanoidMap） */
 export function writeVrmModel(model: VrmModel): ArrayBuffer {
-  const { skeleton, look, springs = [], expressions = [] } = model;
+  const { skeleton, look, springs = [], colliders = [], expressions = [] } = model;
   const humanoid = humanoidMap(skeleton);
   const turned: Skeleton = { bones: skeleton.bones.map((b) => ({ ...b, head: turn(b.head), tail: turn(b.tail) })) };
   // 每块网格都记上属于哪个物体（没给的就是它自己）：表情组、第一人称要照物体找网格
@@ -352,14 +369,17 @@ export function writeVrmModel(model: VrmModel): ArrayBuffer {
             comment: s.comment,
             stiffiness: s.stiffness,
             gravityPower: s.gravity,
-            gravityDir: { x: 0, y: -1, z: 0 },
+            gravityDir: springVector(s.gravityDir ?? [0, -1, 0]),
             dragForce: s.drag,
             center: -1,
             hitRadius: s.hitRadius,
             bones: s.roots,
-            colliderGroups: [],
+            colliderGroups: s.colliders ?? [],
           })),
-        colliderGroups: [],
+        colliderGroups: colliders.map((c) => ({
+          node: c.bone,
+          colliders: c.spheres.map((s) => ({ offset: springVector(s.offset), radius: s.radius })),
+        })),
       },
       // 和文件里的材质一一对应；贴图那几项从图片下标换成贴图下标
       materialProperties: context.materials.map((m) => {

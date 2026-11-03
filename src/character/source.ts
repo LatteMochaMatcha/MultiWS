@@ -121,6 +121,34 @@ export interface CharacterSource {
   toon?: Map<string, Omit<VrmToon, 'textureProperties'>>;
   /** VRM 0.x 文件的 meta 原样：导出 VRM 时照抄许可、允许谁用、作者这几项。1.0 的文件没有这一项 */
   vrmMeta?: Record<string, unknown>;
+  /** VRM 0.x 文件里会晃的骨骼（头发、裙摆、胸……）和它们碰的碰撞球：导出 VRM 时照抄。1.0 的文件没有这一项 */
+  springs?: SourceSpring[];
+  colliders?: SourceColliders[];
+}
+
+/** 一组会晃的骨骼（VRM 0.x 的 secondaryAnimation.boneGroups 里的一项） */
+export interface SourceSpring {
+  comment: string;
+  /** 每串的第一根（bones 的下标）：它和它下面所有的骨骼一起晃 */
+  roots: number[];
+  /** 回到原样的劲、重力、阻力、末端多粗（米），照原文件 */
+  stiffness: number;
+  gravity: number;
+  /** 重力朝哪边（面朝 +Z 的写法） */
+  gravityDir: V3;
+  drag: number;
+  hitRadius: number;
+  /** 和哪几组碰撞球碰（colliders 的下标） */
+  colliders: number[];
+}
+
+/**
+ * 挂在一根骨骼上的一组碰撞球（头、胸、手臂、大腿……挡着头发、裙摆穿进去）。
+ * offset 是球心离关节多远（米，面朝 +Z 的写法；VRM 0.x 的骨骼静止时不带旋转，就是整个角色的方向）
+ */
+export interface SourceColliders {
+  bone: number;
+  spheres: { offset: V3; radius: number }[];
 }
 
 export interface ReadOptions {
@@ -434,6 +462,7 @@ export function readCharacter(buffer: ArrayBuffer, options: ReadOptions = {}): C
       tagMap: { ...(p.tagMap ?? {}) },
     });
   }
+  const { springs, colliders } = readSprings(json, vrm0, ofNode);
   return {
     title: (vrm1 ? meta.name : meta.title) || 'Character',
     author: vrm1 ? ((meta.authors ?? []) as string[]).join('、') : (meta.author ?? ''),
@@ -451,5 +480,47 @@ export function readCharacter(buffer: ArrayBuffer, options: ReadOptions = {}): C
     ...(face ? { face } : {}),
     ...(toon.size ? { toon } : {}),
     ...(vrm0?.meta ? { vrmMeta: { ...vrm0.meta } } : {}),
+    ...(springs.length ? { springs, colliders } : {}),
   };
+}
+
+/**
+ * VRM 0.x 的弹簧骨骼和碰撞球。文件里的方向是照 Unity 的写法存的（UniVRM 导出时前后翻过：three-vrm 读的时候把 z 翻回来），
+ * 换成面朝 +Z 的写法正好是 x 取反。挂在不是骨骼的节点上的碰撞球不要；串的第一根不是骨骼时，往下找到骨骼为止
+ */
+function readSprings(json: GlbDoc['json'], vrm0: GlbDoc['json'] | undefined, ofNode: Map<number, number>): { springs: SourceSpring[]; colliders: SourceColliders[] } {
+  const animation = vrm0?.secondaryAnimation;
+  if (!animation) return { springs: [], colliders: [] };
+  const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+  type Xyz = { x?: number; y?: number; z?: number } | undefined;
+  const flip = (v: Xyz, fallback: V3): V3 => (v ? [-num(v.x, 0), num(v.y, 0), num(v.z, 0)] : fallback);
+  const colliders: SourceColliders[] = [];
+  const groupOf = new Map<number, number>();
+  ((animation.colliderGroups ?? []) as { node?: number; colliders?: { offset?: Xyz; radius?: number }[] }[]).forEach((group, i) => {
+    const bone = typeof group.node === 'number' ? ofNode.get(group.node) : undefined;
+    const spheres = (group.colliders ?? []).map((c) => ({ offset: flip(c.offset, [0, 0, 0]), radius: num(c.radius, 0) })).filter((s) => s.radius > 0);
+    if (bone === undefined || !spheres.length) return;
+    groupOf.set(i, colliders.length);
+    colliders.push({ bone, spheres });
+  });
+  const bonesUnder = (node: number, depth = 0): number[] => {
+    const bone = ofNode.get(node);
+    if (bone !== undefined) return [bone];
+    if (depth > 8) return [];
+    return ((json.nodes[node]?.children ?? []) as number[]).flatMap((child) => bonesUnder(child, depth + 1));
+  };
+  type Group = { comment?: string; stiffiness?: number; gravityPower?: number; gravityDir?: Xyz; dragForce?: number; hitRadius?: number; bones?: number[]; colliderGroups?: number[] };
+  const springs = ((animation.boneGroups ?? []) as Group[])
+    .map((g) => ({
+      comment: typeof g.comment === 'string' ? g.comment : '',
+      roots: [...new Set((g.bones ?? []).flatMap((node) => (typeof node === 'number' ? bonesUnder(node) : [])))],
+      stiffness: num(g.stiffiness, 1),
+      gravity: num(g.gravityPower, 0),
+      gravityDir: flip(g.gravityDir, [0, -1, 0]),
+      drag: num(g.dragForce, 0.4),
+      hitRadius: num(g.hitRadius, 0.02),
+      colliders: (g.colliderGroups ?? []).flatMap((i) => (groupOf.has(i) ? [groupOf.get(i)!] : [])),
+    }))
+    .filter((s) => s.roots.length);
+  return { springs, colliders };
 }

@@ -3301,6 +3301,7 @@ async function exportCharacterVrm(build: CharacterBuild) {
       'T-pose',
       `${build.bones.length} 根骨骼`,
       ...(faces ? [`${faces} 种表情`] : []),
+      ...(source.springs?.length || hairDonor(spec.hair.style) ? ['头发、裙摆照原角色会晃'] : []),
       ...(springs.length ? ['尾巴会晃'] : []),
       ...(mode === 'pose' && isPosed(spec.posing) ? ['摆的姿势、表情不进 VRM'] : []),
       `许可照原角色：${describeLicense(source.vrmMeta)}`,

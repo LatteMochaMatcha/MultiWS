@@ -2,26 +2,29 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { assembleCharacter } from '../src/character/assemble';
-import { CHARACTER } from '../src/character/load';
+import { type HairDonor, readHair } from '../src/character/hair';
+import { CHARACTER, hairUrl } from '../src/character/load';
 import { type CharacterSource, readCharacter } from '../src/character/source';
 import { characterVrm } from '../src/character/vrm';
+import type { V3 } from '../src/geometry/vec';
 import { readAccessor, readGlb } from '../src/io/glbRead';
 import { describeLicense } from '../src/io/vrm';
 import { type BodySpec, defaultSpec } from '../src/model/spec';
 
+const bufferOf = (path: string) => {
+  const file = readFileSync(new URL(`../public/${path}`, import.meta.url));
+  return file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength) as ArrayBuffer;
+};
 let cached: CharacterSource | null = null;
 function source(): CharacterSource {
-  if (!cached) {
-    const file = readFileSync(new URL(`../public/${CHARACTER.url}`, import.meta.url));
-    cached = readCharacter(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength) as ArrayBuffer, CHARACTER);
-  }
+  if (!cached) cached = readCharacter(bufferOf(CHARACTER.url), CHARACTER);
   return cached;
 }
 
-/** 照这份设定拼好角色、写成 VRM（姿势不动：每根骨骼的蒙皮矩阵都是单位矩阵），读回来 */
-function exported(rest: Partial<BodySpec> = {}) {
+/** 照这份设定拼好角色（donor：换上的发型）、写成 VRM（姿势不动：每根骨骼的蒙皮矩阵都是单位矩阵），读回来 */
+function exported(rest: Partial<BodySpec> = {}, donor: HairDonor | null = null) {
   const spec: BodySpec = { ...defaultSpec(), bodyStyle: 'character', ...rest };
-  const build = assembleCharacter(source(), spec);
+  const build = assembleCharacter(source(), spec, donor);
   const identity = new Float64Array(build.bones.length * 12);
   for (let j = 0; j < build.bones.length; j++) identity.set([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], j * 12);
   const file = characterVrm(build, source(), { matrices: identity, bones: build.bones, title: '测试', editor: '我' });
@@ -124,6 +127,109 @@ describe('成品角色导出 VRM：染过的头发', () => {
         expect(dyed.vectorProperties._ShadeColor[k]).toBeCloseTo(raw._ShadeColor[k] * (color[k] / raw._Color[k]), 4);
       }
     }
+  });
+});
+
+describe('成品角色导出 VRM：弹簧骨骼', () => {
+  type Group = { comment: string; stiffiness: number; dragForce: number; gravityPower: number; hitRadius: number; bones: number[]; colliderGroups: number[] };
+  type Colliders = { node: number; colliders: { offset: { x: number; y: number; z: number }; radius: number }[] };
+  const raw = readGlb(bufferOf(CHARACTER.url)).json;
+  const rawAnimation = raw.extensions.VRM.secondaryAnimation as { boneGroups: Group[]; colliderGroups: Colliders[] };
+  const rawNode = (n: number) => raw.nodes[n].name as string;
+  /** 读回来的文件：每一组、每组碰撞球，节点的名字、父节点、位置（换回面朝 +Z） */
+  const animationOf = (result: ReturnType<typeof exported>) => {
+    const { json } = result;
+    const parent = new Map<number, number>();
+    (json.nodes as { children?: number[] }[]).forEach((node, i) => {
+      for (const c of node.children ?? []) parent.set(c, i);
+    });
+    const at = (n: number): V3 => {
+      const p: V3 = [0, 0, 0];
+      for (let k: number | undefined = n; k !== undefined; k = parent.get(k)) {
+        const t = json.nodes[k].translation ?? [0, 0, 0];
+        for (let i = 0; i < 3; i++) p[i] += t[i];
+      }
+      return [-p[0], p[1], -p[2]];
+    };
+    const animation = json.extensions.VRM.secondaryAnimation as { boneGroups: Group[]; colliderGroups: Colliders[] };
+    return {
+      ...animation,
+      name: (n: number) => json.nodes[n].name as string,
+      parent: (n: number) => parent.get(n) ?? -1,
+      children: (n: number) => (json.nodes[n].children ?? []) as number[],
+      at,
+    };
+  };
+  /** 文件里存的碰撞球方向换成面朝 +Z 的写法 */
+  const facing = (o: { x: number; y: number; z: number }): V3 => [-o.x, o.y, o.z];
+  const cosine = (a: V3, b: V3) => (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (Math.hypot(...a) * Math.hypot(...b));
+
+  it('读角色时留下弹簧骨骼和碰撞球；左臂上的球顺着左臂（+X）排', () => {
+    expect(source().springs?.length).toBe(rawAnimation.boneGroups.length);
+    expect(source().colliders?.length).toBe(rawAnimation.colliderGroups.length);
+    const arm = source().colliders!.find((c) => source().bones[c.bone].name === 'J_Bip_L_UpperArm')!;
+    expect(Math.max(...arm.spheres.map((s) => s.offset[0]))).toBeGreaterThan(0.05);
+  });
+
+  const one = animationOf(exported());
+  it('一个头：每一组照原文件抄（参数一样，串的根换成拼好的骨骼），碰撞球一组不少', () => {
+    expect(one.boneGroups.map((g) => g.comment)).toEqual(rawAnimation.boneGroups.map((g) => g.comment));
+    one.boneGroups.forEach((g, i) => {
+      const was = rawAnimation.boneGroups[i];
+      expect(g.stiffiness).toBe(was.stiffiness);
+      expect(g.dragForce).toBe(was.dragForce);
+      expect(g.gravityPower).toBe(was.gravityPower);
+      expect(g.bones.length).toBeGreaterThanOrEqual(was.bones.length);
+      for (const c of g.colliderGroups) expect(c).toBeLessThan(one.colliderGroups.length);
+    });
+    const hair = one.boneGroups.filter((g) => g.bones.every((b) => /^Hair_\d+_\d+$/.test(one.name(b))));
+    expect(hair.length).toBeGreaterThan(3);
+    expect(one.colliderGroups).toHaveLength(rawAnimation.colliderGroups.length);
+  });
+
+  it('头上的碰撞球：方向照原文件（头没歪），大小跟着身高一起缩放', () => {
+    const was = rawAnimation.colliderGroups.find((c) => rawNode(c.node) === 'J_Bip_C_Head')!;
+    const now = one.colliderGroups.find((c) => one.name(c.node) === 'Head')!;
+    const scale = now.colliders[0].radius / was.colliders[0].radius;
+    expect(scale).toBeGreaterThan(0.7);
+    expect(scale).toBeLessThan(1.4);
+    expect(cosine(facing(now.colliders[0].offset), facing(was.colliders[0].offset))).toBeGreaterThan(0.999);
+  });
+
+  it('两个头：头发每一组的根多一倍，头上的碰撞球两组，头发也碰复制出来的头', () => {
+    const two = animationOf(exported({ counts: { ...defaultSpec().counts, heads: 2 } }));
+    const heads = two.colliderGroups.flatMap((c, i) => (/^Head(\.\d+)?$/.test(two.name(c.node)) ? [i] : []));
+    expect(heads).toHaveLength(2);
+    two.boneGroups.forEach((g, i) => {
+      if (!one.boneGroups[i].bones.every((b) => /^Hair_/.test(one.name(b)))) return;
+      expect(g.bones).toHaveLength(one.boneGroups[i].bones.length * 2);
+      for (const h of heads) expect(g.colliderGroups).toContain(h);
+    });
+  });
+
+  it('多一对手臂：多出来的手臂也挂碰撞球，球顺着它自己的方向排', () => {
+    const four = animationOf(exported({ counts: { ...defaultSpec().counts, armPairs: 2 } }));
+    for (const name of ['UpperArm_L', 'UpperArm_L.002']) {
+      const group = four.colliderGroups.find((c) => four.name(c.node) === name)!;
+      expect(group, name).toBeTruthy();
+      // 离关节最远的那个球：顺着上臂到下臂的方向
+      const far = group.colliders.reduce((a, b) => (Math.hypot(...facing(b.offset)) > Math.hypot(...facing(a.offset)) ? b : a));
+      const child = four.children(group.node).find((n) => /^LowerArm_L/.test(four.name(n)))!;
+      const along = four.at(child).map((v, k) => v - four.at(group.node)[k]) as V3;
+      expect(cosine(facing(far.offset), along), name).toBeGreaterThan(0.98);
+    }
+  });
+
+  it('换上的发型：整副头发一组，从头上长出来，参数和碰撞球照她自己的头发', () => {
+    const donor = readHair(bufferOf(hairUrl('bob')));
+    const bob = animationOf(exported({ hair: { ...defaultSpec().hair, style: 'bob' } }, donor));
+    const group = bob.boneGroups.at(-1)!;
+    expect(group.comment).toBe('Hair');
+    expect(group.bones.length).toBeGreaterThan(3);
+    for (const b of group.bones) expect(bob.name(bob.parent(b))).toBe('Head');
+    expect(group.colliderGroups.length).toBeGreaterThan(0);
+    // 她自己的头发不在了：别的组里没有一根头发
+    for (const g of bob.boneGroups.slice(0, -1)) for (const b of g.bones) expect(bob.name(b)).not.toMatch(/^Hair_/);
   });
 });
 
