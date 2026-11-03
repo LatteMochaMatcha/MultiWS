@@ -131,6 +131,8 @@ textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border
 .field>span,.field>label{font-size:13px}
 .seg{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:4px;padding:3px;border-radius:9px;background:var(--bg);border:1px solid var(--line)}
 .seg label{position:relative;text-align:center;padding:5px 2px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--muted);white-space:nowrap}
+/* 英文的选项名长：放不下就折成两行，别溢出格子 */
+:root[data-lang="en"] .seg label{white-space:normal;line-height:1.2}
 /* 选项多、一行排不下的（腿的六种排法）：三个一行，排成两行 */
 .seg.grid3{grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr))}
 .seg input{position:absolute;opacity:0;pointer-events:none}
