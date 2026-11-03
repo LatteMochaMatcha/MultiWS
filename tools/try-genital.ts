@@ -30,7 +30,7 @@ function cases(): Case[] {
   for (const size of [0.6, 0.8, 1, 1.2]) out.push({ group: 'sizes', name: `size${size}`, spec: { counts: { penises: 1 }, shape: { penisSize: size } }, views: ['front', 'three', 'side'] });
   for (const layout of PENIS_LAYOUTS)
     for (const scrotum of SCROTUM_MODES)
-      for (const n of [2, 3, 4]) out.push({ group: 'layouts', name: `${layout}-${scrotum}-${n}`, spec: { penisLayout: layout, scrotum, counts: { penises: n } }, views: ['front', 'three'] });
+      for (const n of [2, 3, 4]) out.push({ group: 'layouts', name: `${layout}-${scrotum}-${n}`, spec: { penisLayout: layout, scrotum, counts: { penises: n } }, views: layout === 'stack' ? ['front', 'three', 'side'] : ['front', 'three'] });
   // 几副胯各一套：每种排法两种腿数，每副胯一根、两根
   const forms: [LegLayout, number[]][] = [
     ['abreast', [4, 6]],
