@@ -43,6 +43,15 @@ const SCROTUM_ROOM = 0.006;
 const SCROTUM_TOP = 1.0;
 /** 框和素体表面交界处的圆角（米） */
 const SCROTUM_SMOOTH = 0.005;
+/**
+ * 上面往前斜着收下去：贴着身体那面往外 SCROTUM_NECK（米）起，每往前一米，上面那一刀往下低 SCROTUM_SLOPE 米，
+ * 斜切那一刀和其余几面交界倒 SCROTUM_ROUND（米）的圆角。
+ * 平着切的话，正中顶上连着阴茎根部底下的那一截往前伸出一块（素体上它接着阴茎），
+ * 放到工坊里、阴茎挪开一点或者几根挤在一起时，露成阴囊顶上一道扁平的台子
+ */
+const SCROTUM_NECK = 0.03;
+const SCROTUM_SLOPE = 1;
+const SCROTUM_ROUND = 0.012;
 /** 导出时写进去的署名 */
 const CREDIT = '阴茎、阴囊取自「DJP Male Base Mesh Mark 03」© Death Joe Productions（www.DeathJoeProductions.com），CC BY 4.0';
 
@@ -469,7 +478,9 @@ export async function main(args: string[], root: string) {
     const w = u.map((v, k) => v / egg.radii[k]) as V3;
     const k0 = len(u);
     const ellipsoid = k0 < 1e-9 ? -Math.min(...egg.radii) : (k0 * (k0 - 1)) / (len(w) || 1);
-    return Math.max(ellipsoid, box.min[2] - p[2], p[1] - box.max[1]);
+    const flat = Math.max(ellipsoid, box.min[2] - p[2], p[1] - box.max[1]);
+    const slope = (p[1] - box.max[1] + SCROTUM_SLOPE * (p[2] - box.min[2] - SCROTUM_NECK)) / Math.hypot(1, SCROTUM_SLOPE);
+    return smax(flat, slope, SCROTUM_ROUND);
   };
   // 格子的原点：框的后面正中（贴着身体的那一面）；用的时候这里对着身体
   const sacRoot: V3 = [0, (box.min[1] + box.max[1]) / 2, box.min[2]];
