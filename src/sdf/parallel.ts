@@ -13,8 +13,11 @@
 import { buildSkeleton } from '../rig/skeleton';
 import { type NearParts, type SkinPlan, type SkinWeights, finishSkin, gateNear, joinNear, nearParts, planSkin, skinVertices, weighVertices } from '../rig/skin';
 import { skinnedFigure, skinnedSteps } from './bindPose';
-import type { CompiledField } from './field';
-import { VOXEL } from './fuse';
+import { worldTransforms } from '../geometry/figure';
+import { type CompiledField, compilePartField } from './field';
+import { type Staged, VOXEL } from './fuse';
+import { type BakedChest, type ChestPlan, adoptChests, bakeChestLayers, bakedChests, keepChest, neededChests, planChest } from './grids';
+import { surfaceLocks, surfaceMoves } from './surfaceQuality';
 import { type FuseJob, type FuseResult, stageJob } from './job';
 import {
   type BlockMemo,
@@ -41,12 +44,16 @@ export const MIN_VERTICES = 2 * SKIN_CHUNK;
  */
 const DEPTH = 2;
 
-/** 交给帮手的一份活：在这几个小块上求值。task：这个任务头一回找这个帮手时带上，帮手照它编译场 */
+/**
+ * 交给帮手的一份活：在这几个小块上求值。task：这个任务头一回找这个帮手时带上，帮手照它编译场。
+ * chests：融合线程烤好、这个帮手还没收到过的胸（见 grids.ts 的 BakedChest），帮手编译场的时候照用，不用再烤一遍
+ */
 export interface ChunkRequest {
   job: number;
   chunk: number;
   blocks: Int32Array;
   task?: FuseJob;
+  chests?: BakedChest[];
 }
 
 /**
@@ -60,8 +67,31 @@ export interface SkinRequest {
   step: 'near' | 'weigh';
   task?: FuseJob;
   positions?: Float32Array;
+  chests?: BakedChest[];
   near?: NearParts;
   gate?: Float32Array;
+}
+
+/**
+ * 交给帮手的一份活：表面校正里这一段顶点各挪到哪（见 surfaceQuality.ts 的 surfaceMoves）。
+ * task、rough：这个任务头一回找这个帮手做表面校正时带上（校正之前的顶点、法线、哪些顶点不动、体素）
+ */
+export interface RefineRequest {
+  job: number;
+  chunk: number;
+  range: [from: number, to: number];
+  step: 'refine';
+  task?: FuseJob;
+  chests?: BakedChest[];
+  rough?: { positions: Float32Array; normals: Float32Array; locked: Uint8Array; voxel: number };
+}
+
+/** 交给帮手的一份活：烤一个胸的第 from 到 to（不含）层（见 grids.ts 的 bakeChestLayers） */
+export interface BakeRequest {
+  job: number;
+  chunk: number;
+  bake: ChestPlan;
+  layers: [from: number, to: number];
 }
 
 /** 帮手交回来的：算好的那一份，或者出了什么错 */
@@ -71,6 +101,8 @@ export interface ChunkReply {
   values?: BlockValues;
   near?: NearParts;
   weights?: SkinWeights;
+  moved?: Float32Array;
+  layers?: Float32Array;
   error?: string;
 }
 
@@ -81,7 +113,7 @@ export interface ChunkDrop {
 
 /** 一个帮手：能发活给它（transfer：随消息整个移交的大数组）；它交回来的由调用的地方转给 onReply */
 export interface HelperLink {
-  send(message: ChunkRequest | SkinRequest | ChunkDrop, transfer?: Transferable[]): void;
+  send(message: ChunkRequest | SkinRequest | RefineRequest | BakeRequest | ChunkDrop, transfer?: Transferable[]): void;
   onReply: ((reply: ChunkReply) => void) | null;
 }
 
@@ -96,7 +128,24 @@ export interface SpreadOptions {
  * 同一个任务里先后有几批活（小块、算权重的第 1 步、第 3 步），每一批的份各从这里起编号：
  * 上一批里慢了的帮手交回来的，下一批不会错认成自己的
  */
-const BATCH = { blocks: 0, near: 1 << 20, weigh: 2 << 20 } as const;
+const BATCH = { blocks: 0, near: 1 << 20, weigh: 2 << 20, refine: 3 << 20, bake: 4 << 20 } as const;
+/** 烤胸时一份大约多少个格点（一层的格点数乘上几层）：精细的那档一份要算十几毫秒 */
+const BAKE_CHUNK = 32768;
+
+/** 每个帮手收到过哪些烤好的胸（BakedChest.shape） */
+const given = new WeakMap<HelperLink, Set<string>>();
+
+/**
+ * 融合线程烤好、这个帮手还没收到过的胸（没有就是 undefined）。
+ * 帮手那边的烤好的胸多了也会扔掉旧的：扔掉了它就自己再烤一遍，算出来的一样，只是慢些
+ */
+function newChests(helper: HelperLink): BakedChest[] | undefined {
+  let sent = given.get(helper);
+  if (!sent) given.set(helper, (sent = new Set()));
+  const fresh = bakedChests().filter((chest) => !sent.has(chest.shape));
+  for (const chest of fresh) sent.add(chest.shape);
+  return fresh.length ? fresh : undefined;
+}
 
 /** 一批要分的活 */
 interface Work<T> {
@@ -198,7 +247,12 @@ export function spreadBlocks(
       count: chunks.length,
       lend(chunk, h) {
         // 子数组不能整个移交（会把别的份也带走）：复制一份小的
-        const message: ChunkRequest = { job: id, chunk: BATCH.blocks + chunk, blocks: chunks[chunk].slice(), ...(told[h] ? {} : { task: job }) };
+        const message: ChunkRequest = { job: id, chunk: BATCH.blocks + chunk, blocks: chunks[chunk].slice() };
+        if (!told[h]) {
+          // 帮手只编译场，用不着摆姿势时带着的那张网格（见 FuseJob.bind；一两兆，每个帮手复制一份不值）
+          message.task = job.bind ? { ...job, bind: undefined } : job;
+          message.chests = newChests(helpers[h]);
+        }
         told[h] = 1;
         helpers[h].send(message, [message.blocks.buffer]);
       },
@@ -231,6 +285,8 @@ export async function spreadSkin(
     if (!told[h]) {
       message.task = job;
       message.positions = Float32Array.from(mesh.positions);
+      // 算权重时各部件的场照最细一档烤胸（见 skin.ts 的 planSkin）：融合线程刚烤好的一并带上
+      message.chests = newChests(helpers[h]);
       transfer.push(message.positions.buffer);
       told[h] = 1;
     }
@@ -293,10 +349,116 @@ export async function spreadSkin(
 }
 
 /**
+ * 表面校正（见 surfaceQuality.ts）里最费时的那步：各顶点挪回表面，按顶点分段分给帮手和自己一起算。
+ * mesh 是校正之前的网格，field 是这个任务的场（帮手照 job 自己编译，一模一样）。返回全部顶点挪好以后的位置；作废了返回 null
+ */
+export async function spreadRefine(
+  id: number,
+  job: FuseJob,
+  field: CompiledField,
+  mesh: FusedMesh,
+  helpers: readonly HelperLink[],
+  options: SpreadOptions,
+): Promise<Float32Array | null> {
+  const count = mesh.positions.length / 3;
+  const plan = planBlocks(field, mesh.info.voxel);
+  const locked = surfaceLocks(mesh);
+  const ranges: [number, number][] = [];
+  for (let at = 0; at < count; at += SKIN_CHUNK) ranges.push([at, Math.min(count, at + SKIN_CHUNK)]);
+  const told = new Uint8Array(helpers.length);
+  const pieces = await share<Float32Array>(
+    id,
+    {
+      base: BATCH.refine,
+      count: ranges.length,
+      lend(chunk, h) {
+        const message: RefineRequest = { job: id, chunk: BATCH.refine + chunk, range: ranges[chunk], step: 'refine' };
+        const transfer: Transferable[] = [];
+        if (!told[h]) {
+          message.task = job;
+          message.chests = newChests(helpers[h]);
+          message.rough = { positions: mesh.positions.slice(), normals: mesh.normals.slice(), locked: locked.slice(), voxel: mesh.info.voxel };
+          transfer.push(message.rough.positions.buffer, message.rough.normals.buffer, message.rough.locked.buffer);
+          told[h] = 1;
+        }
+        helpers[h].send(message, transfer);
+      },
+      compute: (chunk) => surfaceMoves(field, plan, mesh, locked, ...ranges[chunk]),
+      take: (reply, chunk) => (reply.moved?.length === (ranges[chunk][1] - ranges[chunk][0]) * 3 ? reply.moved : undefined),
+    },
+    helpers,
+    options,
+  );
+  if (!pieces) return null;
+  const moved = new Float32Array(count * 3);
+  pieces.forEach((piece, chunk) => moved.set(piece, ranges[chunk][0] * 3));
+  return moved;
+}
+
+/**
+ * 几个要烤的胸（见 grids.ts 的 ChestPlan）按层分段，分给帮手和自己一起烤，烤好的收下（这个线程里以后直接用）。
+ * 拼起来和一个线程从头烤的逐值一样。作废了返回 false
+ */
+export async function spreadBake(id: number, plans: readonly ChestPlan[], helpers: readonly HelperLink[], options: SpreadOptions): Promise<boolean> {
+  const chunks: { plan: number; from: number; to: number }[] = [];
+  plans.forEach((plan, i) => {
+    const depth = Math.max(2, Math.ceil(BAKE_CHUNK / (plan.nx * plan.ny)));
+    for (let from = 0; from < plan.nz; from += depth) chunks.push({ plan: i, from, to: Math.min(plan.nz, from + depth) });
+  });
+  const pieces = await share<Float32Array>(
+    id,
+    {
+      base: BATCH.bake,
+      count: chunks.length,
+      lend(chunk, h) {
+        const { plan, from, to } = chunks[chunk];
+        const message: BakeRequest = { job: id, chunk: BATCH.bake + chunk, bake: plans[plan], layers: [from, to] };
+        helpers[h].send(message);
+      },
+      compute: (chunk) => bakeChestLayers(plans[chunks[chunk].plan], chunks[chunk].from, chunks[chunk].to),
+      take: (reply, chunk) => {
+        const { plan, from, to } = chunks[chunk];
+        return reply.layers?.length === plans[plan].nx * plans[plan].ny * (to - from) ? reply.layers : undefined;
+      },
+    },
+    helpers,
+    options,
+  );
+  if (!pieces) return false;
+  plans.forEach((plan, i) => {
+    const layers = new Float32Array(plan.nx * plan.ny * plan.nz);
+    chunks.forEach((chunk, c) => {
+      if (chunk.plan === i) layers.set(pieces[c], chunk.from * plan.nx * plan.ny);
+    });
+    keepChest(plan, layers);
+  });
+  return true;
+}
+
+/**
+ * 这个任务要烤、这个线程里还没烤过的胸：先分给帮手一起烤好（一个线程烤要好几秒：精细那档一个胸两三百毫秒，几个上半身、几排胸有七八个）。
+ * 编译场的时候就都是烤好的了。作废了返回 false
+ */
+async function bakeAhead(id: number, job: FuseJob, helpers: readonly HelperLink[], options: SpreadOptions): Promise<boolean> {
+  const orders = neededChests(() => {
+    stageJob(job);
+    // 要权重的：算权重时各部件的场也照最细一档烤胸（见 skin.ts 的 planSkin）
+    if (job.skin && !job.pose) {
+      const figure = skinnedFigure(job.parts);
+      const xfs = worldTransforms(figure);
+      for (const part of figure.parts) if (part.material !== 'eye') compilePartField(part, xfs.get(part.name)!);
+    }
+  });
+  const plans = orders.map(planChest).filter((plan): plan is ChestPlan => plan !== null);
+  return !plans.length || spreadBake(id, plans, helpers, options);
+}
+
+/**
  * 照一个任务融合：大活（预览精度以上、要求值的小块够多）分给帮手一起算（帮手一个都没有也一份一份地算，好随时作废）；
- * 拖动时那种粗的小活照旧一口气算完。作废了返回 null
+ * 拖动时那种粗的小活照旧一口气算完。要烤的胸先分给帮手一起烤（见 bakeAhead）。作废了返回 null
  */
 export async function fuseSpread(id: number, job: FuseJob, helpers: readonly HelperLink[], options: SpreadOptions): Promise<FuseResult | null> {
+  if (helpers.length && !(await bakeAhead(id, job, helpers, options))) return null;
   if (job.voxel > VOXEL.preview) return stageJob(job).finish();
   let shared = false;
   /** 场的小块分给帮手算好，放进 memo；小块不多的不分（返回 undefined：收尾时照常现算）；作废了返回 null */
@@ -308,17 +470,30 @@ export async function fuseSpread(id: number, job: FuseJob, helpers: readonly Hel
     const batches = await spreadBlocks(id, job, field, plan, blocks, helpers, options);
     return batches && keepBlocks(plan, batches);
   };
+  /** 收尾。最后一步是表面校正的（静止的二次元素体），校正也分给帮手（顶点不多、没有帮手的照常一口气算完）；作废了返回 null */
+  const finish = async <T>(staged: Staged<T>, memo: BlockMemo | undefined): Promise<T | null> => {
+    const refine = staged.refine;
+    if (!refine || !helpers.length) return staged.finish(memo);
+    const mesh = refine.rough(memo);
+    if (mesh.positions.length / 3 < MIN_VERTICES) {
+      return refine.polish(mesh, surfaceMoves(staged.field, planBlocks(staged.field, mesh.info.voxel), mesh, surfaceLocks(mesh), 0, mesh.positions.length / 3));
+    }
+    shared = true;
+    const moved = await spreadRefine(id, job, staged.field, mesh, helpers, options);
+    return moved && refine.polish(mesh, moved);
+  };
   try {
     if (!job.skin || job.pose) {
       const staged = stageJob(job);
       const memo = await spreadField(staged.field, staged.voxel);
-      return memo === null ? null : staged.finish(memo);
+      return memo === null ? null : finish(staged, memo);
     }
     // 要权重的（不摆姿势）：网格融合好以后，权重也分开算
     const steps = skinnedSteps(job.parts, job);
     const memo = await spreadField(steps.fused.field, steps.fused.voxel);
     if (memo === null) return null;
-    const mesh = steps.fused.finish(memo);
+    const mesh = await finish(steps.fused, memo);
+    if (!mesh) return null;
     if (mesh.positions.length / 3 < MIN_VERTICES) return steps.settle(mesh, skinVertices(steps.figure, steps.skeleton, mesh.positions, mesh.triangles));
     shared = helpers.length > 0;
     const weights = await spreadSkin(id, job, planSkin(steps.figure, steps.skeleton, mesh.positions, mesh.triangles), mesh, helpers, options);
@@ -333,9 +508,10 @@ export async function fuseSpread(id: number, job: FuseJob, helpers: readonly Hel
  * 帮手那一头：收到一份活，算好，返回要交回去的（和随它整个移交的大数组）；叫它扔掉一个任务的返回 null。
  * 真的帮手线程（eval.worker.ts）和测试里的假帮手都用它
  */
-export function helperDesk(): (message: ChunkRequest | SkinRequest | ChunkDrop) => { reply: ChunkReply; transfer: Transferable[] } | null {
-  /** 各个任务编译好的场、准备好的算权重要用的那些 */
-  const jobs = new Map<number, { field?: CompiledField; plan?: BlockPlan; skin?: SkinPlan }>();
+export function helperDesk(): (message: ChunkRequest | SkinRequest | RefineRequest | BakeRequest | ChunkDrop) => { reply: ChunkReply; transfer: Transferable[] } | null {
+  /** 各个任务编译好的场、准备好的算权重要用的那些、表面校正要用的那些 */
+  type Rough = NonNullable<RefineRequest['rough']> & { plan: BlockPlan };
+  const jobs = new Map<number, { field?: CompiledField; plan?: BlockPlan; skin?: SkinPlan; rough?: Rough }>();
   return (message) => {
     if ('drop' in message) {
       jobs.delete(message.drop);
@@ -343,6 +519,12 @@ export function helperDesk(): (message: ChunkRequest | SkinRequest | ChunkDrop) 
     }
     const { job, chunk } = message;
     try {
+      // 烤胸的几层：不用编译场，照着胸自己现算
+      if ('bake' in message) {
+        const layers = bakeChestLayers(message.bake, ...message.layers);
+        return { reply: { job, chunk, layers }, transfer: [layers.buffer] };
+      }
+      if (message.chests) adoptChests(message.chests);
       let made = jobs.get(job);
       if (!made) jobs.set(job, (made = {}));
       if ('blocks' in message) {
@@ -353,6 +535,19 @@ export function helperDesk(): (message: ChunkRequest | SkinRequest | ChunkDrop) 
         }
         const values = evaluateBlocks(made.field, made.plan, message.blocks);
         return { reply: { job, chunk, values }, transfer: [values.blocks.buffer, values.kinds.buffer, values.data.buffer] };
+      }
+      if (message.step === 'refine') {
+        if (!made.field) {
+          if (!message.task) throw new Error('没收到这个任务');
+          made.field = stageJob(message.task).field;
+        }
+        if (!made.rough) {
+          if (!message.rough) throw new Error('没收到校正之前的网格');
+          made.rough = { ...message.rough, plan: planBlocks(made.field, message.rough.voxel) };
+        }
+        const { rough } = made;
+        const moved = surfaceMoves(made.field, rough.plan, { positions: rough.positions, normals: rough.normals, info: { voxel: rough.voxel } }, rough.locked, ...message.range);
+        return { reply: { job, chunk, moved }, transfer: [moved.buffer] };
       }
       if (!made.skin) {
         if (!message.task || !message.positions) throw new Error('没收到这个任务');

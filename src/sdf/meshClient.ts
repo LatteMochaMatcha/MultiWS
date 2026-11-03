@@ -112,7 +112,7 @@ export class MeshClient {
       const done = this.running;
       this.running = null;
       if (done && event.data.id === this.id) {
-        if (event.data.ok) done.resolve({ mesh: event.data.mesh, skin: event.data.skin });
+        if (event.data.ok) done.resolve({ mesh: event.data.mesh, skin: event.data.skin, labels: event.data.labels });
         else done.reject(event.data.cancelled ? new Superseded() : new Error(event.data.error));
       }
       this.pump();

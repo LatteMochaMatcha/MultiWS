@@ -27,6 +27,13 @@ interface Item {
   normal: Float32Array;
   /** 换算到这张网格自己单位的矩阵（unit 是 1 就直接用原来的） */
   scaled: Float64Array | null;
+  /** 上一次搬的时候用的矩阵（这张网格自己的单位）；还没搬过、放回了静止的样子是 null */
+  last: Float64Array | null;
+  /** 有 edit 时：上一次改过的静止样子，和下一次改的时候用的空位 */
+  edited: { position: Float32Array; normal: Float32Array } | null;
+  spare: { position: Float32Array; normal: Float32Array } | null;
+  /** 包围盒、包围球是不是拖着的时候估大的 */
+  loose: boolean;
 }
 
 /** 白模（融合的、分部件的）摆姿势、导出摆好的样子时，骨骼的动作怎么混 */
@@ -34,6 +41,29 @@ export const WHITE_BLEND: SkinBlend = 'dual';
 export { CHARACTER_BLEND };
 
 const arrayOf = (geometry: THREE.BufferGeometry, name: 'position' | 'normal') => geometry.getAttribute(name).array as Float32Array;
+
+/** 两份蒙皮矩阵（每根骨骼 12 个数）比一比：哪几根骨骼变了（1 是变了） */
+function changedBones(before: Float64Array, after: Float64Array): Uint8Array {
+  const out = new Uint8Array(after.length / 12);
+  for (let j = 0; j < out.length; j++) {
+    for (let i = j * 12; i < j * 12 + 12; i++) {
+      if (before[i] !== after[i]) {
+        out[j] = 1;
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/** 两份静止的样子比一比：哪几个顶点的位置或法线变了（1 是变了） */
+function changedVertices(before: { position: Float32Array; normal: Float32Array }, after: { position: Float32Array; normal: Float32Array }): Uint8Array {
+  const out = new Uint8Array(after.position.length / 3);
+  for (let i = 0; i < after.position.length; i++) {
+    if (before.position[i] !== after.position[i] || before.normal[i] !== after.normal[i]) out[(i / 3) | 0] = 1;
+  }
+  return out;
+}
 
 export class PosedMeshes {
   private readonly items: Item[];
@@ -50,11 +80,19 @@ export class PosedMeshes {
       position: arrayOf(source.geometry, 'position').slice(),
       normal: arrayOf(source.geometry, 'normal').slice(),
       scaled: null,
+      last: null,
+      edited: null,
+      spare: null,
+      loose: false,
     }));
   }
 
-  /** matrices：每根骨骼的蒙皮矩阵（见 pose/rig.ts 的 poseMatrices），按米算 */
-  apply(matrices: Float64Array) {
+  /**
+   * matrices：每根骨骼的蒙皮矩阵（见 pose/rig.ts 的 poseMatrices），按米算。
+   * 只重算矩阵变了的那几根骨骼带着的顶点（拖一只手时只有那条手臂），算出来和全部重算的逐值一样。
+   * rough：正拖着，包围盒、包围球不逐个顶点重算，只放大到框得住这次挪过的顶点；不拖了再照常算一次准的
+   */
+  apply(matrices: Float64Array, rough = false) {
     for (const [index, item] of this.items.entries()) {
       const { geometry, joints, weights, unit, blend } = item.source;
       let own = matrices;
@@ -67,13 +105,43 @@ export class PosedMeshes {
           own[o + 2] /= unit;
         }
       }
-      const position = arrayOf(geometry, 'position');
-      const normal = arrayOf(geometry, 'normal');
-      position.set(item.position);
-      normal.set(item.normal);
-      this.edit?.(index, position, normal);
-      skinInPlace(blend ?? 'linear', position, normal, joints, weights, own);
-      this.touch(geometry);
+      // 上一次搬过、骨骼还是那些：只重算动了的；不然全部重算
+      let full = !item.last || item.last.length !== own.length;
+      // 从静止的样子算起；有 edit（表情）时先改一份，改了的顶点不管骨骼动没动都重算
+      let from = { positions: item.position, normals: item.normal };
+      let fresh: Uint8Array | undefined;
+      if (this.edit) {
+        const next = item.spare ?? { position: new Float32Array(item.position.length), normal: new Float32Array(item.normal.length) };
+        next.position.set(item.position);
+        next.normal.set(item.normal);
+        this.edit(index, next.position, next.normal);
+        if (item.edited) fresh = changedVertices(item.edited, next);
+        else full = true;
+        item.spare = item.edited;
+        item.edited = next;
+        from = { positions: next.position, normals: next.normal };
+      }
+      let moved = full ? undefined : changedBones(item.last!, own);
+      const count = moved ? moved.reduce((n, m) => n + m, 0) : 0;
+      if (moved && !count && !fresh?.includes(1)) {
+        // 什么都没变（松手以后又照同一个姿势同步了一次）：顶点不用动，拖着时估大的包围盒补一次准的
+        if (!rough && item.loose) this.bound(item, geometry, null);
+        continue;
+      }
+      // 大半骨骼都动了（够不着，身体跟过去了）：直接全部重算，不一个个顶点地查
+      if (moved && count > moved.length * 0.75) moved = undefined;
+      const box = rough && geometry.boundingBox ? Float64Array.of(Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity) : undefined;
+      skinInPlace(blend ?? 'linear', arrayOf(geometry, 'position'), arrayOf(geometry, 'normal'), joints, weights, own, {
+        from,
+        moved,
+        fresh,
+        box,
+      });
+      if (full) item.last = new Float64Array(own.length);
+      item.last!.set(own);
+      geometry.getAttribute('position').needsUpdate = true;
+      geometry.getAttribute('normal').needsUpdate = true;
+      this.bound(item, geometry, box ?? null);
     }
   }
 
@@ -82,15 +150,32 @@ export class PosedMeshes {
     for (const item of this.items) {
       arrayOf(item.source.geometry, 'position').set(item.position);
       arrayOf(item.source.geometry, 'normal').set(item.normal);
-      this.touch(item.source.geometry);
+      item.last = null;
+      item.edited = null;
+      const { geometry } = item.source;
+      geometry.getAttribute('position').needsUpdate = true;
+      geometry.getAttribute('normal').needsUpdate = true;
+      this.bound(item, geometry, null);
     }
   }
 
-  private touch(geometry: THREE.BufferGeometry) {
-    geometry.getAttribute('position').needsUpdate = true;
-    geometry.getAttribute('normal').needsUpdate = true;
-    geometry.computeBoundingBox();
-    geometry.computeBoundingSphere();
+  /**
+   * 包围盒、包围球（点选、视锥裁剪、落地、镜头对准用）：逐个顶点重算一遍。
+   * moved：正拖着，只把原来的放大到框得住这次挪过的那些顶点（挪走的顶点原来的地方也还框着：只会偏大）
+   */
+  private bound(item: Item, geometry: THREE.BufferGeometry, moved: Float64Array | null) {
+    const box = geometry.boundingBox;
+    if (!moved || !box) {
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+      item.loose = false;
+      return;
+    }
+    item.loose = true;
+    if (moved[0] > moved[3]) return;
+    box.expandByPoint(new THREE.Vector3(moved[0], moved[1], moved[2]));
+    box.expandByPoint(new THREE.Vector3(moved[3], moved[4], moved[5]));
+    geometry.boundingSphere = box.getBoundingSphere(geometry.boundingSphere ?? new THREE.Sphere());
   }
 
   /**

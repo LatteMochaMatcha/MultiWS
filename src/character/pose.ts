@@ -88,6 +88,39 @@ export function posedJoints(rig: Rig, matrices: Float64Array): V3[] {
   });
 }
 
+/**
+ * 只重算一部分顶点（摆姿势拖动中，见 view/posedMeshes.ts）。算出来的和全部重算的逐值一样：
+ * 每个顶点只看它自己那 4 根骨骼的矩阵，那几根都没变，结果就和上一次一样。
+ */
+export interface SkinOnly {
+  /** 从这份静止的顶点、法线算起，写进 positions、normals（不给就从 positions、normals 自己算起） */
+  from?: { positions: Float32Array; normals: Float32Array };
+  /** 哪几根骨骼的矩阵变了（1 是变了）。给了的话，4 根骨骼一根都没变的顶点跳过：positions、normals 里原来是什么还是什么 */
+  moved?: Uint8Array;
+  /** 这些顶点不管骨骼变没变都重算（静止的样子改过了：成品角色换了表情） */
+  fresh?: Uint8Array;
+  /** 重算过的顶点搬到了哪，顺便框进来（最小 x y z、最大 x y z） */
+  box?: Float64Array;
+}
+
+/** 第 v 个顶点要不要重算 */
+function needed(only: SkinOnly, joints: ArrayLike<number>, weights: ArrayLike<number>, v: number): boolean {
+  const moved = only.moved;
+  if (!moved || only.fresh?.[v]) return true;
+  for (let k = 0; k < 4; k++) if (weights[v * 4 + k] && moved[joints[v * 4 + k]]) return true;
+  return false;
+}
+
+function grow(box: Float64Array | undefined, x: number, y: number, z: number) {
+  if (!box) return;
+  if (x < box[0]) box[0] = x;
+  if (y < box[1]) box[1] = y;
+  if (z < box[2]) box[2] = z;
+  if (x > box[3]) box[3] = x;
+  if (y > box[4]) box[4] = y;
+  if (z > box[5]) box[5] = z;
+}
+
 /** 把顶点和法线按蒙皮矩阵搬过去（直接改传进来的数组） */
 export function skinVerticesInPlace(
   positions: Float32Array,
@@ -95,15 +128,19 @@ export function skinVerticesInPlace(
   joints: ArrayLike<number>,
   weights: ArrayLike<number>,
   matrices: Float64Array,
+  only: SkinOnly = {},
 ) {
   const count = positions.length / 3;
+  const src = only.from?.positions ?? positions;
+  const srcN = only.from?.normals ?? normals;
   for (let v = 0; v < count; v++) {
-    const px = positions[v * 3];
-    const py = positions[v * 3 + 1];
-    const pz = positions[v * 3 + 2];
-    const nx = normals[v * 3];
-    const ny = normals[v * 3 + 1];
-    const nz = normals[v * 3 + 2];
+    if (!needed(only, joints, weights, v)) continue;
+    const px = src[v * 3];
+    const py = src[v * 3 + 1];
+    const pz = src[v * 3 + 2];
+    const nx = srcN[v * 3];
+    const ny = srcN[v * 3 + 1];
+    const nz = srcN[v * 3 + 2];
     let x = 0;
     let y = 0;
     let z = 0;
@@ -124,7 +161,9 @@ export function skinVerticesInPlace(
     positions[v * 3] = x;
     positions[v * 3 + 1] = y;
     positions[v * 3 + 2] = z;
-    const l = Math.hypot(a, b, c) || 1;
+    grow(only.box, x, y, z);
+    // 逐个顶点的地方不用 Math.hypot：它比开平方慢好几倍（这里不会溢出，用不着它那份小心）
+    const l = Math.sqrt(a * a + b * b + c * c) || 1;
     normals[v * 3] = a / l;
     normals[v * 3 + 1] = b / l;
     normals[v * 3 + 2] = c / l;
@@ -157,6 +196,7 @@ export function skinVerticesDualInPlace(
   joints: ArrayLike<number>,
   weights: ArrayLike<number>,
   matrices: Float64Array,
+  only: SkinOnly = {},
 ) {
   // 每根骨骼的动作写成对偶四元数：前 4 个数是旋转（x y z w），后 4 个是 ½·平移·旋转
   const bones = matrices.length / 12;
@@ -215,7 +255,10 @@ export function skinVerticesDualInPlace(
     dual[d + 7] = -0.5 * (tx * x + ty * y + tz * z);
   }
   const count = positions.length / 3;
+  const src = only.from?.positions ?? positions;
+  const srcN = only.from?.normals ?? normals;
   for (let v = 0; v < count; v++) {
+    if (!needed(only, joints, weights, v)) continue;
     let rx = 0;
     let ry = 0;
     let rz = 0;
@@ -241,8 +284,19 @@ export function skinVerticesDualInPlace(
       ez += w * dual[d + 6];
       ew += w * dual[d + 7];
     }
-    if (first < 0) continue;
-    const scale = 1 / (Math.hypot(rx, ry, rz, rw) || 1);
+    if (first < 0) {
+      // 不跟任何骨骼的顶点留在静止的地方
+      if (src !== positions) {
+        for (let i = v * 3; i < v * 3 + 3; i++) {
+          positions[i] = src[i];
+          normals[i] = srcN[i];
+        }
+      }
+      grow(only.box, positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2]);
+      continue;
+    }
+    // 逐个顶点的地方不用 Math.hypot：它比开平方慢好几倍（这里不会溢出，用不着它那份小心）
+    const scale = 1 / (Math.sqrt(rx * rx + ry * ry + rz * rz + rw * rw) || 1);
     rx *= scale;
     ry *= scale;
     rz *= scale;
@@ -255,9 +309,9 @@ export function skinVerticesDualInPlace(
     const tx = 2 * (rw * ex - ew * rx + ry * ez - rz * ey);
     const ty = 2 * (rw * ey - ew * ry + rz * ex - rx * ez);
     const tz = 2 * (rw * ez - ew * rz + rx * ey - ry * ex);
-    const px = positions[v * 3];
-    const py = positions[v * 3 + 1];
-    const pz = positions[v * 3 + 2];
+    const px = src[v * 3];
+    const py = src[v * 3 + 1];
+    const pz = src[v * 3 + 2];
     // 转一个点：p + 2 · r × (r × p + w · p)
     let cx = ry * pz - rz * py + rw * px;
     let cy = rz * px - rx * pz + rw * py;
@@ -265,16 +319,17 @@ export function skinVerticesDualInPlace(
     positions[v * 3] = px + 2 * (ry * cz - rz * cy) + tx;
     positions[v * 3 + 1] = py + 2 * (rz * cx - rx * cz) + ty;
     positions[v * 3 + 2] = pz + 2 * (rx * cy - ry * cx) + tz;
-    const nx = normals[v * 3];
-    const ny = normals[v * 3 + 1];
-    const nz = normals[v * 3 + 2];
+    grow(only.box, positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2]);
+    const nx = srcN[v * 3];
+    const ny = srcN[v * 3 + 1];
+    const nz = srcN[v * 3 + 2];
     cx = ry * nz - rz * ny + rw * nx;
     cy = rz * nx - rx * nz + rw * ny;
     cz = rx * ny - ry * nx + rw * nz;
     const a = nx + 2 * (ry * cz - rz * cy);
     const b = ny + 2 * (rz * cx - rx * cz);
     const c = nz + 2 * (rx * cy - ry * cx);
-    const l = Math.hypot(a, b, c) || 1;
+    const l = Math.sqrt(a * a + b * b + c * c) || 1;
     normals[v * 3] = a / l;
     normals[v * 3 + 1] = b / l;
     normals[v * 3 + 2] = c / l;
@@ -289,7 +344,8 @@ export function skinInPlace(
   joints: ArrayLike<number>,
   weights: ArrayLike<number>,
   matrices: Float64Array,
+  only?: SkinOnly,
 ) {
-  if (blend === 'dual') skinVerticesDualInPlace(positions, normals, joints, weights, matrices);
-  else skinVerticesInPlace(positions, normals, joints, weights, matrices);
+  if (blend === 'dual') skinVerticesDualInPlace(positions, normals, joints, weights, matrices, only);
+  else skinVerticesInPlace(positions, normals, joints, weights, matrices, only);
 }

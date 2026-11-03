@@ -3,6 +3,8 @@
  *
  * 身体网格按 Figure 自己的单位来算，整体缩放放在根节点上：拖「身高」只改缩放，不用重新融合。
  * 参数变了以后先出一版粗的（拖动时跟手），停下来再换成细一档的预览网格。
+ * 一直在拖的时候，后台算好一张就换上一张（它照的是稍早一点的参数）；新网格到之前，屏幕上那张照每个顶点属于哪个部件
+ * 整块挪到现在的样子（见 sdf/labels.ts）：手臂每一帧都跟着操纵杆走，肩膀那里的融合圆角等新网格到了再补上。
  * 摆姿势时身体不再变了，预览网格到了以后再换成更细的一张（最细和导出的一样）：关节弯起来更顺。
  * （手不在这张格子里：它是缝上去的现成网格，什么精度下手指都是分开的，见 sdf/graft.ts。）
  * 部件特别多的身体细不到那个程度：顶点太多，拖圆点的时候每一帧都要把它们搬一遍，会卡。
@@ -18,7 +20,9 @@ import { buildPartGeometry } from '../geometry/partsMesh';
 import type { SkinWeights } from '../rig/skin';
 import { hasBindPose } from '../sdf/bindPose';
 import { VOXEL } from '../sdf/fuse';
+import { type VertexLabels, followInto, followMatrices, outline, pieceFrames } from '../sdf/labels';
 import { MeshClient, Superseded } from '../sdf/meshClient';
+import type { BindMesh } from '../sdf/posedFuse';
 import type { FusedMesh, FusedMeshInfo } from '../sdf/surfaceNets';
 import { MATERIALS } from './materials';
 import { shapeKey } from './partsModel';
@@ -49,16 +53,25 @@ export interface FusedExport {
   skin?: SkinWeights;
 }
 
-/** 预览网格算得比这个快（毫秒）时，拖动中也直接出预览精度，不用先出粗的 */
-const FAST_ENOUGH = 110;
+/** 拖动中一张网格最好在这么久（毫秒）以内算出来：照各档格子上一张算了多久，挑够快的最细的那档 */
+const DRAG_TARGET = 110;
+/**
+ * 拖动中能挑的几档格子，从细到粗（预览那档够快就直接出预览）。
+ * 0.012 和 0.02 之间的不要：二次元素体的胸照格子粗细烤成格子，那中间每换一档都要在每个线程里重烤一遍。
+ * 比 0.02 粗的也不要：素体快不了多少（0.025 只快两成），脸和胸却糊成一团；拖着的时候手臂本来就是整块挪着跟手的
+ */
+const DRAG_VOXELS = [VOXEL.preview, VOXEL.draft];
 /** 记网格是照哪副参数算的时候，「手臂是先张开再融合的」那一种带着这个后缀 */
 const BOUND = '|bind';
 /** 停止拖动多久以后把粗网格换成预览精度 */
 const SETTLE_MS = 200;
 /** 姿势停下来多久以后照它重新融合一张 */
 const POSE_SETTLE_MS = 160;
-/** 预览精度的网格到了以后再等这么久，还没有新的改动就换一张更细的 */
-const FINE_SETTLE_MS = 250;
+/**
+ * 预览精度的网格到了以后再等一会儿，还没有新的改动就换一张更细的。等多久照这张预览算了多久（细的那张大约要它的两三倍），
+ * 在这两个数之间：算得快的早点换上；算得慢的（胸换了样子要重烤）多等等，连着改的时候后台不白忙一张多半要扔的
+ */
+const FINE_SETTLE_MS = [250, 1500] as const;
 
 function toGeometry(mesh: FusedMesh): THREE.BufferGeometry {
   const geo = new THREE.BufferGeometry();
@@ -99,6 +112,27 @@ export class FusedModel {
   private shownVoxel = Infinity;
   private info: FusedMeshInfo | null = null;
   private previewMs = Infinity;
+  /** 拖动中各档粗格子上一张算了多久（毫秒） */
+  private readonly draftMs = new Map<number, number>();
+  /** 每发一个任务加一；屏幕上那张是第几个任务算出来的 */
+  private sent = 0;
+  private shownSent = 0;
+  /** 屏幕上这张是照哪些部件算的、每个顶点属于哪一块（没标就是 null）、那些部件各怎么摆、由哪些块拼成 */
+  private shownParts: Part[] = [];
+  private labels: VertexLabels | null = null;
+  private shownFrames: Map<string, Float64Array> | null = null;
+  private shownOutline = '';
+  /** 现在这副身体由哪些块拼成（见 sdf/labels.ts 的 outline） */
+  private outline = '';
+  /** 整块挪之前的顶点、法线、包围盒、包围球（还没挪过就是 null） */
+  private rest: { positions: Float32Array; normals: Float32Array; box: THREE.Box3; sphere: THREE.Sphere } | null = null;
+  /** 整块挪过几次（量拖动跟不跟手用，见 tools/bench-drag.mjs） */
+  follows = 0;
+  /**
+   * 摆姿势时预览精度、带权重的那张（静止的样子，复制一份：屏幕上那张会被拖着的骨骼改掉）和它是照哪副身体算的。
+   * 照姿势融合时一起交给那个 Worker，它就不用再算一遍（见 FuseJob.bind）
+   */
+  private bind: { shape: string; mesh: BindMesh } | null = null;
   private timer = 0;
   private fineTimer = 0;
   /** 要不要顺便算蒙皮权重（摆姿势时要）；屏幕上这张网格的权重（没算就是 null） */
@@ -150,6 +184,7 @@ export class FusedModel {
     // 一直在拖的话每一张都会被下一张顶掉，就一张都出不来了）
     if (shape !== this.shape) {
       this.shape = shape;
+      this.outline = outline(this.parts);
       this.posing = null;
       this.dropExact();
       this.preview.cancel((job) => job.voxel < VOXEL.preview);
@@ -161,29 +196,66 @@ export class FusedModel {
     if (sameShape) {
       // 形状没变，只是现在要权重了（或者不要了）：直接照预览的精度再算一遍，不先换成粗的
       this.send(key, VOXEL.preview);
-    } else if (this.previewMs <= FAST_ENOUGH) {
-      this.send(key, VOXEL.preview);
     } else {
-      this.send(key, VOXEL.draft);
-      this.timer = window.setTimeout(() => this.send(key, VOXEL.preview), SETTLE_MS);
+      const voxel = this.dragVoxel();
+      this.send(key, voxel);
+      if (voxel !== VOXEL.preview) this.timer = window.setTimeout(() => this.send(key, VOXEL.preview), SETTLE_MS);
     }
+    this.follow();
+  }
+
+  /** 拖动中这一张用哪档格子：照各档上一张算了多久，挑够快的最细的那档 */
+  private dragVoxel(): number {
+    let ms = this.previewMs;
+    let last: number = VOXEL.preview;
+    for (const voxel of DRAG_VOXELS) {
+      // 没量过的照细一档的估：用时大致和格子边长成反比（缝手、编译这些不跟着格子变，减不到平方那么多）
+      const known = voxel === VOXEL.preview ? this.previewMs : this.draftMs.get(voxel);
+      const guess = known ?? ms * (last / voxel);
+      // 什么都还没量过：先出一张粗的
+      if (!Number.isFinite(guess)) return VOXEL.draft;
+      if (guess <= DRAG_TARGET) return voxel;
+      ms = guess;
+      last = voxel;
+    }
+    return last;
   }
 
   private send(key: string, voxel: number) {
     const withSkin = this.wantSkin;
-    this.preview.run({ parts: this.parts, voxel, blend: this.blend, skin: withSkin }).then(
-      ({ mesh, skin }) => {
+    const parts = this.parts;
+    const shape = this.shape;
+    const serial = ++this.sent;
+    this.preview.run({ parts, voxel, blend: this.blend, skin: withSkin, labels: !withSkin }).then(
+      ({ mesh, skin, labels }) => {
+        if (skin && voxel === VOXEL.preview) {
+          this.bind = { shape, mesh: { positions: mesh.positions.slice(), normals: mesh.normals.slice(), joints: skin.joints, weights: skin.weights } };
+        }
         if (voxel === VOXEL.preview) this.previewMs = mesh.info.ms;
-        // 参数又变了，或者屏幕上已经是同一形状更细的一版：这份结果不用了（除非它带来了屏幕上那张没有的权重）
+        else if (voxel > VOXEL.preview) this.draftMs.set(voxel, mesh.info.ms);
+        // 参数又变了：比屏幕上那张新的照样换上，再整块挪到现在的样子（一直在拖的时候参数一直在变，
+        // 要求一模一样的话一张都换不上）；比屏幕上那张旧的、摆姿势时的就不要了。
+        // 参数没变，但屏幕上已经是同一形状更细的一版：也不要（除非它带来了屏幕上那张没有的权重）
+        const fresh = key === this.wantKey;
         const brings = Boolean(skin) && !this.skin && voxel <= this.shownVoxel;
-        if (key !== this.wantKey || (key === this.shownKey && voxel >= this.shownVoxel && !brings)) return;
+        if (fresh ? key === this.shownKey && voxel >= this.shownVoxel && !brings : serial < this.shownSent || this.wantSkin) return;
         this.body.geometry.dispose();
         this.body.geometry = toGeometry(mesh);
         this.shownKey = key;
         this.shownVoxel = voxel;
+        this.shownSent = serial;
+        this.shownParts = parts;
+        this.labels = labels ?? null;
+        this.shownFrames = null;
+        this.shownOutline = labels ? outline(parts) : '';
+        this.rest = null;
         this.info = mesh.info;
         this.skin = skin ?? null;
         this.emit();
+        if (!fresh) {
+          this.follow();
+          return;
+        }
         // 照摆好的姿势重新融合的那张也跟着细一档
         if (this.exact.visible && voxel < this.exactVoxel) this.sendPosed(this.poseSerial, voxel);
         // 预览的到了，停一下没有新的改动，就接着算一张更细的（算好之前先用预览的摆着；摆姿势时不等）。
@@ -193,8 +265,9 @@ export class FusedModel {
           const finer = Math.max(VOXEL.fine, Math.ceil(want * 2000) / 2000);
           if (finer <= VOXEL.preview * 0.85) {
             window.clearTimeout(this.fineTimer);
+            const wait = Math.min(FINE_SETTLE_MS[1], Math.max(FINE_SETTLE_MS[0], mesh.info.ms));
             if (withSkin) this.send(key, finer);
-            else this.fineTimer = window.setTimeout(() => key === this.wantKey && this.send(key, finer), FINE_SETTLE_MS);
+            else this.fineTimer = window.setTimeout(() => key === this.wantKey && this.send(key, finer), wait);
           }
         }
       },
@@ -206,17 +279,54 @@ export class FusedModel {
 
   private emit() {
     const geo = this.body.geometry;
-    if (!this.info || !geo.boundingBox || !geo.index) return;
-    const box = geo.boundingBox.clone();
+    const bounds = this.rest?.box ?? geo.boundingBox;
+    if (!this.info || !bounds || !geo.index) return;
+    const box = bounds.clone();
     box.min.multiplyScalar(this.scale);
     box.max.multiplyScalar(this.scale);
     this.onUpdate({
       triangles: geo.index.count / 3,
       box,
       info: this.info,
-      draft: this.shownVoxel > VOXEL.preview,
+      // 照稍早一点的参数算的那张也算粗略的：还要换
+      draft: this.shownVoxel > VOXEL.preview || this.shownKey !== this.wantKey,
       fine: this.shownVoxel < VOXEL.preview,
     });
+  }
+
+  /**
+   * 屏幕上这张不是照现在的参数算的：照每个顶点属于哪一块，把它整块挪到现在的样子（见 sdf/labels.ts）；
+   * 已经跟上了、或者身体换得挪不过去了（换了样式、多了少了部件），就放回原样。
+   * 摆姿势时不挪：那时形状不变，屏幕上的网格是跟着骨骼动的
+   */
+  private follow() {
+    const labels = this.labels;
+    if (!labels || this.wantSkin) return;
+    const geo = this.body.geometry;
+    const position = geo.getAttribute('position') as THREE.BufferAttribute;
+    const normal = geo.getAttribute('normal') as THREE.BufferAttribute;
+    const movable = this.shownKey !== this.wantKey && this.shownOutline === this.outline;
+    if (!this.rest) {
+      if (!movable || !geo.boundingBox) return;
+      geo.computeBoundingSphere();
+      this.rest = {
+        positions: (position.array as Float32Array).slice(),
+        normals: (normal.array as Float32Array).slice(),
+        box: geo.boundingBox.clone(),
+        sphere: geo.boundingSphere!.clone(),
+      };
+    }
+    const rest = this.rest;
+    this.shownFrames ??= pieceFrames(this.shownParts);
+    const moves = movable ? followMatrices(labels.pieces, this.shownFrames, pieceFrames(this.parts)) : labels.pieces.map(() => null);
+    const far = followInto(labels, moves, rest.positions, rest.normals, position.array as Float32Array, normal.array as Float32Array);
+    position.needsUpdate = true;
+    normal.needsUpdate = true;
+    // 包围盒、包围球照挪得最远的那个顶点放大一圈（点选、视锥裁剪用），不逐个顶点重算
+    geo.boundingBox = rest.box.clone().expandByScalar(far);
+    geo.boundingSphere = rest.sphere.clone();
+    geo.boundingSphere.radius += far;
+    if (moves.some(Boolean)) this.follows++;
   }
 
   /**
@@ -251,9 +361,14 @@ export class FusedModel {
     this.body.visible = true;
   }
 
+  /** 静止姿势、预览精度、带权重的那张，是照现在这副身体算的才给 */
+  private bindNow(): BindMesh | undefined {
+    return this.bind?.shape === this.shape ? this.bind.mesh : undefined;
+  }
+
   private sendPosed(serial: number, voxel: number) {
     if (serial !== this.poseSerial || !this.posing) return;
-    this.poser.run({ parts: this.parts, voxel, blend: this.blend, pose: this.posing }).then(
+    this.poser.run({ parts: this.parts, voxel, blend: this.blend, pose: this.posing, bind: this.bindNow() }).then(
       ({ mesh }) => {
         if (serial !== this.poseSerial || voxel >= this.exactVoxel) return;
         this.exact.geometry.dispose();
@@ -326,6 +441,7 @@ export class FusedModel {
       blend: this.blend,
       skin: options.skin,
       pose: options.pose,
+      bind: options.pose ? this.bindNow() : undefined,
     });
     const s = this.scale;
     return {

@@ -246,12 +246,23 @@ const history = new History<Snapshot>(
   { equals: (a, b) => a.text === b.text && JSON.stringify(a.spec) === JSON.stringify(b.spec) },
 );
 
+/** 正拖着操纵杆（见 gizmo.onDrag）：每动一下只记撤销、重建模型，存档和刷新整个面板等松手再做 */
+let tweaking = false;
+
 /**
  * 设定改完了：记进撤销历史、存档、刷新界面。
  * key 相同的连续修改（拖同一个滑块、连着打字）合并成一步。
  */
 function commit(key?: string) {
   history.push({ spec, text }, key);
+  // 只认操纵杆自己的改动：万一没收到松手，别的改动（滑块、撤销）照常存档、刷新
+  if (tweaking && key?.startsWith('gizmo:')) {
+    // 拖操纵杆只改了微调：面板上别的都没变，微调那几格数字在重建以后跟着同步（见 syncTweak）
+    btnUndo.disabled = !history.canUndo;
+    btnRedo.disabled = !history.canRedo;
+    scheduleRebuild();
+    return;
+  }
   save();
   render();
 }
@@ -1783,8 +1794,12 @@ if (gizmo) {
   gizmo.onDrag = (active) => {
     // 每次拖动单独算一步撤销
     history.seal();
-    // 松手以后再同步一次：操纵杆回到按存下来的数值算出的位置（数值被取整、限幅过）
-    if (!active) scheduleRebuild();
+    tweaking = active;
+    // 松手以后存档、刷新面板，再同步一次：操纵杆回到按存下来的数值算出的位置（数值被取整、限幅过）
+    if (!active) {
+      save();
+      render();
+    }
   };
 }
 
@@ -1963,7 +1978,8 @@ function showPose() {
   const { rig } = kit.solver;
   const frame = (poseFrame = forward(rig, poseState));
   const matrices = poseMatrices(rig, frame);
-  posed?.apply(matrices);
+  // 正拖着圆点、转着旋转环时，包围盒不逐个顶点重算（松手以后同步那一次再算准的）
+  posed?.apply(matrices, Boolean(grab));
   if (figure && !character && spec.meshMode === 'fused') {
     const unit = figure.scale;
     // 屏幕上先是照权重跟着骨骼动的那张；姿势停下来以后，后台照它重新融合一张换上（见 FusedModel.pose）。

@@ -7,6 +7,7 @@ import { installAnimeBody } from '../anime/body';
 import { type HairShape, installHairShape } from '../hair/shapes';
 import type { SkinWeights } from '../rig/skin';
 import { type FuseJob, runJob } from './job';
+import type { VertexLabels } from './labels';
 import { type ChunkReply, type HelperLink, fuseSpread } from './parallel';
 import type { FusedMesh } from './surfaceNets';
 
@@ -41,7 +42,7 @@ export interface SpreadMessage {
 }
 
 export type MeshReply =
-  | { id: number; ok: true; mesh: FusedMesh; skin?: SkinWeights }
+  | { id: number; ok: true; mesh: FusedMesh; skin?: SkinWeights; labels?: VertexLabels }
   | { id: number; ok: false; error: string; cancelled?: boolean };
 
 const scope = self as unknown as DedicatedWorkerGlobalScope;
@@ -106,6 +107,10 @@ async function serve(request: MeshRequest) {
     if (made.skin) {
       reply.skin = made.skin;
       transfer.push(reply.skin.joints.buffer, reply.skin.weights.buffer);
+    }
+    if (made.labels) {
+      reply.labels = made.labels;
+      transfer.push(made.labels.first.buffer, made.labels.second.buffer, made.labels.mix.buffer);
     }
     scope.postMessage(reply, transfer);
   } catch (err) {

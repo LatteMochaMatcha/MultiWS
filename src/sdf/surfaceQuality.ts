@@ -1,15 +1,25 @@
-/** 二次元素体的表面校正。缝合圈及其邻面保持原位，不改变面连接。 */
+/**
+ * 二次元素体的表面校正。缝合圈及其邻面保持原位，不改变面连接。
+ *
+ * 分三步：哪些顶点不动（surfaceLocks）；每个顶点各自沿场的梯度挪回表面（surfaceMoves：最费时，各顶点互不相干，
+ * 可以按顶点分段在几个线程上算，见 parallel.ts 的 spreadRefine）；挪坏了的面退回去、重算法线（settleSurface）。
+ * refineSurface 一口气做完三步，和分开做的一模一样。
+ */
 import { type CompiledField, evalPrims } from './field';
-import { type FusedMesh, planBlocks } from './surfaceNets';
+import { type BlockPlan, type FusedMesh, planBlocks } from './surfaceNets';
 
 export function refineSurface(mesh: FusedMesh, field: CompiledField): FusedMesh {
   const started = performance.now();
-  const h = mesh.info.voxel;
-  const plan = planBlocks(field, h);
-  const { positions: p, normals, triangles, quads } = mesh;
-  const count = p.length / 3;
-  const locked = new Uint8Array(count);
-  // 手脚、自带权重的顶点、缝合和封口三角面，一圈相邻的身体四边面都不动。
+  const plan = planBlocks(field, mesh.info.voxel);
+  const locked = surfaceLocks(mesh);
+  const moved = surfaceMoves(field, plan, mesh, locked, 0, mesh.positions.length / 3);
+  return settleSurface(mesh, moved, locked, started);
+}
+
+/** 不动的顶点：手脚、自带权重的顶点、缝合和封口三角面，和它们一圈相邻的身体四边面 */
+export function surfaceLocks(mesh: FusedMesh): Uint8Array {
+  const { quads } = mesh;
+  const locked = new Uint8Array(mesh.positions.length / 3);
   if (mesh.bound) locked.fill(1, mesh.bound.start);
   for (const v of mesh.tris ?? []) locked[v] = 1;
   const seam = locked.slice();
@@ -18,10 +28,26 @@ export function refineSurface(mesh: FusedMesh, field: CompiledField): FusedMesh 
       for (let k = 0; k < 4; k++) locked[quads[q+k]] = 1;
     }
   }
-  const original = p.slice();
-  const previousNormals = normals.slice();
+  return locked;
+}
+
+/**
+ * 第 from 到 to（不含）个顶点各自挪回表面以后在哪（每个顶点 3 个数，没挪的照原样）。
+ * mesh 是校正之前的网格；plan 是 planBlocks(field, 网格的体素)
+ */
+export function surfaceMoves(
+  field: CompiledField,
+  plan: BlockPlan,
+  mesh: { positions: Float32Array; normals: Float32Array; info: { voxel: number } },
+  locked: Uint8Array,
+  from: number,
+  to: number,
+): Float32Array {
+  const h = mesh.info.voxel;
+  const { positions: original, normals } = mesh;
+  const p = original.slice(from * 3, to * 3);
   const epsilon = h * 0.15;
-  for (let v = 0; v < count; v++) {
+  for (let v = from; v < to; v++) {
     if (locked[v]) continue;
     const o = v * 3;
     const x = original[o], y = original[o+1], z = original[o+2];
@@ -45,9 +71,22 @@ export function refineSurface(mesh: FusedMesh, field: CompiledField): FusedMesh 
     const sameCell = (a: number,b: number,origin: number) => Math.floor((a-origin)/h) === Math.floor((b-origin)/h);
     if (!sameCell(x,nx,plan.ox) || !sameCell(y,ny,plan.oy) || !sameCell(z,nz,plan.oz)) continue;
     if (Math.abs(sample(nx,ny,nz)) > Math.abs(d)) continue;
-    p[o] = nx; p[o+1] = ny; p[o+2] = nz;
-
+    const w = o - from * 3;
+    p[w] = nx; p[w+1] = ny; p[w+2] = nz;
   }
+  return p;
+}
+
+/**
+ * 把挪好的顶点（moved：surfaceMoves 给的，全部顶点接在一起）放进 mesh：挪坏了的面退回去，重算法线。
+ * 直接改 mesh 并返回它；started 是开始校正的时刻（记进网格化用时）
+ */
+export function settleSurface(mesh: FusedMesh, moved: Float32Array, locked: Uint8Array, started: number): FusedMesh {
+  const { positions: p, normals, triangles, quads } = mesh;
+  const count = p.length / 3;
+  const original = p.slice();
+  const previousNormals = normals.slice();
+  p.set(moved);
   // 局部回退也会影响相邻面，重复核查；如果不能在四轮内稳定，整张退回。
   const cross = (points: Float32Array,a: number,b: number,c: number) => {
     const ux=points[b]-points[a], uy=points[b+1]-points[a+1], uz=points[b+2]-points[a+2];
