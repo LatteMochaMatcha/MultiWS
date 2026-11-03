@@ -28,6 +28,10 @@ import {
   HIP_LEGS,
   PENIS_ROW,
   PAIRED_KEYS,
+  PER_TORSO_KEYS,
+  type PerTorsoKey,
+  type TorsoCounts,
+  type TorsoSide,
   clampCounts,
   defaultCounts,
 } from '../model/spec';
@@ -68,6 +72,8 @@ export interface ParseResult {
   pose?: Pose;
   /** 文字里写了发型（「双马尾」「长直发」）、发色（「金发」「silver_hair」）时才有对应项 */
   hair: Partial<Pick<HairSpec, 'style' | 'color'>>;
+  /** 「左边的上半身两个头」这样某一个上半身单独设的数量（见 BodySpec.torsoCounts）；没说的上半身没有 */
+  torsoCounts: TorsoCounts;
   /** 从文字里识别到的部件（用于界面高亮） */
   hits: Set<CountKey>;
   matches: ParseMatch[];
@@ -109,6 +115,13 @@ export function normalizeText(text: string): string {
 type Span = [start: number, end: number];
 
 /** 把已经用掉的片段换成逗号，后面的规则就不会再碰它 */
+/**
+ * 「左边的上半身两个头、两对手臂」：某一个上半身单独设的数量（见 BodySpec.torsoCounts），一直说到下一个逗号、分号、句号。
+ * 1 哪一边 2 说了些什么
+ */
+const TORSO_OWN_RE = /(左边|右边|中间|左侧|右侧)(?:的|那个)?上半身([^，,；;。\n]*)/g;
+const TORSO_SIDE_WORD: Record<string, TorsoSide> = { 左边: 'L', 左侧: 'L', 右边: 'R', 右侧: 'R', 中间: 'M' };
+
 function mask(s: string, spans: Span[]): string {
   for (const [a, b] of spans) s = s.slice(0, a) + ','.repeat(b - a) + s.slice(b);
   return s;
@@ -605,6 +618,23 @@ export function parseDescription(text: string): ParseResult {
     work = mask(work, spans);
   }
 
+  /* ---- 0.3 某一个上半身单独设的数量：整段取走（免得里面的数量算到整个身体上），里面当成一段描述单独读，只要它提到的那几样 ---- */
+  const torsoCounts: TorsoCounts = {};
+  {
+    const spans: Span[] = [];
+    for (const m of work.matchAll(TORSO_OWN_RE)) {
+      const side = TORSO_SIDE_WORD[m[1]];
+      const sub = parseDescription(m[2]);
+      const said = PER_TORSO_KEYS.filter((key) => sub.hits.has(key));
+      const own: Partial<Record<PerTorsoKey, number>> = { ...torsoCounts[side] };
+      for (const key of said) own[key] = sub.counts[key];
+      if (said.length) torsoCounts[side] = own;
+      spans.push([m.index, m.index + m[0].length]);
+      record(m.index, m.index + m[0].length, 'keyword', said);
+    }
+    work = mask(work, spans);
+  }
+
   /* ---- 0.5 姿势、性别：各取最后提到的；姿势的说法取走，免得「双臂平举」被读成一对手臂 ---- */
   let pose: Pose | undefined;
   {
@@ -876,6 +906,7 @@ export function parseDescription(text: string): ParseResult {
     gender,
     pose,
     hair,
+    torsoCounts,
     hits,
     matches: matches.sort(byStart),
   };

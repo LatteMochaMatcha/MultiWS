@@ -335,3 +335,6 @@ button,label,summary,select,input{touch-action:manipulation}
   select,.triple input{padding-block:8px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* 部件数量：好几个上半身时单独改一个上半身的那几行（见 main.ts 的 torsoEdit）；全部一样时有上半身单独设过的数后面加个星号 */
+.row.per-torso > label{color:var(--accent)}
+.stepper output.mixed::after{content:'*';margin-left:1px}

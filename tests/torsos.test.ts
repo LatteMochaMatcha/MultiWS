@@ -34,6 +34,62 @@ const names = (f: Figure, type: Part['type']) => f.parts.filter((p) => p.type ==
 describe('好几个上半身', () => {
   useAnimeBody();
 
+  describe('每个上半身单独设数量（BodySpec.torsoCounts）', () => {
+    /** 这个部件长在哪个上半身上（往上找到 UpperBody…） */
+    const bodyOf = (f: Figure, p: Part): string => (p.name.startsWith('UpperBody') ? p.name : p.parent ? bodyOf(f, part(f, p.parent)) : '');
+    const tally = (f: Figure, body: string, type: Part['type']) => f.parts.filter((p) => p.type === type && bodyOf(f, p) === body).length;
+
+    it('单独设的和「全部一样」的数一样（或者没设）：和以前一模一样', () => {
+      for (const style of ['anime', 'mannequin'] as const) {
+        const base = make({ torsos: 2, heads: 2, armPairs: 2 }, { bodyStyle: style, armLayout: 'fan' });
+        const same = { ...base, torsoCounts: { L: { heads: 2, armPairs: 2 }, R: { chestPairs: 1 } } };
+        expect(buildFigure(same), style).toEqual(buildFigure(base));
+        // 上半身减到一个时单独设的不管用
+        expect(buildFigure({ ...base, counts: { ...base.counts, torsos: 1 }, torsoCounts: { L: { heads: 3 } } }), style).toEqual(buildFigure({ ...base, counts: { ...base.counts, torsos: 1 } }));
+      }
+    });
+
+    it('两边不一样多：每个上半身照自己的数量长头、手臂、胸，部件名、骨骼名不重复，融合出来是一整块', () => {
+      const cases: [string, BodySpec][] = [
+        ['二次元素体 两个', { ...make({ torsos: 2 }, { bodyStyle: 'anime', armLayout: 'fan' }), torsoCounts: { L: { heads: 2, armPairs: 2, chestPairs: 2 } } }],
+        ['二次元素体 三个', { ...make({ torsos: 3 }, { bodyStyle: 'anime' }), torsoCounts: { M: { heads: 2 }, L: { armPairs: 2, chestPairs: 0 }, R: { heads: 3 } } }],
+        ['白模人台 两个', { ...make({ torsos: 2, armPairs: 2 }, { armLayout: 'stack' }), torsoCounts: { R: { heads: 3, armPairs: 1 } } }],
+        ['白模人台 三个', { ...make({ torsos: 3 }), torsoCounts: { M: { heads: 3 }, R: { armPairs: 3 } } }],
+      ];
+      for (const [label, spec] of cases) {
+        const f = buildFigure(spec);
+        const sides = spec.counts.torsos === 3 ? (['R', 'M', 'L'] as const) : (['R', 'L'] as const);
+        for (const side of sides) {
+          const body = side === 'M' ? 'UpperBody' : `UpperBody_${side}`;
+          const own = { ...spec.counts, ...spec.torsoCounts?.[side] };
+          expect(tally(f, body, 'head'), `${label} ${side} 头`).toBe(own.heads);
+          // 里侧挤不下的手臂、胸会去掉（见 crowded）：不比设的多，外侧那一边一个不少
+          expect(tally(f, body, 'arm'), `${label} ${side} 手臂`).toBeLessThanOrEqual(own.armPairs * 2);
+          expect(tally(f, body, 'arm'), `${label} ${side} 手臂`).toBeGreaterThanOrEqual(own.armPairs);
+          expect(tally(f, body, 'chest'), `${label} ${side} 胸`).toBeLessThanOrEqual(own.chestPairs * 2);
+          expect(tally(f, body, 'chest'), `${label} ${side} 胸`).toBeGreaterThanOrEqual(own.chestPairs);
+        }
+        const partNames = f.parts.map((p) => p.name);
+        expect(new Set(partNames).size, label).toBe(partNames.length);
+        const bones = buildSkeleton(f).bones.map((b) => b.name);
+        expect(new Set(bones).size, label).toBe(bones.length);
+        const mesh = fuseParts(f.parts.filter((p) => p.material !== 'eye'), { voxel: VOXEL.preview, blend: spec.blend });
+        expect(mesh.info.components, label).toBe(1);
+      }
+    }, 120_000);
+
+    it('二次元素体两个上半身配横排两副胯，两边不一样多：不并成宽躯干，两个上半身各自直立', () => {
+      const base = make({ torsos: 2, legs: 4 }, { bodyStyle: 'anime', legLayout: 'abreast' });
+      const isWide = (spec: BodySpec) => {
+        const grid = part(buildFigure(spec), 'Torso').prims[0];
+        return grid.kind === 'grid' && !!grid.twin?.levels;
+      };
+      expect(isWide(base)).toBe(true);
+      expect(isWide({ ...base, torsoCounts: { L: { armPairs: 2 } } })).toBe(false);
+      expect(isWide({ ...base, torsoCounts: { L: { armPairs: 1 } } })).toBe(true);
+    });
+  });
+
   it('一个上半身时和原来一模一样', () => {
     expect(buildFigure(make({ torsos: 1, heads: 2, armPairs: 2 }))).toEqual(buildFigure(make({ heads: 2, armPairs: 2 })));
   });

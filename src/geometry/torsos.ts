@@ -16,6 +16,7 @@
  */
 import { castRay, compileField } from '../sdf/field';
 import { getGrid, spreadAt } from '../sdf/grids';
+import type { TorsoSide } from '../model/spec';
 import { type BoneHint, type Figure, type Fork, type Graft, type GridShape, type Part, type Prim, type WidenBand, nthName, shapeMatrix } from './figure';
 import { HEAD_HALF_WIDTH } from './head';
 import { ringAt } from './torso';
@@ -149,16 +150,34 @@ const ordinal = (name: string): [string, number] => {
   return [m[1], m[2] ? Number(m[2]) - 1 : 0];
 };
 
-export function splitTorsos(figure: Figure, count: number): Figure {
+/** 第几个上半身（torsoSlots）对应 BodySpec.torsoCounts 里哪一边 */
+export const SLOT_SIDE: Record<-1 | 0 | 1, TorsoSide> = { [-1]: 'R', 0: 'M', 1: 'L' };
+
+/** 一副身体腰以上那些部件：躯干上长着的，和挂在它们上面的 */
+function uppersOf(figure: Figure): Part[] {
+  const byName = new Map(figure.parts.map((p) => [p.name, p]));
+  const upperOf = (p: Part): boolean => p.parent === 'Torso' || (p.parent !== undefined && upperOf(byName.get(p.parent)!));
+  return figure.parts.filter(upperOf);
+}
+
+/**
+ * sources：每个上半身单独设的数量不一样时，第 slot 个上半身照哪副身体摆（layout.ts 照它自己的数量摆的，腰以上从这副里取）；
+ * 不给的照 figure。胯、腿和身高这些照 figure
+ */
+export function splitTorsos(figure: Figure, count: number, sources: Partial<Record<-1 | 0 | 1, Figure>> = {}): Figure {
   const slots = torsoSlots(Math.max(1, Math.min(MAX_TORSOS, Math.round(count))));
   if (slots.length < 2) return figure;
   const torso = figure.parts.find((p) => p.name === 'Torso');
   const spineBone = torso?.bones?.find((b) => b.name === 'Spine');
   if (!torso || !spineBone) return figure;
 
-  const byName = new Map(figure.parts.map((p) => [p.name, p]));
-  const upperOf = (p: Part): boolean => p.parent === 'Torso' || (p.parent !== undefined && upperOf(byName.get(p.parent)!));
-  const upper = figure.parts.filter(upperOf);
+  const upper = uppersOf(figure);
+  const upperSet = new Set(upper);
+  /** 第 slot 个上半身照哪副身体摆、它腰以上的部件、它的躯干 */
+  const sourceOf = (slot: number): Figure => sources[slot as -1 | 0 | 1] ?? figure;
+  const uppers = new Map<number, Part[]>(slots.map((slot) => [slot, sourceOf(slot) === figure ? upper : uppersOf(sourceOf(slot))]));
+  const torsoOf = (slot: number): Part => sourceOf(slot).parts.find((p) => p.name === 'Torso') ?? torso;
+  const allUpper = slots.flatMap((slot) => uppers.get(slot)!);
   const cutY = spineBone.head[1] + CUT_RISE;
   const pivot: V3 = [0, spineBone.head[1], spineBone.head[2]];
   const three = slots.length === 3;
@@ -183,7 +202,7 @@ export function splitTorsos(figure: Figure, count: number): Figure {
   };
   const forkFrom = Math.min(cutY, Math.max(hipY, ...torso.prims.map(influence)));
   // 躯干过渡的上限：拼的胸、手臂根、翅膀根以下。采样胸单独接在胸壁上，保留较长的躯干过渡。
-  const rigid = upper.filter(
+  const rigid = allUpper.filter(
     (p) => p.parent === 'Torso' && (p.type === 'chest' ? !p.prims.some((q) => q.kind === 'grid' || q.kind === 'chest') : sampled && (p.type === 'arm' || p.type === 'wing')),
   );
   const rigidLow = Math.min(...rigid.map(partBottom));
@@ -197,12 +216,13 @@ export function splitTorsos(figure: Figure, count: number): Figure {
   }
 
   /* ---- 躯干切成两截：分开的地方以下是胯，往上（多留一截）是复制用的那一份 ---- */
-  const below: Prim[] = [];
-  const above: Prim[] = [];
   const pelvisTop = forkFrom + FORK_SEAM;
   const copyBottom = forkFrom - FORK_OVERLAP;
+  const cut = (prims: readonly Prim[]) => {
+  const below: Prim[] = [];
+  const above: Prim[] = [];
   // 叠着的那一截两边是同一张皮，切口都埋在对方里面：不用倒圆（倒了反而在那一圈凹进去一道）
-  for (const p of torso.prims) {
+  for (const p of prims) {
     if (p.kind === 'loft') {
       below.push({ ...p, rings: [...p.rings.filter((r) => r.y < pelvisTop), ringAt(p.rings, pelvisTop)] });
       above.push({ ...p, rings: [ringAt(p.rings, copyBottom), ...p.rings.filter((r) => r.y > copyBottom)] });
@@ -218,8 +238,13 @@ export function splitTorsos(figure: Figure, count: number): Figure {
       (y < cutY ? below : above).push(p);
     }
   }
+  return { below, above };
+  };
+  const { below } = cut(torso.prims);
+  /** 第 slot 个上半身复制用的那一截躯干、它的脊柱骨骼（数量不一样时胸腔加长的多少不一样，各取各的） */
+  const aboves = new Map<number, Prim[]>(slots.map((slot) => [slot, cut(torsoOf(slot).prims).above]));
+  const spines = new Map<number, BoneHint[]>(slots.map((slot) => [slot, (torsoOf(slot).bones ?? []).filter((b) => SPINE.test(b.name))]));
   const hips = (torso.bones ?? []).filter((b) => !SPINE.test(b.name));
-  const spine = (torso.bones ?? []).filter((b) => SPINE.test(b.name));
   const pelvis: Part = { ...torso, prims: below, bones: hips };
 
   /* ---- 每个上半身歪多少：歪到相邻两个的肩膀之间、头之间都空出 SHOULDER_GAP ---- */
@@ -228,12 +253,13 @@ export function splitTorsos(figure: Figure, count: number): Figure {
    * 肩膀不只看手臂的关节：二次元素体的肩关节埋在身体里面，躯干本身在那个高度上比关节宽出一截——
    * 朝躯干打射线量它在那个高度上实际有多宽，再和关节外面一条手臂的粗细比，取宽的
    */
-  const probe = compileField({ scale: 1, parts: [{ ...torso, parent: undefined, pos: [0, 0, 0], quat: Q_ID, prims: above }] }, { blend: 0 });
-  const torsoWide = (y: number, z: number) => 0.6 - castRay(probe, [0.6, y, z], [-1, 0, 0], 0.6);
   const reach: { wide: number; rise: number; gap?: number }[] = [];
   let shoulderY = cutY + 0.3;
   let shoulderWide = 0;
-  for (const p of upper) {
+  for (const slot of new Set(slots.map(sourceOf)).size === 1 ? [slots[0]] : slots) {
+  const probe = compileField({ scale: 1, parts: [{ ...torso, parent: undefined, pos: [0, 0, 0], quat: Q_ID, prims: aboves.get(slot)! }] }, { blend: 0 });
+  const torsoWide = (y: number, z: number) => 0.6 - castRay(probe, [0.6, y, z], [-1, 0, 0], 0.6);
+  for (const p of uppers.get(slot)!) {
     if (p.parent !== 'Torso') continue;
     if (p.type === 'arm' || p.type === 'neck') {
       const wide = p.type === 'arm' ? Math.max(Math.abs(p.pos[0]) + ARM_RADIUS, torsoWide(p.pos[1], p.pos[2])) : Math.abs(p.pos[0]);
@@ -242,6 +268,7 @@ export function splitTorsos(figure: Figure, count: number): Figure {
     } else if (p.type === 'head') {
       reach.push({ wide: Math.abs(p.pos[0]) + HEAD_HALF_WIDTH * (p.scale ?? 1), rise: p.pos[1] - pivot[1] });
     }
+  }
   }
   // 直立并排的只看头（肩膀见 UPRIGHT_LEAN）
   const heads = reach.filter((r) => r.gap === undefined).map((r) => ({ ...r, gap: UPRIGHT_HEAD_GAP }));
@@ -255,18 +282,17 @@ export function splitTorsos(figure: Figure, count: number): Figure {
   const floor = Math.max(cutY, lowerTop + ARM_CLEAR);
 
   /* ---- 复制、换名字 ---- */
-  const per = (type: Part['type'], pattern: RegExp) => {
+  /** 第 slot 个上半身有几个头、几对手臂（胸、翅膀） */
+  const per = (slot: number, type: Part['type'], pattern: RegExp) => {
     let most = 0;
-    for (const p of upper) {
+    for (const p of uppers.get(slot)!) {
       const m = p.type === type ? pattern.exec(p.name) : null;
       if (m) most = Math.max(most, Number(m[1]));
     }
     return most;
   };
-  const headsPer = per('head', /^Head_(\d+)$/);
-  const armsPer = per('arm', /^Arm_(\d+)_[LR]$/);
-  const chestsPer = per('chest', /^Chest_(\d+)_[LR]$/);
-  const wingsPer = per('wing', /^Wing_(\d+)_[LR]$/);
+  const headsPer = (slot: number) => per(slot, 'head', /^Head_(\d+)$/);
+  const pairsPer = (slot: number, kind: string) => per(slot, kind === 'Arm' ? 'arm' : kind === 'Chest' ? 'chest' : 'wing', new RegExp(`^${kind}_(\\d+)_[LR]$`));
 
   const out: Part[] = [pelvis];
   slots.forEach((slot) => {
@@ -274,6 +300,10 @@ export function splitTorsos(figure: Figure, count: number): Figure {
     const q: Quat = quatMul(quatEuler(0, three ? slot * FAN_YAW : 0, 0), quatEuler(0, 0, -slot * lean));
     const shift: V3 = [slot * outward, 0, three && slot ? -0.02 : 0];
     const name = `UpperBody${tag}`;
+    const upper = uppers.get(slot)!;
+    const above = aboves.get(slot)!;
+    const spine = spines.get(slot)!;
+    const own = torsoOf(slot);
     /** 骨骼换名字：脊柱带上边，头接着往下数，手臂、胸、翅膀分外侧、里侧 */
     const boneMap = new Map<string, string>();
     for (const b of spine) {
@@ -282,11 +312,17 @@ export function splitTorsos(figure: Figure, count: number): Figure {
     }
     /** 这一边挨着别的上半身吗（side 是 1 / -1） */
     const inner = (side: number) => (slot === 0 ? three : side === -slot);
-    /** 第几对（从 0 数）的手臂、胸、翅膀在 side 这一边，换成第几对 */
-    const pairAt = (k: number, side: number, perBody: number) =>
-      slot === 0 ? k : k + (inner(side) ? (three ? 2 : 1) : three ? 1 : 0) * perBody;
+    /**
+     * 第几对（从 0 数）的手臂、胸、翅膀在 side 这一边，换成第几对：同一个后缀（_L / _R）上先排正中那个上半身的，
+     * 再排外侧在这一边的那个上半身的，最后是里侧在这一边的（照它们各自有几对往后排，名字不重复）
+     */
+    const pairAt = (k: number, side: number, kind: string) => {
+      if (slot === 0) return k;
+      const middle = three ? pairsPer(0, kind) : 0;
+      return inner(side) ? k + middle + pairsPer(-slot, kind) : k + middle;
+    };
     // 头照从右往左（-X 到 +X）一个上半身一个上半身地数：一个上半身里的头本来就是这么数的，镜像的那个头是倒着数的同一个号
-    const headAt = (k: number) => k + [...slots].sort((a, b) => a - b).indexOf(slot) * headsPer;
+    const headAt = (k: number) => k + slots.filter((other) => other < slot).reduce((sum: number, other) => sum + headsPer(other), 0);
 
     /** 一个部件和它的骨骼在这个上半身上叫什么 */
     const rename = (p: Part): { part: string; bone: (b: string) => string } => {
@@ -303,8 +339,7 @@ export function splitTorsos(figure: Figure, count: number): Figure {
       }
       if ((m = /^(Arm|Chest|Wing)_(\d+)_([LR])$/.exec(p.name))) {
         const side = m[3] === 'L' ? 1 : -1;
-        const perBody = m[1] === 'Arm' ? armsPer : m[1] === 'Chest' ? chestsPer : wingsPer;
-        const k = pairAt(Number(m[2]) - 1, side, perBody);
+        const k = pairAt(Number(m[2]) - 1, side, m[1]);
         const part = `${m[1]}_${String(k + 1).padStart(2, '0')}_${m[3]}`;
         return {
           part,
@@ -350,7 +385,7 @@ export function splitTorsos(figure: Figure, count: number): Figure {
         }
       : { pivot, quat: q, shift, from: forkFrom, to: forkTo, ...(split ? { split } : {}) };
     out.push({
-      ...torso,
+      ...own,
       name,
       side: slot,
       parent: 'Torso',
@@ -398,7 +433,7 @@ export function splitTorsos(figure: Figure, count: number): Figure {
       for (const p of extra) out.splice(out.indexOf(p), 1);
     }
   });
-  for (const p of figure.parts) if (p !== torso && !upperOf(p)) out.push(p);
+  for (const p of figure.parts) if (p !== torso && !upperSet.has(p)) out.push(p);
   // 直立并排的里侧的胸、手臂都留着（胸挤在一起，手臂见 besideArms）
   const kept = upright ? out : crowded(out, slots, [0, shoulderY, pivot[2]]);
 
