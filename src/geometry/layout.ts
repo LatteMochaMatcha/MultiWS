@@ -647,6 +647,8 @@ export const MULTI_HIPS = 1.1;
  * 照 MULTI_HIPS 的话胯几乎不比腰宽，整个躯干一个长方块；照参考图 B-3 要宽出一截
  */
 export const UPRIGHT_HIPS = 1.25;
+/** 二次元素体三个上半身直立并排（分得开，见 torsos.ts 的 UPRIGHT_SPREAD_THREE）时胯再宽多少倍：托得住三个腰 */
+export const UPRIGHT_HIPS_THREE = 1.5;
 
 /** 只按部件数量、排布和体型自动摆位，不管手动微调 */
 export function layoutFigure(given: BodySpec): Figure {
@@ -660,7 +662,8 @@ export function layoutFigure(given: BodySpec): Figure {
   const alike = torsosAlike(given);
   const wide = anime && alike && given.counts.torsos === 2 && given.counts.heads === 1 && given.headLayout !== 'faces' && plan.form === 'abreast' && plan.stations.length === 2 && plan.stations.every((n) => n === 2);
   if (wide) return splitTorsos(layoutAnime({ ...given, counts: { ...given.counts, torsos: 1, heads: 2 } }, true), 2);
-  const spec = given.counts.torsos > 1 ? { ...given, shape: { ...given.shape, hips: given.shape.hips * (upright ? UPRIGHT_HIPS : MULTI_HIPS) } } : given;
+  const three = anime && given.counts.torsos === 3;
+  const spec = given.counts.torsos > 1 ? { ...given, shape: { ...given.shape, hips: given.shape.hips * (upright ? UPRIGHT_HIPS : three ? UPRIGHT_HIPS_THREE : MULTI_HIPS) } } : given;
   // 二次元少女素体的数据还没载入时，先按白模摆（数据到了以后界面会重新生成一遍）
   const layout = (s: BodySpec) => (anime ? layoutAnime(s) : layoutMannequin(s));
   const one = layout(spec);
