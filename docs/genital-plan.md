@@ -163,6 +163,11 @@
 - **README**：新加「成人部件（默认关）」一节、已知的限制一条、开发命令和文件表。
 - **测试**：新加圆点分组、左右配对和翻转、弯了以后缝口、小阴囊的权重四项；全部 1361 项通过。
 
+**合并、打包（11-03）**：本地的 `main` 还停在 b05f1db，往 GitHub main 推的是主目录那条 `rework/torso-bust`（已经推到 d058630「拖动不卡」，后面还有导出 VRM 第 3 期 75349f7 没推；另一个会话正在那边改 VRM，有没提交的改动）。主目录不碰，在这个 worktree 里把 `rework/torso-bust`（75349f7）合进 `feature/multi-genital`（d6b55fd）：冲突只有摆姿势面板一处（阴茎那组圆点的显示和预设面板都留着）。合完 46 个文件、1435 项测试通过，`npm run build` 通过，浏览器里试过人马配四根几乘几。导出 VRM 会带上阴茎的署名；会晃的骨骼只有尾巴，阴茎不晃。
+
+- 打包：在这个 worktree 里 `npm run pack`、`npm run apk`，出来的在 `F:\Downloads\多tool-genitalelease\`（exe、zip、apk、使用说明）。apk 用的是主目录 `tools/android/sign.keystore` 那把钥匙（拷了一份过来，不进仓库），能盖在手机上原来那个上装。exe 没有双击试。
+- 还没做：合到推 GitHub 的那条线上。等主目录那边的 VRM 改完提交了，再把这个分支合进 `rework/torso-bust`（那时候大概能直接快进），问你要不要推。
+
 ## 风险
 
 | 风险 | 应对 |
