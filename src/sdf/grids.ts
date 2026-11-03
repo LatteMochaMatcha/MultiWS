@@ -687,6 +687,7 @@ export function chestDist(p: ChestShape, piece = false, voxel = 0): { fn: Dist; 
   if (known) {
     BAKED.delete(key);
     BAKED.set(key, known);
+    asked?.add(shape);
     return known;
   }
   const exact = chestExact(p, piece);
@@ -694,6 +695,7 @@ export function chestDist(p: ChestShape, piece = false, voxel = 0): { fn: Dist; 
   // 只是看看要烤哪些（见 neededChests）：先不烤，现算的对付这一遍
   if (wanted) {
     wanted.set(shape, { shape, p, cell });
+    asked?.add(shape);
     return exact;
   }
   const box = chestBox(exact, cell);
@@ -768,22 +770,33 @@ export interface ChestPlan extends ChestOrder {
   nz: number;
 }
 
-/** 只看要烤哪些胸的时候记在这里（见 neededChests）；平时是 null */
+/** 只看要烤哪些胸的时候记在这里（见 neededChests）：还没烤的、用到的全部（BakedChest.shape）；平时是 null */
 let wanted: Map<string, ChestOrder> | null = null;
+let asked: Set<string> | null = null;
 
 /**
- * 照 run 编译一遍场，看要烤哪些胸（这个线程里还没烤过的）：这一遍一个都不烤，编译出来的场也别用。
- * 要烤的可以先分给几个线程一起烤（见 parallel.ts 的 spreadBake），收下以后再正式编译，就都是烤好的了
+ * 照 run 编译一遍场，看要烤哪些胸（这个线程里还没烤过的，bake）、用到了哪些（烤过的也算上，used）：这一遍一个都不烤，编译出来的场也别用。
+ * 要烤的可以先分给几个线程一起烤（见 parallel.ts 的 spreadBake），收下以后再正式编译，就都是烤好的了；
+ * 交给帮手的也只交用到的（见 parallel.ts 的 newChests）
  */
-export function neededChests(run: () => void): ChestOrder[] {
-  const before = wanted;
+export function neededChests(run: () => void): { bake: ChestOrder[]; used: Set<string> } {
+  const before = [wanted, asked] as const;
   wanted = new Map();
+  asked = new Set();
   try {
     run();
-    return [...wanted.values()];
+    return { bake: [...wanted.values()], used: asked };
   } finally {
-    wanted = before;
+    [wanted, asked] = before;
   }
+}
+
+/**
+ * 正在看要烤哪些胸（在 neededChests 里）：这时胸是现算的，范围框比烤好的大好几倍，照胸的范围算出来的东西别记进缓存
+ * （见 posedField.ts 的 torsoNearChests）
+ */
+export function collectingChests(): boolean {
+  return wanted !== null;
 }
 
 /** 定下一个要烤的胸烤哪一块（要现算着扫一遍）。什么都没扫到的返回 null：不烤，用到时现算 */
@@ -841,17 +854,32 @@ export function adoptChests(list: readonly BakedChest[]) {
   }
 }
 
-/** 记下一个烤好的胸；烤好的加起来超过 BAKED_BYTES 就扔掉最久没用的 */
+/** 记下一个烤好的胸；烤好的加起来超过 bakedBudget 就扔掉最久没用的 */
 function keepBaked(key: string, chest: BakedChest): Baked {
   const baked: Baked = { ...chest, fn: readGrid(chest.grid) };
+  const old = BAKED.get(key);
+  if (old) {
+    bakedBytes -= old.grid.data.byteLength;
+    BAKED.delete(key);
+  }
   BAKED.set(key, baked);
   bakedBytes += chest.grid.data.byteLength;
-  while (bakedBytes > BAKED_BYTES && BAKED.size > 1) {
+  trimBaked();
+  return baked;
+}
+
+function trimBaked() {
+  while (bakedBytes > bakedBudget && BAKED.size > 1) {
     const oldest = BAKED.keys().next().value!;
     bakedBytes -= BAKED.get(oldest)!.grid.data.byteLength;
     BAKED.delete(oldest);
   }
-  return baked;
+}
+
+/** 在手机上（见 meshClient.ts）：烤好的胸少留一些，几个线程加起来别占太多内存（扔掉了的要用时再烤，慢些） */
+export function onPhone() {
+  bakedBudget = PHONE_BAKED_BYTES;
+  trimBaked();
 }
 
 /** 这个线程里烤好的胸有几个、一共占多少字节（测试、量内存用） */
@@ -957,9 +985,16 @@ const BAKE_COARSE = 0.012;
 /**
  * 烤好的胸最多留这么多字节（每个线程各一份）。
  * 原来按个数留 12 个：几个上半身、几排胸的身体一副就有七八个胸，粗网格、预览、精细三档轮着算的时候互相挤掉，
- * 拖手臂、腿（胸根本没变）也要重烤，精细那档单线程要两秒
+ * 拖手臂、腿（胸根本没变）也要重烤，精细那档单线程要两秒。
+ * 两个上半身、两对胸的素体，三档加上照姿势的一共 32 个、58 MB
  */
 const BAKED_BYTES = 96 * 2 ** 20;
+/**
+ * 手机上（见 onPhone）每个线程最多留这么多：网格 Worker、帮手一共六个线程。
+ * 留得住一副身体静止时的三档（上面那副 31 MB），照姿势的精细那档多半要重烤
+ */
+const PHONE_BAKED_BYTES = 32 * 2 ** 20;
+let bakedBudget = BAKED_BYTES;
 type Baked = BakedChest & { fn: Dist };
 /** 烤好的胸，最近用过的排在后面 */
 const BAKED = new Map<string, Baked>();

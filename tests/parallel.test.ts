@@ -19,6 +19,7 @@ import {
   fuseSpread,
   helperDesk,
 } from '../src/sdf/parallel';
+import { neededChests } from '../src/sdf/grids';
 import { planBlocks } from '../src/sdf/surfaceNets';
 import { useAnimeBody } from './animeBody';
 
@@ -161,6 +162,25 @@ describe('大活分给帮手一起算', () => {
     expect(bakes.length).toBeGreaterThan(3);
     expect(fakes.every((f) => f.bakes().length > 0)).toBe(true);
     expectSame(made!, runJob(job), '分开烤胸');
+  }, 120_000);
+
+  it('交给帮手的胸只有这个任务用到的：这个线程里先前烤的别的胸（拖着胸围滑块时一路烤的）不交', async () => {
+    useAnimeBody();
+    const anime = (bust: number) => partsOf(make({}, { bodyStyle: 'anime', shape: { ...defaultSpec().shape, bust } }));
+    // 别的胸围：粗的、预览的都烤过
+    const other = anime(0.83);
+    for (const voxel of [VOXEL.draft, VOXEL.preview]) stageJob({ parts: other, voxel, blend: 0.02 });
+    const job: FuseJob = { parts: anime(1.91), voxel: VOXEL.preview, blend: 0.02 };
+    const fakes = [fakeHelper(), fakeHelper()];
+    expectSame((await fuseSpread(13, job, fakes.map((f) => f.helper), never))!, runJob(job), '只交用到的胸');
+    const { used } = neededChests(() => void stageJob(job));
+    const { used: unused } = neededChests(() => void stageJob({ parts: other, voxel: VOXEL.preview, blend: 0.02 }));
+    for (const fake of fakes) {
+      const sent = (fake.chunks()[0].chests ?? []).map((chest) => chest.shape);
+      expect(sent.length).toBeGreaterThan(0);
+      expect(sent.every((shape) => used.has(shape))).toBe(true);
+      expect(sent.some((shape) => unused.has(shape))).toBe(false);
+    }
   }, 120_000);
 
   it('一个帮手都没有：自己一份一份地算完，结果一样', async () => {

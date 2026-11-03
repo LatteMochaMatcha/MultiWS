@@ -6,6 +6,7 @@
 import { installAnimeBody } from '../anime/body';
 import { type HairShape, installHairShape } from '../hair/shapes';
 import type { SkinWeights } from '../rig/skin';
+import { onPhone } from './grids';
 import { type FuseJob, runJob } from './job';
 import type { VertexLabels } from './labels';
 import { type ChunkReply, type HelperLink, fuseSpread } from './parallel';
@@ -41,6 +42,11 @@ export interface SpreadMessage {
   spread: boolean;
 }
 
+/** 在手机上：烤好的胸少留一些（见 grids.ts 的 onPhone；帮手线程也收这个） */
+export interface PhoneMessage {
+  phone: true;
+}
+
 export type MeshReply =
   | { id: number; ok: true; mesh: FusedMesh; skin?: SkinWeights; labels?: VertexLabels }
   | { id: number; ok: false; error: string; cancelled?: boolean };
@@ -74,13 +80,14 @@ function link(port: MessagePort): HelperLink {
   return helper;
 }
 
-scope.onmessage = (event: MessageEvent<MeshRequest | ShapesMessage | HairMessage | HelpersMessage | CancelMessage | SpreadMessage>) => {
+scope.onmessage = (event: MessageEvent<MeshRequest | ShapesMessage | HairMessage | HelpersMessage | CancelMessage | SpreadMessage | PhoneMessage>) => {
   const data = event.data;
   if ('shapes' in data) installAnimeBody(data.shapes);
   else if ('hair' in data) installHairShape(data.hair, data.data);
   else if ('helpers' in data) helpers = data.helpers.map(link);
   else if ('cancel' in data) dropped ||= data.cancel === current;
   else if ('spread' in data) spread = data.spread;
+  else if ('phone' in data) onPhone();
   else void serve(data);
 };
 

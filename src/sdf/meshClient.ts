@@ -9,7 +9,7 @@
 import type { HairShape } from '../hair/shapes';
 import type { PortMessage } from './eval.worker';
 import type { FuseJob, FuseResult } from './job';
-import type { CancelMessage, HairMessage, HelpersMessage, MeshReply, MeshRequest, ShapesMessage, SpreadMessage } from './mesh.worker';
+import type { CancelMessage, HairMessage, HelpersMessage, MeshReply, MeshRequest, PhoneMessage, ShapesMessage, SpreadMessage } from './mesh.worker';
 
 /** 采样好的形状（二次元素体）的数据。主线程载入以后交到这里，每个 Worker 接下一个任务之前先收到一份 */
 let shapes: ArrayBuffer | null = null;
@@ -30,11 +30,13 @@ export function provideHair(style: HairShape, buffer: ArrayBuffer) {
 /** 帮手线程；还没建是 null */
 let helpers: Worker[] | null = null;
 
+/** 在手机上（主要是触屏的）：帮手开得少，烤好的胸也少留（见 grids.ts 的 onPhone） */
+const phone = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+
 /** 开几个帮手：留两个核给界面和网格 Worker 自己；手机上最多 3 个（每个要多占一二十兆内存） */
 function helperCount(): number {
   const cores = navigator.hardwareConcurrency || 2;
-  const touch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
-  return Math.max(0, Math.min(touch ? 3 : 6, cores - 2));
+  return Math.max(0, Math.min(phone ? 3 : 6, cores - 2));
 }
 
 function startHelpers(): Worker[] {
@@ -45,6 +47,10 @@ function startHelpers(): Worker[] {
     // 开不了这么多线程：有几个用几个，一个都没有就网格 Worker 自己算
   }
   for (const helper of made) {
+    if (phone) {
+      const message: PhoneMessage = { phone: true };
+      helper.postMessage(message);
+    }
     if (shapes) {
       const message: ShapesMessage = { shapes };
       helper.postMessage(message);
@@ -118,6 +124,10 @@ export class MeshClient {
       this.pump();
     };
     live.add(worker);
+    if (phone) {
+      const message: PhoneMessage = { phone: true };
+      worker.postMessage(message);
+    }
     if (!spreading) {
       const message: SpreadMessage = { spread: false };
       worker.postMessage(message);

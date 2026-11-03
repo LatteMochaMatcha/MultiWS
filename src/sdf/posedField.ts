@@ -32,6 +32,7 @@ import { type ChestShape, type Figure, type Part, type WorldXf, worldTransforms 
 import { type Quat, type V3, quatBasis, quatMul, rotate } from '../geometry/vec';
 import { type Skeleton, buildSkeleton } from '../rig/skeleton';
 import { BIG, type CompiledField, type Dist, type Draft, type FieldOptions, GROUP_BLEND, GROUP_INDEX, GROUPS, T_CUSTOM, draftDist, pack, partDrafts } from './field';
+import { collectingChests } from './grids';
 
 /** 每根骨骼的蒙皮矩阵：12 个数一根（3×3 的旋转按行排，后面是平移），骨骼的顺序和 buildSkeleton 给静止姿势排的一样 */
 export type PoseMatrices = ArrayLike<number>;
@@ -794,6 +795,9 @@ function torsoNearChests(parts: Part[], xfs: Map<string, WorldXf>, minR: number)
   };
   const boxes: Draft[] = [];
   for (const part of chests) partDrafts(part, xfs.get(part.name)!, 0, minR, boxes);
+  // 只是看看要烤哪些胸（见 grids.ts 的 neededChests；上面这几个胸也记上了）：胸的范围框这时是现算的、大好几倍，
+  // 照它烤出来的格子记下来的话，正式编译就用上了这份范围不一样的，网格跟着变。这一遍的场本来就不用，现算的对付
+  if (collectingChests()) return exact;
   const scale = xfs.get(chests[0]?.name ?? '')?.scale ?? 1;
   const cell = TORSO_CELL * scale;
   const lo = [BIG, BIG, BIG];
