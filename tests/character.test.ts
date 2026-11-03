@@ -1860,6 +1860,36 @@ describe('成品角色的手动微调', () => {
     expect(glow.length).toBeGreaterThan(90);
   });
 
+  it('兽身换了部件数重新拼过：骨骼下标串一样的另一条腿，高亮的还是它自己的面', () => {
+    // 兽身那块的权重每次拼都是同一份，骨骼下标却重新编号：加了兽耳、翅膀以后，前一副的 Leg_02_L 和这一副的 Leg_01_L 下标串一样
+    const spider = make('蜘蛛女');
+    const before = assembleCharacter(source(), spider);
+    const after = assembleCharacter(source(), { ...spider, counts: { ...spider.counts, earPairsPerHead: 2, wingPairs: 1 } });
+    const legs = (b: CharacterBuild) => characterParts(b).filter((p) => p.type === 'leg');
+    const pair = legs(after)
+      .map((p) => [legs(before).find((q) => q.bones.join() === p.bones.join() && q.name !== p.name), p] as const)
+      .find(([q]) => q);
+    expect(pair, '前后两副里得有骨骼下标串一样、名字不一样的腿').toBeDefined();
+    const [was, now] = [pair![0]!, pair![1]];
+    /** 照权重现数：跟着这条腿的权重加起来过半的面有几个 */
+    const faces = (b: CharacterBuild, bones: number[]) => {
+      let n = 0;
+      for (const m of b.meshes) {
+        const w = (v: number) => {
+          let s = 0;
+          for (let k = 0; k < 4; k++) if (bones.includes(m.joints[v * 4 + k])) s += m.weights[v * 4 + k];
+          return Math.min(1, s);
+        };
+        for (let t = 0; t < m.indices.length; t += 3) if (w(m.indices[t]) + w(m.indices[t + 1]) + w(m.indices[t + 2]) >= 1.5) n++;
+      }
+      return n;
+    };
+    characterPartGlow(tweakCharacter(before, {}), was.name);
+    const glow = characterPartGlow(tweakCharacter(after, {}), now.name);
+    expect(glow.length / 9).toBe(faces(after, now.bones));
+    expect(faces(after, now.bones)).not.toBe(faces(before, was.bones));
+  });
+
   it('腿改长了：整个人跟着升高，脚还踩在地上', () => {
     const { build } = tweakCharacter(base, { Leg_01_L: { scale: [1, 1.3, 1] }, Leg_01_R: { scale: [1, 1.3, 1] } });
     expect(bone(build, 'Hips').head[1]).toBeGreaterThan(bone(base, 'Hips').head[1] + 0.1);

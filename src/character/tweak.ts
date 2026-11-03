@@ -164,10 +164,12 @@ export function characterParts(build: Pick<CharacterBuild, 'bones' | 'meshes'>):
 }
 
 /**
- * 按骨骼认的部件每个顶点跟着挪多少，只和这块网格的骨骼、权重有关（微调只挪顶点，不改权重）：照权重数组、
- * 部件的骨骼记着，拖操纵杆时不用每一帧都重算
+ * 按骨骼认的部件每个顶点跟着挪多少，只和这块网格的骨骼、权重有关（微调只挪顶点，不改权重）：照骨骼下标数组、权重数组、
+ * 部件的骨骼记着，拖操纵杆时不用每一帧都重算。
+ * 两个数组都要是同一份才算数：兽身那块的权重每次拼都是记着的同一份，骨骼下标却每次照当时的骨架重新编号，
+ * 只认权重的话部件数一变，同一串骨骼下标指的就是另一条腿了
  */
-const BONE_WEIGHTS = new WeakMap<ArrayLike<number>, Map<string, Float32Array | null>>();
+const BONE_WEIGHTS = new WeakMap<Uint16Array, WeakMap<Float32Array, Map<string, Float32Array | null>>>();
 
 /** 每个顶点跟着这个部件挪多少（0 到 1）。返回的数组是记着的那一份，不要改它 */
 function weightsOf(part: CharacterPart, chunk: Chunk, set: ReadonlySet<number>): Float32Array | null {
@@ -178,8 +180,10 @@ function weightsOf(part: CharacterPart, chunk: Chunk, set: ReadonlySet<number>):
     for (let v = 0; v < count; v++) out[v] = !part.side || chunk.positions[v * 3] * part.side > 0 ? 1 : 0;
     return out;
   }
-  let known = BONE_WEIGHTS.get(chunk.weights);
-  if (!known) BONE_WEIGHTS.set(chunk.weights, (known = new Map()));
+  let byWeights = BONE_WEIGHTS.get(chunk.joints);
+  if (!byWeights) BONE_WEIGHTS.set(chunk.joints, (byWeights = new WeakMap()));
+  let known = byWeights.get(chunk.weights);
+  if (!known) byWeights.set(chunk.weights, (known = new Map()));
   const key = part.bones.join(',');
   const kept = known.get(key);
   if (kept !== undefined) return kept;
