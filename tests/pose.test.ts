@@ -13,8 +13,8 @@ import { POSE_LIBRARY } from '../src/pose/library';
 import { quatAngle } from '../src/pose/math';
 import { type Posing, cleanPosing, emptyPosing, flipPosing, isPosed, twinBone } from '../src/pose/posing';
 import { type SourceBone, posingFromBones } from '../src/pose/retarget';
-import { type PoseRig, forward, poseMatrices, posedBones, restState, tailOf } from '../src/pose/rig';
-import { capturePins, dragAim, dragBend, dragBody, dragReach, turnBone } from '../src/pose/solve';
+import { type PoseRig, type PoseState, forward, poseMatrices, posedBones, restState, tailOf } from '../src/pose/rig';
+import { COLLAR_MAX, capturePins, dragAim, dragBend, dragBody, dragReach, turnBone } from '../src/pose/solve';
 import { type Solver, makeSolver, mirrorState, posingOf, stateOf } from '../src/pose/solver';
 import { buildSkeleton } from '../src/rig/skeleton';
 import { skinVertices } from '../src/rig/skin';
@@ -309,7 +309,7 @@ describe('拖手、拖脚', () => {
     const reach = s.limbs[hand].len1 + s.limbs[hand].len2;
     expect(dist(f.pos[s.limbs[hand].end], target)).toBeLessThan(dist(shoulder(), target) - reach - 0.1);
     expect(quatAngle(state.local[bone(rig, 'Shoulder_L')])).toBeGreaterThan(5 * DEG);
-    expect(quatAngle(state.local[bone(rig, 'Shoulder_L')])).toBeLessThan(51 * DEG);
+    expect(quatAngle(state.local[bone(rig, 'Shoulder_L')])).toBeLessThan(COLLAR_MAX + 1e-6);
     for (const name of ['Spine', 'Chest', 'UpperChest']) {
       expect(quatAngle(state.local[bone(rig, name)]), name).toBeGreaterThan(1 * DEG);
       expect(quatAngle(state.local[bone(rig, name)]), name).toBeLessThan(66 * DEG);
@@ -516,6 +516,33 @@ describe('带着骨头转过去、用旋转环转', () => {
     for (const pin of pins) expect(dist(f.pos[s.limbs[pin.limb].end], pin.pos)).toBeLessThan(1e-9);
   });
 
+  it('拖肩膀：锁骨自己最多转 COLLAR_MAX，再往外上身跟着转，肩膀照样跟着手指走', () => {
+    const shoulder = buildHandles(s).find((h) => h.id === 'UpperArm_L')!;
+    const drag = (from: PoseState, target: V3) => dragAim(s, from, shoulder.links, { bone: shoulder.anchor, rest: shoulder.rest }, target, pins);
+    const collar = bone(rig, 'Shoulder_L');
+    const joint = f0.pos[bone(rig, 'UpperArm_L')];
+    const spine = ['UpperChest', 'Chest', 'Spine'].map((name) => bone(rig, name));
+    // 拖一点点：锁骨转，上身基本不动（只补锁骨够不着的那一丁点）
+    const near = drag(rest, add(joint, [0, 0.02, 0]));
+    expect(quatAngle(near.local[collar])).toBeGreaterThan(5 * DEG);
+    for (const b of spine) expect(quatAngle(near.local[b]), rig.names[b]).toBeLessThan(0.5 * DEG);
+    // 拖得远：锁骨转到上限，几节脊柱弯过去，肩膀跟到手指附近（锁骨长短不变，沿着它的那点距离差一点）；脚不动
+    const target = add(joint, [0, 0.08, 0]);
+    const far = drag(rest, target);
+    const f = forward(rig, far);
+    expect(quatAngle(far.local[collar])).toBeLessThan(COLLAR_MAX + 1e-6);
+    expect(quatAngle(far.local[collar])).toBeGreaterThan(COLLAR_MAX - 2 * DEG);
+    expect(quatAngle(far.local[spine[0]])).toBeGreaterThan(2 * DEG);
+    expect(dist(f.pos[bone(rig, 'UpperArm_L')], target)).toBeLessThan(0.02);
+    for (const pin of pins) expect(dist(f.pos[s.limbs[pin.limb].end], pin.pos)).toBeLessThan(1e-6);
+    // 以前存下来的姿势里锁骨已经转过头了：拖它以那时转的为限，不会一抓就跳回上限
+    const old = restState(rig);
+    old.local[collar] = quatEuler(0, 0, 60 * DEG);
+    const moved = drag(old, add(forward(rig, old).pos[bone(rig, 'UpperArm_L')], [0, -0.01, 0.01]));
+    expect(quatAngle(moved.local[collar])).toBeGreaterThan(50 * DEG);
+    expect(quatAngle(moved.local[collar])).toBeLessThan(60 * DEG + 1e-6);
+  });
+
   it('转胯：脚还钉在原地，上身跟着转', () => {
     const state = turnBone(s, rest, rig.hips, quatEuler(0, 0.5, 0), pins);
     const f = forward(rig, state);
@@ -607,7 +634,9 @@ describe('控制点', () => {
     expect(by.get('Hips')).toMatchObject({ kind: 'body', group: 'torso', label: '胯' });
     expect(by.get('Hand_L')).toMatchObject({ kind: 'reach', group: 'arm', label: '手 左' });
     expect(by.get('LowerLeg_R')).toMatchObject({ kind: 'bend', group: 'leg', label: '膝 右' });
-    expect(by.get('UpperArm_L')!.links.map((l) => s.rig.names[l.bone])).toEqual(['Shoulder_L']);
+    // 肩：先转锁骨，锁骨转到上限以后上身跟着转
+    expect(by.get('UpperArm_L')!.links.map((l) => s.rig.names[l.bone])).toEqual(['Shoulder_L', 'UpperChest', 'Chest', 'Spine']);
+    expect(by.get('UpperLeg_L')!.links.map((l) => s.rig.names[l.bone])).toEqual(['Hips']);
     expect(by.get('UpperChest')!.links.map((l) => s.rig.names[l.bone])).toEqual(['Chest', 'Spine']);
     expect(by.get('Head:tip')!.rest).toEqual(s.rig.tail[bone(s.rig, 'Head')]);
     // 点一下转的是从这个关节往外的那一段；指尖的点转的是整根手指

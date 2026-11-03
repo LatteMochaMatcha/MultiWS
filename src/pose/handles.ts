@@ -143,9 +143,12 @@ export function buildHandles(solver: Solver): Handle[] {
     const arm = limb.kind === 'arm';
     const group: HandleGroup = arm ? 'arm' : 'leg';
     const side = (limb.side > 0 ? t('左') : limb.side < 0 ? t('右') : t('中')) + (limb.pair ? ` ${limb.pair + 1}` : '');
-    // 肩、大腿根：拖它是带着它的那节（锁骨、胯）转过去
+    // 肩、大腿根：拖它是带着它的那节（锁骨、胯）转过去。
+    // 锁骨转到上限（见 COLLAR_MAX）以后上身跟着转：这个上半身的几节脊柱接着弯，越靠上的弯得越多
     const base = rig.parent[limb.upper];
-    handles.push(joint(limb.upper, { kind: 'aim', group, label: arm ? t('肩 {side}', { side }) : t('大腿根 {side}', { side }), links: base >= 0 ? [{ bone: base, weight: 1 }] : [] }));
+    const collar = arm && base >= 0 && rig.names[base].startsWith('Shoulder');
+    const links: AimLink[] = base < 0 ? [] : collar ? [{ bone: base, weight: 1, collar: true }, ...spineAbove(base).map((b, k) => ({ bone: b, weight: Math.max(0.25, 0.5 - 0.1 * k) }))] : [{ bone: base, weight: 1 }];
+    handles.push(joint(limb.upper, { kind: 'aim', group, label: arm ? t('肩 {side}', { side }) : t('大腿根 {side}', { side }), links }));
     handles.push(joint(limb.lower, { kind: 'bend', group, label: arm ? t('肘 {side}', { side }) : t('膝 {side}', { side }), limb: i }));
     handles.push(joint(limb.end, { kind: 'reach', group, label: arm ? t('手 {side}', { side }) : t('脚 {side}', { side }), limb: i }));
     if (!arm) {

@@ -115,6 +115,7 @@ import {
 } from './pose/fingers';
 import { type Handle, type HandleGroup, HANDLE_GROUPS, buildHandles } from './pose/handles';
 import { type BodyDist, clearArms } from './pose/clear';
+import { rootReach, settleCollars } from './pose/collar';
 import { type PoseRegion, POSE_REGIONS, armPairOf, blendPose, regionOf } from './pose/blend';
 import { type DrapeKind, BodySurface, boneRadius, drape, drapeBones } from './pose/drape';
 import { fitArms, followArms } from './pose/fit';
@@ -2249,6 +2250,25 @@ function markHandles() {
   });
 }
 
+/**
+ * 以前存下来的姿势里转过头的锁骨（把肩关节带出了身子，见 pose/collar.ts）：退回到贴着身子。
+ * 直接换掉设定里的姿势并存档，不进撤销（撤销回去的那一步再打开时照样退回来）
+ */
+function settleOldCollars(solver: Solver) {
+  const next = settleCollars(
+    solver,
+    spec.posing,
+    () => {
+      const dist = bodyDist();
+      return dist && figure ? { dist, reach: rootReach(figure) } : null;
+    },
+    figure?.scale ?? 1,
+  );
+  if (next === spec.posing) return;
+  spec = { ...spec, posing: next };
+  save();
+}
+
 /** 摆姿势时：模型重建了、姿势变了、撤销了……把屏幕上的一切同步到 spec.posing */
 function syncPosing() {
   const k = ensureKit();
@@ -2263,7 +2283,10 @@ function syncPosing() {
   flatParts.root.visible = flat && ready;
   if (flat) model.root.visible = !ready;
   // 正拖着的时候屏幕上是还没存的姿势，不去动它
-  if (!poseHandles?.busy) poseState = stateOf(k.solver, spec.posing);
+  if (!poseHandles?.busy) {
+    settleOldCollars(k.solver);
+    poseState = stateOf(k.solver, spec.posing);
+  }
   showPose();
   markHandles();
   if (ready && !poseHandles?.busy) {

@@ -238,7 +238,7 @@ Click "Pose" at the top left of the 3D view and a set of handles lights up on th
 | --- | --- | --- |
 | Large cyan circle | Hands, feet, pelvis | Drag a hand or foot and the elbow or knee bends by itself; if it can't reach, the body follows. Drag the pelvis and the whole figure moves while the feet stay pinned in place |
 | Yellow diamond | Elbows, knees | The hand or foot stays put and the elbow (knee) swings to the side you drag toward |
-| Small white circle | Waist, chest, neck, head, shoulders, hip joints, toe tips | Rotates that bone: bend over, tilt the head, shrug, stand on tiptoe |
+| Small white circle | Waist, chest, neck, head, shoulders, hip joints, toe tips | Rotates that bone: bend over, tilt the head, shrug (drag further and the upper body leans with it), stand on tiptoe |
 | Small circle at an end | Tail tips, wing tips; on Ready-made characters, hair tips, skirt hems and sleeve cuffs | The whole chain bends toward it |
 
 **The "Pose" section**:

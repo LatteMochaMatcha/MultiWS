@@ -13,7 +13,7 @@
  */
 import { type Quat, type V3, add, cross, dot, len, mul, norm, quatBetween, quatConj, quatMul, rotate, sub } from '../geometry/vec';
 import { type Limb, STRAIGHT, limbFrame } from './limbs';
-import { anyPerp, quatLimit, quatPart, quatUnit, reject } from './math';
+import { anyPerp, quatAngle, quatLimit, quatPart, quatUnit, reject } from './math';
 import { type Frame, type PoseRig, type PoseState, cloneState, forward, pointOn, setWorldRot, shiftRoot } from './rig';
 import type { Solver } from './solver';
 
@@ -38,17 +38,27 @@ const ROOT_GIVE = [0.1, 0.2, 0.4, 0.65, 0.9, 0.97];
 /** 骨盆：脚钉着的时候它也帮着转（弯腰主要是胯在折） */
 const PELVIS: Helper = { give: 0.35, step: 13 * DEG, max: 100 * DEG };
 
-/** 帮着够的一节骨骼：每轮补上差距的几成、每轮最多转多少、这次拖动里总共最多转多少 */
+/**
+ * 锁骨自己（相对静止姿势）最多转多少：再往外是上身跟着转（拖肩上的圆点见 handles.ts，手够不着见 pull）。
+ * 锁骨转多了，肩关节被带离躯干，重新融合以后手臂就悬在半空。拖之前已经转过了这么多的（以前存下来的姿势），
+ * 以那时转的为限（见 collarLimit）
+ */
+export const COLLAR_MAX = 30 * DEG;
+/** 第 bone 根骨骼（锁骨）这次拖动里最多转到多少：COLLAR_MAX，拖之前已经超过的就是拖之前的 */
+export const collarLimit = (start: PoseState, bone: number): number => Math.max(COLLAR_MAX, quatAngle(start.local[bone]));
+
+/** 帮着够的一节骨骼：每轮补上差距的几成、每轮最多转多少、这次拖动里总共最多转多少；collar：是锁骨（还受 COLLAR_MAX 管） */
 interface Helper {
   give: number;
   step: number;
   max: number;
+  collar?: boolean;
 }
 /**
  * 挤在一个肩膀上的几根锁骨（肩关节离得很近：肩部聚拢的几条手臂）帮得少得多：
  * 锁骨一转，这条手臂的肩头就被带离那一团共用的肩膀，中间的皮被扯成长长的一片。
  */
-const CROWDED: Helper = { give: 0.5, step: 4 * DEG, max: 8 * DEG };
+const CROWDED: Helper = { give: 0.5, step: 4 * DEG, max: 8 * DEG, collar: true };
 function crowded(rig: PoseRig, bone: number): boolean {
   const near = len(sub(rig.tail[bone], rig.head[bone])) * 0.5;
   return rig.names.some(
@@ -59,7 +69,7 @@ function crowded(rig: PoseRig, bone: number): boolean {
 function helperOf(rig: PoseRig, bone: number): Helper {
   const name = rig.names[bone];
   // 锁骨：出力快，但转不了多少
-  if (name.startsWith('Shoulder')) return crowded(rig, bone) ? CROWDED : { give: 0.5, step: 16 * DEG, max: 50 * DEG };
+  if (name.startsWith('Shoulder')) return crowded(rig, bone) ? CROWDED : { give: 0.5, step: 16 * DEG, max: 50 * DEG, collar: true };
   // 兽身的那几节：基本不弯
   if (name.startsWith('LowerBody') || name === 'Abdomen') return { give: 0.15, step: 5 * DEG, max: 15 * DEG };
   // 脊柱
@@ -206,6 +216,8 @@ function pull(solver: Solver, state: PoseState, start: PoseState, limb: Limb, ta
       // 这次拖动里总共转了多少，有上限
       const since = quatLimit(quatMul(state.local[bone], quatConj(start.local[bone])), helper.max);
       state.local[bone] = quatUnit(quatMul(since, start.local[bone]));
+      // 锁骨自己转的也有上限，剩下的交给后面几节脊柱
+      if (helper.collar) state.local[bone] = quatLimit(state.local[bone], collarLimit(start, bone));
       f = forward(rig, state);
       gap = shortfall(f.pos[limb.upper], target, reach);
       if (!gap) return;
@@ -279,11 +291,14 @@ export interface AimLink {
    * min、max 是相对父骨骼最少、最多弯多少弧度
    */
   hinge?: { axis: V3; min: number; max: number };
+  /** 是锁骨：相对静止姿势最多转 collarLimit，再往外交给后面几节（拖肩上的圆点，见 handles.ts） */
+  collar?: boolean;
 }
 
 /**
  * 拖一个长在身上的点（anchor 骨骼上、静止时在 rest 的那个点）：links 里的骨骼各自绕自己的关节转，让这个点朝 target 去。
  * 只有一节时就是「这节骨头指向手指」；几节一起时（拖胸口弯腰），越靠前的出力越多，反复几轮凑过去。
+ * 拖肩膀时第一节是锁骨，它转到上限、或者够不着（锁骨长短不变）的那部分由后面几节脊柱补上（上身跟着转）。
  */
 export function dragAim(
   solver: Solver,
@@ -319,6 +334,7 @@ export function dragAim(
         continue;
       }
       setWorldRot(rig, state, f, link.bone, quatMul(quatPart(quatBetween(norm(from), norm(to)), link.weight), f.rot[link.bone]));
+      if (link.collar) state.local[link.bone] = quatLimit(state.local[link.bone], collarLimit(start, link.bone));
     }
   }
   const turned = new Set(links.map((link) => link.bone));

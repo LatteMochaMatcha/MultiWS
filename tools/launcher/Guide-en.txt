@@ -183,7 +183,8 @@ Click "Shape" to go back and keep editing the body.
   Yellow diamond       Elbows, knees. Dragging one makes the elbow (knee) point to another side while the hand
                        or foot stays put.
   Small white circle   Waist, chest, neck, head, top of the head, shoulders, hip joints, toe tips. Dragging the top
-                       of the head tilts the head, dragging the chest bends over, dragging a shoulder shrugs.
+                       of the head tilts the head, dragging the chest bends over, dragging a shoulder shrugs
+                       (drag further and the upper body leans with it).
   Click a handle       A colored rotation ring appears, which turns the segment from that joint outward (click
                        the wrist to turn the hand, click the shoulder to turn the whole arm).
                        Click empty space to put it away. Dragging empty space still turns the view.
