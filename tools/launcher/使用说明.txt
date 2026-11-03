@@ -255,3 +255,5 @@ pixiv 的说明：https://vroid.pixiv.help/hc/en-us/articles/4402614652569
 用后两个导出的 GLB 里已经自动写上了署名；把图或模型发出去的时候，请带上
 「Alice Chan © edisonlee55，CC BY-SA 4.0」或「Kotori © Fox Jump，CC BY」。
 「二次元素体」的脚也取自 Kotori（CC BY）：用二次元素体导出的模型发出去时，请带上「脚部网格 © Fox Jump（Kotori），CC BY」。
+「二次元素体」躯干的起伏参考了 Fly_jkey 的「Woman」（CC BY 4.0，https://sketchfab.com/3d-models/woman-b303b7606140480f8335cda121b9607c），导出的模型里会自动写上署名。
+工坊里还有一部分网格（默认不显示）取自 Death Joe Productions 的「DJP Male Base Mesh Mark 03」（https://deathjoeproductions.gumroad.com/l/MaleBM03，CC BY 4.0：https://creativecommons.org/licenses/by/4.0/），形状有修改；用到它们的模型导出时会自动写上署名，发出去时请带上。

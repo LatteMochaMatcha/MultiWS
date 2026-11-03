@@ -49,6 +49,8 @@ function expectRoundTrip(spec: BodySpec) {
   const fresh = applyParse(defaultSpec(), parseDescription(text));
   expect(fresh.gender, text).toBe(spec.gender);
   expect(fresh.pose, text).toBe(spec.pose);
+  // 每排几根也光靠这句话就能读回来
+  if (spec.counts.penises > 1 && spec.penisLayout === 'grid') expect(fresh.penisRow, text).toBe(spec.penisRow);
   expect(fresh.counts, text).toEqual(spec.counts);
 }
 

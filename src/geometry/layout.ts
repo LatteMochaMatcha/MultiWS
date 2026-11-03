@@ -676,10 +676,14 @@ export function genitalsOn(parts: Part[], mounts: Mount[], spec: BodySpec, scale
   let scrotums = 1;
   for (const mount of mounts) {
     const out0 = rotate(mount.quat, [0, 0, 1]);
+    // 左右并排的几副胯（站着的）：每一套往左右最多伸到旁边那副胯一半远
+    const side = rotate(mount.quat, [1, 0, 0]);
+    const gaps = mounts.filter((other) => other !== mount && !other.under && !mount.under).map((other) => Math.abs(dot(sub(other.origin, mount.origin), side)) / 2);
     const made = genitalParts({
       count: spec.counts.penises,
       layout: spec.penisLayout,
       perRow: spec.penisRow,
+      ...(gaps.length ? { room: Math.min(...gaps) } : {}),
       scrotum: spec.scrotum,
       scale,
       mount,

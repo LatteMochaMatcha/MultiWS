@@ -206,8 +206,6 @@ const CN_DUAL_RE = new RegExp(`(?<![${N}\\d])双(${PART_SRC})`, 'g');
 
 /** 人腿人马每副胯几条腿：「每副胯三条腿」。 1 数字 */
 const HIP_LEGS_RE = new RegExp(`每[副个]?胯上?([${N}\\d]+)条(?:腿|足)?`, 'g');
-/** 阴茎排成几乘几：「每排两根」。 1 数字 */
-const PENIS_ROW_RE = new RegExp(`每排([${N}\\d]+)根`, 'g');
 /** 「前三后三」「前两条后一条腿」：前面那副胯几条、后面那副几条。 1 前 2 后 */
 const FRONT_BACK_RE = new RegExp(`前([${N}\\d]+)条?(?:腿|足)?后([${N}\\d]+)条?(?:腿|足)?`, 'g');
 
@@ -448,9 +446,13 @@ const PENIS_WORD = '(?:阴茎|肉棒|阳具|鸡巴)';
 const PENIS_STACK_RE = new RegExp(
   `${PENIS_WORD}${CLAUSE}{0,6}?(?:上下叠|上下排|叠着)|(?:上下叠|上下排)${CLAUSE}{0,6}?${PENIS_WORD}|${L}stacked${S}(?:penises|cocks)${R}`,
 );
+/**
+ * 阴茎排成几乘几：「阴茎每排两根」。前面同一句里（隔着逗号也行）得提到阴茎，后面紧跟着别的部件的不算（「每排两根角」）。 1 数字
+ */
+const PENIS_ROW_RE = new RegExp(`(?<=${PENIS_WORD}[^。;]{0,10}?)每排([${N}\\d]+)根(?!${PART_SRC})`, 'g');
 const PENIS_FAN_RE = new RegExp(`${PENIS_WORD}${CLAUSE}{0,6}?(?:扇形|散开)|扇形${CLAUSE}{0,6}?${PENIS_WORD}`);
-/** 每根各带一个阴囊（没说就是共用一个） */
-const SCROTUM_EACH_RE = new RegExp(`(?:每根|各)${CLAUSE}{0,3}?阴囊|阴囊${CLAUSE}{0,2}?各|[${N}几多]个阴囊`);
+/** 每根各带一个阴囊（没说就是共用一个）。「一个阴囊」「共用一个阴囊」是共用：几个阴囊只认两个以上 */
+const SCROTUM_EACH_RE = new RegExp(`(?:每根|各)${CLAUSE}{0,3}?阴囊|阴囊${CLAUSE}{0,2}?各|(?:[二两俩三四五六七八九十几多]|[2-9]|\\d{2,})个阴囊`);
 
 /* ================= 性别、姿势 ================= */
 

@@ -19,6 +19,7 @@ export function applyParse(spec: BodySpec, r: ParseResult): BodySpec {
     legLayout: r.legLayout,
     hipLegs: r.hipLegs,
     penisLayout: r.penisLayout,
+    penisRow: r.penisRow,
     scrotum: r.scrotum,
     earShape: r.earShape ?? spec.earShape,
     gender: r.gender ?? spec.gender,

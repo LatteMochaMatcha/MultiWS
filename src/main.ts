@@ -219,8 +219,9 @@ function readText(value: string) {
 }
 
 /**
- * 成人部件只在开关打开、身体不是成品角色时有：别的时候设定里一律去掉（文字里写了、载入的配置里有也一样），
- * 免得开关关着时看不见的设定还留在存档、撤销历史里（见 model/adult.ts）
+ * 成人部件只在开关打开时有：关着时设定里一律去掉（文字里写了、载入的配置里有也一样），
+ * 免得开关关着时看不见的设定还留在存档、撤销历史里（见 model/adult.ts）。
+ * 成品角色时设定照留（切回白模还在），只是不长、几项也不显示（见 adultShown）
  */
 const gate = (next: BodySpec): BodySpec => (adultOn() ? next : withoutAdult(next));
 /** 成人部件的几项要不要显示 */
@@ -421,6 +422,8 @@ adultBox.addEventListener('change', () => {
   else commit();
 });
 function syncAdult() {
+  // 别的标签页里拨过的：这一页的勾跟着
+  adultBox.checked = adultOn();
   const shown = adultShown() && spec.counts.penises > 0;
   $('penisLayoutField').hidden = !shown;
   $('scrotumField').hidden = !shown;
@@ -3121,7 +3124,7 @@ async function exportFused(kind: ExportKind, target: Figure, pose: ExportPose | 
   if (credit) what += `；发出去时请署名「${credit}」`;
   if (kind === 'obj') {
     // OBJ 存得下四边面：导进 Blender 布线更干净
-    const text = writeObj([{ name: 'OC_BaseMesh', positions: data.positions, normals: data.normals, faces: data.quads, faceSize: 4, triangles: data.tris }]);
+    const text = writeObj([{ name: 'OC_BaseMesh', positions: data.positions, normals: data.normals, faces: data.quads, faceSize: 4, triangles: data.tris }], credit);
     return { blob: new Blob([text], { type: 'text/plain' }), what };
   }
   if (kind === 'stl') {
@@ -3164,7 +3167,7 @@ async function exportParts(kind: ExportKind, target: Figure, pose: ExportPose | 
     // 不带骨骼的 GLB 保留父子关系：眼睛、角、耳朵挂在各自的头下面
     const tree = model.baked();
     try {
-      return { blob: await exportGlb(tree), what: `每个部件一个物体${note}` };
+      return { blob: await exportGlb(tree, credit), what: `每个部件一个物体${note}` };
     } finally {
       disposeTree(tree);
     }
@@ -3188,7 +3191,10 @@ async function exportParts(kind: ExportKind, target: Figure, pose: ExportPose | 
     });
   }
   if (kind === 'obj') {
-    const text = writeObj(meshes.map((m) => ({ name: m.name, positions: m.positions, normals: m.normals, faces: m.indices, faceSize: 3 })));
+    const text = writeObj(
+      meshes.map((m) => ({ name: m.name, positions: m.positions, normals: m.normals, faces: m.indices, faceSize: 3 })),
+      credit,
+    );
     return { blob: new Blob([text], { type: 'text/plain' }), what: `每个部件一个物体${note}` };
   }
   if (kind === 'stl') {
@@ -3489,7 +3495,7 @@ fileJson.addEventListener('change', async () => {
   try {
     const data: unknown = JSON.parse(await file.text());
     if (typeof data !== 'object' || data === null || !('counts' in data)) throw new Error('not a config');
-    spec = normalizeSpec(data);
+    spec = gate(normalizeSpec(data));
     const saved = (data as { text?: unknown }).text;
     readText(typeof saved === 'string' ? saved : describeSpec(spec));
     desc.value = text;

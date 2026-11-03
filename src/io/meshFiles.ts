@@ -19,8 +19,8 @@ export interface PolyMesh {
 const num = (v: number) => String(Math.round(v * 1e5) / 1e5 + 0);
 
 /** Wavefront OBJ：每个网格一个物体（o），带逐顶点法线 */
-export function writeObj(meshes: PolyMesh[]): string {
-  const lines: string[] = ['# OC Basemesh Workshop v2', '# unit: meter, up: +Y, front: +Z'];
+export function writeObj(meshes: PolyMesh[], credit?: string): string {
+  const lines: string[] = ['# OC Basemesh Workshop v2', '# unit: meter, up: +Y, front: +Z', ...(credit ? [`# ${credit}`] : [])];
   let base = 1;
   for (const mesh of meshes) {
     const { positions, normals, faces, faceSize } = mesh;

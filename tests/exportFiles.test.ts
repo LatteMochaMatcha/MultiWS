@@ -307,3 +307,11 @@ describe('STL', () => {
     }
   });
 });
+
+describe('署名', () => {
+  it('OBJ 开头的注释里写上署名（用到了要求署名的素材时）', () => {
+    const mesh = { name: 'm', positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), faces: new Uint32Array([0, 1, 2]), faceSize: 3 as const };
+    expect(writeObj([mesh], '某某 © 某人，CC BY 4.0').split('\n')).toContain('# 某某 © 某人，CC BY 4.0');
+    expect(writeObj([mesh]).split('\n').filter((line) => line.startsWith('#'))).toHaveLength(2);
+  });
+});

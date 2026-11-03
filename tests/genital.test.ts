@@ -1,11 +1,11 @@
 // 阴茎、阴囊（白模人台，一副胯）：阴茎是缝上去的现成网格，阴囊是距离场格子（见 src/geometry/genital.ts、docs/genital-plan.md）。
 import { describe, expect, it } from 'vitest';
-import { genitalReady } from '../src/anime/genital';
+import { genitalReady, penisMesh } from '../src/anime/genital';
 import { findClashes } from '../src/geometry/clash';
 import { buildFigure } from '../src/geometry/layout';
 import { buildPartGeometry, triangleCount } from '../src/geometry/partsMesh';
 import { withoutAdult } from '../src/model/adult';
-import { type BodySpec, PENIS_LAYOUTS, SCROTUM_MODES, defaultSpec } from '../src/model/spec';
+import { type BodySpec, PENIS_LAYOUTS, SCROTUM_MODES, defaultSpec, normalizeSpec, serializeSpec } from '../src/model/spec';
 import { quatEuler, rotate } from '../src/geometry/vec';
 import { buildHandles } from '../src/pose/handles';
 import { flipPosing, placedTwins } from '../src/pose/posing';
@@ -15,8 +15,7 @@ import { buildSkeleton } from '../src/rig/skeleton';
 import { compileField } from '../src/sdf/field';
 import { VOXEL, fuseParts } from '../src/sdf/fuse';
 import { graftMeshes } from '../src/sdf/graft';
-import { isSampled } from '../src/sdf/posedField';
-import { compilePosedField } from '../src/sdf/posedField';
+import { compilePosedField, isSampled } from '../src/sdf/posedField';
 import { fusePosed } from '../src/sdf/posedFuse';
 import { runJob } from '../src/sdf/job';
 import { meshField } from '../src/sdf/surfaceNets';
@@ -279,6 +278,42 @@ describe('摆姿势', () => {
   });
 });
 
+describe('开关关着', () => {
+  it('去掉阴茎连带它的设定、姿势、微调；没有要去的原样返回', () => {
+    useGenital();
+    const q = quatEuler(0.3, 0, 0);
+    const spec = make(
+      { penises: 3 },
+      {
+        penisLayout: 'grid',
+        penisRow: 3,
+        scrotum: 'each',
+        shape: { ...defaultSpec().shape, penisSize: 1.4 },
+        posing: { version: 3, bones: { Penis_01_03: q, Scrotum_01: q, Head: q } },
+        overrides: { Penis_01: { scale: [1.2, 1.2, 1.2] }, Head: { scale: [1.1, 1.1, 1.1] } },
+      },
+    );
+    const off = withoutAdult(spec);
+    const def = defaultSpec();
+    expect(off.counts.penises).toBe(0);
+    expect([off.shape.penisSize, off.penisLayout, off.penisRow, off.scrotum]).toEqual([def.shape.penisSize, def.penisLayout, def.penisRow, def.scrotum]);
+    expect(Object.keys(off.posing.bones)).toEqual(['Head']);
+    expect(Object.keys(off.overrides)).toEqual(['Head']);
+    expect(withoutAdult(off)).toBe(off);
+  });
+
+  it('存配置：没长阴茎、几项都是默认的不写这几个键，读回来照样补上', () => {
+    const plain = JSON.parse(serializeSpec(defaultSpec()));
+    expect(plain.counts).not.toHaveProperty('penises');
+    expect(plain.shape).not.toHaveProperty('penisSize');
+    for (const key of ['penisLayout', 'penisRow', 'scrotum']) expect(plain).not.toHaveProperty(key);
+    expect(normalizeSpec(plain)).toEqual(defaultSpec());
+    const grown = JSON.parse(serializeSpec(make({ penises: 2 }, { penisLayout: 'fan' })));
+    expect(grown.counts.penises).toBe(2);
+    expect(grown.penisLayout).toBe('fan');
+  });
+});
+
 describe('融合', () => {
   it('每种排法、两种阴囊、一到四根：一整块，每根都缝上了', () => {
     useGenital();
@@ -292,7 +327,40 @@ describe('融合', () => {
           const mesh = graftMeshes(meshField(field, VOXEL.fine), parts, VOXEL.fine, undefined, report);
           expect(report.loose, `${penisLayout} ${scrotum} ${n}`).toEqual([]);
           expect(mesh.info.components, `${penisLayout} ${scrotum} ${n}`).toBe(1);
+          // 每根都接上了现成的网格（只有一截圆台的话，上面两条也照样成立）
+          expect(mesh.tris?.length ?? 0, `${penisLayout} ${scrotum} ${n}`).toBeGreaterThanOrEqual(n * penisMesh().triangles.length);
         }
+  });
+
+  it('根数多了也是一整块：左右并排几副胯叠六根、排一排六根，身体底下五六根、各带阴囊', () => {
+    useGenital();
+    const cases: [string, Partial<BodySpec['counts']>, Partial<BodySpec>][] = [
+      ['横排多胯 上下叠 6', { legs: 4, penises: 6 }, { legLayout: 'abreast', penisLayout: 'stack' }],
+      ['横排多胯 并排 6', { legs: 4, penises: 6 }, { legLayout: 'abreast', penisLayout: 'row' }],
+      ['横排多胯 扇形 6', { legs: 4, penises: 6 }, { legLayout: 'abreast', penisLayout: 'fan' }],
+      ['人马 6', { legs: 4, penises: 6 }, { legLayout: 'taur' }],
+      ['人马 5 各带', { legs: 4, penises: 5 }, { legLayout: 'taur', scrotum: 'each' }],
+      ['前后串联 4 各带', { legs: 4, penises: 4 }, { legLayout: 'tandem', scrotum: 'each' }],
+      ['几乘几 每排两根 3', { penises: 3 }, { penisLayout: 'grid', penisRow: 2 }],
+    ];
+    for (const [name, counts, rest] of cases) {
+      const spec = make(counts, rest);
+      const figure = buildFigure(spec);
+      expect(fuseParts(figure.parts, { voxel: VOXEL.preview, blend: spec.blend }).info.components, name).toBe(1);
+      const genital = figure.parts.filter((p) => p.type === 'genital').map((p) => p.name);
+      expect(findClashes(figure).filter((k) => genital.includes(k.a) || genital.includes(k.b)), name).toEqual([]);
+    }
+  });
+
+  it('切口那一圈整个跟着切口所在的那一节（弯龟头时缝口不被扯歪）', () => {
+    useGenital();
+    const mesh = penisMesh();
+    const glans = mesh.bones.indexOf('Penis3');
+    for (const v of mesh.loop) {
+      let w = 0;
+      for (let k = 0; k < 4; k++) if (mesh.joints[v * 4 + k] === glans) w += mesh.weights[v * 4 + k];
+      expect(w).toBeLessThan(0.01);
+    }
   });
 
   it('预览的粗网格上也缝得上（第一遍缝不上时退回去重来，最后还是一整块）', () => {

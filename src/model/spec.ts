@@ -614,7 +614,21 @@ export function normalizeSpec(input: unknown): BodySpec {
 }
 
 export function serializeSpec(spec: BodySpec, text?: string): string {
-  return JSON.stringify({ app: 'oc-basemesh', ...spec, ...(text === undefined ? {} : { text }) }, null, 2);
+  return JSON.stringify({ app: 'oc-basemesh', ...withoutAdultKeys(spec), ...(text === undefined ? {} : { text }) }, null, 2);
+}
+
+/**
+ * 没长阴茎、阴茎那几项也都是默认的：存的时候不写这几个键（读的时候 normalizeSpec 会补上默认值）。
+ * 没打开过「显示成人部件」的人存下来的配置里不出现它们（见 model/adult.ts）
+ */
+function withoutAdultKeys(spec: BodySpec): object {
+  const def = defaultSpec();
+  if (spec.counts.penises || spec.shape.penisSize !== def.shape.penisSize || spec.penisLayout !== def.penisLayout || spec.penisRow !== def.penisRow || spec.scrotum !== def.scrotum)
+    return spec;
+  const { penises: _p, ...counts } = spec.counts;
+  const { penisSize: _s, ...shape } = spec.shape;
+  const { penisLayout: _l, penisRow: _r, scrotum: _c, ...rest } = spec;
+  return { ...rest, counts, shape };
 }
 
 /** 解析配置文件文本；不是合法 JSON 时抛错。 */

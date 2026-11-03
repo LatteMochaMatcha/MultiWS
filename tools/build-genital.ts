@@ -23,6 +23,11 @@ const CUT_OUT = 0.115;
 const BONES = ['Penis1', 'Penis2', 'Penis3'];
 /** 相邻两节骨骼的权重在关节两边各这么长（米）里渐变 */
 const BLEND = 0.015;
+/**
+ * 切口那一圈和下一个关节的渐变之间至少空出这么多（米）：那一圈整个跟着切口所在的那一节，
+ * 弯下一节时缝口不被扯歪（关节本来在三等分处，切口挪到快到龟头以后正好落在关节上，一圈的权重从两成多到全是龟头那节）
+ */
+const RIM_CLEAR = 0.003;
 /** 细分几次；新加的点往外鼓多少（同 build-hand.ts） */
 const LEVELS = 1;
 const BULGE = 0.75;
@@ -53,7 +58,9 @@ const SCROTUM_NECK = 0.03;
 const SCROTUM_SLOPE = 1;
 const SCROTUM_ROUND = 0.012;
 /** 导出时写进去的署名 */
-const CREDIT = '阴茎、阴囊取自「DJP Male Base Mesh Mark 03」© Death Joe Productions（www.DeathJoeProductions.com），CC BY 4.0';
+const CREDIT =
+  '阴茎、阴囊取自「DJP Male Base Mesh Mark 03」© Death Joe Productions（https://deathjoeproductions.gumroad.com/l/MaleBM03），' +
+  'CC BY 4.0（https://creativecommons.org/licenses/by/4.0/），有修改';
 
 const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -339,9 +346,13 @@ export async function main(args: string[], root: string) {
   );
 
   /* ---- 阴茎：骨骼和权重 ---- */
-  const joints = BONES.map((_, k) => pointAt(line, (length * k) / BONES.length));
-  joints.push(tip);
-  const cuts = BONES.slice(1).map((_, k) => (length * (k + 1)) / BONES.length);
+  // 关节在三等分处；落在切口那一圈附近的那个往龟头那边挪，挪到那一圈连着渐变都在它前面
+  const rimFar = Math.max(...loop.map((v) => along(line, piecePoints[v])));
+  const cuts = BONES.slice(1).map((_, k) => {
+    const at = (length * (k + 1)) / BONES.length;
+    return at > cutAt - BLEND && at < rimFar + BLEND + RIM_CLEAR ? rimFar + BLEND + RIM_CLEAR : at;
+  });
+  const joints = [pointAt(line, 0), ...cuts.map((at) => pointAt(line, at)), tip];
   const jointBytes = new Uint8Array(piecePoints.length * 4);
   const weightBytes = new Uint8Array(piecePoints.length * 4);
   piecePoints.forEach((p, i) => {
