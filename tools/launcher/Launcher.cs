@@ -8,6 +8,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
@@ -29,6 +30,16 @@ static class Launcher
     // 用来认「这个端口上是不是已经开着一个工坊」
     const string Mark = "oc-basemesh-workshop";
 
+    // 控制台窗口里给人看的字按系统界面语言选：zh 中文，ja 日文，其余都是英文
+    static readonly string Lang = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
+
+    static string Pick(string zh, string ja, string en)
+    {
+        if (Lang == "zh") return zh;
+        if (Lang == "ja") return ja;
+        return en;
+    }
+
     static readonly Dictionary<string, byte[]> Files = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
 
     static readonly Dictionary<string, string> Types = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -49,7 +60,7 @@ static class Launcher
         // 自己检查用：--no-browser 只开网站，不打开浏览器
         bool browse = Array.IndexOf(args, "--no-browser") < 0;
         try { Console.OutputEncoding = Encoding.UTF8; } catch (IOException) { }
-        try { Console.Title = "OC 白模工坊"; } catch (IOException) { }
+        try { Console.Title = Pick("OC 白模工坊", "OC素体工房", "OC Base Mesh Workshop"); } catch (IOException) { }
 
         Unpack();
 
@@ -72,7 +83,9 @@ static class Launcher
                 // 这个端口有人占着。是另一个已经开着的工坊的话，直接打开它就行
                 if (IsWorkshop(candidate))
                 {
-                    Console.WriteLine("工坊已经开着了：" + Address(candidate));
+                    Console.WriteLine(string.Format(
+                        Pick("工坊已经开着了：{0}", "工房はすでに起動しています：{0}", "The workshop is already running: {0}"),
+                        Address(candidate)));
                     if (browse) Browse(candidate);
                     Thread.Sleep(1500);
                     return 0;
@@ -81,8 +94,14 @@ static class Launcher
         }
         if (listener == null)
         {
-            Console.WriteLine("没能启动：" + FirstPort + " 到 " + (FirstPort + Tries - 1) + " 这几个端口都被别的程序占着。");
-            Console.WriteLine("关掉别的程序再试一次。按任意键退出。");
+            Console.WriteLine(string.Format(
+                Pick("没能启动：{0} 到 {1} 这几个端口都被别的程序占着。",
+                     "起動できませんでした：ポート {0}～{1} がすべてほかのプログラムに使われています。",
+                     "Couldn't start: ports {0} to {1} are all in use by other programs."),
+                FirstPort, FirstPort + Tries - 1));
+            Console.WriteLine(Pick("关掉别的程序再试一次。按任意键退出。",
+                                   "ほかのプログラムを閉じて、もう一度お試しください。何かキーを押すと終了します。",
+                                   "Close the other programs and try again. Press any key to exit."));
             try { Console.ReadKey(); } catch (InvalidOperationException) { }
             return 1;
         }
@@ -92,12 +111,18 @@ static class Launcher
         server.Start();
 
         Console.WriteLine();
-        Console.WriteLine("  OC 白模工坊 正在运行");
+        Console.WriteLine(Pick("  OC 白模工坊 正在运行", "  OC素体工房が起動しています", "  OC Base Mesh Workshop is running"));
         Console.WriteLine();
-        Console.WriteLine("  浏览器里的地址： " + Address(port));
-        Console.WriteLine("  浏览器没有自动打开的话，把上面的地址复制到 Edge 或 Chrome 里。");
+        Console.WriteLine(string.Format(
+            Pick("  浏览器里的地址： {0}", "  ブラウザで開くアドレス： {0}", "  Address to open in your browser: {0}"),
+            Address(port)));
+        Console.WriteLine(Pick("  浏览器没有自动打开的话，把上面的地址复制到 Edge 或 Chrome 里。",
+                               "  ブラウザが自動で開かないときは、上のアドレスを Edge か Chrome にコピーしてください。",
+                               "  If the browser doesn't open by itself, copy the address above into Edge or Chrome."));
         Console.WriteLine();
-        Console.WriteLine("  用的时候不要关这个窗口；用完以后关掉它，就退出了。");
+        Console.WriteLine(Pick("  用的时候不要关这个窗口；用完以后关掉它，就退出了。",
+                               "  使っている間は、このウィンドウを閉じないでください。使い終わったら閉じると、終了します。",
+                               "  Keep this window open while you use the workshop. Close it when you are done and the program exits."));
         Console.WriteLine();
         if (browse) Browse(port);
 
