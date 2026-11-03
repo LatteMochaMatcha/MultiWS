@@ -452,6 +452,32 @@ describe('二次元素体好几个上半身照姿势重新融合', () => {
       expect(fieldAt(field, ...mix(l, r, 0.5)), label).toBeGreaterThan(0);
     }
   }, 120_000);
+
+  it('两个上半身往两边歪开：胸根只顺着自己那个上半身弯，正中两个上半身原来挤着的地方不留下「鬼影」胸', () => {
+    useAnimeBody();
+    const spec = make({ torsos: 2 }, { bodyStyle: 'anime', shape: { ...defaultSpec().shape, bust: 2.2 } });
+    const { figure, turned, bone } = setup(spec);
+    const { matrices } = turned({ Spine_L: quatEuler(0, 0, -35 * DEG), Spine_R: quatEuler(0, 0, 20 * DEG) });
+    const field = compilePosedField(figure, options, matrices);
+    const xfs = worldTransforms(figure);
+    // 两个上半身里侧那两只胸（离正中近的）
+    const inner = (body: string) =>
+      figure.parts.filter((p) => p.type === 'chest' && p.parent === body).sort((a, b) => Math.abs(xfs.get(a.name)!.pos[0]) - Math.abs(xfs.get(b.name)!.pos[0]))[0];
+    const left = xfs.get(inner('UpperBody_L').name)!.pos;
+    const right = xfs.get(inner('UpperBody_R').name)!.pos;
+    // 两只里侧的胸正中间往上 10 厘米：两个上半身歪开以后这里什么都没有。
+    // 胸根跟着所有躯干骨骼弯的时候，这里倒着搬回去照胯、另一个上半身的骨骼落回胸上，多出一块胸
+    const middle = mix(left, right, 0.5);
+    const gap: V3 = [middle[0], middle[1] + 0.1, middle[2]];
+    expect(fieldAt(field, ...gap)).toBeGreaterThan(0.005);
+    // 两只里侧的胸跟着自己的上半身搬过去了，还在
+    for (const [at, name] of [
+      [left, 'UpperChest_L'],
+      [right, 'UpperChest_R'],
+    ] as const) {
+      expect(fieldAt(field, ...carried(matrices, bone(name), [at[0], at[1], at[2] + 0.04])), name).toBeLessThan(0);
+    }
+  }, 120_000);
 });
 
 describe('二次元素体的腿（照着现成的模型采样出来的）：融合时留在胯上，融合完照权重搬过去', () => {

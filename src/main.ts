@@ -1,5 +1,5 @@
 import './style.css';
-import { type Lang, LANG, LANGS, setLang, t, translatePage, variants } from './i18n';
+import { type Lang, LANG, LANGS, setLang, t, tk, translatePage, variants } from './i18n';
 import { type Box3, type Raycaster, Matrix4 } from 'three';
 import { TORSO_CREDIT, animeGrid, animeReady, loadAnimeBody } from './anime/body';
 import { FOOT_CREDIT } from './anime/foot';
@@ -84,6 +84,12 @@ import {
   headHairColor,
   normalizeSpec,
   serializeSpec,
+  type PerTorsoKey,
+  type TorsoCounts,
+  type TorsoSide,
+  PER_TORSO_KEYS,
+  countsOf,
+  torsoSides,
 } from './model/spec';
 import {
   type MatchTier,
@@ -358,6 +364,19 @@ for (const preset of PRESETS) {
   $('presets').append(btn);
 }
 
+/**
+ * 部件数量里头、手臂、胸、角、眼睛、兽耳改的是哪个上半身：'all' 是全部一样（改 counts，并把各个上半身单独设的这一样清掉），
+ * 别的是那一个上半身（改 torsoCounts，见 docs/per-torso-plan.md）。只是界面上的状态，不进配置
+ */
+let torsoEdit: 'all' | TorsoSide = 'all';
+const TORSO_EDIT_LABEL: Record<'all' | TorsoSide, string> = { all: tk('全部一样'), L: tk('左@@上半身'), M: tk('中@@上半身'), R: tk('右@@上半身') };
+const syncTorsoEdit = buildSeg($('segTorso'), ['all', 'L', 'M', 'R'] as const, (v) => t(TORSO_EDIT_LABEL[v]), (side) => {
+  torsoEdit = side;
+  render();
+});
+/** 正在单独改的那个上半身（全部一样、上半身不够那么多时是 null） */
+const editingSide = (): TorsoSide | null => (torsoEdit !== 'all' && torsoSides(spec.counts.torsos).includes(torsoEdit) ? torsoEdit : null);
+
 const steppers = COUNT_DEFS.map((d) => {
   const row = el('div', 'row');
   const label = el('label');
@@ -367,8 +386,35 @@ const steppers = COUNT_DEFS.map((d) => {
   const minus = el('button', '', '−');
   const plus = el('button', '', '+');
   const out = el('output');
-  const step = (delta: number) => () =>
-    fromParams({ ...spec, counts: { ...spec.counts, [d.key]: spec.counts[d.key] + delta } });
+  const perTorso = (PER_TORSO_KEYS as readonly CountKey[]).includes(d.key);
+  const key = d.key as PerTorsoKey;
+  /** 这一行现在改的是哪个上半身（不是每个上半身单独设的那几样、或者全部一样时是 null） */
+  const side = () => (perTorso ? editingSide() : null);
+  const value = () => {
+    const own = side();
+    return own ? countsOf(spec, own)[d.key] : spec.counts[d.key];
+  };
+  const step = (delta: number) => () => {
+    const own = side();
+    if (own) {
+      // 单独改一个上半身：和全部一样的数一样了就不记
+      const v = Math.max(d.min, Math.min(d.max, value() + delta));
+      const mine: Partial<Record<PerTorsoKey, number>> = { ...spec.torsoCounts?.[own], [key]: v };
+      if (v === spec.counts[d.key]) delete mine[key];
+      const torsoCounts: TorsoCounts = { ...spec.torsoCounts, [own]: mine };
+      if (!Object.keys(mine).length) delete torsoCounts[own];
+      fromParams({ ...spec, torsoCounts });
+      return;
+    }
+    // 全部一样：各个上半身单独设的这一样清掉
+    const torsoCounts: TorsoCounts = {};
+    for (const [s, mine] of Object.entries(spec.torsoCounts ?? {}) as [TorsoSide, Partial<Record<PerTorsoKey, number>>][]) {
+      const rest = { ...mine };
+      if (perTorso) delete rest[key];
+      if (Object.keys(rest).length) torsoCounts[s] = rest;
+    }
+    fromParams({ ...spec, counts: { ...spec.counts, [d.key]: spec.counts[d.key] + delta }, torsoCounts });
+  };
   minus.type = plus.type = 'button';
   minus.setAttribute('aria-label', t('{label}减一', { label: d.label }));
   plus.setAttribute('aria-label', t('{label}加一', { label: d.label }));
@@ -379,9 +425,14 @@ const steppers = COUNT_DEFS.map((d) => {
   row.append(label, stepper);
   $('counts').append(row);
   return () => {
-    const v = spec.counts[d.key];
+    const v = value();
     if (d.key === 'penises') row.hidden = !adultShown();
     out.textContent = String(v);
+    // 全部一样时有上半身单独设过这一样：数后面加个星号
+    const mixed = perTorso && !side() && torsoSides(spec.counts.torsos).some((s) => countsOf(spec, s)[d.key] !== spec.counts[d.key]);
+    out.classList.toggle('mixed', mixed);
+    out.title = mixed ? t('有的上半身单独设过；在「全部一样」下加减会把它们都改成一样') : '';
+    row.classList.toggle('per-torso', !!side());
     minus.disabled = v <= d.min;
     plus.disabled = v >= d.max;
   };
@@ -3592,6 +3643,12 @@ function render() {
   const chips = summarize(spec).map((c) => el('span', hits.has(c.key) ? 'chip hit' : 'chip', c.label));
   if (text.trim() && matches.length === 0) chips.unshift(el('span', 'chip', t('没认出部件，试试「三对手」「九条尾巴」')));
   $('chips').replaceChildren(...chips);
+  // 改哪个上半身：两个以上才有；上半身少了、改的那个不在了就回到全部一样
+  const sides = torsoSides(spec.counts.torsos);
+  if (torsoEdit !== 'all' && !sides.includes(torsoEdit)) torsoEdit = 'all';
+  $('torsoEditField').hidden = sides.length < 2;
+  $('segTorso').querySelector<HTMLElement>('input[value="M"]')!.parentElement!.hidden = !sides.includes('M');
+  syncTorsoEdit(torsoEdit, sides.length >= 2);
   for (const sync of steppers) sync();
   for (const sync of sliders) sync();
   syncHead(spec.headLayout, spec.counts.heads > 1);

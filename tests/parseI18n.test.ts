@@ -15,6 +15,9 @@ import {
   defaultCounts,
   defaultSpec,
   legPlan,
+  PER_TORSO_KEYS,
+  type TorsoCounts,
+  torsoSides,
 } from '../src/model/spec';
 import { type Lang, LANGS } from '../src/i18n';
 import { applyParse, describeSpec, normalizeText, parseDescription } from '../src/parser';
@@ -45,6 +48,7 @@ function fields(text: string) {
     pose: r.pose,
     shape: r.shape,
     hair: r.hair,
+    torsoCounts: r.torsoCounts,
   };
 }
 
@@ -626,5 +630,59 @@ describe('界面译文跟解析器对得上', () => {
 
   it('语言表里有这三种', () => {
     expect(LANGS.map((l) => l.key)).toEqual(['zh', 'en', 'ja']);
+  });
+});
+
+describe('每个上半身单独设：英文、日文', () => {
+  it('规范描述的样子', () => {
+    const spec = { ...withCounts({ torsos: 2 }), torsoCounts: { L: { heads: 2, armPairs: 0 } } };
+    expect(describeSpec(spec, 'en')).toBe('2 upper bodies, 1 head, 1 pair of arms, 1 pair of breasts, 1 pair of legs, left upper body with 2 heads and no arms');
+    expect(describeSpec(spec, 'ja')).toBe('上半身2つ、頭1つ、腕1対、胸1対、脚1対、左の上半身は頭2つと腕なし');
+  });
+
+  it('300 个随机组合往返一致，读出来和中文一样', () => {
+    const rand = rng(20261104);
+    for (let i = 0; i < 300; i++) {
+      const torsos = 2 + Math.floor(rand() * 2);
+      const counts = { ...defaultCounts(), torsos, heads: 1 + Math.floor(rand() * 3), hornsPerHead: Math.floor(rand() * 3), earPairsPerHead: Math.floor(rand() * 2) };
+      const torsoCounts: TorsoCounts = {};
+      for (const side of torsoSides(torsos)) {
+        if (rand() < 0.3) continue;
+        const own: Partial<Record<(typeof PER_TORSO_KEYS)[number], number>> = {};
+        for (const key of PER_TORSO_KEYS) {
+          if (rand() < 0.5) continue;
+          const d = COUNT_DEFS.find((x) => x.key === key)!;
+          own[key] = d.min + Math.floor(rand() * (Math.min(d.max, 4) - d.min + 1));
+        }
+        torsoCounts[side] = own;
+      }
+      // 一个头几张脸要整个身体也是几张脸才读得回来（只有某个上半身几张脸时，中文也读成几个头）
+      const faces = counts.heads > 1 && rand() < 0.3;
+      const spec = { ...defaultSpec(), counts, torsoCounts, headLayout: faces ? ('faces' as const) : ('cluster' as const), earShape: EAR_SHAPES[i % EAR_SHAPES.length] };
+      expectRoundTripAll(spec);
+      // 读回来的就是和「全部一样」不同的那几样
+      const want: TorsoCounts = {};
+      for (const side of torsoSides(torsos)) {
+        const own = Object.fromEntries(PER_TORSO_KEYS.filter((k) => (torsoCounts[side]?.[k] ?? counts[k]) !== counts[k]).map((k) => [k, torsoCounts[side]![k]]));
+        if (Object.keys(own).length) want[side] = own;
+      }
+      for (const lang of LANGS) expect(parseDescription(describeSpec(spec, lang.key)).torsoCounts, describeSpec(spec, lang.key)).toEqual(want);
+    }
+  });
+
+  it.each<[string, TorsoCounts]>([
+    ['2 upper bodies, left torso: 3 heads, right upper body has no arms', { L: { heads: 3 }, R: { armPairs: 0 } }],
+    ['three upper bodies, center upper body with 2 pairs of breasts', { M: { chestPairs: 2 } }],
+    ['3 torsos, middle torso with 4 horns per head and 3 eyes per head', { M: { hornsPerHead: 4, eyesPerHead: 3 } }],
+    ['上半身2つ、右側の上半身は腕3対と角2本', { R: { armPairs: 3, hornsPerHead: 2 } }],
+    ['上半身3つ、真ん中の上半身に頭2つ', { M: { heads: 2 } }],
+    ['上半身2つ、左の上半身は胸なし', { L: { chestPairs: 0 } }],
+    ['两个上半身，left upper body with 2 heads，右の上半身は腕2対', { L: { heads: 2 }, R: { armPairs: 2 } }],
+  ])('%s', (text, want) => {
+    const r = parseDescription(text);
+    expect(r.torsoCounts).toEqual(want);
+    // 单独设的数量不算到整个身体上
+    expect(r.counts.heads).toBe(1);
+    expect(r.counts.armPairs).toBe(1);
   });
 });

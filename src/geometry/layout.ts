@@ -4,7 +4,7 @@
  * 部件都按一个 1.76 m 上下的标准人台来摆（沿用 v1 的骨架尺寸），Figure.scale 再把它缩放到设定身高。
  * 体型是动漫比例的成年女性：躯干有胸腔、腰、骨盆的起伏，四肢带一点肌肉的鼓起。
  */
-import { type BodySpec, type Gender, type HandStyle, type LegForm, type PartOverride, BUST_MAX_OTHER, legPlan } from '../model/spec';
+import { type BodySpec, type Gender, type HandStyle, type LegForm, type PartOverride, BUST_MAX_OTHER, countsOf, legPlan, torsosAlike } from '../model/spec';
 import { animeReady } from '../anime/body';
 import { genitalReady } from '../anime/genital';
 import { FINGER_JOINTS, HAND_ELBOW, HAND_LENGTH, HAND_WRIST, handGraft } from '../anime/hand';
@@ -16,7 +16,7 @@ import { type Mount, UNDER, genitalParts } from './genital';
 import { type HeadHair, CRANIUM, HEAD_HALF_HEIGHT, HEAD_HALF_WIDTH, SKULL, makeFace, makeHead } from './head';
 import { WING_OUTLINE, sampleTube } from './shapes';
 import { ringAt, smoothRings } from './torso';
-import { refork, splitTorsos } from './torsos';
+import { SLOT_SIDE, refork, splitTorsos, torsoSlots } from './torsos';
 import { applyOverrides } from './tweak';
 import { wigOf } from './wig';
 import {
@@ -647,6 +647,8 @@ export const MULTI_HIPS = 1.1;
  * 照 MULTI_HIPS 的话胯几乎不比腰宽，整个躯干一个长方块；照参考图 B-3 要宽出一截
  */
 export const UPRIGHT_HIPS = 1.25;
+/** 二次元素体三个上半身直立并排（分得开，见 torsos.ts 的 UPRIGHT_SPREAD_THREE）时胯再宽多少倍：托得住三个腰 */
+export const UPRIGHT_HIPS_THREE = 1.5;
 
 /** 只按部件数量、排布和体型自动摆位，不管手动微调 */
 export function layoutFigure(given: BodySpec): Figure {
@@ -656,13 +658,21 @@ export function layoutFigure(given: BodySpec): Figure {
   const upright = anime && given.counts.torsos === 2 && plan.form === 'biped' && plan.total === 2;
   // 二次元素体两个上半身（每个一个头）、横排两副胯：并成一个宽躯干（胸按一个人算），照一个上半身两个头摆成那样，
   // 再由 torsos.ts 切成两个上半身（见 splitWide）。真的一个上半身两个头的（D）不并，是一个人的身子顶两个头
-  const wide = anime && given.counts.torsos === 2 && given.counts.heads === 1 && given.headLayout !== 'faces' && plan.form === 'abreast' && plan.stations.length === 2 && plan.stations.every((n) => n === 2);
+  // 两个上半身单独设的数量不一样时不并，两个上半身各自直立并排（见 docs/per-torso-plan.md）
+  const alike = torsosAlike(given);
+  const wide = anime && alike && given.counts.torsos === 2 && given.counts.heads === 1 && given.headLayout !== 'faces' && plan.form === 'abreast' && plan.stations.length === 2 && plan.stations.every((n) => n === 2);
   if (wide) return splitTorsos(layoutAnime({ ...given, counts: { ...given.counts, torsos: 1, heads: 2 } }, true), 2);
-  const spec = given.counts.torsos > 1 ? { ...given, shape: { ...given.shape, hips: given.shape.hips * (upright ? UPRIGHT_HIPS : MULTI_HIPS) } } : given;
+  const three = anime && given.counts.torsos === 3;
+  const spec = given.counts.torsos > 1 ? { ...given, shape: { ...given.shape, hips: given.shape.hips * (upright ? UPRIGHT_HIPS : three ? UPRIGHT_HIPS_THREE : MULTI_HIPS) } } : given;
   // 二次元少女素体的数据还没载入时，先按白模摆（数据到了以后界面会重新生成一遍）
-  const one = anime ? layoutAnime(spec) : layoutMannequin(spec);
-  // 好几个上半身：照一个摆好，再从腰那里切开、复制
-  return splitTorsos(one, spec.counts.torsos);
+  const layout = (s: BodySpec) => (anime ? layoutAnime(s) : layoutMannequin(s));
+  const one = layout(spec);
+  // 好几个上半身：照一个摆好，再从腰那里切开、复制。每个上半身单独设的数量不一样时，各照自己的数量摆一副，
+  // 腰以上从各自那副里取（胯、腿照「全部一样」的那副）
+  if (alike) return splitTorsos(one, spec.counts.torsos);
+  const sources: Partial<Record<-1 | 0 | 1, Figure>> = {};
+  for (const slot of torsoSlots(spec.counts.torsos)) sources[slot] = layout({ ...spec, counts: countsOf(spec, SLOT_SIDE[slot]) });
+  return splitTorsos(one, spec.counts.torsos, sources);
 }
 
 /**

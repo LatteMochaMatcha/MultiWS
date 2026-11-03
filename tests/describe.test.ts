@@ -102,6 +102,31 @@ describe('describeSpec 规范描述', () => {
     );
   });
 
+  it('每个上半身单独设的数量：写成「左边的上半身两个头、两对手臂」，读回来一样；写成零的也读得回来', () => {
+    const two = { ...withCounts({ torsos: 2 }), torsoCounts: { L: { heads: 2, armPairs: 2 } } };
+    expect(describeSpec(two)).toBe('两个上半身，一个头，一对手臂，一对胸，一对腿，左边的上半身两个头、两对手臂');
+    expect(parseDescription(describeSpec(two)).torsoCounts).toEqual({ L: { heads: 2, armPairs: 2 } });
+    expect(parseDescription(describeSpec(two)).counts).toEqual(two.counts);
+    const zero = { ...withCounts({ torsos: 3, hornsPerHead: 2, earPairsPerHead: 1 }), torsoCounts: { R: { armPairs: 0, chestPairs: 0, hornsPerHead: 0, earPairsPerHead: 0 }, M: { eyesPerHead: 3, heads: 2 } } };
+    const back = parseDescription(describeSpec(zero));
+    expect(back.torsoCounts, describeSpec(zero)).toEqual(zero.torsoCounts);
+    expect(back.counts, describeSpec(zero)).toEqual(zero.counts);
+    // 和全部一样的数一样的不写；一个上半身时不写
+    expect(describeSpec({ ...withCounts({ torsos: 2 }), torsoCounts: { L: { heads: 1 } } })).toBe('两个上半身，一个头，一对手臂，一对胸，一对腿');
+    expect(describeSpec({ ...withCounts({}), torsoCounts: { L: { heads: 2 } } })).toBe('一个头，一对手臂，一对胸，一对腿');
+    // 没说某一个上半身的：清空（数量整体照文字来）
+    expect(parseDescription('两个上半身，一个头').torsoCounts).toEqual({});
+    expect(applyParse(two, parseDescription('两个上半身，一个头')).torsoCounts).toEqual({});
+  });
+
+  it('识别标签：有上半身单独设过的那几样写出每个的数', () => {
+    const spec = { ...withCounts({ torsos: 2 }), torsoCounts: { L: { heads: 2, chestPairs: 0 } } };
+    const chip = (key: string) => summarize(spec).find((c) => c.key === key)?.label;
+    expect(chip('heads')).toBe('头 左2 右1');
+    expect(chip('chestPairs')).toBe('胸 左0 右1 对');
+    expect(chip('armPairs')).toBe('手臂 1 对');
+  });
+
   it('只有一对手臂时不写排布', () => {
     expect(describeSpec(withCounts({}, { armLayout: 'fan' }))).toBe('一个头，一对手臂，一对胸，一对腿');
   });

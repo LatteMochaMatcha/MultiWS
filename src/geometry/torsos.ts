@@ -10,12 +10,13 @@
  * - 手臂、胸、翅膀分「外侧」和「里侧」（里侧挨着别的上半身）：外侧那条照它在哪一边起名，左右两个上半身的外侧手臂互为镜像，
  *   名字只差 _L / _R；里侧的另外排在后面几对。这样「左右对称」照名字换边时，换到的正好是对面那个上半身上对应的那一条。
  * 里侧的手臂垂下来、平举出去都会插进旁边那个上半身里：改成往前伸（绕肩关节转过去）。
- * 二次元素体两个上半身（各坐一副胯的除外）只往两边歪开一点：直立并排，里侧贴在一起（见 UPRIGHT_OVERLAP）。
+ * 二次元素体的只往两边歪开一点：直立并排，两个时里侧贴在一起（见 UPRIGHT_OVERLAP），三个时分得开、从胯上面就各是各的腰（见 UPRIGHT_SPREAD_THREE）。
  *
  * 纯函数，不依赖浏览器。
  */
 import { castRay, compileField } from '../sdf/field';
 import { getGrid, spreadAt } from '../sdf/grids';
+import type { TorsoSide } from '../model/spec';
 import { type BoneHint, type Figure, type Fork, type Graft, type GridShape, type Part, type Prim, type WidenBand, nthName, shapeMatrix } from './figure';
 import { HEAD_HALF_WIDTH } from './head';
 import { ringAt } from './torso';
@@ -100,16 +101,25 @@ const UPRIGHT_OVERLAP = 0.8;
 const UPRIGHT_LEAN = 12 * (Math.PI / 180);
 const UPRIGHT_HEAD_GAP = 0.01;
 /**
+ * 二次元素体三个上半身也直立并排，但分得开：两边的往外挪腰最细那里半宽的这么多倍，三个腰之间空出一道缝，从胯上面就各是各的腰
+ * （照两个上半身的 UPRIGHT_OVERLAP 挤着的话一个头的像一个窄身子顶三个头；以前往两边扇开、斜着歪出去，腰像树杈，里侧的手臂举到头顶）。
+ * 试过 1.2（挤在一起）、2.0（三个腰正好挨着）、2.6（一对腿时胯成了很宽的一大块）
+ */
+const UPRIGHT_SPREAD_THREE = 2.3;
+/**
  * 直立并排时里侧的手臂：肩关节歪过以后离正中线不到 BESIDE_ROOT 的，挪回自己这边（不然伸到旁边那个身子里，两边的交叉着长出来；
  * 两边的根离得太近，融合、算权重时两条粘成一块，摆姿势时一条被另一个身子拽着走），从两个肩膀之间张开的那道 V 里长出来。
  * 姿势固定，不再碰到东西就一档档往上抬：往前伸，离「垂直向下」BESIDE_DROP，往自己那边偏 BESIDE_YAW（两边的分开）；
- * 一个肩膀上聚拢着好几条的，往后一条比前一条再抬 BESIDE_STEP。
+ * 一个肩膀上聚拢着好几条的，往后一条比前一条再抬 BESIDE_STEP，前面那几条的肩关节往下挪（见 besideArms）。
  * 试过垂在身前（手落在自己那边的胯前，照参考图）：胸 1 时好看，大胸时穿进里侧挤在一起的胸里，套姿势时手插进大腿
  */
 const BESIDE_ROOT = 0.045;
 export const BESIDE_DROP = 62 * (Math.PI / 180);
 export const BESIDE_YAW = 15 * (Math.PI / 180);
 const BESIDE_STEP = 30 * (Math.PI / 180);
+/** 一个肩膀上好几条里侧手臂时，前面那几条的肩关节一条比一条往下挪多少；挪下去的碰到胸往上抬，最多抬到比后一条低多少（见 besideArms） */
+const BESIDE_LOWER = 0.1;
+const BESIDE_APART = 5 * (Math.PI / 180);
 /** 往前伸的手臂融合时抬多少：最低的那条正好抬平 */
 const INNER_BIND_LIFT = 90 * (Math.PI / 180) - INNER_ARM_DROP;
 /** 里侧一个肩膀上最多留几条聚拢的手臂，肩关节离多近算同一个肩膀 */
@@ -149,16 +159,34 @@ const ordinal = (name: string): [string, number] => {
   return [m[1], m[2] ? Number(m[2]) - 1 : 0];
 };
 
-export function splitTorsos(figure: Figure, count: number): Figure {
+/** 第几个上半身（torsoSlots）对应 BodySpec.torsoCounts 里哪一边 */
+export const SLOT_SIDE: Record<-1 | 0 | 1, TorsoSide> = { [-1]: 'R', 0: 'M', 1: 'L' };
+
+/** 一副身体腰以上那些部件：躯干上长着的，和挂在它们上面的 */
+function uppersOf(figure: Figure): Part[] {
+  const byName = new Map(figure.parts.map((p) => [p.name, p]));
+  const upperOf = (p: Part): boolean => p.parent === 'Torso' || (p.parent !== undefined && upperOf(byName.get(p.parent)!));
+  return figure.parts.filter(upperOf);
+}
+
+/**
+ * sources：每个上半身单独设的数量不一样时，第 slot 个上半身照哪副身体摆（layout.ts 照它自己的数量摆的，腰以上从这副里取）；
+ * 不给的照 figure。胯、腿和身高这些照 figure
+ */
+export function splitTorsos(figure: Figure, count: number, sources: Partial<Record<-1 | 0 | 1, Figure>> = {}): Figure {
   const slots = torsoSlots(Math.max(1, Math.min(MAX_TORSOS, Math.round(count))));
   if (slots.length < 2) return figure;
   const torso = figure.parts.find((p) => p.name === 'Torso');
   const spineBone = torso?.bones?.find((b) => b.name === 'Spine');
   if (!torso || !spineBone) return figure;
 
-  const byName = new Map(figure.parts.map((p) => [p.name, p]));
-  const upperOf = (p: Part): boolean => p.parent === 'Torso' || (p.parent !== undefined && upperOf(byName.get(p.parent)!));
-  const upper = figure.parts.filter(upperOf);
+  const upper = uppersOf(figure);
+  const upperSet = new Set(upper);
+  /** 第 slot 个上半身照哪副身体摆、它腰以上的部件、它的躯干 */
+  const sourceOf = (slot: number): Figure => sources[slot as -1 | 0 | 1] ?? figure;
+  const uppers = new Map<number, Part[]>(slots.map((slot) => [slot, sourceOf(slot) === figure ? upper : uppersOf(sourceOf(slot))]));
+  const torsoOf = (slot: number): Part => sourceOf(slot).parts.find((p) => p.name === 'Torso') ?? torso;
+  const allUpper = slots.flatMap((slot) => uppers.get(slot)!);
   const cutY = spineBone.head[1] + CUT_RISE;
   const pivot: V3 = [0, spineBone.head[1], spineBone.head[2]];
   const three = slots.length === 3;
@@ -166,8 +194,8 @@ export function splitTorsos(figure: Figure, count: number): Figure {
   // 两个上半身并成一个宽躯干的（C）：躯干那一块切成胯和左右两半（见 splitWide）
   const wide = slots.length === 2 ? torso.prims.find((p): p is GridShape => p.kind === 'grid' && !!p.twin?.levels) : undefined;
   if (wide) return splitWide(figure, torso, wide, spineBone.head[1] + CUT_RISE);
-  /** 直立并排（见 UPRIGHT_OVERLAP） */
-  const upright = sampled && !three;
+  /** 直立并排（见 UPRIGHT_OVERLAP、UPRIGHT_SPREAD_THREE）：二次元素体都是；白模人台三个时往两边扇开 */
+  const upright = sampled;
   /** 两边的上半身往外挪多远（从分开的地方起渐渐挪过去）；直立并排的照腰的宽度，下面量 */
   let outward = (three ? SHIFT_THREE : 1) * (sampled ? SHIFT_SAMPLED : SHIFT);
   const hipY = torso.bones?.find((b) => b.name === 'Hips')?.head[1] ?? cutY - 0.12;
@@ -183,7 +211,7 @@ export function splitTorsos(figure: Figure, count: number): Figure {
   };
   const forkFrom = Math.min(cutY, Math.max(hipY, ...torso.prims.map(influence)));
   // 躯干过渡的上限：拼的胸、手臂根、翅膀根以下。采样胸单独接在胸壁上，保留较长的躯干过渡。
-  const rigid = upper.filter(
+  const rigid = allUpper.filter(
     (p) => p.parent === 'Torso' && (p.type === 'chest' ? !p.prims.some((q) => q.kind === 'grid' || q.kind === 'chest') : sampled && (p.type === 'arm' || p.type === 'wing')),
   );
   const rigidLow = Math.min(...rigid.map(partBottom));
@@ -193,16 +221,17 @@ export function splitTorsos(figure: Figure, count: number): Figure {
     const whole = compileField({ scale: 1, parts: [{ ...torso, parent: undefined, pos: [0, 0, 0], quat: Q_ID }] }, { blend: 0 });
     let waist = Infinity;
     for (let y = forkFrom; y <= forkTo; y += 0.005) waist = Math.min(waist, 0.6 - castRay(whole, [0.6, y, 0], [-1, 0, 0], 0.6));
-    outward = waist * UPRIGHT_OVERLAP;
+    outward = waist * (three ? UPRIGHT_SPREAD_THREE : UPRIGHT_OVERLAP);
   }
 
   /* ---- 躯干切成两截：分开的地方以下是胯，往上（多留一截）是复制用的那一份 ---- */
-  const below: Prim[] = [];
-  const above: Prim[] = [];
   const pelvisTop = forkFrom + FORK_SEAM;
   const copyBottom = forkFrom - FORK_OVERLAP;
+  const cut = (prims: readonly Prim[]) => {
+  const below: Prim[] = [];
+  const above: Prim[] = [];
   // 叠着的那一截两边是同一张皮，切口都埋在对方里面：不用倒圆（倒了反而在那一圈凹进去一道）
-  for (const p of torso.prims) {
+  for (const p of prims) {
     if (p.kind === 'loft') {
       below.push({ ...p, rings: [...p.rings.filter((r) => r.y < pelvisTop), ringAt(p.rings, pelvisTop)] });
       above.push({ ...p, rings: [ringAt(p.rings, copyBottom), ...p.rings.filter((r) => r.y > copyBottom)] });
@@ -210,7 +239,7 @@ export function splitTorsos(figure: Figure, count: number): Figure {
       // 两个上半身：胯的上半截跟着上半身往两边挪开的那么多加宽（见 SPLIT_HALF）。胯宽（spreadX）是在加宽以后再乘的：先除掉
       const f = p.spreadX ? spreadAt(p.spreadX, forkFrom) : 1;
       const band: WidenBand = [outward / f, forkFrom - SPLIT_HALF, forkFrom + SPLIT_HALF, SPLIT_CORE];
-      below.push({ ...p, clipAbove: pelvisTop, clipRound: 0, ...(three ? {} : { widenX: [...(p.widenX ?? []), band] }) });
+      below.push({ ...p, clipAbove: pelvisTop, clipRound: 0, ...(three && !upright ? {} : { widenX: [...(p.widenX ?? []), band] }) });
       above.push({ ...p, clipBelow: copyBottom, clipRound: 0 });
     } else {
       // 别的体块（屁股、屁股缝、脖子根那一团）看它在腰的哪一边
@@ -218,8 +247,13 @@ export function splitTorsos(figure: Figure, count: number): Figure {
       (y < cutY ? below : above).push(p);
     }
   }
+  return { below, above };
+  };
+  const { below } = cut(torso.prims);
+  /** 第 slot 个上半身复制用的那一截躯干、它的脊柱骨骼（数量不一样时胸腔加长的多少不一样，各取各的） */
+  const aboves = new Map<number, Prim[]>(slots.map((slot) => [slot, cut(torsoOf(slot).prims).above]));
+  const spines = new Map<number, BoneHint[]>(slots.map((slot) => [slot, (torsoOf(slot).bones ?? []).filter((b) => SPINE.test(b.name))]));
   const hips = (torso.bones ?? []).filter((b) => !SPINE.test(b.name));
-  const spine = (torso.bones ?? []).filter((b) => SPINE.test(b.name));
   const pelvis: Part = { ...torso, prims: below, bones: hips };
 
   /* ---- 每个上半身歪多少：歪到相邻两个的肩膀之间、头之间都空出 SHOULDER_GAP ---- */
@@ -228,12 +262,13 @@ export function splitTorsos(figure: Figure, count: number): Figure {
    * 肩膀不只看手臂的关节：二次元素体的肩关节埋在身体里面，躯干本身在那个高度上比关节宽出一截——
    * 朝躯干打射线量它在那个高度上实际有多宽，再和关节外面一条手臂的粗细比，取宽的
    */
-  const probe = compileField({ scale: 1, parts: [{ ...torso, parent: undefined, pos: [0, 0, 0], quat: Q_ID, prims: above }] }, { blend: 0 });
-  const torsoWide = (y: number, z: number) => 0.6 - castRay(probe, [0.6, y, z], [-1, 0, 0], 0.6);
   const reach: { wide: number; rise: number; gap?: number }[] = [];
   let shoulderY = cutY + 0.3;
   let shoulderWide = 0;
-  for (const p of upper) {
+  for (const slot of new Set(slots.map(sourceOf)).size === 1 ? [slots[0]] : slots) {
+  const probe = compileField({ scale: 1, parts: [{ ...torso, parent: undefined, pos: [0, 0, 0], quat: Q_ID, prims: aboves.get(slot)! }] }, { blend: 0 });
+  const torsoWide = (y: number, z: number) => 0.6 - castRay(probe, [0.6, y, z], [-1, 0, 0], 0.6);
+  for (const p of uppers.get(slot)!) {
     if (p.parent !== 'Torso') continue;
     if (p.type === 'arm' || p.type === 'neck') {
       const wide = p.type === 'arm' ? Math.max(Math.abs(p.pos[0]) + ARM_RADIUS, torsoWide(p.pos[1], p.pos[2])) : Math.abs(p.pos[0]);
@@ -243,9 +278,14 @@ export function splitTorsos(figure: Figure, count: number): Figure {
       reach.push({ wide: Math.abs(p.pos[0]) + HEAD_HALF_WIDTH * (p.scale ?? 1), rise: p.pos[1] - pivot[1] });
     }
   }
+  }
   // 直立并排的只看头（肩膀见 UPRIGHT_LEAN）
   const heads = reach.filter((r) => r.gap === undefined).map((r) => ({ ...r, gap: UPRIGHT_HEAD_GAP }));
-  const lean = upright ? torsoLean(heads, false, outward, UPRIGHT_LEAN) : torsoLean(reach, three, outward, sampled ? LEAN_MIN_SAMPLED : LEAN_MIN);
+  const lean = upright ? torsoLean(heads, three, outward, UPRIGHT_LEAN) : torsoLean(reach, three, outward, sampled ? LEAN_MIN_SAMPLED : LEAN_MIN);
+  /** 三个上半身往两边扇开（转过去一点）；直立并排的不扇 */
+  const yaw = three && !upright ? FAN_YAW : 0;
+  /** 三个时两边的往后挪一点；直立并排的不挪 */
+  const back = three && !upright ? -0.02 : 0;
   // 里侧的手臂往前伸时手不往下伸到哪儿：腰；腿左右并排、横排多胯时胯底下垫的那一大块比腰还高的话，到它顶上
   const lowerTop = Math.max(
     ...figure.parts
@@ -255,25 +295,28 @@ export function splitTorsos(figure: Figure, count: number): Figure {
   const floor = Math.max(cutY, lowerTop + ARM_CLEAR);
 
   /* ---- 复制、换名字 ---- */
-  const per = (type: Part['type'], pattern: RegExp) => {
+  /** 第 slot 个上半身有几个头、几对手臂（胸、翅膀） */
+  const per = (slot: number, type: Part['type'], pattern: RegExp) => {
     let most = 0;
-    for (const p of upper) {
+    for (const p of uppers.get(slot)!) {
       const m = p.type === type ? pattern.exec(p.name) : null;
       if (m) most = Math.max(most, Number(m[1]));
     }
     return most;
   };
-  const headsPer = per('head', /^Head_(\d+)$/);
-  const armsPer = per('arm', /^Arm_(\d+)_[LR]$/);
-  const chestsPer = per('chest', /^Chest_(\d+)_[LR]$/);
-  const wingsPer = per('wing', /^Wing_(\d+)_[LR]$/);
+  const headsPer = (slot: number) => per(slot, 'head', /^Head_(\d+)$/);
+  const pairsPer = (slot: number, kind: string) => per(slot, kind === 'Arm' ? 'arm' : kind === 'Chest' ? 'chest' : 'wing', new RegExp(`^${kind}_(\\d+)_[LR]$`));
 
   const out: Part[] = [pelvis];
   slots.forEach((slot) => {
     const tag = sideTag(slot);
-    const q: Quat = quatMul(quatEuler(0, three ? slot * FAN_YAW : 0, 0), quatEuler(0, 0, -slot * lean));
-    const shift: V3 = [slot * outward, 0, three && slot ? -0.02 : 0];
+    const q: Quat = quatMul(quatEuler(0, slot * yaw, 0), quatEuler(0, 0, -slot * lean));
+    const shift: V3 = [slot * outward, 0, slot ? back : 0];
     const name = `UpperBody${tag}`;
+    const upper = uppers.get(slot)!;
+    const above = aboves.get(slot)!;
+    const spine = spines.get(slot)!;
+    const own = torsoOf(slot);
     /** 骨骼换名字：脊柱带上边，头接着往下数，手臂、胸、翅膀分外侧、里侧 */
     const boneMap = new Map<string, string>();
     for (const b of spine) {
@@ -282,11 +325,17 @@ export function splitTorsos(figure: Figure, count: number): Figure {
     }
     /** 这一边挨着别的上半身吗（side 是 1 / -1） */
     const inner = (side: number) => (slot === 0 ? three : side === -slot);
-    /** 第几对（从 0 数）的手臂、胸、翅膀在 side 这一边，换成第几对 */
-    const pairAt = (k: number, side: number, perBody: number) =>
-      slot === 0 ? k : k + (inner(side) ? (three ? 2 : 1) : three ? 1 : 0) * perBody;
+    /**
+     * 第几对（从 0 数）的手臂、胸、翅膀在 side 这一边，换成第几对：同一个后缀（_L / _R）上先排正中那个上半身的，
+     * 再排外侧在这一边的那个上半身的，最后是里侧在这一边的（照它们各自有几对往后排，名字不重复）
+     */
+    const pairAt = (k: number, side: number, kind: string) => {
+      if (slot === 0) return k;
+      const middle = three ? pairsPer(0, kind) : 0;
+      return inner(side) ? k + middle + pairsPer(-slot, kind) : k + middle;
+    };
     // 头照从右往左（-X 到 +X）一个上半身一个上半身地数：一个上半身里的头本来就是这么数的，镜像的那个头是倒着数的同一个号
-    const headAt = (k: number) => k + [...slots].sort((a, b) => a - b).indexOf(slot) * headsPer;
+    const headAt = (k: number) => k + slots.filter((other) => other < slot).reduce((sum: number, other) => sum + headsPer(other), 0);
 
     /** 一个部件和它的骨骼在这个上半身上叫什么 */
     const rename = (p: Part): { part: string; bone: (b: string) => string } => {
@@ -303,8 +352,7 @@ export function splitTorsos(figure: Figure, count: number): Figure {
       }
       if ((m = /^(Arm|Chest|Wing)_(\d+)_([LR])$/.exec(p.name))) {
         const side = m[3] === 'L' ? 1 : -1;
-        const perBody = m[1] === 'Arm' ? armsPer : m[1] === 'Chest' ? chestsPer : wingsPer;
-        const k = pairAt(Number(m[2]) - 1, side, perBody);
+        const k = pairAt(Number(m[2]) - 1, side, m[1]);
         const part = `${m[1]}_${String(k + 1).padStart(2, '0')}_${m[3]}`;
         return {
           part,
@@ -334,8 +382,8 @@ export function splitTorsos(figure: Figure, count: number): Figure {
     // 两个上半身是左右镜像，叠在一起的地方直接取并集，交线就在正中；三个时中间那个不动、两边的挪开，
     // 交线来回穿插出一道道褶子，所以和相邻的各留自己那一半
     const neighbor = (other: number) => {
-      const turn: Quat = quatMul(quatEuler(0, other * FAN_YAW, 0), quatEuler(0, 0, -other * lean));
-      return { part: `UpperBody${sideTag(other)}`, quat: turn, shift: [other * outward, 0, other ? -0.02 : 0] as V3, dir: (other > slot ? 1 : -1) as 1 | -1 };
+      const turn: Quat = quatMul(quatEuler(0, other * yaw, 0), quatEuler(0, 0, -other * lean));
+      return { part: `UpperBody${sideTag(other)}`, quat: turn, shift: [other * outward, 0, other ? back : 0] as V3, dir: (other > slot ? 1 : -1) as 1 | -1 };
     };
     const split = three ? slots.filter((other) => Math.abs(other - slot) === 1).map(neighbor) : undefined;
     const fork: Fork = sampled
@@ -345,12 +393,12 @@ export function splitTorsos(figure: Figure, count: number): Figure {
           shift,
           from: forkFrom + TURN_DELAY,
           to: forkTo,
-          ...(three ? { shiftFrom: forkFrom, shiftTo: forkTo } : { shiftFrom: forkFrom - SPLIT_HALF, shiftTo: forkFrom + SPLIT_HALF }),
+          ...(three && !upright ? { shiftFrom: forkFrom, shiftTo: forkTo } : { shiftFrom: forkFrom - SPLIT_HALF, shiftTo: forkFrom + SPLIT_HALF }),
           ...(split ? { split } : {}),
         }
       : { pivot, quat: q, shift, from: forkFrom, to: forkTo, ...(split ? { split } : {}) };
     out.push({
-      ...torso,
+      ...own,
       name,
       side: slot,
       parent: 'Torso',
@@ -384,6 +432,7 @@ export function splitTorsos(figure: Figure, count: number): Figure {
           out.filter((p) => p.parent === name && p.side === side && p.type === 'arm'),
           q,
           slot,
+          out.filter((p) => p.parent === name && p.side === side && p.type === 'chest'),
         );
         continue;
       }
@@ -398,7 +447,7 @@ export function splitTorsos(figure: Figure, count: number): Figure {
       for (const p of extra) out.splice(out.indexOf(p), 1);
     }
   });
-  for (const p of figure.parts) if (p !== torso && !upperOf(p)) out.push(p);
+  for (const p of figure.parts) if (p !== torso && !upperSet.has(p)) out.push(p);
   // 直立并排的里侧的胸、手臂都留着（胸挤在一起，手臂见 besideArms）
   const kept = upright ? out : crowded(out, slots, [0, shoulderY, pivot[2]]);
 
@@ -531,20 +580,31 @@ function reachForward(arms: Part[], chests: Part[], q: Quat, toTorso: (p: V3) =>
 /**
  * 直立并排时一个上半身里侧的手臂（见 BESIDE_DROP）：往前伸、往自己那边（slot）偏一点，肩关节靠前的先摆，
  * 一个肩膀上往后一条再抬 BESIDE_STEP。方向照世界算（上半身歪的那一两度不跟着）。
+ * 一个肩膀上聚拢着好几条的（肩部聚拢）：除了最后（抬得最高）那条，前面的肩关节一条比一条往下挪 BESIDE_LOWER——都从一个点出来的话，
+ * 两条只差 BESIDE_STEP，根部融在一起，中间连成一片扁的蹼（正面看一道薄片，斜着看一把扇子）。
+ * 挪下去的离胸近了，碰到同一边的胸（chests）就一档档往上抬，最多抬到比后一条低 BESIDE_APART。
  * 融合、算权重时另摆的姿势（Part.bind）抬到平举往前（和别的里侧手臂一样）
  */
-function besideArms(arms: Part[], q: Quat, slot: number) {
+function besideArms(arms: Part[], q: Quat, slot: number, chests: Part[]) {
   /** 离「垂直向下」drop、往自己那边偏 BESIDE_YAW 的方向，换到上半身的坐标里 */
-  const toward = (drop: number) =>
-    rotate(quatConj(q), [slot * Math.sin(BESIDE_YAW) * Math.sin(drop), -Math.cos(drop), Math.cos(BESIDE_YAW) * Math.sin(drop)]);
-  [...arms]
-    .sort((a, b) => b.pos[2] - a.pos[2])
-    .forEach((part, i) => {
-      const drop = BESIDE_DROP + i * BESIDE_STEP;
-      const dir = toward(drop);
-      part.quat = quatMul(quatBetween(armDir(part), dir), part.quat);
-      if (part.bind) part.bind = quatBetween(dir, toward(Math.max(drop, Math.PI / 2)));
-    });
+  const toward = (drop: number) => rotate(quatConj(q), [slot * Math.sin(BESIDE_YAW) * Math.sin(drop), -Math.cos(drop), Math.cos(BESIDE_YAW) * Math.sin(drop)]);
+  const order = [...arms].sort((a, b) => b.pos[2] - a.pos[2]);
+  order.forEach((part, i) => {
+    let drop = BESIDE_DROP + i * BESIDE_STEP;
+    // 同一个肩膀上排在它后面的还有几条（上下排的各在各的肩膀上，不挪）
+    const below = order.slice(i + 1).filter((other) => len(sub(other.pos, part.pos)) < SAME_SHOULDER).length;
+    if (below > 0) {
+      // 照竖直方向往下挪（上半身歪着，照它自己的「往下」挪的话往正中线凑，两个上半身里侧的肩关节靠得太近）
+      part.pos = add(part.pos, rotate(quatConj(q), [0, -BESIDE_LOWER * below, 0]));
+      const r = Math.max(ARM_RADIUS, ...part.prims.map((p) => (p.kind === 'cone' ? Math.max(p.ra, p.rb) : 0))) * (part.scale ?? 1);
+      const top = drop + BESIDE_STEP - BESIDE_APART;
+      while (drop < top && chests.some((c) => segmentGap(part.pos, toward(drop), ARM_REACH, c.pos) < r + bulk(c) - CROWD_MARGIN)) drop += INNER_ARM_STEP;
+      drop = Math.min(drop, top);
+    }
+    const dir = toward(drop);
+    part.quat = quatMul(quatBetween(armDir(part), dir), part.quat);
+    if (part.bind) part.bind = quatBetween(dir, toward(Math.max(drop, Math.PI / 2)));
+  });
 }
 
 /** 从 from 沿单位向量 dir 走 length 那一段，离点 p 最近多远 */
@@ -688,17 +748,23 @@ export function refork(figure: Figure): Figure {
   // 两个上半身：里侧的胸在两个身子正中间（照两个上半身现在摆在胯上哪儿）切齐，和旁边那只挤在一起（见 ChestShape.seam）
   /** 上半身的腰（分叉的支点）摆在胯上哪儿（离正中线多远） */
   const waistAt = (p: Part) => add(p.pos, rotate(p.quat, forks.get(p.name)!.pivot))[0];
-  const pair = pelvised.filter((p) => forks.has(p.name));
-  const middle = pair.length === 2 ? (waistAt(pair[0]) + waistAt(pair[1])) / 2 : undefined;
+  const bodyList = pelvised.filter((p) => forks.has(p.name));
+  /** 直立并排的（两个、三个都是）：这个上半身 side 那一边挨着的那个上半身和它的腰正中间在哪；没挨着的是 undefined */
+  const seamAt = (up: Part, side: number): number | undefined => {
+    const me = waistAt(up);
+    const next = bodyList.filter((q) => q !== up && Math.sign(waistAt(q) - me) === side).sort((a, b) => Math.abs(waistAt(a) - me) - Math.abs(waistAt(b) - me))[0];
+    return next ? (me + waistAt(next)) / 2 : undefined;
+  };
   const parts = pelvised.map((p): Part => {
     const body = p.parent ? bodiesOf.get(p.parent) : undefined;
     if (p.type !== 'chest' || !body) return p;
     const up = pelvised.find((q) => q.name === p.parent)!;
-    /** 旁边那个上半身在哪一边；这只胸长在那一边的话切 */
-    const toward = middle === undefined ? 0 : Math.sign(middle - waistAt(up));
+    /** 这只胸那一边挨着别的上半身的话，在两个腰正中间切 */
+    const middle = seamAt(up, p.side);
+    const toward = middle === undefined ? 0 : p.side;
     const r0 = rotate(quatConj(up.quat), [1, 0, 0]);
     const seam: [number, number, number, number] | undefined =
-      toward && p.side === toward ? [toward * r0[0], toward * r0[1], toward * r0[2], toward * (middle! - up.pos[0])] : undefined;
+      toward ? [toward * r0[0], toward * r0[1], toward * r0[2], toward * (middle! - up.pos[0])] : undefined;
     const own: GridShape = {
       ...body,
       name: 'Torso',

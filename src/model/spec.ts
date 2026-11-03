@@ -63,6 +63,37 @@ export const COUNT_DEF_BY_KEY = Object.fromEntries(COUNT_DEFS.map((d) => [d.key,
   CountDef
 >;
 
+/** 好几个上半身时每个上半身可以单独设的几样（见 BodySpec.torsoCounts）；别的（翅膀、尾巴、腿……）整个身体一份 */
+export const PER_TORSO_KEYS = ['heads', 'armPairs', 'chestPairs', 'hornsPerHead', 'eyesPerHead', 'earPairsPerHead'] as const;
+export type PerTorsoKey = (typeof PER_TORSO_KEYS)[number];
+/** 哪个上半身：L 角色的左手边（+X），R 右手边，M 正中（三个上半身时） */
+export const TORSO_SIDES = ['L', 'R', 'M'] as const;
+export type TorsoSide = (typeof TORSO_SIDES)[number];
+/** 每个上半身单独设过的数量：没设的照 counts（「全部一样」的数） */
+export type TorsoCounts = Partial<Record<TorsoSide, Partial<Record<PerTorsoKey, number>>>>;
+
+/** 几个上半身时各在哪一边，从右往左（-X 到 +X）：两个是右、左，三个是右、中、左；一个时没有 */
+export function torsoSides(torsos: number): TorsoSide[] {
+  return torsos >= 3 ? ['R', 'M', 'L'] : torsos === 2 ? ['R', 'L'] : [];
+}
+
+/** 某一个上半身的数量（单独设过的那几样换成它自己的） */
+export function countsOf(spec: Pick<BodySpec, 'counts' | 'torsoCounts'>, side: TorsoSide): BodyCounts {
+  return { ...spec.counts, ...spec.torsoCounts?.[side] };
+}
+
+/** 用得上的几个上半身（见 torsoSides）单独设的几样是不是都和「全部一样」的数一样 */
+export function torsosAlike(spec: Pick<BodySpec, 'counts' | 'torsoCounts'>): boolean {
+  return torsoSides(spec.counts.torsos).every((side) => PER_TORSO_KEYS.every((key) => countsOf(spec, side)[key] === spec.counts[key]));
+}
+
+/** 一共几个头（好几个上半身时每个上半身的加起来；一个头几张脸的算一个） */
+export function totalHeads(spec: Pick<BodySpec, 'counts' | 'torsoCounts' | 'headLayout'>): number {
+  const per = (c: BodyCounts) => (spec.headLayout === 'faces' ? 1 : c.heads);
+  const sides = torsoSides(spec.counts.torsos);
+  return sides.length ? sides.reduce((sum, side) => sum + per(countsOf(spec, side)), 0) : per(spec.counts);
+}
+
 /** 以「对」计数的部件：文字里给个数时取 ceil(n / 2)。其余按个数计，给「对」时乘 2。腿按条数计（可以是单数） */
 export const PAIRED_KEYS: ReadonlySet<CountKey> = new Set<CountKey>([
   'armPairs',
@@ -368,6 +399,8 @@ export interface BodySpec {
   characterOverrides: Record<string, PartOverride>;
   /** 摆的姿势（在上面的 pose 那个静止姿势上又摆的）。键是骨骼名，见 pose/posing.ts */
   posing: Posing;
+  /** 好几个上半身时每个上半身单独设的头、手臂、胸、角、眼睛、兽耳（见 TorsoCounts）；成品角色不看它 */
+  torsoCounts?: TorsoCounts;
 }
 
 export function defaultCounts(): BodyCounts {
@@ -402,6 +435,7 @@ export function defaultSpec(): BodySpec {
     overrides: {},
     characterOverrides: {},
     posing: emptyPosing(),
+    torsoCounts: {},
   };
 }
 
@@ -424,6 +458,24 @@ export function clampShape(shape: Partial<BodyShape>): BodyShape {
     if (typeof v === 'number' && Number.isFinite(v)) {
       out[d.key] = Math.round(clamp(v, d.min, d.max) * 1000) / 1000;
     }
+  }
+  return out;
+}
+
+/** 整理每个上半身单独设的数量：只留认得的上半身和那几样，数值取整收进范围；空的去掉 */
+export function clampTorsoCounts(value: unknown): TorsoCounts {
+  const out: TorsoCounts = {};
+  if (!isRecord(value)) return out;
+  for (const side of TORSO_SIDES) {
+    const src = value[side];
+    if (!isRecord(src)) continue;
+    const own: Partial<Record<PerTorsoKey, number>> = {};
+    for (const key of PER_TORSO_KEYS) {
+      const v = src[key];
+      const d = COUNT_DEF_BY_KEY[key];
+      if (typeof v === 'number' && Number.isFinite(v)) own[key] = clamp(Math.round(v), d.min, d.max);
+    }
+    if (Object.keys(own).length) out[side] = own;
   }
   return out;
 }
@@ -612,6 +664,7 @@ export function normalizeSpec(input: unknown): BodySpec {
     overrides: readOverrides(src.overrides),
     characterOverrides: readOverrides(src.characterOverrides),
     posing: cleanPosing(src.posing),
+    torsoCounts: clampTorsoCounts(src.torsoCounts),
   };
 }
 

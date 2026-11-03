@@ -31,6 +31,10 @@ import {
   HIP_LEGS,
   PENIS_ROW,
   PAIRED_KEYS,
+  PER_TORSO_KEYS,
+  type PerTorsoKey,
+  type TorsoCounts,
+  type TorsoSide,
   clampCounts,
   defaultCounts,
 } from '../model/spec';
@@ -72,6 +76,8 @@ export interface ParseResult {
   pose?: Pose;
   /** 文字里写了发型（「双马尾」「长直发」）、发色（「金发」「silver_hair」）时才有对应项 */
   hair: Partial<Pick<HairSpec, 'style' | 'color'>>;
+  /** 「左边的上半身两个头」这样某一个上半身单独设的数量（见 BodySpec.torsoCounts）；没说的上半身没有 */
+  torsoCounts: TorsoCounts;
   /** 从文字里识别到的部件（用于界面高亮） */
   hits: Set<CountKey>;
   matches: ParseMatch[];
@@ -206,8 +212,8 @@ const ZERO_SRC = '没有|没|无(?![数比论限敌])|不要|不带|不长|去�
 /** 数字后面紧跟这些字，说明它在量别的东西（十六岁、两米、十分、两个人、一些…） */
 const MEASURE_SRC = '[岁米厘公斤年月日天号次倍级位名人层种分秒度些点半件套把本杯]';
 
-/** 数字和部件之间最多 4 个修饰字（「两对巨大的翅膀」）；不能跨标点、数字、连词 */
-const MOD_SRC = `[^,，.。;；、!！?？:：()（）\\s\\d${N}双和与及或跟]{0,4}?`;
+/** 数字和部件之间最多 4 个修饰字（「两对巨大的翅膀」）；不能跨标点、数字、连词（日文的「と」「や」也算：「腕3対と角2本」） */
+const MOD_SRC = `[^,，.。;；、!！?？:：()（）\\s\\d${N}双和与及或跟とや]{0,4}?`;
 
 /** 1 数字  2 量词  3 修饰  4 部件 */
 const CN_NUM_RE = new RegExp(
@@ -543,6 +549,20 @@ const JA_PRESENCE: ReadonlyArray<{ re: RegExp; key: CountKey; min: number }> = [
   { re: new RegExp(`(?:${JA_EAR_PRE})の?(?:耳|みみ)|${J('ケモミミ|ケモ耳')}`, 'g'), key: 'earPairsPerHead', min: 1 },
 ];
 
+/* ================= 某一个上半身单独设的数量 ================= */
+
+/**
+ * 「左边的上半身两个头、两对手臂」「left upper body with 2 heads and 2 pairs of arms」「左の上半身は頭2つと腕2対」：
+ * 某一个上半身单独设的数量（见 BodySpec.torsoCounts），一直说到下一个短语分隔符（中文的「、」不算，日文的算）。
+ * 1 哪一边 2 说了些什么
+ */
+const TORSO_OWN_RES: readonly RegExp[] = [
+  /(左边|右边|中间|左侧|右侧)(?:的|那个)?上半身([^，,；;。\n]*)/g,
+  new RegExp(`${L}(left|right|middle|center|centre)${S}+(?:upper${S}+body|torso)${R}(?:${S}*:|${S}+(?:with|has))?([^,;.\\n]*)`, 'g'),
+  new RegExp(`(${J('左側|右側|左|右|中央|真ん中|まんなか')})の?上半身(?:は|に|が|:)?([^、，,；;。\\n]*)`, 'g'),
+];
+const torsoSide = (word: string): TorsoSide => (/^(?:左|left)/.test(word) ? 'L' : /^(?:右|right)/.test(word) ? 'R' : 'M');
+
 /* ================= 排布 ================= */
 
 const CLAUSE = '[^,。;、]';
@@ -813,6 +833,24 @@ export function parseDescription(text: string): ParseResult {
         record(m.index, m.index + m[0].length, 'measure', []);
       }
       spans.push([m.index, m.index + m[0].length]);
+    }
+    work = mask(work, spans);
+  }
+
+  /* ---- 0.3 某一个上半身单独设的数量：整段取走（免得里面的数量算到整个身体上），里面当成一段描述单独读，只要它提到的那几样 ---- */
+  const torsoCounts: TorsoCounts = {};
+  // 中文的「左侧上半身」日文的规则也认得：一种取走了下一种就不再碰
+  for (const re of TORSO_OWN_RES) {
+    const spans: Span[] = [];
+    for (const m of work.matchAll(re)) {
+      const side = torsoSide(m[1]);
+      const sub = parseDescription(m[2]);
+      const said = PER_TORSO_KEYS.filter((key) => sub.hits.has(key));
+      const own: Partial<Record<PerTorsoKey, number>> = { ...torsoCounts[side] };
+      for (const key of said) own[key] = sub.counts[key];
+      if (said.length) torsoCounts[side] = own;
+      spans.push([m.index, m.index + m[0].length]);
+      record(m.index, m.index + m[0].length, 'keyword', said);
     }
     work = mask(work, spans);
   }
@@ -1142,6 +1180,7 @@ export function parseDescription(text: string): ParseResult {
     gender,
     pose,
     hair,
+    torsoCounts,
     hits,
     matches: matches.sort(byStart),
   };

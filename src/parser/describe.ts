@@ -5,7 +5,7 @@
  *   - 部件名后面不能紧跟数字（日文「脚」后面接「2対」是数量，「脚を左右に並べる」不是）。
  */
 
-import { type Lang, LANG, t } from '../i18n';
+import { type Lang, LANG, t, tk } from '../i18n';
 import {
   type BodySpec,
   type CountKey,
@@ -15,6 +15,11 @@ import {
   PENIS_ROW,
   legPlan,
   perHip,
+  PER_TORSO_KEYS,
+  type PerTorsoKey,
+  type TorsoSide,
+  countsOf,
+  torsoSides,
 } from '../model/spec';
 import { zhCount } from './numerals';
 
@@ -44,13 +49,17 @@ interface Phrases {
   legLayout: Record<Exclude<LegLayout, 'auto'>, string>;
   /** 人腿人马、前后串联每副胯几条腿 */
   hipLegs: (n: number) => string;
+  /** 好几个上半身时某一个上半身单独设的那几样：一句里不能有本语言的短语分隔符（解析时一直读到分隔符） */
+  torsoOwn: (side: TorsoSide, items: string[]) => string;
   wideTorso: string;
   tails: (n: number) => string;
   wings: (pairs: number) => string;
   horns: (n: number) => string;
+  noHorns: string;
   eyes: (n: number) => string;
   /** 每个头 pairs 对耳朵；只有一对时写耳名就够了（英文 fox ears、日文 狐耳） */
   ears: (pairs: number, shape: EarShape) => string;
+  noEars: string;
   armFan: string;
   penises: (n: number) => string;
   /** 阴茎排成几乘几时每排几根 */
@@ -89,12 +98,15 @@ const PHRASES: Record<Lang, Phrases> = {
       abreast: '横排多胯',
     },
     hipLegs: (n) => `每副胯${zhCount(n)}条腿`,
+    torsoOwn: (side, items) => `${{ L: '左边', M: '中间', R: '右边' }[side]}的上半身${items.join('、')}`,
     wideTorso: '宽躯干',
     tails: (n) => `${zhCount(n)}条尾巴`,
     wings: (n) => `${zhCount(n)}对翅膀`,
     horns: (n) => `每个头${zhCount(n)}只角`,
+    noHorns: '没有角',
     eyes: (n) => `每个头${zhCount(n)}只眼睛`,
     ears: (n, shape) => `每个头${zhCount(n)}对${ZH_EAR[shape]}`,
+    noEars: '没有兽耳',
     armFan: '手臂肩部聚拢',
     penises: (n) => `${zhCount(n)}根阴茎`,
     penisRow: (n) => `阴茎每排${zhCount(n)}根`,
@@ -123,12 +135,15 @@ const PHRASES: Record<Lang, Phrases> = {
       abreast: 'pelvises side by side',
     },
     hipLegs: (n) => `${n} ${plural(n, 'leg', 'legs')} per pelvis`,
+    torsoOwn: (side, items) => `${{ L: 'left', M: 'middle', R: 'right' }[side]} upper body with ${items.join(' and ')}`,
     wideTorso: 'wide torso',
     tails: (n) => `${n} ${plural(n, 'tail', 'tails')}`,
     wings: (n) => `${n} ${plural(n, 'pair', 'pairs')} of wings`,
     horns: (n) => `${n} ${plural(n, 'horn', 'horns')} per head`,
+    noHorns: 'no horns',
     eyes: (n) => `${n} ${plural(n, 'eye', 'eyes')} per head`,
     ears: (n, shape) => (n === 1 ? EN_EAR[shape] : `${n} pairs of ${EN_EAR[shape]} per head`),
+    noEars: 'no ears',
     armFan: 'arms gathered at the shoulders',
     penises: (n) => `${n} ${plural(n, 'penis', 'penises')}`,
     penisRow: (n) => `penises in rows of ${n}`,
@@ -157,12 +172,16 @@ const PHRASES: Record<Lang, Phrases> = {
       abreast: '骨盤を横に並べる',
     },
     hipLegs: (n) => `骨盤ごとに脚${n}本`,
+    // 「、」是短语分隔符，几样之间用「と」
+    torsoOwn: (side, items) => `${{ L: '左', M: '中央', R: '右' }[side]}の上半身は${items.join('と')}`,
     wideTorso: '幅広の胴',
     tails: (n) => `尻尾${n}本`,
     wings: (n) => `翼${n}対`,
     horns: (n) => `頭ごとに角${n}本`,
+    noHorns: '角なし',
     eyes: (n) => `頭ごとに目${n}つ`,
     ears: (n, shape) => (n === 1 ? JA_EAR[shape] : `頭ごとに${JA_EAR[shape]}${n}対`),
+    noEars: 'ケモミミなし',
     armFan: '腕を肩に集める',
     penises: (n) => `陰茎${n}本`,
     penisRow: (n) => `陰茎は段ごとに${n}本`,
@@ -173,7 +192,30 @@ const PHRASES: Record<Lang, Phrases> = {
 };
 
 export type Describable = Pick<BodySpec, 'counts' | 'armLayout' | 'legLayout' | 'earShape'> &
-  Partial<Pick<BodySpec, 'gender' | 'pose' | 'headLayout' | 'hipLegs' | 'penisLayout' | 'penisRow' | 'scrotum'>>;
+  Partial<Pick<BodySpec, 'gender' | 'pose' | 'headLayout' | 'hipLegs' | 'penisLayout' | 'penisRow' | 'scrotum' | 'torsoCounts'>>;
+
+/** 每个上半身单独设的数量照左、中、右写 */
+const SIDE_ORDER: readonly TorsoSide[] = ['L', 'M', 'R'];
+/** 识别标签里的哪一边（「头 左2 右1」） */
+const SIDE_SHORT: Record<TorsoSide, string> = { L: tk('左@@上半身简称'), M: tk('中@@上半身简称'), R: tk('右@@上半身简称') };
+
+/** 某一个上半身单独设的那一样怎么写 */
+function ownPhrase(w: Phrases, spec: Describable, key: PerTorsoKey, n: number): string {
+  switch (key) {
+    case 'heads':
+      return spec.headLayout === 'faces' && n > 1 ? w.faces(n) : w.heads(n);
+    case 'armPairs':
+      return n ? w.arms(n) : w.noArms;
+    case 'chestPairs':
+      return n ? w.chests(n) : w.flatChest;
+    case 'hornsPerHead':
+      return n ? w.horns(n) : w.noHorns;
+    case 'eyesPerHead':
+      return w.eyes(n);
+    case 'earPairsPerHead':
+      return n ? w.ears(n, spec.earShape) : w.noEars;
+  }
+}
 
 /** 是不是「一个头上几张脸」（只有一个头时谈不上） */
 const manyFaces = (spec: Describable) => spec.headLayout === 'faces' && spec.counts.heads > 1;
@@ -199,6 +241,13 @@ export function describeSpec(spec: Describable, lang: Lang = LANG): string {
     p.push(w.legLayout[spec.legLayout]);
     const hip = spec.hipLegs ?? HIP_LEGS.def;
     if (perHip(spec.legLayout) && hip !== HIP_LEGS.def) p.push(w.hipLegs(hip));
+  }
+  // 好几个上半身时某一个上半身单独设的：「左边的上半身两个头、两对手臂」
+  for (const side of SIDE_ORDER) {
+    if (!torsoSides(c.torsos).includes(side)) continue;
+    const own = countsOf(spec, side);
+    const items = PER_TORSO_KEYS.filter((key) => own[key] !== c[key]).map((key) => ownPhrase(w, spec, key, own[key]));
+    if (items.length) p.push(w.torsoOwn(side, items));
   }
   if (spec.headLayout === 'wide' && c.heads > 1) p.push(w.wideTorso);
   if (c.tails) p.push(w.tails(c.tails));
@@ -242,28 +291,39 @@ export function summarize(spec: Describable): Chip[] {
     abreast: t('横排 {hips} 副胯 {n} 腿', { hips: plan.stations.length, n: feet }),
   }[plan.form];
 
+  /** 好几个上半身、有上半身单独设过这一样时，把每个的数都写出来：「头 左2 右1」（拿「左2 右1」去填标签里原来的数） */
+  const each = (key: PerTorsoKey, label: (n: string) => string) => {
+    const sides = SIDE_ORDER.filter((side) => torsoSides(c.torsos).includes(side));
+    if (sides.every((side) => countsOf(spec, side)[key] === c[key])) return null;
+    return label(sides.map((side) => `${t(SIDE_SHORT[side])}${countsOf(spec, side)[key]}`).join(' '));
+  };
   return [
     { key: 'torsos', label: t('上半身 {n}', { n: c.torsos }) },
     {
       key: 'heads',
-      label: manyFaces(spec)
-        ? t('一个头 {n} 张脸', { n: c.heads })
-        : spec.headLayout === 'wide' && c.heads > 1
-          ? t('头 {n} · 宽躯干', { n: c.heads })
-          : t('头 {n}@@数量', { n: c.heads }),
+      label:
+        each('heads', (n) => (spec.headLayout === 'faces' ? t('脸 {n}@@数量', { n }) : t('头 {n}@@数量', { n }))) ??
+        (manyFaces(spec)
+          ? t('一个头 {n} 张脸', { n: c.heads })
+          : spec.headLayout === 'wide' && c.heads > 1
+            ? t('头 {n} · 宽躯干', { n: c.heads })
+            : t('头 {n}@@数量', { n: c.heads })),
     },
-    { key: 'armPairs', label: t('手臂 {n} 对', { n: c.armPairs }) },
-    { key: 'chestPairs', label: c.chestPairs ? t('胸 {n} 对', { n: c.chestPairs }) : t('平胸') },
+    { key: 'armPairs', label: each('armPairs', (n) => t('手臂 {n} 对', { n })) ?? t('手臂 {n} 对', { n: c.armPairs }) },
+    {
+      key: 'chestPairs',
+      label: each('chestPairs', (n) => t('胸 {n} 对', { n })) ?? (c.chestPairs ? t('胸 {n} 对', { n: c.chestPairs }) : t('平胸')),
+    },
     { key: 'legs', label: legs },
     { key: 'tails', label: t('尾 {n}', { n: c.tails }) },
     { key: 'wingPairs', label: t('翼 {n} 对', { n: c.wingPairs }) },
-    { key: 'hornsPerHead', label: t('角 {n}', { n: c.hornsPerHead }) },
-    { key: 'eyesPerHead', label: t('眼 {n}', { n: c.eyesPerHead }) },
+    { key: 'hornsPerHead', label: each('hornsPerHead', (n) => t('角 {n}', { n })) ?? t('角 {n}', { n: c.hornsPerHead }) },
+    { key: 'eyesPerHead', label: each('eyesPerHead', (n) => t('眼 {n}', { n })) ?? t('眼 {n}', { n: c.eyesPerHead }) },
     {
       key: 'earPairsPerHead',
-      label: c.earPairsPerHead
-        ? t('{ear} {n} 对', { ear: EAR_NAME[spec.earShape], n: c.earPairsPerHead })
-        : t('兽耳 0'),
+      label:
+        each('earPairsPerHead', (n) => t('{ear} {n} 对', { ear: EAR_NAME[spec.earShape], n })) ??
+        (c.earPairsPerHead ? t('{ear} {n} 对', { ear: EAR_NAME[spec.earShape], n: c.earPairsPerHead }) : t('兽耳 0')),
     },
     // 成人部件只在有的时候列出来（开关关着时设定里一律是 0，见 model/adult.ts）
     ...(c.penises ? [{ key: 'penises' as const, label: t('阴茎 {n}', { n: c.penises }) }] : []),

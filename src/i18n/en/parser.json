@@ -30,5 +30,9 @@
   "英文标签": "English phrases and tags",
   "关键词": "Keywords",
   "身高 / 头身比": "Height / head ratio",
-  "头 {n}@@数量": "Heads {n}"
+  "头 {n}@@数量": "Heads {n}",
+  "左@@上半身简称": "L",
+  "中@@上半身简称": "M",
+  "右@@上半身简称": "R",
+  "脸 {n}@@数量": "Faces {n}"
 }

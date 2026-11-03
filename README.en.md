@@ -81,7 +81,7 @@ Type the body description into the "Body description" box; the model updates by 
 
 | What to write | Examples |
 | --- | --- |
-| Part + number + counter | `two heads`, `three pairs of arms`, `nine tails`, `four horns`, `6 eyes`, `three faces`, `two torsos` |
+| Part + number + counter | `two heads`, `three pairs of arms`, `nine tails`, `four horns`, `6 eyes`, `three faces`, `two torsos`, `left upper body with 2 heads and 2 pairs of arms` |
 | No such part | `no tail`, `no horns`, `flat chest` |
 | Idioms and keywords | `Asura`, `kitsune`, `seraph`, `centaur`, `humantaur`, `spider girl`, `cat ears`, `Geryon` |
 | English tags | `four_arms` `multiple_tails` `centaur` `humantaur` `three_faces` `1boy` |
@@ -93,7 +93,7 @@ Type the body description into the "Body description" box; the model updates by 
 <details>
 <summary>The Chinese phrasings from the original examples also work</summary>
 
-- Part + number + counter: 「两个头」 (two heads), 「三对手臂」 (three pairs of arms), 「九条尾巴」 (nine tails), 「每个头四只角」 (four horns per head), 「6 只眼睛」 (6 eyes), 「三张脸」 (three faces), 「两个上半身」 (two upper bodies)
+- Part + number + counter: 「两个头」 (two heads), 「三对手臂」 (three pairs of arms), 「九条尾巴」 (nine tails), 「每个头四只角」 (four horns per head), 「6 只眼睛」 (6 eyes), 「三张脸」 (three faces), 「两个上半身」 (two upper bodies), 「左边的上半身两个头、两对手臂」 (left upper body: two heads, two pairs of arms)
 - No such part: 「没有尾巴」 (no tail), 「无角」 (no horns), 「平胸」 (flat chest)
 - Idioms and keywords: 「三头六臂」 and 「三面六臂」 (three heads / faces, six arms), 「九尾」 (nine tails), 「六翼」 (six wings), 「阿修罗」 (Asura), 「半人马」 (centaur), 「人腿人马」 (humantaur), 「蜘蛛女」 (spider girl), 「猫耳」 (cat ears), 「革律翁」 (Geryon)
 - Height and head-to-body ratio: 「身高 165」 (height 165), 「八头身」 (eight heads tall)
@@ -106,7 +106,7 @@ Type the body description into the "Body description" box; the model updates by 
 ### Presets and part counts
 
 - **Presets**: 12 ready-made combinations; click one to switch to it.
-- **Part counts**: 1–3 upper bodies, 1–5 heads, 0–4 pairs of arms, 0–4 pairs of breasts, 1–12 legs, 0–9 tails, 0–3 pairs of wings, and for each head 0–4 horns, 1–6 eyes and 0–2 pairs of animal ears. With several upper bodies, heads, arms, breasts and wings are counted per upper body.
+- **Part counts**: 1–3 upper bodies, 1–5 heads, 0–4 pairs of arms, 0–4 pairs of breasts, 1–12 legs, 0–9 tails, 0–3 pairs of wings, and for each head 0–4 horns, 1–6 eyes and 0–2 pairs of animal ears. With several upper bodies, heads, arms, breasts and wings are counted per upper body, and an "Edit which upper body" row appears above the counts. After picking Left or Right (and Middle with three), heads, arms, breasts, horns, eyes and animal ears change only on that upper body (left and right are the character's own). "All" changes every upper body, and also resets the ones that were set separately (a number followed by an asterisk means some upper bodies were set separately). Ready-made characters don't take this: every upper body uses the "All" numbers.
 - After you click a preset or change a count, the description box is rewritten as one canonical sentence so you can keep editing it.
 
 ### Layout
@@ -124,7 +124,9 @@ Type the body description into the "Body description" box; the model updates by 
   - Gather at pelvis: the pelvis stays as wide as one person's, the pelvises sit one against the next, and the legs spread outward more and more toward the bottom.
   - Pelvis row: several complete pelvises stand in a row, two legs each.
   - For Humantaur and Tandem you can choose how many legs each pelvis carries ("three front, three back").
-- **Multiple upper bodies** (1–3): two or three upper bodies branch off the waist of one pelvis, standing side by side and fanning out to both sides, like Geryon in Greek myth. Each upper body gets its own set of heads, arms, breasts and wings as set, and the middle arms reach forward.
+- **Multiple upper bodies** (1–3): two or three upper bodies branch off the waist of one pelvis, standing side by side and fanning out to both sides, like Geryon in Greek myth (the Anime body stands them upright side by side: with two, their inner sides touch; with three, they are spaced apart and each has its own waist from just above the pelvis). Each upper body gets its own set of heads, arms, breasts and wings as set, and the middle arms reach forward. Heads, arms, breasts, horns, eyes and animal ears can be set for each upper body separately (see "Part counts"); two upper bodies on a "Pelvis row" of two normally merge into one wide torso, but when the two sides have different counts, each upper body stands upright on its own.
+
+  ![Setting heads, arms and breasts per upper body](docs/per-torso.png)
 - **Multiple tails** fan out to both sides from the tail root.
 - **Hands**: "Separate fingers" (default) is a ready-made hand with each finger separate; "Joined fingers (mitten)" is a single palm plus a thumb, only suitable as a rough starting point.
 
