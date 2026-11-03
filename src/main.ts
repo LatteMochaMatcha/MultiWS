@@ -53,6 +53,7 @@ import {
   COUNT_DEFS,
   COUNT_HINTS,
   HIP_LEGS,
+  PENIS_ROW,
   EAR_SHAPES,
   GENDERS,
   HAIR_LENGTH,
@@ -64,6 +65,7 @@ import {
   PENIS_LAYOUTS,
   SCROTUM_MODES,
   clampHipLegs,
+  clampPenisRow,
   perHip,
   MESH_MODES,
   OVERRIDE_LIMITS,
@@ -136,7 +138,7 @@ const HEAD_LABEL: Record<HeadLayout, string> = { cluster: '凑成一簇', faces:
 const ARM_LABEL: Record<ArmLayout, string> = { stack: '沿躯干上下排', fan: '肩部扇形聚拢' };
 const MESH_LABEL: Record<MeshMode, string> = { fused: '融合成一整块', parts: '分部件（v1）' };
 const HAND_LABEL: Record<HandStyle, string> = { fingers: '分指', mitten: '并指（手套形）' };
-const PENIS_LABEL: Record<PenisLayout, string> = { row: '左右并排', stack: '上下叠', fan: '扇形散开' };
+const PENIS_LABEL: Record<PenisLayout, string> = { row: '左右并排', stack: '上下叠', fan: '扇形散开', grid: '几乘几' };
 const SCROTUM_LABEL: Record<ScrotumMode, string> = { shared: '几根共用一个', each: '每根各带一个' };
 const GENDER_LABEL: Record<Gender, string> = { female: '女性', male: '男性' };
 const BODY_LABEL: Record<BodyStyle, string> = { mannequin: '白模人台', anime: '二次元素体', character: '成品角色' };
@@ -407,7 +409,29 @@ function syncAdult() {
   $('scrotumField').hidden = !shown;
   syncPenis(spec.penisLayout, spec.counts.penises > 1);
   syncScrotum(spec.scrotum, true);
+  syncPenisRow(shown && spec.counts.penises > 1 && spec.penisLayout === 'grid');
 }
+
+/** 阴茎排成几乘几时每排几根：只在选了「几乘几」时显示 */
+const syncPenisRow = (() => {
+  const minus = el('button', '', '−');
+  const plus = el('button', '', '+');
+  const out = el('output');
+  minus.type = plus.type = 'button';
+  minus.setAttribute('aria-label', '每排少一根');
+  plus.setAttribute('aria-label', '每排多一根');
+  const step = (delta: number) => () => fromParams({ ...spec, penisRow: clampPenisRow(spec.penisRow + delta) });
+  minus.addEventListener('click', step(-1));
+  plus.addEventListener('click', step(1));
+  $('penisRow').append(minus, out, plus);
+  return (shown: boolean) => {
+    $('penisRowField').hidden = !shown;
+    const rows = Math.ceil(spec.counts.penises / spec.penisRow);
+    out.textContent = `${spec.penisRow}（${rows} 排）`;
+    minus.disabled = spec.penisRow <= PENIS_ROW.min;
+    plus.disabled = spec.penisRow >= PENIS_ROW.max;
+  };
+})();
 
 /** 人腿人马、前后串联每副胯上几条腿：只在选了这两种排法时显示 */
 const syncHipLegs = (() => {

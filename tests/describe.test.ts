@@ -43,6 +43,7 @@ function expectRoundTrip(spec: BodySpec) {
     if (spec.legLayout === 'humantaur' || spec.legLayout === 'tandem') expect(back.hipLegs, text).toBe(spec.hipLegs);
   }
   if (spec.counts.penises > 1) expect(back.penisLayout, text).toBe(spec.penisLayout);
+  if (spec.counts.penises > 1 && spec.penisLayout === 'grid') expect(back.penisRow, text).toBe(spec.penisRow);
   if (spec.counts.penises > 0) expect(back.scrotum, text).toBe(spec.scrotum);
   // 性别和姿势：从一份全新的默认设定出发，光靠这句话就能读回来
   const fresh = applyParse(defaultSpec(), parseDescription(text));
@@ -177,9 +178,10 @@ describe('描述 → 解析 → 描述 往返一致', () => {
   });
 
   it('阴茎的根数、排法和阴囊', () => {
-    for (const penises of [1, 2, 3, 4])
+    for (const penises of [1, 2, 3, 4, 6])
       for (const penisLayout of PENIS_LAYOUTS)
         for (const scrotum of SCROTUM_MODES) expectRoundTrip(withCounts({ penises, legs: 4 }, { penisLayout, scrotum, legLayout: 'abreast' }));
+    for (const penisRow of [1, 2, 3, 4]) expectRoundTrip(withCounts({ penises: 6 }, { penisLayout: 'grid', penisRow }));
   });
 
   it('性别和姿势的四种组合', () => {

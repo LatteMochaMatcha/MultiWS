@@ -679,6 +679,7 @@ export function genitalsOn(parts: Part[], mounts: Mount[], spec: BodySpec, scale
     const made = genitalParts({
       count: spec.counts.penises,
       layout: spec.penisLayout,
+      perRow: spec.penisRow,
       scrotum: spec.scrotum,
       scale,
       mount,

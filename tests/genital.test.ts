@@ -175,6 +175,26 @@ describe('骨骼', () => {
       expect(bones.get(`Scrotum_${k}`)).toBe('Hips');
     }
   });
+
+  it('根部挨着；几乘几是几排、每排几根，最上面那排少几根', () => {
+    useGenital();
+    const penises = (spec: BodySpec) => genitals(spec).filter((p) => p.name.startsWith('Penis_'));
+    const two = penises(make({ penises: 2 }));
+    expect(Math.abs(two[1].pos[0] - two[0].pos[0])).toBeLessThan(0.05);
+    /** 照高低分排：隔开一厘米以上的算两排，返回每排几根 */
+    const rowsOf = (spec: BodySpec) => {
+      const ys = penises(spec)
+        .map((p) => p.pos[1])
+        .sort((a, b) => a - b);
+      const rows: number[] = [];
+      ys.forEach((y, k) => (k && y - ys[k - 1] < 0.01 ? rows[rows.length - 1]++ : rows.push(1)));
+      return rows;
+    };
+    expect(rowsOf(make({ penises: 4 }, { penisLayout: 'grid', penisRow: 2 }))).toEqual([2, 2]);
+    expect(rowsOf(make({ penises: 6 }, { penisLayout: 'grid', penisRow: 3 }))).toEqual([3, 3]);
+    expect(rowsOf(make({ penises: 5 }, { penisLayout: 'grid', penisRow: 2 }))).toEqual([2, 2, 1]);
+    expect(rowsOf(make({ penises: 3 }, { penisLayout: 'grid', penisRow: 4 }))).toEqual([3]);
+  });
 });
 
 describe('融合', () => {

@@ -119,6 +119,9 @@ describe('需求里点名的输入', () => {
     expect(read('四根阴茎扇形散开，每根各带阴囊')).toEqual([4, 'fan', 'each']);
     expect(read('两根阴茎，两个阴囊')).toEqual([2, 'row', 'each']);
     expect(read('2_penises, stacked penises')).toEqual([2, 'stack', 'shared']);
+    // 几乘几：「每排两根」不算成两根
+    expect(read('四根阴茎，阴茎每排两根')).toEqual([4, 'grid', 'shared']);
+    expect(parseDescription('六根阴茎，阴茎每排三根').penisRow).toBe(3);
     expect(read('multiple_penises')).toEqual([2, 'row', 'shared']);
     expect(read('penis')).toEqual([1, 'row', 'shared']);
     // 没提到的时候

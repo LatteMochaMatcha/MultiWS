@@ -7,6 +7,7 @@ import {
   type LegLayout,
   type PenisLayout,
   HIP_LEGS,
+  PENIS_ROW,
   legPlan,
   perHip,
 } from '../model/spec';
@@ -30,13 +31,13 @@ const LEG_PHRASE: Record<Exclude<LegLayout, 'auto'>, string> = {
   abreast: '横排多胯',
 };
 
-const PENIS_PHRASE: Record<Exclude<PenisLayout, 'row'>, string> = {
+const PENIS_PHRASE: Record<Exclude<PenisLayout, 'row' | 'grid'>, string> = {
   stack: '阴茎上下叠',
   fan: '阴茎扇形散开',
 };
 
 export type Describable = Pick<BodySpec, 'counts' | 'armLayout' | 'legLayout' | 'earShape'> &
-  Partial<Pick<BodySpec, 'gender' | 'pose' | 'headLayout' | 'hipLegs' | 'penisLayout' | 'scrotum'>>;
+  Partial<Pick<BodySpec, 'gender' | 'pose' | 'headLayout' | 'hipLegs' | 'penisLayout' | 'penisRow' | 'scrotum'>>;
 
 /** 是不是「一个头上几张脸」（只有一个头时谈不上） */
 const manyFaces = (spec: Describable) => spec.headLayout === 'faces' && spec.counts.heads > 1;
@@ -68,7 +69,9 @@ export function describeSpec(spec: Describable): string {
   if (spec.armLayout === 'fan' && c.armPairs > 1) p.push('手臂肩部聚拢');
   if (c.penises) {
     p.push(`${zhCount(c.penises)}根阴茎`);
-    if (c.penises > 1 && spec.penisLayout && spec.penisLayout !== 'row') p.push(PENIS_PHRASE[spec.penisLayout]);
+    const layout = c.penises > 1 ? spec.penisLayout : undefined;
+    if (layout === 'grid') p.push(`阴茎每排${zhCount(spec.penisRow ?? PENIS_ROW.def)}根`);
+    else if (layout && layout !== 'row') p.push(PENIS_PHRASE[layout]);
     if (spec.scrotum === 'each') p.push('每根各带阴囊');
   }
   if (spec.pose === 'T') p.push('T-pose');

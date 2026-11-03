@@ -26,6 +26,7 @@ import {
   type ScrotumMode,
   COUNT_DEF_BY_KEY,
   HIP_LEGS,
+  PENIS_ROW,
   PAIRED_KEYS,
   clampCounts,
   defaultCounts,
@@ -54,6 +55,8 @@ export interface ParseResult {
   hipLegs: number;
   /** 好几根阴茎怎么排、阴囊共用还是各带一个（「阴茎上下叠」「每根各带阴囊」）；没说就是并排、共用 */
   penisLayout: PenisLayout;
+  /** 排成几乘几时每排几根（「阴茎每排两根」）；没说就是 2 */
+  penisRow: number;
   scrotum: ScrotumMode;
   /** 文字里点名了耳朵形状时才有 */
   earShape?: EarShape;
@@ -203,6 +206,8 @@ const CN_DUAL_RE = new RegExp(`(?<![${N}\\d])双(${PART_SRC})`, 'g');
 
 /** 人腿人马每副胯几条腿：「每副胯三条腿」。 1 数字 */
 const HIP_LEGS_RE = new RegExp(`每[副个]?胯上?([${N}\\d]+)条(?:腿|足)?`, 'g');
+/** 阴茎排成几乘几：「每排两根」。 1 数字 */
+const PENIS_ROW_RE = new RegExp(`每排([${N}\\d]+)根`, 'g');
 /** 「前三后三」「前两条后一条腿」：前面那副胯几条、后面那副几条。 1 前 2 后 */
 const FRONT_BACK_RE = new RegExp(`前([${N}\\d]+)条?(?:腿|足)?后([${N}\\d]+)条?(?:腿|足)?`, 'g');
 
@@ -639,6 +644,20 @@ export function parseDescription(text: string): ParseResult {
     }
     work = mask(work, spans);
   }
+  /* ---- 0.56 阴茎每排几根：取走，免得「每排两根」被读成两根 ---- */
+  let penisRow: number = PENIS_ROW.def;
+  let gridSaid = false;
+  {
+    const spans: Span[] = [];
+    for (const m of work.matchAll(PENIS_ROW_RE)) {
+      const n = /^\d+$/.test(m[1]) ? Number(m[1]) : cnNum(m[1]);
+      if (n >= PENIS_ROW.min && n <= PENIS_ROW.max) penisRow = n;
+      gridSaid = true;
+      spans.push([m.index, m.index + m[0].length]);
+      record(m.index, m.index + m[0].length, 'keyword', []);
+    }
+    work = mask(work, spans);
+  }
   let gender: Gender | undefined;
   {
     let last = -1;
@@ -838,7 +857,7 @@ export function parseDescription(text: string): ParseResult {
     }
   }
 
-  const penisLayout: PenisLayout = PENIS_STACK_RE.test(work) ? 'stack' : PENIS_FAN_RE.test(work) ? 'fan' : 'row';
+  const penisLayout: PenisLayout = gridSaid ? 'grid' : PENIS_STACK_RE.test(work) ? 'stack' : PENIS_FAN_RE.test(work) ? 'fan' : 'row';
   const scrotum: ScrotumMode = SCROTUM_EACH_RE.test(work) ? 'each' : 'shared';
 
   return {
@@ -848,6 +867,7 @@ export function parseDescription(text: string): ParseResult {
     legLayout,
     hipLegs,
     penisLayout,
+    penisRow,
     scrotum,
     earShape,
     shape,

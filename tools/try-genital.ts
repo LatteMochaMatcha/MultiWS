@@ -1,6 +1,6 @@
 // 阴茎、阴囊的验收图（docs/genital-plan.md）：照设定在白模人台（或二次元素体）上拼出来，融合、出图、记检查结果。
 //   node tools/run.mjs tools/try-genital.ts <输出目录> [--only sizes,layouts] [--style mannequin|anime] [--voxel 0.006] [--obj]
-// sizes：一根，「阴茎大小」0.6 / 0.8 / 1 / 1.2；layouts：三种排法 × 两种阴囊 × 2–4 根。
+// sizes：一根，「阴茎大小」0.6 / 0.8 / 1 / 1.2；layouts：三种排法 × 两种阴囊 × 2–4 根；grid：几乘几。
 // 每种出正面、斜前（sizes 再加侧面），存在 <输出目录>/<组>-<名字>_<视角>.png；summary.json 里是网格几块、穿模、融合耗时。
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -31,6 +31,15 @@ function cases(): Case[] {
   for (const layout of PENIS_LAYOUTS)
     for (const scrotum of SCROTUM_MODES)
       for (const n of [2, 3, 4]) out.push({ group: 'layouts', name: `${layout}-${scrotum}-${n}`, spec: { penisLayout: layout, scrotum, counts: { penises: n } }, views: layout === 'stack' ? ['front', 'three', 'side'] : ['front', 'three'] });
+  // 几乘几：每排几根 × 几排（最上面那排少几根的也看）
+  for (const [n, row] of [
+    [3, 2],
+    [4, 2],
+    [6, 2],
+    [6, 3],
+  ])
+    for (const scrotum of SCROTUM_MODES)
+      out.push({ group: 'grid', name: `${n}-row${row}-${scrotum}`, spec: { penisLayout: 'grid', penisRow: row, scrotum, counts: { penises: n } }, views: ['front', 'three', 'side'] });
   // 几副胯各一套：每种排法两种腿数，每副胯一根、两根
   const forms: [LegLayout, number[]][] = [
     ['abreast', [4, 6]],

@@ -43,7 +43,7 @@ describe('默认值与范围', () => {
       hornsPerHead: [0, 4, 0],
       eyesPerHead: [1, 6, 2],
       earPairsPerHead: [0, 2, 0],
-      penises: [0, 4, 0],
+      penises: [0, 6, 0],
     });
   });
 
@@ -252,6 +252,13 @@ describe('normalizeSpec', () => {
     // 第 3 版的 legs 就是条数
     expect(normalizeSpec({ version: 3, counts: { legs: 3 }, hipLegs: 3 })).toMatchObject({ counts: { legs: 3 }, hipLegs: 3 });
     expect(normalizeSpec({ version: 3, hipLegs: 9 }).hipLegs).toBe(4);
+  });
+
+  it('阴茎几乘几：每排几根默认 2，越界收回', () => {
+    expect(defaultSpec().penisRow).toBe(2);
+    expect(normalizeSpec({ version: 3, penisLayout: 'grid', penisRow: 3 })).toMatchObject({ penisLayout: 'grid', penisRow: 3 });
+    expect(normalizeSpec({ version: 3, penisRow: 9 }).penisRow).toBe(4);
+    expect(normalizeSpec({ version: 3, penisRow: 'x' }).penisRow).toBe(2);
   });
 
   it('读得懂 v1 的配置文件', () => {

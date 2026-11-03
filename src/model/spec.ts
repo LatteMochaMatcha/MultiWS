@@ -51,7 +51,7 @@ export const COUNT_DEFS: readonly CountDef[] = [
   { key: 'eyesPerHead', label: '眼睛', unit: '只 / 每个头', min: 1, max: 6, def: 2 },
   { key: 'earPairsPerHead', label: '兽耳', unit: '对 / 每个头', min: 0, max: 2, def: 0 },
   // 成人部件：设置里打开「显示成人部件」才有（见 model/adult.ts）；好几副胯时每副胯各长这么多
-  { key: 'penises', label: '阴茎', unit: '根 / 每副胯', min: 0, max: 4, def: 0 },
+  { key: 'penises', label: '阴茎', unit: '根 / 每副胯', min: 0, max: 6, def: 0 },
 ];
 
 export const COUNT_KEYS: readonly CountKey[] = COUNT_DEFS.map((d) => d.key);
@@ -162,10 +162,11 @@ export type LegLayout = (typeof LEG_LAYOUTS)[number];
 export type LegForm = 'biped' | 'taur' | 'spider' | 'humantaur' | 'tandem' | 'row' | 'gather' | 'abreast';
 
 /**
- * 一副胯上好几根阴茎怎么排：row 左右并排、stack 上下叠（往小腹上排）、fan 扇形散开（根部挨着，往外张开）。
- * 阴囊：shared 几根共用一个（摆在正中，根数多了跟着变宽）、each 每根各带一个（小一圈）
+ * 一副胯上好几根阴茎怎么排（根部都挤在小腹正中一处）：row 左右并排、stack 上下叠（一根正叠在一根上面）、
+ * fan 扇形散开（往两边张开）、grid 几乘几（几排上下叠、每排左右并排，每排几根见 BodySpec.penisRow）。
+ * 阴囊：shared 几根共用一个（摆在正中，根数多了跟着变大）、each 每根各带一个（小一圈）
  */
-export const PENIS_LAYOUTS = ['row', 'stack', 'fan'] as const;
+export const PENIS_LAYOUTS = ['row', 'stack', 'fan', 'grid'] as const;
 export type PenisLayout = (typeof PENIS_LAYOUTS)[number];
 export const SCROTUM_MODES = ['shared', 'each'] as const;
 export type ScrotumMode = (typeof SCROTUM_MODES)[number];
@@ -280,6 +281,9 @@ export function colorToLinear(hex: string): [number, number, number] {
 /** 人腿人马、前后串联每副胯上几条腿（并排着）：2 是一对，3 就是「前三后三」那种 */
 export const HIP_LEGS = { min: 1, max: 4, def: 2 } as const;
 
+/** 阴茎排成几乘几时每排几根（左右并排着）：根数不是它的整数倍时，最上面那排少几根 */
+export const PENIS_ROW = { min: 1, max: 4, def: 2 } as const;
+
 /** 融合圆角的半径：不同部件交界处（肩、髋、颈）圆滑过渡的范围，米（按标准人台算） */
 export const BLEND = { min: 0, max: 0.04, step: 0.001, def: 0.02 } as const;
 
@@ -343,6 +347,8 @@ export interface BodySpec {
   hipLegs: number;
   /** 一副胯上好几根阴茎怎么排、阴囊共用还是各带一个，见 PENIS_LAYOUTS、SCROTUM_MODES */
   penisLayout: PenisLayout;
+  /** 阴茎排成几乘几时每排几根，见 PENIS_ROW */
+  penisRow: number;
   scrotum: ScrotumMode;
   pose: Pose;
   earShape: EarShape;
@@ -383,6 +389,7 @@ export function defaultSpec(): BodySpec {
     legLayout: 'auto',
     hipLegs: HIP_LEGS.def,
     penisLayout: 'row',
+    penisRow: PENIS_ROW.def,
     scrotum: 'shared',
     pose: 'A',
     earShape: 'cat',
@@ -442,6 +449,11 @@ export function clampHair(hair: unknown): HairSpec {
 export function clampHipLegs(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return HIP_LEGS.def;
   return clamp(Math.round(value), HIP_LEGS.min, HIP_LEGS.max);
+}
+
+export function clampPenisRow(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return PENIS_ROW.def;
+  return clamp(Math.round(value), PENIS_ROW.min, PENIS_ROW.max);
 }
 
 /** 这种排法是不是一副胯一副胯往后排的人腿（每副胯几条腿看 hipLegs） */
@@ -587,6 +599,7 @@ export function normalizeSpec(input: unknown): BodySpec {
     legLayout: pick(LEG_LAYOUTS, src.legLayout, 'auto'),
     hipLegs: clampHipLegs(src.hipLegs),
     penisLayout: pick(PENIS_LAYOUTS, src.penisLayout, 'row'),
+    penisRow: clampPenisRow(src.penisRow),
     scrotum: pick(SCROTUM_MODES, src.scrotum, 'shared'),
     pose: pick(POSES, src.pose, 'A'),
     earShape: pick(EAR_SHAPES, src.earShape, 'cat'),
