@@ -230,16 +230,21 @@ select:focus-visible,.triple input:focus-visible{outline:2px solid var(--accent)
 #poseJointName{font-size:13px}
 
 /* ---------- 新手引导：打亮一块地方（四周压暗），旁边一张卡片 ---------- */
-.tour{position:fixed;inset:0;z-index:50}
+/* 挡点击的是 .tour-block（能打亮的地方上手试的步骤，它上面剪了个洞），外框本身不挡 */
+.tour{position:fixed;inset:0;z-index:50;pointer-events:none}
+.tour-block{position:fixed;inset:0;pointer-events:auto}
 .tour.dim{background:rgba(6,14,16,.55)}
 .tour-spot{position:fixed;border-radius:10px;box-shadow:0 0 0 2px var(--accent),0 0 0 200vmax rgba(6,14,16,.55);pointer-events:none;transition:left .18s,top .18s,width .18s,height .18s}
-.tour-card{position:fixed;width:max-content;display:flex;flex-direction:column;gap:8px;padding:14px 16px 12px;border-radius:12px;background:var(--panel);color:var(--ink);border:1px solid var(--line);box-shadow:0 8px 28px rgba(0,0,0,.28)}
+.tour-card{position:fixed;pointer-events:auto;width:max-content;display:flex;flex-direction:column;gap:8px;padding:14px 16px 12px;border-radius:12px;background:var(--panel);color:var(--ink);border:1px solid var(--line);box-shadow:0 8px 28px rgba(0,0,0,.28)}
 .tour-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
 .tour-head h3{margin:0;font-size:15px}
 .tour-head span{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
 .tour-card p{margin:0;font-size:13px;line-height:1.6}
 .tour-actions{display:flex;gap:6px;justify-content:flex-end;margin-top:2px}
 .tour-actions .ghost{margin-right:auto}
+/* 第一步选语言：三个一样宽的大按钮 */
+.tour-langs{display:flex;gap:6px}
+.tour-langs .btn{flex:1;font-size:15px;padding-block:9px}
 @media (prefers-reduced-motion:reduce){.tour-spot{transition:none}}
 
 /* ---------- 窄屏、手机 ---------- */

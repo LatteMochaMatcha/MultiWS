@@ -15,8 +15,9 @@ Parts it can make: 1-3 upper bodies (branching off from the waist, each with its
 1-12 legs (an odd number is fine; centaur or spider lower bodies, or the all-human-legs "humantaur"),
 0-9 tails, 0-3 pairs of wings, horns, animal ears (cat, fox, rabbit and elf ears), and multiple eyes.
 
-The first time you open it, a "Tour" shows you several areas of the interface one step at a time;
-click "Skip" if you don't want it. To see it again later, click "Tour" under the title.
+The first time you open it, a "Tour" asks for a language and then shows you several areas of the interface
+one step at a time; in the steps on adjusting individual limbs and posing, you can try things out on the model.
+Click "Skip" if you don't want it. To see it again later, click "Tour" under the title.
 
 The body comes in three styles. Switch them under "Body style" in the "Body shape" section of the right-hand panel:
 

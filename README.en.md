@@ -70,7 +70,7 @@ After that you only need steps 2 and 4 each time.
 - **The left side is the 3D view**. The "Shape / Pose" switch at the top left chooses what you are doing; below it are the readouts for height, heads tall and triangle count, and orange text after them is a warning. Left-drag to rotate, scroll to zoom, right-drag to pan, click a part to select it. At the bottom left are the view buttons (Front / Side / Back / 3/4), Undo / Redo, and "Bones" to show the skeleton.
 - **The right side is the settings panel**: Body description, Presets, Part counts, Layout, Hair, Body shape, Manual tweaks, Mesh, Camera & lighting, Reference images, and Config. Click a section's title to fold it. The export buttons are pinned to the bottom of the panel.
 - **Language**: the interface is available in Chinese, English and Japanese. Use the language drop-down at the top right (to the left of the theme button). The first time you open it, it follows the browser's language; adding `?lang=en` (or `zh`, `ja`) to the address also works.
-- **Tour**: it appears automatically the first time you open the workshop and can be skipped; to see it again, click "Tour" under the title.
+- **Tour**: it appears automatically the first time you open the workshop. It starts by asking for a language, then walks you through a few areas; in the steps on the 3D view, adjusting individual limbs, and posing, you can try things out on the model right away. It can be skipped; to see it again, click "Tour" under the title.
 - **Phone in portrait**: the 3D view is the top half and the settings the bottom half, and the whole page scrolls together. Drag with one finger to rotate; pinch with two fingers to zoom and drag with two fingers to pan.
 
 ## Shape

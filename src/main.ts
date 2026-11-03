@@ -1290,14 +1290,38 @@ const HINTS = {
   shape: [$('hint').textContent ?? '', t('单指拖动旋转 · 双指缩放、平移 · 点一下部件单独调整')],
   pose: [t('拖圆点摆姿势 · 点一下圆点出现旋转环 · 拖空白处转视角'), t('拖圆点摆姿势 · 点一下圆点出现旋转环 · 双指缩放、平移')],
 } as const;
+/** 在模型上点中过部件没有（看过新手引导里调肢体那一步也算）。好多人不知道部件能单独挪：没点过之前，造型时的提示换成这一句，亮在 3D 视图正中 */
+const PICKED_KEY = 'oc-basemesh-picked';
+let pickedOnce = true;
+try {
+  pickedOnce = localStorage.getItem(PICKED_KEY) === '1';
+} catch {
+  // 读不到就当点过，不一直亮着
+}
 function showHint(which: keyof typeof HINTS) {
   const hint = $('hint');
-  hint.textContent = HINTS[which][byFinger ? 1 : 0];
-  if (!byFinger || !viewport) return;
+  const nudge = which === 'shape' && !pickedOnce && Boolean(viewport);
+  hint.textContent = nudge ? t('点一下手臂、头、腿这些部件，就能单独挪动、旋转、缩放它') : HINTS[which][byFinger ? 1 : 0];
+  hint.classList.toggle('tip', nudge);
+  if (nudge || !byFinger || !viewport) return;
   hint.classList.add('tip');
   viewport.renderer.domElement.addEventListener('pointerdown', () => hint.classList.remove('tip'), { once: true });
 }
-if (byFinger) showHint('shape');
+if (byFinger || !pickedOnce) showHint('shape');
+/** 知道部件能点了：记下来，造型时的提示换回平常那句 */
+function learnedPick() {
+  if (pickedOnce) return;
+  pickedOnce = true;
+  try {
+    localStorage.setItem(PICKED_KEY, '1');
+  } catch {
+    // 记不住就这一次不亮
+  }
+  if (mode === 'shape') {
+    $('hint').textContent = HINTS.shape[byFinger ? 1 : 0];
+    $('hint').classList.remove('tip');
+  }
+}
 
 // 手机竖屏：把 3D 视图放大到整屏（设定面板先收起来），再点一下还原
 const btnZoom = $<HTMLButtonElement>('btnZoom');
@@ -1981,7 +2005,9 @@ if (gizmo) {
   gizmo.onPick = (name) => {
     select(name);
     // 在模型上点中了部件：把「手动微调」那一栏亮出来
-    if (name) reveal('tweak');
+    if (!name) return;
+    reveal('tweak');
+    learnedPick();
   };
   gizmo.onChange = (patch) => applyTweak(patch, `gizmo:${selected}`);
   gizmo.onDrag = (active) => {
@@ -2295,6 +2321,8 @@ function syncPicked() {
   const part = mode === 'shape' && selected ? tweakable().find((p) => p.name === selected) : undefined;
   const handle = mode === 'pose' ? pickedHandle() : undefined;
   $('picked').hidden = !part && !handle;
+  // 小牌子亮着时，3D 视图正中那句提示收起来，免得叠在一起（新手引导替人选中部件时没碰过屏幕，它还亮着）
+  if (part || handle) $('hint').classList.remove('tip');
   if (part) $('pickedName').textContent = `${partLabel(part.name)} · ${part.name}`;
   if (handle) $('pickedName').textContent = handle.label;
 }
@@ -3704,6 +3732,12 @@ function render() {
 
 /** 看完或跳过新手引导就记一笔，以后不再自动弹出（标题旁的「新手引导」可以再看） */
 const TOUR_KEY = 'oc-basemesh-tour';
+/** 在引导第一步换了语言要整页重新载入：记下载入后接着从第几步看（只记在这个标签页里） */
+const TOUR_AT_KEY = 'oc-basemesh-tour-at';
+/** 开始引导时在做哪件事；引导里切去摆姿势了，关掉时切回来 */
+let tourFrom: Mode = 'shape';
+/** 引导替人选中的部件：关掉时它还选着就取消 */
+let tourPicked: string | null = null;
 /** 指着面板里的某一栏之前：回到造型，把那一栏展开、滚到看得见（手机上让开钉着的 3D 视图，见样式里的 scroll-margin） */
 const tourShape = (key?: string) => () => {
   setMode('shape');
@@ -3711,13 +3745,51 @@ const tourShape = (key?: string) => () => {
   if (folded.has(key)) setFolded(key, false);
   sections.get(key)?.scrollIntoView({ block: 'start' });
 };
+/** 教调肢体之前：回到造型，还没选中部件就先替人选一条手臂（没有手臂挑腿、尾巴、头），模型上就有箭头可以拖 */
+const tourLimb = (key?: string) => () => {
+  tourShape(key)();
+  learnedPick();
+  if (selected) return;
+  const parts = tweakable();
+  const part = (['arm', 'leg', 'tail', 'head'] as const).map((type) => parts.find((p) => p.type === type)).find(Boolean) ?? parts[0];
+  if (!part) return;
+  select(part.name);
+  tourPicked = part.name;
+};
+/** 引导第一步的三个语言按钮：点现在的语言就是下一步，点别的换过去（整页重新载入后接着看第二步） */
+function tourLangs() {
+  const row = el('div', 'tour-langs');
+  for (const l of LANGS) {
+    const btn = el('button', 'btn', l.label);
+    btn.type = 'button';
+    btn.lang = l.key === 'zh' ? 'zh-CN' : l.key;
+    btn.setAttribute('aria-pressed', String(l.key === LANG));
+    btn.addEventListener('click', () => {
+      if (l.key === LANG) return tour.next();
+      try {
+        sessionStorage.setItem(TOUR_AT_KEY, '1');
+      } catch {
+        // 记不住就从头再看一遍
+      }
+      save();
+      setLang(l.key);
+    });
+    row.append(btn);
+  }
+  return row;
+}
 const tour = new Tour([
   {
-    title: t('欢迎来到 OC 白模工坊'),
-    text: t('写一句身体设定，就能生成能导进 Blender 的多肢体角色模型。下面花半分钟认一认几个地方；不想看就点「跳过」，以后点标题旁边的「新手引导」可以再看。'),
+    title: t('选择语言'),
+    text: t('界面用哪种语言？点一下就换。以后在标题旁边的语言菜单里也能改。'),
+    extra: tourLangs,
     before: () => {
       if (btnZoom.getAttribute('aria-pressed') === 'true') btnZoom.click();
     },
+  },
+  {
+    title: t('欢迎来到 OC 白模工坊'),
+    text: t('写一句身体设定，就能生成能导进 Blender 的多肢体角色模型。下面花半分钟认一认几个地方；不想看就点「跳过」，以后点标题旁边的「新手引导」可以再看。'),
   },
   {
     title: t('身体描述'),
@@ -3746,15 +3818,37 @@ const tour = new Tour([
   {
     title: t('3D 视图'),
     text: byFinger
-      ? t('单指拖动旋转，双指缩放、平移。点一下某个部件（一条手臂、一个头），可以单独挪动、旋转、缩放它。')
-      : t('拖动旋转，滚轮缩放，右键平移。点一下某个部件（一条手臂、一个头），可以单独挪动、旋转、缩放它。'),
+      ? t('单指拖动旋转视角，双指缩放、平移，现在就可以试试。下一步教你单独调一条手臂、一个头。')
+      : t('拖动旋转视角，滚轮缩放，右键拖动平移，现在就可以试试。下一步教你单独调一条手臂、一个头。'),
     target: () => $('stage'),
     before: tourShape(),
+    live: true,
+  },
+  {
+    title: t('单独调整肢体'),
+    text: () =>
+      joinSentences([
+        t('手臂、腿、尾巴、头……每个部件都能单独挪动、旋转、放大缩小：在模型上点一下就选中它，再拖它身上红、绿、蓝的箭头。'),
+        selected
+          ? t('现在先替你选中了「{name}」，直接拖箭头试试；点空白处取消选择。', { name: partLabel(selected) })
+          : t('现在就可以试试；点空白处取消选择。'),
+      ]),
+    target: () => $('stage'),
+    before: tourLimb(),
+    live: true,
+  },
+  {
+    title: t('手动微调'),
+    text: t('选中部件以后，这一栏能把拖动换成「旋转」「缩放」，也能直接填位置、角度、大小的数字；勾上「同时调整对侧」左右一起改，调坏了点「还原这个部件」。'),
+    target: () => sections.get('tweak') ?? null,
+    before: tourLimb('tweak'),
   },
   {
     title: t('造型和摆姿势'),
-    text: t('身体定好了切到「摆姿势」：拖关节上的圆点摆动作，还有现成的姿势、手势和表情。'),
-    target: () => document.querySelector('.mode'),
+    text: t('身体定好了就切到左上角的「摆姿势」（现在已经切过去了）：拖关节上的圆点摆动作，点一下圆点出现旋转环，现在就可以试试。面板里还有现成的姿势、手势和表情。'),
+    target: () => $('stage'),
+    before: () => setMode('pose'),
+    live: true,
   },
   {
     title: t('视角和撤销'),
@@ -3779,8 +3873,17 @@ tour.onClose = () => {
   } catch {
     // 存不了就下次再弹一遍
   }
+  setMode(tourFrom);
+  if (tourPicked && selected === tourPicked) select(null);
+  tourPicked = null;
 };
-$('btnTour').addEventListener('click', () => tour.start());
+function startTour(at = 0) {
+  if (tour.open) return;
+  tourFrom = mode;
+  tourPicked = null;
+  tour.start(at);
+}
+$('btnTour').addEventListener('click', () => startTour());
 
 desc.value = text;
 applyTheme();
@@ -3788,14 +3891,21 @@ render();
 rebuild();
 viewport?.frame('three');
 
-// 第一次打开：等模型出来再开始引导
+// 第一次打开：等模型出来再开始引导；刚在引导里换了语言的，接着往下看
 let tourSeen = true;
+let tourAt = 0;
 try {
   tourSeen = localStorage.getItem(TOUR_KEY) === 'done';
+  const at = sessionStorage.getItem(TOUR_AT_KEY);
+  if (at !== null) {
+    sessionStorage.removeItem(TOUR_AT_KEY);
+    tourSeen = false;
+    tourAt = Number(at) || 0;
+  }
 } catch {
   // 读不到就不弹，免得每次都弹
 }
-if (!tourSeen) window.setTimeout(() => tour.start(), 600);
+if (!tourSeen) window.setTimeout(() => startTour(tourAt), 600);
 
 if (import.meta.env.DEV) {
   // 开发时在控制台里看状态用：__oc.spec()、__oc.buildMs()
