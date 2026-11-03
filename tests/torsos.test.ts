@@ -378,7 +378,46 @@ describe('好几个上半身', () => {
     }
   });
 
-  it('从胯上像树杈一样分出去：上半身在髋关节（屁股缝的顶上）以下和胯是同一张皮，往上渐渐转开、挪开；只有二次元素体两个上半身时胯的上半截加宽', () => {
+  it('二次元素体三个上半身直立并排、分得开：不扇开，两边的只往外歪一点，三个腰之间空出一道缝；里侧的手臂往前伸、不举过头', () => {
+    for (const legs of [2, 4]) {
+      const spec = make({ torsos: 3, legs, armPairs: 2, heads: 2, chestPairs: 2 }, { bodyStyle: 'anime', legLayout: legs > 2 ? 'abreast' : 'auto' });
+      const f = buildFigure(spec);
+      const xfs = worldTransforms(f);
+      const bodies = ['UpperBody_R', 'UpperBody', 'UpperBody_L'].map((n) => part(f, n));
+      // 正中那个不转不挪；两边的不绕竖轴转（不扇开），往外歪不到 20°
+      expect(bodies[1].quat.map((v) => Math.round(v * 1e9) / 1e9)).toEqual([0, 0, 0, 1]);
+      for (const b of [bodies[0], bodies[2]]) {
+        const up = rotate(b.quat, [0, 1, 0]);
+        const front = rotate(b.quat, [0, 0, 1]);
+        expect(Math.abs(front[0]), `${legs} ${b.name}`).toBeLessThan(1e-6);
+        expect((Math.acos(up[1]) * 180) / Math.PI, `${legs} ${b.name}`).toBeLessThan(20);
+      }
+      // 腰那么高、正中那个和旁边的之间是空的
+      const field = compileField({ scale: 1, parts: f.parts }, { blend: spec.blend });
+      const torso = part(f, 'Torso');
+      const waistY = torso.pos[1] + torso.bones!.find((b) => b.name === 'Hips')!.head[1] + 0.14;
+      // 只数正中那个上半身的脊柱和旁边那个的脊柱之间（照各自的 Spine 骨骼起点）
+      const spineX = (name: string, bone: string) => {
+        const b = part(f, name);
+        return add(xfs.get(name)!.pos, rotate(xfs.get(name)!.quat, b.bones!.find((x) => x.name === bone)!.head))[0];
+      };
+      for (const [name, bone] of [['UpperBody_L', 'Spine_L'], ['UpperBody_R', 'Spine_R']] as const) {
+        const to = spineX(name, bone);
+        let empty = 0;
+        for (let x = 0.03; x < Math.abs(to) - 0.03; x += 0.003) if (fieldAt(field, Math.sign(to) * x, waistY, torso.pos[2]) > 0) empty++;
+        expect(empty, `${legs} ${name}`).toBeGreaterThan(0);
+      }
+      // 手不举过头：每只手都比这个上半身最低的那个头的下巴低
+      for (const arm of f.parts.filter((p) => p.type === 'arm')) {
+        const hand = xfs.get(arm.name)!;
+        const tip = add(hand.pos, rotate(hand.quat, sub(arm.bones!.find((b) => b.name.startsWith('Hand'))!.tail, [0, 0, 0])));
+        const heads = f.parts.filter((p) => p.type === 'head').map((p) => xfs.get(p.name)!.pos[1]);
+        expect(tip[1], arm.name).toBeLessThan(Math.min(...heads));
+      }
+    }
+  });
+
+  it('从胯上像树杈一样分出去：上半身在髋关节（屁股缝的顶上）以下和胯是同一张皮，往上渐渐转开、挪开；二次元素体（直立并排）胯的上半截加宽', () => {
     for (const bodyStyle of ['mannequin', 'anime'] as const) {
       for (const torsos of [2, 3]) {
         const f = buildFigure(make({ torsos }, { bodyStyle }));
@@ -386,8 +425,8 @@ describe('好几个上半身', () => {
         const shape = pelvis.prims.find((p) => p.kind === 'grid' || p.kind === 'loft')!;
         const copy = f.parts.find((p) => p.parent === 'Torso' && p.type === 'torso')!;
         const own = (copy.prims[0] as { fork?: Fork }).fork!;
-        if (bodyStyle === 'anime' && torsos === 2) {
-          // 二次元素体两个上半身从胯上就分开：胯的上半截跟着往两边加宽，加宽的那一段就是上半身往外挪的那一段
+        if (bodyStyle === 'anime') {
+          // 二次元素体直立并排，从胯上就分开：胯的上半截跟着往两边加宽，加宽的那一段就是上半身往外挪的那一段
           const bands = (shape as { widenX?: [number, number, number, number][] }).widenX!;
           expect(bands.at(-1)!.slice(1, 3)).toEqual([own.shiftFrom, own.shiftTo]);
           expect(own.shiftTo!).toBeLessThan(own.to - 0.05);
@@ -405,9 +444,9 @@ describe('好几个上半身', () => {
           const chests = f.parts.filter((p) => p.parent === copy.name && p.type === 'chest');
           expect(copy.fuseAs).toBeUndefined();
           if (bodyStyle === 'anime') {
-            // 二次元素体：挪比转先开始；转一直渐渐加到腋下（手臂根下面），三个上半身时挪也是。
+            // 二次元素体：挪比转先开始，在胯上面一小段里挪足（两个、三个都是）；转一直渐渐加到腋下（手臂根下面）
             expect(fork.shiftFrom!, copy.name).toBeLessThan(fork.from);
-            if (torsos === 3) expect(fork.shiftTo!, copy.name).toBeCloseTo(fork.to, 9);
+            expect(fork.shiftTo!, copy.name).toBeLessThan(fork.to - 0.05);
             for (const arm of f.parts.filter((p) => p.parent === copy.name && p.type === 'arm')) expect(fork.to, arm.name).toBeLessThan(arm.pos[1] - 0.05);
             for (const chest of chests) {
               // 胸只跟着所属上半身整体搬动，保留胸型，不套躯干的非线性分叉。
