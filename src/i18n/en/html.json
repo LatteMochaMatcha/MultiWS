@@ -28,6 +28,7 @@
   "写下身体设定，生成能导进 Blender 的白模。": "Describe the body and generate a base mesh you can import into Blender.",
   "再看一遍新手引导": "Show the tour again",
   "新手引导": "Tour",
+  "源码和下载：": "Source code and downloads:",
   "身体描述": "Body description",
   "图例": "Legend",
   "预设": "Presets",

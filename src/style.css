@@ -84,6 +84,11 @@ header h1 small{font-family:var(--f-mono);font-size:13px;font-weight:400;color:v
 header p{margin:6px 0 0;color:var(--muted);font-size:13px}
 header .sub{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:6px}
 header .sub p{margin:0}
+/* 项目的 GitHub 地址：标题下面一小行。英文的说明后面是半角冒号，链接前补个空格（换行时行首的空格自己吞掉，不缩进） */
+header .repo{margin-top:4px;font-size:12px}
+header .repo a{color:var(--accent);text-decoration:none;overflow-wrap:anywhere}
+header .repo a:hover{text-decoration:underline}
+:root[data-lang="en"] header .repo a::before{content:" "}
 /* 每一栏：一条细线、一个可以折叠的标题、内容 */
 section{display:flex;flex-direction:column;gap:10px;min-width:0;border-top:1px solid var(--line);padding-top:12px}
 h2{margin:0;font-size:12px;font-weight:600;letter-spacing:.1em;color:var(--muted)}
