@@ -11,7 +11,7 @@
  */
 import type { V3 } from '../geometry/vec';
 import type { Skeleton } from '../rig/skeleton';
-import { type GlbContext, type GlbImage, type GlbMaterial, type GlbMesh, writeGlb } from './glb';
+import { type GlbContext, type GlbImage, type GlbMaterial, type GlbMesh, materialColor, writeGlb } from './glb';
 
 /** 别人能怎么用：VRM 的许可名，和随之定下的几项「允许谁扮演、暴力、性、商用」 */
 export const VRM_LICENSES = {
@@ -196,11 +196,14 @@ function turnArray(a: Float32Array): Float32Array {
   return out;
 }
 
-/** sRGB 的一个通道（0–255）→ 线性 */
-const linear = (c: number) => {
-  const v = c / 255;
-  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-};
+/**
+ * VRM 0.x 卡通着色里的颜色（_Color、_ShadeColor、_EmissionColor、_RimColor、_OutlineColor）存的是 sRGB（照 Unity 的写法，
+ * three-vrm 读的时候换回线性），glTF 的材质颜色是线性的：两头换算，透明度不换
+ */
+const toSrgb = (c: number) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.max(0, c) ** (1 / 2.4) - 0.055);
+const fromSrgb = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+export const srgbColor = (rgba: readonly number[]): number[] => rgba.map((c, k) => (k < 3 ? toSrgb(c) : c));
+export const linearColor = (rgba: readonly number[]): number[] => rgba.map((c, k) => (k < 3 ? fromSrgb(c) : c));
 
 /** VRM 0.x 一个材质的卡通着色（MToon）设定，照 materialProperties 的写法；textureProperties 的值是图片在 images 里的下标 */
 export interface VrmToon {
@@ -213,17 +216,14 @@ export interface VrmToon {
   tagMap: Record<string, string>;
 }
 
-/** 材质的底色（线性 RGBA）：给了 factor 用它，不然照 color 换 */
-export const materialColor = (m: GlbMaterial): number[] =>
-  m.factor ? [...m.factor] : [linear((m.color >> 16) & 255), linear((m.color >> 8) & 255), linear(m.color & 255), 1];
-
 /**
  * 照材质自己的样子配一份 MToon：亮面是底色（有贴图就是贴图乘底色），暗面暗一些，没有描边；
- * 透明、镂空、双面照材质的设定
+ * 透明、镂空、双面照材质的设定。颜色存成 sRGB（见 srgbColor）
  */
 export function plainToon(m: GlbMaterial): VrmToon {
-  const lit = materialColor(m);
-  const shade = [lit[0] * 0.62, lit[1] * 0.64, lit[2] * 0.7, lit[3]];
+  const base = materialColor(m);
+  const lit = srgbColor(base);
+  const shade = srgbColor([base[0] * 0.62, base[1] * 0.64, base[2] * 0.7, base[3]]);
   const mode = m.alphaMode ?? 'OPAQUE';
   const blend = mode === 'BLEND';
   return {
@@ -284,7 +284,8 @@ export function toonFromV1(material: Record<string, any>): Omit<VrmToon, 'textur
   const mtoon = material.extensions?.VRMC_materials_mtoon;
   if (!mtoon) return null;
   const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
-  const rgb = (v: unknown, fallback: number[]) => [...(Array.isArray(v) && v.length >= 3 ? v.slice(0, 3).map((x) => num(x, 0)) : fallback), 1];
+  // 1.0 的颜色是线性的，0.x 存 sRGB
+  const rgb = (v: unknown, fallback: number[]) => srgbColor([...(Array.isArray(v) && v.length >= 3 ? v.slice(0, 3).map((x) => num(x, 0)) : fallback), 1]);
   const mode: 'OPAQUE' | 'MASK' | 'BLEND' = material.alphaMode === 'MASK' || material.alphaMode === 'BLEND' ? material.alphaMode : 'OPAQUE';
   const { textureProperties: _, ...base } = plainToon({
     name: String(material.name ?? ''),
@@ -315,7 +316,8 @@ export function toonFromV1(material: Record<string, any>): Omit<VrmToon, 'textur
   f._OutlineColorMode = mix > 0 ? 1 : 0;
   f._OutlineLightingMix = mix > 0 ? mix : 1;
   f._UvAnimScrollX = num(mtoon.uvAnimationScrollXSpeedFactor, 0);
-  f._UvAnimScrollY = num(mtoon.uvAnimationScrollYSpeedFactor, 0);
+  // 纵向滚动两版方向相反（three-vrm 读 0.x 时也是取反）
+  f._UvAnimScrollY = -num(mtoon.uvAnimationScrollYSpeedFactor, 0) + 0;
   f._UvAnimRotation = num(mtoon.uvAnimationRotationSpeedFactor, 0);
   const keywords: Record<string, boolean> = { ...base.keywordMap };
   if (width) keywords[width === 1 ? 'MTOON_OUTLINE_WIDTH_WORLD' : 'MTOON_OUTLINE_WIDTH_SCREEN'] = true;

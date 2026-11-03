@@ -8,7 +8,7 @@ import { characterUrl } from '../src/character/roster';
 import { type CharacterSource, type SourceSpring, readCharacter } from '../src/character/source';
 import { characterVrm } from '../src/character/vrm';
 import { readAccessor, readGlb } from '../src/io/glbRead';
-import { describeLicense, toonFromV1 } from '../src/io/vrm';
+import { describeLicense, linearColor, srgbColor, toonFromV1 } from '../src/io/vrm';
 import { OWN_CHARACTER, defaultSpec, normalizeSpec } from '../src/model/spec';
 
 const original = () => {
@@ -117,11 +117,12 @@ function toV1(): ArrayBuffer {
         specVersion: '1.0',
         shadingShiftFactor: -(low + high) / 2,
         shadingToonyFactor: 1 - (high - low) / 2,
-        shadeColorFactor: p.vectorProperties._ShadeColor.slice(0, 3),
+        // 0.x 存的颜色是 sRGB，1.0 是线性的
+        shadeColorFactor: linearColor(p.vectorProperties._ShadeColor).slice(0, 3),
         giEqualizationFactor: 1 - f._IndirectLightIntensity,
         outlineWidthMode: ['none', 'worldCoordinates', 'screenCoordinates'][f._OutlineWidthMode],
         outlineWidthFactor: f._OutlineWidth / 100,
-        outlineColorFactor: p.vectorProperties._OutlineColor.slice(0, 3),
+        outlineColorFactor: linearColor(p.vectorProperties._OutlineColor).slice(0, 3),
         outlineLightingMixFactor: f._OutlineColorMode === 1 ? f._OutlineLightingMix : 0,
       },
     };
@@ -276,6 +277,7 @@ describe('载入自己的 VRM', () => {
           outlineWidthFactor: 0.00075,
           outlineLightingMixFactor: 0,
           shadeColorFactor: [0.94, 0.63, 0.72],
+          uvAnimationScrollYSpeedFactor: 0.5,
         },
       },
     })!;
@@ -288,7 +290,10 @@ describe('载入自己的 VRM', () => {
     expect(f._IndirectLightIntensity).toBeCloseTo(0.1, 6);
     expect(f._BlendMode).toBe(1);
     expect(toon.renderQueue).toBe(2450);
-    expect(toon.vectorProperties._ShadeColor).toEqual([0.94, 0.63, 0.72, 1]);
+    // 颜色：1.0 是线性的，0.x 存 sRGB；纵向滚动两版方向相反
+    toon.vectorProperties._ShadeColor.forEach((v, k) => expect(v).toBeCloseTo(srgbColor([0.94, 0.63, 0.72, 1])[k], 6));
+    expect(toon.vectorProperties._ShadeColor[0]).toBeGreaterThan(0.94);
+    expect(f._UvAnimScrollY).toBe(-0.5);
     // 头发是 0.x 的 1 / 1（转出来 1.0 是 −1 / 1）：分母是 0 的那种也换得回去
     const hair = toonFromV1({ extensions: { VRMC_materials_mtoon: { shadingShiftFactor: -1, shadingToonyFactor: 1 } } })!;
     expect(hair.floatProperties._ShadeShift).toBe(1);
@@ -307,6 +312,10 @@ describe('载入自己的 VRM', () => {
       }
       // 不画描边时 0.x 里的宽度没用（1.0 写的是 0）
       if (toon.floatProperties._OutlineWidthMode) expect(back.floatProperties._OutlineWidth, name).toBeCloseTo(toon.floatProperties._OutlineWidth, 5);
+      // 颜色换成线性再换回 sRGB，和原来的一样
+      for (const key of ['_ShadeColor', '_OutlineColor']) {
+        toon.vectorProperties[key].slice(0, 3).forEach((v, k) => expect(back.vectorProperties[key][k], `${name} ${key}`).toBeCloseTo(v, 5));
+      }
     }
     // 1.0 一串一个根：每个根的晃法、碰的碰撞球和 0.x 那一组一样
     const flat = (s: CharacterSource) =>
