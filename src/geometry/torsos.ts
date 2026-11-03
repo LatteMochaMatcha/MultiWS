@@ -112,8 +112,8 @@ export const BESIDE_DROP = 62 * (Math.PI / 180);
 export const BESIDE_YAW = 15 * (Math.PI / 180);
 const BESIDE_STEP = 30 * (Math.PI / 180);
 /** 一个肩膀上好几条里侧手臂时，前面那几条的肩关节一条比一条往下挪多少；挪下去的碰到胸往上抬，最多抬到比后一条低多少（见 besideArms） */
-const BESIDE_LOWER = 0.07;
-const BESIDE_APART = 15 * (Math.PI / 180);
+const BESIDE_LOWER = 0.1;
+const BESIDE_APART = 5 * (Math.PI / 180);
 /** 往前伸的手臂融合时抬多少：最低的那条正好抬平 */
 const INNER_BIND_LIFT = 90 * (Math.PI / 180) - INNER_ARM_DROP;
 /** 里侧一个肩膀上最多留几条聚拢的手臂，肩关节离多近算同一个肩膀 */
