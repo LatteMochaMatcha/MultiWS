@@ -1,5 +1,5 @@
 import './style.css';
-import { type Lang, LANG, LANGS, setLang, t, translatePage } from './i18n';
+import { type Lang, LANG, LANGS, setLang, t, translatePage, variants } from './i18n';
 import { type Box3, type Raycaster, Matrix4 } from 'three';
 import { TORSO_CREDIT, animeGrid, animeReady, loadAnimeBody } from './anime/body';
 import { FOOT_CREDIT } from './anime/foot';
@@ -243,6 +243,7 @@ const adultShown = () => adultOn() && spec.bodyStyle !== 'character';
  */
 function restoredText(saved: unknown): string {
   if (typeof saved !== 'string') return describeSpec(spec);
+  if (variants('两个头，两对手，两对胸').includes(saved)) return START_TEXT;
   return LANGS.some((l) => describeSpec(spec, l.key) === saved) ? describeSpec(spec) : saved;
 }
 

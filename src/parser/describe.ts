@@ -153,10 +153,10 @@ const PHRASES: Record<Lang, Phrases> = {
       humantaur: 'ヒューマンタウロスの下半身',
       tandem: '脚を前後に並べる',
       row: '脚を左右に並べる',
-      gather: '脚を腰に集める',
-      abreast: '腰を横に並べる',
+      gather: '脚を骨盤に集める',
+      abreast: '骨盤を横に並べる',
     },
-    hipLegs: (n) => `腰ごとに脚${n}本`,
+    hipLegs: (n) => `骨盤ごとに脚${n}本`,
     wideTorso: '幅広の胴',
     tails: (n) => `尻尾${n}本`,
     wings: (n) => `翼${n}対`,
@@ -250,7 +250,7 @@ export function summarize(spec: Describable): Chip[] {
         ? t('一个头 {n} 张脸', { n: c.heads })
         : spec.headLayout === 'wide' && c.heads > 1
           ? t('头 {n} · 宽躯干', { n: c.heads })
-          : t('头 {n}', { n: c.heads }),
+          : t('头 {n}@@数量', { n: c.heads }),
     },
     { key: 'armPairs', label: t('手臂 {n} 对', { n: c.armPairs }) },
     { key: 'chestPairs', label: c.chestPairs ? t('胸 {n} 对', { n: c.chestPairs }) : t('平胸') },

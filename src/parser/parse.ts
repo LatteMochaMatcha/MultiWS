@@ -549,8 +549,8 @@ const CLAUSE = '[^,。;、]';
 const ARM_WORD = '(?:手臂?|臂|胳膊)';
 /** 中间不隔着腿、胯（「手臂四对，腿胯部聚拢」的聚拢说的是腿） */
 const NOT_LEG = '[^,。;、腿胯]';
-/** 日文的腿是「脚」，腕和腰不能夹在中间：「腕を肩に集める、脚を腰に集める」 */
-const NOT_LEG_JA = '[^,。;、脚腰股]';
+/** 日文的腿是「脚」，腕和腰（骨盤）不能夹在中间：「腕を肩に集める、脚を骨盤に集める」 */
+const NOT_LEG_JA = '[^,。;、脚腰股盤]';
 const ARM_FAN_RE = new RegExp(
   `(?:${ARM_WORD}|肩部?)${NOT_LEG}{0,6}?(?:聚拢|扇形)|(?:聚拢|扇形)${NOT_LEG}{0,4}?${ARM_WORD}|${L}fan(?:ned)?${S}arms${R}|` +
     `${L}arms${S}+gathered${R}|${L}shoulder${S}gathered${S}arms${R}|${L}gathered${S}arms${R}|${L}arms${S}+fanned${S}out${R}|` +
@@ -569,7 +569,7 @@ const LEG_TANDEM_RE = new RegExp(
 /** 腿胯部聚拢、腿扇形聚拢、胯部聚拢（中间不隔着手臂、肩：「腿……手臂肩部聚拢」说的是手臂） */
 const LEG_GATHER_RE = new RegExp(
   `(?:腿|胯)[^,。;、手臂肩胳]{0,4}?(?:扇形)?聚拢|${L}(?:gathered|fan(?:ned)?)${S}legs${R}|${L}legs${S}+gathered${R}|` +
-    J('脚[^,。;、腕肩]{0,4}?(?:(?:腰|股)(?:に|で)?(?:集|寄)|扇形)'),
+    J('脚[^,。;、腕肩]{0,4}?(?:(?:腰|股|骨盤)(?:に|で)?(?:集|寄)|扇形)'),
 );
 /** 多个头选了宽躯干（见 HEAD_LAYOUTS）：「宽躯干」「wide torso」「幅広の胴」 */
 const WIDE_TORSO_RE = new RegExp(`宽躯干|${L}wide${S}torso${R}|${J('幅広の?胴体?|ワイドトルソ')}`);
@@ -577,7 +577,7 @@ const WIDE_TORSO_RE = new RegExp(`宽躯干|${L}wide${S}torso${R}|${J('幅広の
 const LEG_ABREAST_RE = new RegExp(
   `横排${CLAUSE}{0,2}?(?:多|几)?副?胯|胯${CLAUSE}{0,4}?(?:横排|左右并排|并排)|${L}(?:side${S}by${S}side|abreast)${S}hips${R}|` +
     `${L}(?:hips|pelvis(?:es)?)${S}+(?:side${S}by${S}side|abreast)${R}|${L}(?:side${S}by${S}side|abreast)${S}+pelvis(?:es)?${R}|` +
-    J(`(?:腰|股)${CLAUSE}{0,2}?(?:横|左右)に?(?:並べ|並び|並列)`),
+    J(`(?:腰|股|骨盤)${CLAUSE}{0,2}?(?:横|左右)に?(?:並べ|並び|並列)`),
 );
 const LEG_ROW_RE = new RegExp(
   `腿${CLAUSE}{0,4}?(?:并排|横排|左右排)|(?:并排|横排|左右排)${CLAUSE}{0,4}?腿|${L}legs${S}(?:abreast|side${S}by${S}side)${R}|` +
@@ -617,13 +617,13 @@ const SCROTUM_EACH_RE = new RegExp(
 
 /**
  * 人腿人马每副胯几条腿：数字在第 1 个捕获组。
- * 英文 `3 legs per pelvis`、`each pelvis has 3 legs`，日文 `腰ごとに脚3本`
+ * 英文 `3 legs per pelvis`、`each pelvis has 3 legs`，日文 `骨盤ごとに脚3本`（「腰ごとに」也认）
  */
 const HIP_LEGS_RES: readonly RegExp[] = [
   HIP_LEGS_RE,
   new RegExp(`${L0}(${EN_NUM_SRC})${S}+legs?${S}+(?:per|each|on${S}+each|for${S}+each|at${S}+each)${S}+(?:pelvis|pelvises|hips?)${R}`, 'g'),
   new RegExp(`${L}(?:each|every)${S}+(?:pelvis|hip)${S}+(?:has|with|gets)?${S}*(${EN_NUM_SRC})${S}+legs?${R}`, 'g'),
-  new RegExp(J(`(?:腰|股)(?:ごと|ずつ)に?脚(?:が|は)?([${N}\\d]+)本`), 'g'),
+  new RegExp(J(`(?:腰|股|骨盤)(?:ごと|ずつ)に?脚(?:が|は)?([${N}\\d]+)本`), 'g'),
 ];
 /** 数量后面紧跟「每个头」：「1 eye per head」是每个头一只眼睛，不是 one_eye_closed 那种眨眼 */
 const PER_HEAD_RE = new RegExp(`^${S}*(?:per|each|every)${S}+head`);

@@ -133,6 +133,8 @@ textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border
 .seg label{position:relative;text-align:center;padding:5px 2px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--muted);white-space:nowrap}
 /* 英文的选项名长：放不下就折成两行，别溢出格子 */
 :root[data-lang="en"] .seg label{white-space:normal;line-height:1.2}
+/* 日文只在译文里放了零宽空格的地方折行（「ヒューマン​タウロス」），别把片假名词从中间断开 */
+:root[data-lang="ja"] .seg label{white-space:normal;word-break:keep-all;line-height:1.2}
 /* 选项多、一行排不下的（腿的六种排法）：三个一行，排成两行 */
 .seg.grid3{grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr))}
 .seg input{position:absolute;opacity:0;pointer-events:none}
@@ -209,6 +211,8 @@ select:focus-visible,.triple input:focus-visible{outline:2px solid var(--accent)
 .export{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr 1fr;gap:6px}
 .export .primary{grid-column:1/-1;padding-block:8px}
 .export .btn{white-space:nowrap}
+/* 英文、日文的主导出按钮字长：手机上和别的按钮挤一排时折成两行 */
+:root:not([data-lang="zh"]) .export .btn.primary{white-space:normal;line-height:1.15}
 /* 这会儿导不了（分部件的白模点 VRM）：淡下去，点了在底下说为什么 */
 .export .btn.unavailable{opacity:.45;cursor:help}
 /* 导出 VRM 前填名字、作者、许可的小框 */

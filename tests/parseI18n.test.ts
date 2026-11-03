@@ -122,7 +122,7 @@ describe('规范描述：英文、日文的样子', () => {
       '頭1つ、腕1対、胸1対、脚1対、頭ごとに角2本、頭ごとに目3つ、頭ごとにうさ耳2対',
     );
     expect(describeSpec({ ...withCounts({ legs: 6 }, { legLayout: 'humantaur' }), hipLegs: 3 }, 'ja')).toBe(
-      '頭1つ、腕1対、胸1対、脚3対、ヒューマンタウロスの下半身、腰ごとに脚3本',
+      '頭1つ、腕1対、胸1対、脚3対、ヒューマンタウロスの下半身、骨盤ごとに脚3本',
     );
   });
 
@@ -428,6 +428,10 @@ describe('日文的自然写法', () => {
     expect(parseDescription('脚6本、脚を左右に並べる').legLayout).toBe('row');
     expect(parseDescription('脚6本、脚を腰に集める').legLayout).toBe('gather');
     expect(parseDescription('脚4対、腰を横に並べる').legLayout).toBe('abreast');
+    // 界面上「胯」是「骨盤」：按钮名照抄进来也认
+    expect(parseDescription('脚6本、脚を骨盤に集める').legLayout).toBe('gather');
+    expect(parseDescription('脚4対、骨盤横並び').legLayout).toBe('abreast');
+    expect(parseDescription('脚3対、ヒューマンタウロスの下半身、骨盤ごとに脚3本')).toMatchObject({ legLayout: 'humantaur', hipLegs: 3 });
     expect(parseDescription('腕3対、腕を肩に集める').armLayout).toBe('fan');
     expect(parseDescription('腕3対、腕を上下に並べる').armLayout).toBe('stack');
     expect(parseDescription('頭2つ、幅広の胴').headLayout).toBe('wide');

@@ -104,10 +104,24 @@ function fill(s: string, vars: Vars): string {
   });
 }
 
+/**
+ * 同一句中文在不同地方要译成不同的话时，键后面加 @@语境（「头 {n}」是第几个头，「头 {n}@@数量」是几个头），
+ * 显示中文时去掉
+ */
+const bare = (key: string) => {
+  const at = key.indexOf('@@');
+  return at < 0 ? key : key.slice(0, at);
+};
+
 /** 界面文字：参数必须是中文原文的字面量（抽键脚本只认字面量），变的部分用占位符 */
 export function t(zh: string, vars?: Vars): string {
-  const s = lookup(zh) ?? zh;
+  const s = lookup(zh) ?? bare(zh);
   return vars ? fill(s, vars) : s;
+}
+
+/** 一个键在三种语言里的写法（没译的语言不算），给「存的是不是某句默认文字」这类判断用 */
+export function variants(zh: string): string[] {
+  return [zh, TABLES.en[zh], TABLES.ja[zh]].filter((s): s is string => !!s);
 }
 
 /**

@@ -29,5 +29,6 @@
   "中文带数字的描述": "Chinese / Japanese with numbers",
   "英文标签": "English phrases and tags",
   "关键词": "Keywords",
-  "身高 / 头身比": "Height / head ratio"
+  "身高 / 头身比": "Height / head ratio",
+  "头 {n}@@数量": "Heads {n}"
 }

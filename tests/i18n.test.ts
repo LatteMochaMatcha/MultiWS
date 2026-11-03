@@ -31,6 +31,8 @@ describe('t()', () => {
     expect(t('撤销')).toBe('撤销');
     expect(t('已导出 {file}', { file: 'a.glb' })).toBe('已导出 a.glb');
     expect(tk('左')).toBe('左');
+    // @@ 后面是给译者看的语境，中文里不显示
+    expect(t('头 {n}@@数量', { n: 2 })).toBe('头 2');
   });
 
   it('{n:单|复} 照 n 选', () => {
