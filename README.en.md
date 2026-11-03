@@ -85,7 +85,7 @@ Type the body description into the "Body description" box; the model updates by 
 | No such part | `no tail`, `no horns`, `flat chest` |
 | Idioms and keywords | `Asura`, `kitsune`, `seraph`, `centaur`, `humantaur`, `spider girl`, `cat ears`, `Geryon` |
 | English tags | `four_arms` `multiple_tails` `centaur` `humantaur` `three_faces` `1boy` |
-| Height and head-to-body ratio | `165 cm`, `1.7 m`; 「八头身」 (eight heads tall) |
+| Height and head-to-body ratio | `165 cm`, `1.7 m`; `eight heads tall` |
 | Gender and pose | `male`, `boy`, `girl`; `T-pose`, `A-pose` |
 | Hairstyle and hair color | `twin tails`, `ponytail`, `long hair`, `bob cut`; `blonde hair`, `silver hair`; `twintails` `blonde_hair` |
 | How the legs are arranged | `legs side by side`, `tandem legs`, `gathered legs`, `side by side hips` |
@@ -99,7 +99,7 @@ Type the body description into the "Body description" box; the model updates by 
 - Height and head-to-body ratio: 「身高 165」 (height 165), 「八头身」 (eight heads tall)
 - Gender and pose: 「男性」 (male), 「少年」 (boy), 「少女」 (girl); 「T-pose」, 「双臂平举」 (arms stretched out sideways), 「A-pose」
 - Hairstyle and hair color: 「双马尾」 (twin tails), 「马尾」 (ponytail), 「长直发」 (long straight hair), 「波波头」 (bob cut); 「金发」 (blonde hair), 「银色长发」 (long silver hair), 「黑长直」 (long straight black hair)
-- Leg arrangement: 「左右并排」 (side by side), 「胯部聚拢」 (gathered at the pelvis), 「横排多胯」 (pelvises side by side), 「前三后三」 (three front, three back)
+- Leg arrangement: 「腿左右并排」 (side by side), 「胯部聚拢」 (gathered at the pelvis), 「横排多胯」 (pelvises side by side), 「前三后三」 (three front, three back)
 
 </details>
 
@@ -268,7 +268,7 @@ A few rules:
 
 These only affect how things look on screen and in screenshots, not the exported model:
 
-- **Camera & lighting**: which side you look from, perspective (10°–80°), the direction and height of the main light, and the ground shadow.
+- **Camera & lighting**: which side you look from, FOV (10°–80°), the direction and height of the main light, and the ground shadow.
 - **Reference images**: put your own front and side design sheets upright behind the model and adjust the body shape and pose against them. When you pick an image it is aligned automatically to the same height as the model, and a white paper background is cut out to transparency; you can adjust size, position and opacity, or lay it over the model to compare outlines. Images are stored only in this browser.
 
 ## Export

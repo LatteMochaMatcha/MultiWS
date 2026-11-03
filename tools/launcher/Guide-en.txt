@@ -130,9 +130,9 @@ On the right is the settings panel, from top to bottom:
                      two necks, a row of four breasts, the arms growing on the outer sides, and below that it
                      splits into two pelvises.
                      With an odd number of human legs, the extra one grows on the center line. For "Humantaur" and
-                     "Tandem" you can also choose how many legs each pelvis carries ("Legs per pelvis"):
-                     6 legs with 3 per pelvis is "three front, three back" (writing 「前三后三」 in the description
-                     works too).
+                     "Tandem" you can also choose how many legs each pelvis carries, with
+                     "Legs per pelvis (Humantaur, Tandem)": 6 legs with 3 per pelvis is "three front, three back"
+                     (writing "6 legs, humantaur, 3 legs per pelvis" or 「前三后三」 in the description works too).
   Hair               Hairstyle: long straight, side ponytail, bob, twin tails, all taken from ready-made characters.
                      All three body styles can wear them.
                      The Mannequin and the Anime body are bald by default; once hair is put on, it is a
@@ -228,7 +228,7 @@ back later, or apply it to another character. Undo / Redo work as usual.
                         When a pose is applied and the arms poke into the body (with wide hips or big breasts), they
                         are pushed out a little; extra arms do the same movement as the arm they came from, and the ones
                         that can't do it (they would hit the body or other arms) stay as they were.
-  Camera & lighting     Which side to look from; the larger the "Perspective", the more exaggerated near-big-far-small
+  Camera & lighting     Which side to look from; the larger the "FOV", the more exaggerated near-big-far-small
                         gets; which side the light shines from and how high; whether the ground shadow is shown.
                         It only affects how things look on screen and in screenshots, not the exported model.
 
