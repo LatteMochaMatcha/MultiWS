@@ -6,7 +6,7 @@ A base mesh generator for multi-limbed characters. Write one sentence describing
 
 ![Multi-headed, multi-armed forms in the three body styles](docs/body-forms.png)
 
-- **Three body styles**: Mannequin, Anime base body, and Ready-made character (ten ready-made VRoid characters; you can also load your own VRM).
+- **Three body styles**: Mannequin, Anime body, and Ready-made (ten ready-made VRoid characters; you can also load your own VRM).
 - **Parts**: 1–3 upper bodies, 1–5 heads, 0–4 pairs of arms, 0–4 pairs of breasts, 1–12 legs, plus tails, wings, horns and animal ears; lower bodies such as centaur, arachne (spider body) and humantaur.
 - **Adjusting**: body-shape sliders; move, rotate and scale any single part; undo / redo.
 - **Posing**: drag the joints to pose; 60 ready-made poses and 16 hand gestures; Ready-made characters also get expressions and gaze.
@@ -67,7 +67,7 @@ After that you only need steps 2 and 4 each time.
 
 ![How it looks on a phone in portrait](docs/mobile.png)
 
-- **The left side is the 3D view**. The "Shape / Pose" switch at the top left chooses what you are doing; below it are the readouts for height, head-to-body ratio and face count, and orange text after them is a warning. Left-drag to rotate, scroll to zoom, right-drag to pan, click a part to select it. At the bottom left are the view buttons (Front / Side / Back / 3/4), Undo / Redo, and "Bones" to show the skeleton.
+- **The left side is the 3D view**. The "Shape / Pose" switch at the top left chooses what you are doing; below it are the readouts for height, heads tall and triangle count, and orange text after them is a warning. Left-drag to rotate, scroll to zoom, right-drag to pan, click a part to select it. At the bottom left are the view buttons (Front / Side / Back / 3/4), Undo / Redo, and "Bones" to show the skeleton.
 - **The right side is the settings panel**: Body description, Presets, Part counts, Layout, Hair, Body shape, Manual tweaks, Mesh, Camera & lighting, Reference images, and Config. Click a section's title to fold it. The export buttons are pinned to the bottom of the panel.
 - **Language**: the interface is available in Chinese, English and Japanese. Use the language drop-down at the top right (to the left of the theme button). The first time you open it, it follows the browser's language; adding `?lang=en` (or `zh`, `ja`) to the address also works.
 - **Tour**: it appears automatically the first time you open the workshop and can be skipped; to see it again, click "Tour" under the title.
@@ -77,7 +77,7 @@ After that you only need steps 2 and 4 each time.
 
 ### Writing a description
 
-Type the body description into the "Body description" box; the model updates by itself about 0.3 seconds after you stop typing. In the row of tags below it, the ones that light up are the parts it recognized, and "Accepted phrasings" shows how each piece was recognized.
+Type the body description into the "Body description" box; the model updates by itself about 0.3 seconds after you stop typing. In the row of tags below it, the ones that light up are the parts it recognized, and "What it understands" shows how each piece was recognized.
 
 | What to write | Examples |
 | --- | --- |
@@ -113,43 +113,43 @@ Type the body description into the "Body description" box; the model updates by 
 
 - **Multiple heads**:
   - "Clustered" (default): in the style of anime multi-headed characters, the body is still one person's and the heads huddle face to face, each with its own neck. With four or five heads, each head is a little smaller.
-  - "One head, several faces": like Asura's "three faces, six arms" in Buddhist statues, there is only one head and one neck, and the extra faces each look to a different side.
-  - "Wide torso": only takes effect with the Anime base body, two heads, and two pelvises side by side; the two heads each keep a neck and shoulders, and merge into one torso two people wide.
-- **Multiple pairs of arms**: "Stacked along the torso" (each extra row lengthens the torso by one section) or "Fan gathered at the shoulders" (the extra arms grow from behind the shoulders, and from the front they look like layered fans).
-- **Legs** are counted individually, so an odd number is fine. With three or more legs there are several arrangements. With "Auto", 4 legs make a centaur, 6 or more make an arachne, and an odd number goes side by side:
+  - "1 head, N faces": like Asura's "three faces, six arms" in Buddhist statues, there is only one head and one neck, and the extra faces each look to a different side.
+  - "Wide torso": only takes effect with the Anime body, two heads, and a "Pelvis row" of two pelvises; the two heads each keep a neck and shoulders, and merge into one torso two people wide.
+- **Multiple pairs of arms**: "Stacked along the torso" (each extra row lengthens the torso by one section) or "Gathered at shoulders" (the extra arms grow from behind the shoulders, and from the front they look like layered fans).
+- **Legs** are counted individually, so an odd number is fine. With three or more legs there are several arrangements. With "Auto", 4 legs make a centaur, 6 or more make an arachne, and an odd number goes "Side by side":
   - Centaur, arachne: the upper body sits on a horse body or a spider body (these two only come in pairs of legs, so an odd number gets one extra leg).
   - Humantaur: a sideways section of human waist behind the body, followed by another human pelvis and legs.
   - Tandem: the pelvis is stretched out, and several pairs of human legs are packed front to back.
   - Side by side: everything below the waist is widened, and the legs stand in an evenly spaced row.
-  - Gathered at the pelvis: the pelvis stays as wide as one person's, the pelvises sit one against the next, and the legs spread outward more and more toward the bottom.
-  - Pelvises side by side: several complete pelvises stand in a row, two legs each.
-  - For humantaur and tandem you can choose how many legs each pelvis carries ("three front, three back").
+  - Gather at pelvis: the pelvis stays as wide as one person's, the pelvises sit one against the next, and the legs spread outward more and more toward the bottom.
+  - Pelvis row: several complete pelvises stand in a row, two legs each.
+  - For Humantaur and Tandem you can choose how many legs each pelvis carries ("three front, three back").
 - **Multiple upper bodies** (1–3): two or three upper bodies branch off the waist of one pelvis, standing side by side and fanning out to both sides, like Geryon in Greek myth. Each upper body gets its own set of heads, arms, breasts and wings as set, and the middle arms reach forward.
 - **Multiple tails** fan out to both sides from the tail root.
 - **Hands**: "Separate fingers" (default) is a ready-made hand with each finger separate; "Joined fingers (mitten)" is a single palm plus a thumb, only suitable as a rough starting point.
 
-![Several upper bodies: Mannequin and Anime base body](docs/torsos.png)
+![Several upper bodies: Mannequin and Anime body](docs/torsos.png)
 
 ### Body shape
 
-- **Body style**: Mannequin (default), Anime base body, Ready-made character; see the next section.
+- **Body style**: Mannequin (default), Anime body, Ready-made; see the next section.
 - **Gender**: Female (default) or Male; only affects the Mannequin.
 - **Pose**: A-pose (default) or T-pose. T-pose is handier when you want to rig bones or give the model to an image generator as a reference.
-- **Sliders**: height, head-to-body ratio, build, shoulder width, breast size, waist width, hip width, limb thickness, arm length, leg length, tail fluffiness and tail length. Pushed to either end they give very exaggerated cartoon proportions. When arms or legs are lengthened, the hands and feet are not stretched along with them; leg length does not change the height (the whole figure is scaled proportionally).
+- **Sliders**: height, heads tall, build, shoulder width, bust size, waist width, hip width, limb thickness, arm length, leg length, tail fluffiness and tail length. Pushed to either end they give very exaggerated cartoon proportions. When arms or legs are lengthened, the hands and feet are not stretched along with them; leg length does not change the height (the whole figure is scaled proportionally).
 - Extra rows of arms, centaurs and arachnes make the actual height greater; go by the readout at the top left.
 
 ### Hair
 
 All three body styles can wear four ready-made hairstyles: long straight, side ponytail, bob and twin tails (taken from VRoid's old CC0 samples).
 
-- The Mannequin and the Anime base body are bald by default. Once you pick a hairstyle, the hair is turned into a colorless shell and fused with the head into one piece, so it can still be sculpted directly. The hair has no bones of its own and moves with the head as a whole.
+- The Mannequin and the Anime body are bald by default. Once you pick a hairstyle, the hair is turned into a colorless shell and fused with the head into one piece, so it can still be sculpted directly. The hair has no bones of its own and moves with the head as a whole.
 - Ready-made characters wear their original hair by default; you can swap it for one of these four and also dye it. When several heads are clustered, each head can be dyed separately.
-- **Length** (60%–150%) controls the part hanging below the tip of the nose; **Fluffiness** (97%–120%) scales the whole hairstyle up or down.
+- **Length** (60%–150%) controls the part hanging below the tip of the nose; **Volume** (97%–120%) scales the whole hairstyle up or down.
 
 ### Mesh
 
 - **Fused (one piece)** (default): all parts are fused into one closed mesh with smooth transitions at the joins. "Blend radius" sets how wide the transition is.
-- **Separate parts**: every part is its own object; they overlap and are not fused.
+- **Separate parts (v1)**: every part is its own object; they overlap and are not fused.
 - On screen you see a coarser preview, which is swapped for a finer one once you stop; the export computes a fine mesh separately.
 
 ### Undo and saving
@@ -164,19 +164,19 @@ All three body styles can wear four ready-made hairstyles: long straight, side p
 
 The default style. It is assembled from large volumes part by part and fused into one piece; the face has only eye sockets, a raised nose and a chin. A good starting point for sculpting.
 
-### Anime base body
+### Anime body
 
 The head, torso, breasts, arms and legs are replaced with the shape of a ready-made anime girl base body: slender limbs, a pointed-chin head, hands with fingers and feet with toes. It is still a colorless base mesh without clothes. The first time you switch to it, about 6 MB of data is loaded.
 
-![Anime base body](docs/anime-body.png)
+![Anime body](docs/anime-body.png)
 
 - Multiple heads, arms and breasts, tails, wings, all kinds of lower bodies, manual tweaks, bones and every export format work as usual, and the export is still one closed mesh.
 - The body-shape sliders widen or narrow the base body from its original shape; gender and hand style have no effect on it.
-- **Breast size** 0.3–2.3: toward smaller it gradually flattens; toward larger it blends between two breast shapes, this base body's small one and another base body's large one.
+- **Bust size** 0.3–2.3: toward smaller it gradually flattens; toward larger it blends between two breast shapes, this base body's small one and another base body's large one.
 - Hands and feet are ready-made meshes that are sewn on at the wrists and ankles after fusing, so fingers and toes stay separate at any precision.
 - **Models exported with this style must be credited when you share them**; see [Assets and attribution](#assets-and-attribution).
 
-### Ready-made character
+### Ready-made
 
 What you see and export is a ready-made anime character with hair, clothes, a face and textures. Extra heads, arms and breasts are made by copying her own piece (clothes and textures included) and attaching it; extra legs are made by copying her pelvis and legs and spreading them out; beast bodies, tails, wings, horns and animal ears are separate single-color parts.
 
@@ -184,18 +184,18 @@ What you see and export is a ready-made anime character with hair, clothes, a fa
 
 Below "Body style" there is a row of portraits; click one to switch. Switching characters changes only the person: part counts, body shape, hairstyle, pose and expression are carried over as they are. Each character is 9–14 MB and is only loaded when you select it.
 
-| Name | Original name | Author | License |
+| Name on the portrait | Original name | Author | License |
 | --- | --- | --- | --- |
-| Silver hair, cat ears (default) | ヴィータ | VRoid Project (pixiv) | CC0 |
-| Blond side ponytail | ヴィクトリア・ルービン | VRoid Project (pixiv) | CC0 |
-| Long black hair | 千駄ヶ谷篠 | VRoid Project (pixiv) | CC0 |
-| Blue short hair, uniform | 千駄ヶ谷渋 | VRoid Project (pixiv) | CC0 |
-| Brown hair, apron | ビビ | VRoid Project (pixiv) | CC0 |
-| Rabbit ears | Preset Only Rabbit - Aquamarine | 七百屋 (なおしま) | VRoid Hub terms |
-| Wolf ears | Kuro (Preset Nekomimi Girls) | 七百屋 (なおしま) | VRoid Hub terms; no sexual use |
-| Ponytail, sailor uniform | 水色（ポニーテルの女の子） | 白い白米 | VRoid Hub terms |
-| Orange hair, school uniform | Alice Chan | edisonlee55 (yuna0x0) | CC BY-SA 4.0 |
-| Green hair, red skirt | Kotori | Fox Jump | CC BY |
+| Silver cat: silver hair, cat ears (default) | ヴィータ | VRoid Project (pixiv) | CC0 |
+| Blonde: blonde hair, side ponytail | ヴィクトリア・ルービン | VRoid Project (pixiv) | CC0 |
+| Long black: long straight black hair | 千駄ヶ谷篠 | VRoid Project (pixiv) | CC0 |
+| Blue hair: short blue hair, uniform | 千駄ヶ谷渋 | VRoid Project (pixiv) | CC0 |
+| Brown hair: short brown hair, apron | ビビ | VRoid Project (pixiv) | CC0 |
+| Rabbit ears: black braids, rabbit ears | Preset Only Rabbit - Aquamarine | 七百屋 (なおしま) | VRoid Hub terms |
+| Wolf ears: short black hair, wolf ears | Kuro (Preset Nekomimi Girls) | 七百屋 (なおしま) | VRoid Hub terms; no sexual use |
+| Sailor suit: ponytail, sailor uniform | 水色（ポニーテルの女の子） | 白い白米 | VRoid Hub terms |
+| Orange: long orange hair, school uniform | Alice Chan | edisonlee55 (yuna0x0) | CC BY-SA 4.0 |
+| Red skirt: green hair, red skirt | Kotori | Fox Jump | CC BY |
 
 **Loading your own VRM**: pick a VRM file with "Load your own VRM…" below the portraits (0.x and 1.0 both work; one made in VRoid Studio works best) and it becomes the eleventh character; multiple heads, multiple arms, posing, expressions and hairstyle swaps all work as usual. The file is stored only in this device's browser, so on another device you need to pick it again. For VRMs made in other software, bones are matched using the humanoid bone table, and skin, clothes and hair are matched by VRoid's material names; when the matching is incomplete, the notes in the panel will tell you.
 
@@ -208,21 +208,21 @@ How it differs from the base meshes:
 
 ### Adult parts (off by default)
 
-The "Show adult parts" switch under "Part counts" is off by default and is remembered only on this computer and in this browser; it does not travel with the config file. Once it is on, the Mannequin and the Anime base body can get penises (0–6 per pelvis, side by side, stacked, fanned or in a grid) and a scrotum; Pose has its own set of handles for them, and a rigged export gives each one three bones. The asset requires attribution; see [Assets and attribution](#assets-and-attribution).
+The "Show adult parts" switch under "Part counts" is off by default and is remembered only on this computer and in this browser; it does not travel with the config file. Once it is on, the Mannequin and the Anime body can get penises (0–6 per pelvis, side by side, stacked, fanned or in a grid) and a scrotum; Pose has its own set of handles for them, and a rigged export gives each one three bones. The asset requires attribution; see [Assets and attribution](#assets-and-attribution).
 
 ## Manual tweaks
 
 When the automatic placement isn't what you want, you can adjust a single part: a particular arm, a head, a tail, a horn…
 
 1. **Select a part**: click it on the model (or choose it in the drop-down list in the "Manual tweaks" section). It gets a cyan overlay and a gizmo appears at the joint.
-2. **Adjust**: drag the gizmo on the model (switch between Move / Rotate / Scale in the panel), or type a position (cm), angle (degrees) or size (multiplier) in the panel.
+2. **Adjust**: drag the gizmo on the model (switch between Move / Rotate / Scale in the panel), or type an offset (cm), angle (degrees) or size (multiplier) in the panel.
 3. Click empty space or press `Esc` to finish adjusting.
 
 - Directions: X is the character's own left, Y is up, Z is forward. Rotation and scaling are around the joint (an arm around the shoulder, a leg around the hip).
 - With "Also adjust the opposite side" on, left/right pairs of parts change together, mirrored.
 - The torso carries the neck, heads, arms, breasts and wings; a head carries the eyes, horns and ears. The feet always stay on the ground.
 - Tweaked parts are listed under "Tweaked". "Reset this part" resets only the selected part, and "Reset all" clears every tweak; clicking a preset also clears them (you can undo).
-- If you push too far (pulling an arm away from the body), the mesh breaks apart and the top left shows "Mesh split into N pieces".
+- If you push too far (pulling an arm away from the body), the mesh breaks apart and the top left shows "The mesh has split into N pieces".
 
 ## Pose
 
@@ -247,7 +247,7 @@ Click "Pose" at the top left of the 3D view and a set of handles lights up on th
 - **Drape**: after lying down, bending over or sitting, click it and a Ready-made character's hair, skirt and sleeves fall under gravity and stop outside the body and the ground when they touch them. Tick "Drape tails too" to let the tail hang as well.
 - **"Save pose" / "Load pose…"**: saves a pose as `oc_pose.json`, which can be applied to other characters and other body styles (matched by bone name).
 
-**Hand gestures**: the two hands, the left hand, the right hand, or one particular pair of arms; 16 ready-made gestures (fist, scissors / peace sign, OK, thumbs up…), one slider for each of the five fingers; turn on the "Fingers" handles to drag the fingertips directly.
+**Hand gestures**: the two hands, the left hand, the right hand, or one particular pair of arms; 16 ready-made gestures (Fist, Peace, OK, Thumbs up…), one slider for each of the five fingers; turn on the "Fingers" handles to drag the fingertips directly.
 
 **Expression & gaze** (Ready-made characters only): seven expressions, closing one eye, mouth shapes and fangs; gaze sliders and "Look at camera". Several heads can each have their own expression.
 
@@ -262,7 +262,7 @@ Centaurs and arachnes only take the pose from the waist up; extra arms follow th
 A few rules:
 
 - Bone lengths don't change; there are no joint limits, and nothing stops clipping.
-- For base meshes (the Mannequin, and Anime base bodies with arms gathered at the shoulders or with several upper bodies), once you let go the mesh is re-fused to match the pose (in under a second, and a second or two later it is swapped for a finer one). While you drag you see a preview where the shoulders bulge and skin is stretched between the arms; go by what you see after you let go.
+- For base meshes (the Mannequin, and the Anime body with arms gathered at the shoulders or with several upper bodies), once you let go the mesh is re-fused to match the pose (in under a second, and a second or two later it is swapped for a finer one). While you drag you see a preview where the shoulders bulge and skin is stretched between the arms; go by what you see after you let go.
 
 ### Camera, lighting and reference images
 
@@ -346,19 +346,19 @@ The base mesh has no face, hair or clothes; those still have to come from Tripo.
 
 **The browser didn't open automatically, or it opened a port other than 5173.** Look at the address after `Local:` in the terminal and open that in your browser.
 
-**When switching to the Anime base body or a Ready-made character, a message says it can't reach the workshop program.** The page is still open, but the `npm run dev` window or the exe window has been closed. Open the program again and go back to this page; it will retry by itself.
+**When switching to the Anime body or a Ready-made character, a message says it can't reach the workshop program.** The page is still open, but the `npm run dev` window or the exe window has been closed. Open the program again and go back to this page; it will retry by itself.
 
 **The left side is empty and says the 3D view could not start.** WebGL is not enabled in your browser. Switch to a recent Edge or Chrome, or turn on the browser's "hardware acceleration".
 
-**The model lags a beat behind the sliders, or the CPU suddenly maxes out.** The fused mesh is computed in the background on several threads, so with many parts you wait a fraction of a second to a second, and the CPU goes idle again when it's done. For a more responsive feel, switch to "Separate parts" mode, pose it, and then switch back.
+**The model lags a beat behind the sliders, or the CPU suddenly maxes out.** The fused mesh is computed in the background on several threads, so with many parts you wait a fraction of a second to a second, and the CPU goes idle again when it's done. For a more responsive feel, switch to "Separate parts (v1)", pose it, and then switch back.
 
-**"Mesh split into N pieces" shows up after the readouts.** Some part isn't connected to the body, most likely pulled away by a manual tweak. Move it back, or click "Reset all".
+**"The mesh has split into N pieces" shows up after the readouts.** Some part isn't connected to the body, most likely pulled away by a manual tweak. Move it back, or click "Reset all".
 
 **I want to start over.** Click "Standard humanoid" in the presets; the body-shape sliders you have to drag back yourself. To wipe everything, press `F12` to open the console, type `localStorage.clear()`, press Enter, and refresh the page.
 
 ## Known limitations
 
-- **The face is very simple**: the Mannequin has only eye sockets, a nose and a chin; on the Anime base body the eyes are two shallow dishes and the mouth is a shallow line. In the browser the eyes are only position markers and are not in the exported mesh. A base mesh is a starting point for sculpting, not a finished piece.
+- **The face is very simple**: the Mannequin has only eye sockets, a nose and a chin; on the Anime body the eyes are two shallow dishes and the mouth is a shallow line. In the browser the eyes are only position markers and are not in the exported mesh. A base mesh is a starting point for sculpting, not a finished piece.
 - **The weights are computed simply**: good enough for checking poses, but animation needs touching up. A "Rigged GLB" holds the rest-pose mesh with weights, so places where joints turn a lot come out stretched; for a finished posed figure, export the GLB / OBJ / STL without bones.
 - **Posed joints look like those of a ball-jointed doll**: each segment of an arm or leg turns as a whole, with a round filler at the joint and no muscle shapes. Where parts overlap (an arm passing through the body), they merge into one piece when re-fused. In a few poses a hand can't be sewn on and sits separately in its old place, and the export tells you the mesh is in several pieces.
 - **Posing doesn't prevent clipping and has no joint limits.** "Drape" is solved in a single step, not a cloth simulation, so strands of hair can pass through each other.
@@ -375,12 +375,12 @@ All the ready-made assets used in the workshop allow redistribution. Download li
 
 | When used | Attribution |
 | --- | --- |
-| Anime base body | Foot mesh © Fox Jump (Kotori), CC BY; the torso contours were informed by Fly_jkey's "Woman", CC BY 4.0 |
-| Ready-made character "Orange hair, school uniform" | Alice Chan © edisonlee55, CC BY-SA 4.0 (anything you modify and redistribute must also be released under CC BY-SA 4.0) |
-| Ready-made character "Green hair, red skirt" | Kotori © Fox Jump, CC BY |
+| Anime body | Foot mesh © Fox Jump (Kotori), CC BY; the torso contours were informed by Fly_jkey's "Woman", CC BY 4.0 |
+| Ready-made character "Orange" | Alice Chan © edisonlee55, CC BY-SA 4.0 (anything you modify and redistribute must also be released under CC BY-SA 4.0) |
+| Ready-made character "Red skirt" | Kotori © Fox Jump, CC BY |
 | Adult parts | The penis and scrotum come from "DJP Male Base Mesh Mark 03" © Death Joe Productions, CC BY 4.0 |
 
-**No attribution required**: the Anime base body, the first five Ready-made characters and the four hairstyles come from VRoid Studio's old samples (pixiv, CC0); the ready-made poses come from Quaternius's Universal Animation Library 1 and 2 (CC0); the breast shape and torso contours also drew on Death Joe Productions' base body and Blender's official Human Base Meshes (CC0). The three characters Rabbit ears, Wolf ears and Ponytail sailor uniform follow the terms their authors set on VRoid Hub: modification, redistribution and commercial use are allowed, and no attribution is needed (Wolf ears must not be used for sexual depictions; the author of Ponytail sailor uniform additionally forbids use for NFTs, politics and religion).
+**No attribution required**: the Anime body, the first five Ready-made characters and the four hairstyles come from VRoid Studio's old samples (pixiv, CC0); the ready-made poses come from Quaternius's Universal Animation Library 1 and 2 (CC0); the breast shape and torso contours also drew on Death Joe Productions' base body and Blender's official Human Base Meshes (CC0). The three characters Rabbit ears, Wolf ears and Sailor suit follow the terms their authors set on VRoid Hub: modification, redistribution and commercial use are allowed, and no attribution is needed (Wolf ears must not be used for sexual depictions; the author of Sailor suit additionally forbids use for NFTs, politics and religion).
 
 ## Development
 
@@ -398,7 +398,7 @@ Run the `.ts` scripts in `tools/` with `node tools/run.mjs tools/<script>.ts`, a
 
 | Script | Produces |
 | --- | --- |
-| `build-anime-body.mjs` → `build-torso.ts` → `build-chest.ts --write` | The Anime base body, `public/anime/body.bin` (run in this order) |
+| `build-anime-body.mjs` → `build-torso.ts` → `build-chest.ts --write` | The Anime body, `public/anime/body.bin` (run in this order) |
 | `build-hand.ts`, `build-foot.ts` | The ready-made hands and feet |
 | `build-hair.mjs` | Hair |
 | `build-characters.ts` | The slimmed-down Ready-made characters, `public/character/*.vrm` |
@@ -417,9 +417,9 @@ Things that exist only on the dev server (they are not in the built web page, th
 | --- | --- |
 | `src/model/` | The `BodySpec` data model, presets, manual tweaks, undo / redo |
 | `src/parser/` | Text ↔ part counts |
-| `src/geometry/` | Placement (`layout.ts`, the rules for multiple heads and arms in `bodyPlan.ts`, the Anime base body in `animeLayout.ts`), heads, hair, the clipping check, and the meshes for separate-parts mode |
+| `src/geometry/` | Placement (`layout.ts`, the rules for multiple heads and arms in `bodyPlan.ts`, the Anime body in `animeLayout.ts`), heads, hair, the clipping check, and the meshes for separate-parts mode |
 | `src/sdf/` | Distance-field fusion: compiling the field, extracting the mesh with Surface Nets, background and helper threads, re-fusing after posing, sewing hands and feet onto the body |
-| `src/anime/`, `src/hair/` | The Anime base body, the ready-made hands and feet, adult parts, and the hair worn by base meshes |
+| `src/anime/`, `src/hair/` | The Anime body, the ready-made hands and feet, adult parts, and the hair worn by base meshes |
 | `src/character/` | Ready-made characters: reading VRM, assembly, hairstyle swapping and dyeing, expressions, tweaks, beast bodies, writing GLB / VRM |
 | `src/rig/` | Skeleton and automatic skinning |
 | `src/pose/` | Posing: pose data, full-body IK, handles, fingers, the ready-made poses |
