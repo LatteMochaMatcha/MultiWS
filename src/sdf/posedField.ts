@@ -20,7 +20,7 @@
  *   才看不出来，在场里怎么弯都会错开。所以融合时让它整个跟着胯（见 heldLegs），融合完再照蒙皮权重搬过去
  *   （见 posedFuse.ts）——腿和「拖着的时候」那张网格上的一模一样。
  * - 好几个上半身的二次元素体（见 SHARED_LIFT）：躯干那几块（胯、每个上半身）一起顺着所有躯干骨骼弯——一个上半身那份只跟自己的脊柱的话，
- *   两个上半身一歪开，正中切开的两个切面就露出来；胸根那一层跟着躯干，往外渐渐换成整个跟着自己那个上半身。
+ *   两个上半身一歪开，正中切开的两个切面就露出来；胸根那一层顺着自己那个上半身的脊柱弯，往外渐渐换成整个跟着那个上半身最近的那节骨骼。
  *   照权重弯的话，挤在一起的两只胸接触的那一圈是一整张皮，两个上半身一分开就被拉成一根管子；这样重新融合，两只胸干干净净地分开。
  * 部件之间照旧是圆滑地融合。
  *
@@ -109,7 +109,9 @@ const SOFT = 0.004 ** 2;
 const PELVIS_STUB = { down: 0.14 };
 
 /**
- * 好几个上半身的二次元素体：胸离躯干表面 near 以内跟着躯干弯（和躯干对得上），到 far 整个跟着自己那个上半身（按标准人台的尺寸）
+ * 好几个上半身的二次元素体：胸离躯干表面 near 以内顺着自己那个上半身的脊柱弯（和躯干对得上），到 far 整个跟着那个上半身最近的那节骨骼（按标准人台的尺寸）。
+ * 胸根不跟着所有躯干骨骼弯：胯、旁边那个上半身的骨骼也带着它的话，一个上半身歪得多了，里侧的胸根被拽回正中，整只胸拉成一片横在两个身子之间；
+ * 正中还会多出一只只「鬼影」胸——胸原来（静止时）在的地方倒着搬回去，照胯那几节搬又落回胸上
  */
 const SHARED_LIFT: [near: number, far: number] = [0.005, 0.05];
 /** 顺着好几节骨骼弯时，一节骨骼在一个基本体上哪儿都占不到这么多，就不算它（见 bendMap 的 focus） */
@@ -932,7 +934,7 @@ export function compilePosedField(
     }
   }
 
-  // 好几个上半身的二次元素体（见 SHARED_LIFT）：躯干那几块一起顺着所有躯干骨骼弯（腿根那几截也算上），胸根跟着躯干
+  // 好几个上半身的二次元素体（见 SHARED_LIFT）：躯干那几块一起顺着所有躯干骨骼弯（腿根那几截也算上），胸根顺着自己那个上半身的脊柱弯
   const shared = isSampled(figure.parts) && severalBodies(figure.parts);
   const torsoParts = shared ? figure.parts.filter((part) => part.type === 'torso') : [];
   const torsoBones = torsoParts.flatMap((part) => own.get(part.name) ?? []);
@@ -941,7 +943,7 @@ export function compilePosedField(
   let torsoRest: Dist | null = null;
   const restTorso = (): Dist => (torsoRest ??= torsoNearChests(figure.parts, xfs, minR));
   /**
-   * 胸（好几个上半身时）：离躯干表面 SHARED_LIFT[0] 以内跟着躯干弯，到 SHARED_LIFT[1] 整个跟着自己那个上半身最近的那节骨骼，之间渐变。
+   * 胸（好几个上半身时）：离躯干表面 SHARED_LIFT[0] 以内顺着自己那个上半身的脊柱弯，到 SHARED_LIFT[1] 整个跟着那个上半身最近的那节骨骼，之间渐变。
    * 摆好以后的点先照「整个跟着那节骨骼」搬回去，照那里离躯干多远定跟谁、各跟多少。
    * 两个上半身直立并排时里侧的胸在两个身子正中间切齐（ChestShape.seam）：那一刀跟着躯干弯（两个身子正中间），不跟着胸——
    * 跟着胸的话两个身子一分开，两只胸各露出一个平的切面；跟着躯干的话切口落在两个身子正中间，分得开了就切不到胸，胸是圆的
@@ -959,6 +961,10 @@ export function compilePosedField(
     const c = seam && shape ? xf.scale * (seam[0] * shape.origin[0] + seam[1] * shape.origin[1] + seam[2] * shape.origin[2] - seam[3]) - dot(n, xf.pos) : 0;
     const rest: Draft[] = [];
     partDrafts(seam ? { ...part, prims: part.prims.map((prim) => (prim.kind === 'chest' ? { ...prim, seam: undefined } : prim)) } : part, xf, group, minR, rest);
+    // 胸长在哪个上半身上：胸根只顺着它的脊柱弯（见 SHARED_LIFT）；找不到的照旧顺着所有躯干骨骼
+    let body: Part | undefined = part;
+    while (body && body.type !== 'torso') body = body.parent ? byName.get(body.parent) : undefined;
+    const spine = body && /^UpperBody/.test(body.name) ? own.get(body.name) : undefined;
     const q = new Float64Array(3);
     /** 一个静止时的基本体整个跟着那节骨骼搬过去以后占多大（corners：用哪几个角） */
     const rigidBox = (corners: readonly number[]): number[] => {
@@ -975,7 +981,8 @@ export function compilePosedField(
     const merge = (a: number[], b: number[]): number[] => [0, 1, 2, 3, 4, 5].map((k) => (k < 3 ? Math.min(a[k], b[k]) : Math.max(a[k], b[k])) + (k < 3 ? -MARGIN : MARGIN));
     for (const d of rest) {
       const f = draftDist(d);
-      const bend = bendMap(torsoBones, skeleton, m, torsoStubs, d);
+      const whole = seam || !spine ? bendMap(torsoBones, skeleton, m, torsoStubs, d) : null;
+      const bend = spine ? bendMap(spine, skeleton, m, [], d) : whole!;
       const tight = { ...d, corners: tightCorners(d), outerCorners: undefined };
       drafts.push({
         type: T_CUSTOM,
@@ -995,9 +1002,15 @@ export function compilePosedField(
           const t = h <= near ? 0 : h >= far ? 1 : (h - near) / (far - near);
           const w = t * t * (3 - 2 * t);
           if (w >= 1 && !seam) return f(rx, ry, rz);
-          bend.map(x, y, z, q);
-          const v = f(q[0] + (rx - q[0]) * w, q[1] + (ry - q[1]) * w, q[2] + (rz - q[2]) * w);
+          let v: number;
+          if (w >= 1) v = f(rx, ry, rz);
+          else {
+            bend.map(x, y, z, q);
+            v = f(q[0] + (rx - q[0]) * w, q[1] + (ry - q[1]) * w, q[2] + (rz - q[2]) * w);
+          }
           if (!seam) return v;
+          // 切齐的那一刀照旧顺着所有躯干骨骼弯（落在两个身子正中间）
+          whole!.map(x, y, z, q);
           const cut = n[0] * q[0] + n[1] * q[1] + n[2] * q[2] + c;
           return v > cut ? v : cut;
         },
