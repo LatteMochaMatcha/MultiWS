@@ -3262,10 +3262,8 @@ async function exportCharacterVrm(build: CharacterBuild) {
     setStatus('角色的数据还没载入完，等一下再导出。', true);
     return;
   }
-  if (!source.vrmMeta) {
-    setStatus('这个角色文件是 VRM 1.0 的，导出成 VRM 还在做：现在先用「带骨骼 GLB」。', true);
-    return;
-  }
+  // 许可照原文件：0.x 的原样抄，1.0 的换成 0.x 的写法（见 io/vrm.ts 的 metaFromV1）
+  const license = source.vrmMeta ?? source.vrm1Meta ?? {};
   const rest = characterSkeleton(build);
   let humanoid: Map<string, number>;
   try {
@@ -3276,7 +3274,7 @@ async function exportCharacterVrm(build: CharacterBuild) {
   }
   const own = spec.character === OWN_CHARACTER;
   const credit = own ? undefined : rosterEntry(spec.character as CharacterId).credit;
-  const meta = await askVrmMeta(credit, { title: source.title, terms: describeLicense(source.vrmMeta) });
+  const meta = await askVrmMeta(credit, { title: source.title, terms: describeLicense(license) });
   if (!meta) return;
   const buttons = [...Object.values(exportButtons), $<HTMLButtonElement>('btnVrm')];
   for (const button of buttons) button.disabled = true;
@@ -3304,7 +3302,7 @@ async function exportCharacterVrm(build: CharacterBuild) {
       ...(source.springs?.length || hairDonor(spec.hair.style) ? ['头发、裙摆照原角色会晃'] : []),
       ...(springs.length ? ['尾巴会晃'] : []),
       ...(mode === 'pose' && isPosed(spec.posing) ? ['摆的姿势、表情不进 VRM'] : []),
-      `许可照原角色：${describeLicense(source.vrmMeta)}`,
+      `许可照原角色：${describeLicense(license)}`,
       ...(credit ? [`发出去时请署名「${credit}」`] : []),
     ];
     setStatus(`已导出 oc_character.vrm（${notes.join('，')}），${where}。`);
@@ -3315,6 +3313,9 @@ async function exportCharacterVrm(build: CharacterBuild) {
   }
 }
 
+/** 分部件的白模点 VRM 时说的话（按钮的悬停提示也是它） */
+const VRM_PARTS = 'VRM 要一整块网格：先在「网格」一栏换成「融合成一整块」';
+
 async function exportVrm() {
   if (pending || (!figure && !character)) rebuild();
   if (character) {
@@ -3324,7 +3325,7 @@ async function exportVrm() {
   const target = figure;
   if (!target) return;
   if (spec.meshMode !== 'fused') {
-    setStatus('VRM 要一整块网格：先在「网格」一栏换成「融合成一整块」。', true);
+    setStatus(`${VRM_PARTS}。`, true);
     return;
   }
   // 先看人形骨骼对不对得上：对不上就不用问名字了
@@ -3470,6 +3471,12 @@ function render() {
     exportButtons[kind].textContent = label;
     exportButtons[kind].title = title;
   }
+  // VRM 要一整块网格：分部件的白模把按钮淡下去。不真的禁用——手机上没有悬停提示，点了要能说为什么（见 exportVrm）
+  const vrmBlocked = !finished && spec.meshMode !== 'fused';
+  const btnVrm = $<HTMLButtonElement>('btnVrm');
+  btnVrm.classList.toggle('unavailable', vrmBlocked);
+  btnVrm.setAttribute('aria-disabled', String(vrmBlocked));
+  btnVrm.title = vrmBlocked ? VRM_PARTS : finished ? '给 VTuber 软件、VRoid Hub 用的 VRM：T-pose、人形骨骼、表情，头发、裙摆会晃' : '给 VTuber 软件、VRoid Hub 用的 VRM：T-pose、人形骨骼，尾巴会晃';
   btnUndo.disabled = !history.canUndo;
   btnRedo.disabled = !history.canRedo;
   renderPosePanel();

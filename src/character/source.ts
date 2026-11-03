@@ -7,7 +7,7 @@
  */
 import type { V3 } from '../geometry/vec';
 import { type GlbDoc, readAccessor, readBufferView, readGlb } from '../io/glbRead';
-import type { VrmToon } from '../io/vrm';
+import { type VrmToon, toonFromV1 } from '../io/vrm';
 
 export interface SourceBone {
   /** 文件里的骨骼名，例如 J_Bip_L_UpperArm */
@@ -115,13 +115,15 @@ export interface CharacterSource {
    */
   hairLight?: Map<number, { image: number; tone: [number, number, number] }>;
   /**
-   * VRM 0.x 文件里每个材质的卡通着色（MToon）设定，按材质名（去掉「 (Instance)」）：导出 VRM 时照抄。
-   * 贴图那几项不留（这里只读了底色贴图），导出时照工坊的材质重新填。1.0 的文件没有这一项
+   * 每个材质的卡通着色（MToon）设定，按材质名（去掉「 (Instance)」），0.x 的写法：导出 VRM 时照抄。
+   * 1.0 的文件是换算过来的（见 io/vrm.ts 的 toonFromV1）。贴图那几项不留（这里只读了底色贴图），导出时照工坊的材质重新填
    */
   toon?: Map<string, Omit<VrmToon, 'textureProperties'>>;
-  /** VRM 0.x 文件的 meta 原样：导出 VRM 时照抄许可、允许谁用、作者这几项。1.0 的文件没有这一项 */
+  /** VRM 0.x 文件的 meta 原样：导出 VRM 时照抄许可、允许谁用、作者这几项 */
   vrmMeta?: Record<string, unknown>;
-  /** VRM 0.x 文件里会晃的骨骼（头发、裙摆、胸……）和它们碰的碰撞球：导出 VRM 时照抄。1.0 的文件没有这一项 */
+  /** VRM 1.0 文件的 meta 原样（导出时换成 0.x 的写法，见 io/vrm.ts 的 metaFromV1） */
+  vrm1Meta?: Record<string, unknown>;
+  /** 文件里会晃的骨骼（头发、裙摆、胸……）和它们碰的碰撞球，0.x 的写法：导出 VRM 时照抄。1.0 的换算过来 */
   springs?: SourceSpring[];
   colliders?: SourceColliders[];
 }
@@ -462,7 +464,14 @@ export function readCharacter(buffer: ArrayBuffer, options: ReadOptions = {}): C
       tagMap: { ...(p.tagMap ?? {}) },
     });
   }
-  const { springs, colliders } = readSprings(json, vrm0, ofNode);
+  // 1.0 的卡通着色在每个材质自己的扩展里：换成 0.x 的写法
+  if (vrm1) {
+    for (const m of (json.materials ?? []) as Record<string, any>[]) {
+      const converted = toonFromV1(m);
+      if (converted) toon.set(String(m.name ?? '').replace(/ \(Instance\)$/, ''), converted);
+    }
+  }
+  const { springs, colliders } = vrm1 ? readSpringsV1(json.extensions?.VRMC_springBone, ofNode) : readSprings(json, vrm0, ofNode);
   return {
     title: (vrm1 ? meta.name : meta.title) || 'Character',
     author: vrm1 ? ((meta.authors ?? []) as string[]).join('、') : (meta.author ?? ''),
@@ -480,6 +489,7 @@ export function readCharacter(buffer: ArrayBuffer, options: ReadOptions = {}): C
     ...(face ? { face } : {}),
     ...(toon.size ? { toon } : {}),
     ...(vrm0?.meta ? { vrmMeta: { ...vrm0.meta } } : {}),
+    ...(vrm1?.meta ? { vrm1Meta: { ...vrm1.meta } } : {}),
     ...(springs.length ? { springs, colliders } : {}),
   };
 }
@@ -493,7 +503,8 @@ function readSprings(json: GlbDoc['json'], vrm0: GlbDoc['json'] | undefined, ofN
   if (!animation) return { springs: [], colliders: [] };
   const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
   type Xyz = { x?: number; y?: number; z?: number } | undefined;
-  const flip = (v: Xyz, fallback: V3): V3 => (v ? [-num(v.x, 0), num(v.y, 0), num(v.z, 0)] : fallback);
+  // 加 0 是为了不留下 -0（和存成 JSON 再读回来的对不上）
+  const flip = (v: Xyz, fallback: V3): V3 => (v ? [-num(v.x, 0) + 0, num(v.y, 0), num(v.z, 0)] : fallback);
   const colliders: SourceColliders[] = [];
   const groupOf = new Map<number, number>();
   ((animation.colliderGroups ?? []) as { node?: number; colliders?: { offset?: Xyz; radius?: number }[] }[]).forEach((group, i) => {
@@ -522,5 +533,56 @@ function readSprings(json: GlbDoc['json'], vrm0: GlbDoc['json'] | undefined, ofN
       colliders: (g.colliderGroups ?? []).flatMap((i) => (groupOf.has(i) ? [groupOf.get(i)!] : [])),
     }))
     .filter((s) => s.roots.length);
+  return { springs, colliders };
+}
+
+/**
+ * VRM 1.0 的弹簧骨骼（VRMC_springBone）换成 0.x 的写法。1.0 本来就面朝 +Z，方向不用换。
+ * - 每一串（spring）是一组：根是第一节，晃法照第一节的参数（1.0 能每节不一样，0.x 只能一组一个）；
+ * - 每个碰撞体是一组碰撞球；胶囊换成从一头到另一头排的几个球；
+ * - 一串碰哪几组碰撞体（colliderGroups）摊开成碰哪几个碰撞体
+ */
+function readSpringsV1(extension: GlbDoc['json'] | undefined, ofNode: Map<number, number>): { springs: SourceSpring[]; colliders: SourceColliders[] } {
+  if (!extension) return { springs: [], colliders: [] };
+  const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+  const vec = (v: unknown, fallback: V3): V3 => (Array.isArray(v) && v.length >= 3 ? [num(v[0], 0), num(v[1], 0), num(v[2], 0)] : fallback);
+  type Shape = { sphere?: { offset?: number[]; radius?: number }; capsule?: { offset?: number[]; radius?: number; tail?: number[] } };
+  const colliders: SourceColliders[] = [];
+  const colliderOf = new Map<number, number>();
+  ((extension.colliders ?? []) as { node?: number; shape?: Shape }[]).forEach((c, i) => {
+    const bone = typeof c.node === 'number' ? ofNode.get(c.node) : undefined;
+    const shape = c.shape?.sphere ?? c.shape?.capsule;
+    const radius = num(shape?.radius, 0);
+    if (bone === undefined || !shape || !(radius > 0)) return;
+    const from = vec(shape.offset, [0, 0, 0]);
+    const to = c.shape?.capsule ? vec(c.shape.capsule.tail, from) : from;
+    const length = Math.hypot(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
+    const count = Math.min(8, Math.max(1, Math.ceil(length / radius) + 1));
+    const spheres = Array.from({ length: count }, (_, k) => {
+      const t = count > 1 ? k / (count - 1) : 0;
+      return { offset: [0, 1, 2].map((a) => from[a] + (to[a] - from[a]) * t) as V3, radius };
+    });
+    colliderOf.set(i, colliders.length);
+    colliders.push({ bone, spheres });
+  });
+  const groups = ((extension.colliderGroups ?? []) as { colliders?: number[] }[]).map((g) => (g.colliders ?? []).flatMap((i) => (colliderOf.has(i) ? [colliderOf.get(i)!] : [])));
+  type Joint = { node?: number; hitRadius?: number; stiffness?: number; gravityPower?: number; gravityDir?: number[]; dragForce?: number };
+  const springs = ((extension.springs ?? []) as { name?: string; joints?: Joint[]; colliderGroups?: number[] }[]).flatMap((s): SourceSpring[] => {
+    const first = s.joints?.[0];
+    const root = typeof first?.node === 'number' ? ofNode.get(first.node) : undefined;
+    if (!first || root === undefined) return [];
+    return [
+      {
+        comment: typeof s.name === 'string' ? s.name : '',
+        roots: [root],
+        stiffness: num(first.stiffness, 1),
+        gravity: num(first.gravityPower, 0),
+        gravityDir: vec(first.gravityDir, [0, -1, 0]),
+        drag: num(first.dragForce, 0.5),
+        hitRadius: num(first.hitRadius, 0),
+        colliders: [...new Set((s.colliderGroups ?? []).flatMap((g) => groups[g] ?? []))],
+      },
+    ];
+  });
   return { springs, colliders };
 }

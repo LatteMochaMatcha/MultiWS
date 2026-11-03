@@ -274,6 +274,99 @@ export function plainToon(m: GlbMaterial): VrmToon {
   };
 }
 
+/**
+ * VRM 1.0 的卡通材质（材质上的 VRMC_materials_mtoon）换成 0.x 的写法，贴图那几项不算（导出时照工坊的材质填）。
+ * 不是 MToon 的返回 null。明暗分界两版的算法不一样：
+ * 0.x 是 linearstep(shift, lerp(1, shift, toony), x)，1.0 是 linearstep(−1 + toony − shift, 1 − toony − shift, x)，两头对上就是换算。
+ * 描边宽度 1.0 是米，0.x 是厘米；1.0 的「描边混光照」是 0 时 0.x 写成固定颜色
+ */
+export function toonFromV1(material: Record<string, any>): Omit<VrmToon, 'textureProperties'> | null {
+  const mtoon = material.extensions?.VRMC_materials_mtoon;
+  if (!mtoon) return null;
+  const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+  const rgb = (v: unknown, fallback: number[]) => [...(Array.isArray(v) && v.length >= 3 ? v.slice(0, 3).map((x) => num(x, 0)) : fallback), 1];
+  const mode: 'OPAQUE' | 'MASK' | 'BLEND' = material.alphaMode === 'MASK' || material.alphaMode === 'BLEND' ? material.alphaMode : 'OPAQUE';
+  const { textureProperties: _, ...base } = plainToon({
+    name: String(material.name ?? ''),
+    color: 0xffffff,
+    factor: (material.pbrMetallicRoughness?.baseColorFactor as [number, number, number, number] | undefined) ?? [1, 1, 1, 1],
+    alphaMode: mode,
+    alphaCutoff: num(material.alphaCutoff, 0.5),
+    doubleSided: Boolean(material.doubleSided),
+  });
+  const f = base.floatProperties;
+  const v = base.vectorProperties;
+  const toony = num(mtoon.shadingToonyFactor, 0.9);
+  const shift = num(mtoon.shadingShiftFactor, 0);
+  f._ShadeShift = Math.max(-1, Math.min(1, -1 + toony - shift));
+  f._ShadeToony = 1 - f._ShadeShift > 1e-4 ? Math.max(0, Math.min(1, (toony + shift) / (1 - f._ShadeShift))) : 1;
+  v._ShadeColor = rgb(mtoon.shadeColorFactor, [0, 0, 0]);
+  f._IndirectLightIntensity = 1 - num(mtoon.giEqualizationFactor, 0.9);
+  v._EmissionColor = rgb(material.emissiveFactor, [0, 0, 0]);
+  v._RimColor = rgb(mtoon.parametricRimColorFactor, [0, 0, 0]);
+  f._RimLightingMix = num(mtoon.rimLightingMixFactor, 1);
+  f._RimFresnelPower = num(mtoon.parametricRimFresnelPowerFactor, 5);
+  f._RimLift = num(mtoon.parametricRimLiftFactor, 0);
+  const width = ({ worldCoordinates: 1, screenCoordinates: 2 } as Record<string, number>)[mtoon.outlineWidthMode] ?? 0;
+  f._OutlineWidthMode = width;
+  f._OutlineWidth = width ? num(mtoon.outlineWidthFactor, 0) * 100 : 0;
+  v._OutlineColor = rgb(mtoon.outlineColorFactor, [0, 0, 0]);
+  const mix = num(mtoon.outlineLightingMixFactor, 1);
+  f._OutlineColorMode = mix > 0 ? 1 : 0;
+  f._OutlineLightingMix = mix > 0 ? mix : 1;
+  f._UvAnimScrollX = num(mtoon.uvAnimationScrollXSpeedFactor, 0);
+  f._UvAnimScrollY = num(mtoon.uvAnimationScrollYSpeedFactor, 0);
+  f._UvAnimRotation = num(mtoon.uvAnimationRotationSpeedFactor, 0);
+  const keywords: Record<string, boolean> = { ...base.keywordMap };
+  if (width) keywords[width === 1 ? 'MTOON_OUTLINE_WIDTH_WORLD' : 'MTOON_OUTLINE_WIDTH_SCREEN'] = true;
+  if (width) keywords[mix > 0 ? 'MTOON_OUTLINE_COLOR_MIXED' : 'MTOON_OUTLINE_COLOR_FIXED'] = true;
+  // 透明的还要写深度（transparentWithZWrite）：0.x 的第 3 种混合方式，排在镂空的后面
+  const offset = num(mtoon.renderQueueOffsetNumber, 0);
+  let renderQueue = base.renderQueue;
+  if (mode === 'BLEND' && mtoon.transparentWithZWrite) {
+    f._BlendMode = 3;
+    f._ZWrite = 1;
+    renderQueue = 2501 + offset;
+  } else if (mode === 'BLEND') renderQueue += offset;
+  return { ...base, renderQueue, floatProperties: f, vectorProperties: v, keywordMap: keywords };
+}
+
+/** VRM 1.0 的许可（VRM 公共许可）里 0.x 写不下的几条，说成人话 */
+function extraTermsV1(meta: Record<string, unknown>): string[] {
+  return [
+    meta.allowPoliticalOrReligiousUsage === true ? '' : '不许用于政治、宗教',
+    meta.allowAntisocialOrHateUsage === true ? '' : '不许用于反社会、仇恨',
+    meta.creditNotation === 'unnecessary' ? '' : '要署名',
+    meta.allowRedistribution === true ? '' : '不许再分发',
+    meta.modification === 'allowModificationRedistribution' ? '' : meta.modification === 'allowModification' ? '改过的不许再分发' : '不许改',
+  ].filter(Boolean);
+}
+
+/**
+ * VRM 1.0 的 meta 换成 0.x 的写法：许可写 Other、条款网址指向原来的许可；
+ * 允许谁用、暴力、性、商用照原样换（只许个人商用的算「不许商用」，宁严勿宽）；0.x 写不下的几条接在 reference 后面
+ */
+export function metaFromV1(meta: Record<string, unknown>): Record<string, unknown> {
+  const texts = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+  const text = (v: unknown) => (typeof v === 'string' ? v : '');
+  const allowed: Record<string, string> = { onlyAuthor: 'OnlyAuthor', onlySeparatelyLicensedPerson: 'ExplicitlyLicensedPerson', everyone: 'Everyone' };
+  const extra = extraTermsV1(meta);
+  return {
+    title: text(meta.name),
+    version: text(meta.version),
+    author: texts(meta.authors).join('、'),
+    contactInformation: text(meta.contactInformation),
+    reference: [...texts(meta.references), extra.length ? `原文件（VRM 1.0）的条件：${extra.join('，')}` : ''].filter(Boolean).join('；'),
+    allowedUserName: allowed[text(meta.avatarPermission)] ?? 'OnlyAuthor',
+    violentUssageName: meta.allowExcessivelyViolentUsage === true ? 'Allow' : 'Disallow',
+    sexualUssageName: meta.allowExcessivelySexualUsage === true ? 'Allow' : 'Disallow',
+    commercialUssageName: meta.commercialUsage === 'corporation' ? 'Allow' : 'Disallow',
+    otherPermissionUrl: text(meta.otherLicenseUrl),
+    licenseName: 'Other',
+    otherLicenseUrl: text(meta.licenseUrl),
+  };
+}
+
 /** lookAt 的曲线：输入转 90°（xRange）时眼珠转 range 度（yRange） */
 const curve = (range: number) => ({ curve: [0, 0, 0, 1, 1, 1, 1, 0], xRange: 90, yRange: range });
 
@@ -446,8 +539,21 @@ export function writeVrm(mesh: VrmMesh, skeleton: Skeleton, meta: VrmMeta, sprin
   });
 }
 
-/** 原角色的许可说成人话（导出前的小框里给人看）：许可名，再加上几条「不许」 */
+/** 原角色的许可说成人话（导出前的小框里给人看）：许可名，再加上几条「不许」。0.x、1.0 的 meta 都认（1.0 的有 avatarPermission） */
 export function describeLicense(meta: Record<string, unknown>): string {
+  if ('avatarPermission' in meta || 'authors' in meta) {
+    const url = typeof meta.licenseUrl === 'string' ? meta.licenseUrl : '';
+    return [
+      /^https?:\/\/vrm\.dev\/licenses\/1\.0\/?$/.test(url) ? 'VRM 公共许可 1.0' : url ? `许可：${url}` : '没写许可',
+      meta.avatarPermission === 'everyone' ? '' : meta.avatarPermission === 'onlySeparatelyLicensedPerson' ? '只许另外得到许可的人扮演' : '只许作者本人扮演',
+      meta.allowExcessivelyViolentUsage === true ? '' : '不许用于暴力表现',
+      meta.allowExcessivelySexualUsage === true ? '' : '不许用于性表现',
+      meta.commercialUsage === 'corporation' ? '' : meta.commercialUsage === 'personalProfit' ? '只许个人商用' : '不许商用',
+      ...extraTermsV1(meta),
+    ]
+      .filter(Boolean)
+      .join('，');
+  }
   const names: Record<string, string> = {
     CC0: 'CC0（随便用）',
     CC_BY: 'CC BY（要署名）',

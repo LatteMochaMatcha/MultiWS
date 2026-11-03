@@ -12,7 +12,7 @@
  */
 import { type Quat, type V3, Q_ID, cross, len, norm, quatBasis, quatBetween, quatConj, quatMul, rotate, sub } from '../geometry/vec';
 import type { GlbMaterial, GlbMesh } from '../io/glb';
-import { type VrmColliders, type VrmExpression, type VrmSpring, type VrmToon, materialColor, plainToon, writeVrmModel } from '../io/vrm';
+import { type VrmColliders, type VrmExpression, type VrmSpring, type VrmToon, materialColor, metaFromV1, plainToon, writeVrmModel } from '../io/vrm';
 import { type CharacterBone, type CharacterBuild, isHairBone } from './assemble';
 import { characterSkeleton, mergeByMaterial, poseBuild } from './export';
 import { applyFaces } from './face';
@@ -255,7 +255,7 @@ export function characterVrm(build: CharacterBuild, source: CharacterSource, opt
     ...e,
     binds: e.binds.map((b) => ({ ...b, target: targetOf.get(b.target)! })),
   }));
-  const raw = source.vrmMeta ?? {};
+  const raw = source.vrmMeta ?? (source.vrm1Meta ? metaFromV1(source.vrm1Meta) : {});
   const text = (v: unknown, fallback = '') => (typeof v === 'string' ? v : fallback);
   const sway = springsOf(build, source, options.bones);
   const images = source.thumbnail ? [...build.images, source.thumbnail] : build.images;
@@ -268,7 +268,7 @@ export function characterVrm(build: CharacterBuild, source: CharacterSource, opt
       version: '1.0',
       author: [source.author ? `${source.author}（原作者）` : '', options.editor ? `${options.editor}（改）` : ''].filter(Boolean).join('、') || '不详',
       contactInformation: text(raw.contactInformation),
-      reference: [`改自「${source.title}」（用 OC 白模工坊改）`, options.credit ?? ''].filter(Boolean).join('；'),
+      reference: [`改自「${source.title}」（用 OC 白模工坊改）`, options.credit ?? '', text(raw.reference)].filter(Boolean).join('；'),
       allowedUserName: text(raw.allowedUserName, 'OnlyAuthor'),
       violentUssageName: text(raw.violentUssageName, 'Disallow'),
       sexualUssageName: text(raw.sexualUssageName, 'Disallow'),

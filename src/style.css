@@ -203,6 +203,8 @@ select:focus-visible,.triple input:focus-visible{outline:2px solid var(--accent)
 .export{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr 1fr;gap:6px}
 .export .primary{grid-column:1/-1;padding-block:8px}
 .export .btn{white-space:nowrap}
+/* 这会儿导不了（分部件的白模点 VRM）：淡下去，点了在底下说为什么 */
+.export .btn.unavailable{opacity:.45;cursor:help}
 /* 导出 VRM 前填名字、作者、许可的小框 */
 .vrm-dialog{width:min(420px,calc(100vw - 32px));border:1px solid var(--line);border-radius:12px;padding:18px;background:var(--panel);color:var(--ink)}
 .vrm-dialog::backdrop{background:rgba(0,0,0,.35)}
