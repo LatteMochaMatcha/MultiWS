@@ -37,17 +37,27 @@ describe('横排多胯', () => {
         const f = buildFigure(spec);
         const label = `${bodyStyle} ${legs}`;
         expect(f.metrics.legForm, label).toBe('abreast');
-        // 二次元素体两副胯、每副两条腿的：躯干那块格子自己在胯上分成两副（见 twin.test.ts），两副胯的正中在 ±twin.d
-        const twin = (f.parts.find((p) => p.name === 'Torso')!.prims[0] as { twin?: { d: number } }).twin;
-        expect(!!twin, label).toBe(bodyStyle === 'anime' && legs === 4);
+        // 二次元素体两副胯、每副两条腿的：躯干那块格子自己在胯上分成两副（见 twin.test.ts），两副胯的正中在 ±twin.d；
+        // 别的照腿排开（见 tile.test.ts），排开的地方就是各条腿的髋关节，不另外垫胯
+        const torso = f.parts.find((p) => p.name === 'Torso')!.prims[0] as { twin?: { d: number }; tile?: { legs: number[] } };
+        expect(!!torso.twin, label).toBe(bodyStyle === 'anime' && legs === 4);
+        expect(!!torso.tile, label).toBe(bodyStyle === 'anime' && legs !== 4);
         const lower = f.parts.find((p) => p.name === 'LowerBody');
-        const pelves = twin ? [-twin.d, twin.d] : lower!.prims.filter((p) => /^Pelvis_\d+$/.test(p.name)).map((p) => (p.kind === 'ellipsoid' ? p.center[0] : NaN));
+        const legX = f.parts.filter((p) => p.type === 'leg').map((p) => p.pos[0]);
+        expect(legX.length, label).toBe(legs);
+        if (torso.tile) {
+          expect(lower, label).toBeUndefined();
+          const sortedLegs = [...legX].sort((a, b) => a - b);
+          torso.tile.legs.forEach((x, k) => expect(x, label).toBeCloseTo(sortedLegs[k], 9));
+          torso.tile.legs.forEach((x, k, all) => expect(x, label).toBeCloseTo(-all[all.length - 1 - k], 9));
+          expect(fuseParts(f.parts.filter((p) => p.material !== 'eye'), { voxel: 0.012, blend: spec.blend }).info.components, label).toBe(1);
+          continue;
+        }
+        const pelves = torso.twin ? [-torso.twin.d, torso.twin.d] : lower!.prims.filter((p) => /^Pelvis_\d+$/.test(p.name)).map((p) => (p.kind === 'ellipsoid' ? p.center[0] : NaN));
         expect(pelves.length, label).toBe(legPlan(spec).stations.length);
         // 左右对称
         const sorted = [...pelves].sort((a, b) => a - b);
         sorted.forEach((x, k) => expect(x, label).toBeCloseTo(-sorted[sorted.length - 1 - k], 9));
-        const legX = f.parts.filter((p) => p.type === 'leg').map((p) => p.pos[0]);
-        expect(legX.length, label).toBe(legs);
         // 每条腿都在某副胯的范围里，每副胯上的腿数照 stations
         const per = sorted.map((x) => legX.filter((lx) => Math.abs(lx - x) < (sorted[1] - sorted[0]) / 2).length);
         expect(per, label).toEqual(legPlan(spec).stations);

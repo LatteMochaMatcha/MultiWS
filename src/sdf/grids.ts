@@ -4,7 +4,7 @@
  *
  * 纯计算，在主线程、Web Worker 和单元测试里都能用；数据由外面读进来再登记。
  */
-import type { BackStretch, ChestShape, Fork, GridShape, SpreadX, Thicken, Twin, WidenBand } from '../geometry/figure';
+import type { BackStretch, ChestShape, Fork, GridShape, SpreadX, Thicken, Tile, Twin, WidenBand } from '../geometry/figure';
 import { type V3, sub } from '../geometry/vec';
 import { type ChestFrame, chestFrame, chestRegion, chestSkin, chestVersion } from '../anime/chest';
 import type { Dist } from './field';
@@ -126,6 +126,13 @@ export interface GridUse {
    */
   twin?: Twin;
   /**
+   * 胯上好几条腿（左右并排、横排多胯、人腿人马一副胯三四条）：照素体原样的胯排开，不另外垫一块椭球。每两条腿中间一份素体正中的胯下
+   * （带着两条大腿根的里侧一半、屁股缝两边各半瓣），最外边两条腿外面接素体原样的外胯、整个挪过去：几条腿就几瓣屁股、腿之间各一个胯下。
+   * 高度在 full 以下照 legs 排足，往上排开的幅度渐渐变小，到 top 是素体原样（腰上还是一个人的），见 tiled。
+   * 在别的变形外面：坐标是这块格子所在部件的
+   */
+  tile?: Tile;
+  /**
    * 这块格子存的是到一层面片的距离（头发），没有里外：离面片 shell 以内的地方算实心。
    * 加长（stretchY）、加宽这些照常管用。
    */
@@ -195,6 +202,127 @@ function twinned(one: Dist, twin: Twin): Dist {
 /** Twin.levels 不给时：哪个高度上都不并成一整块 */
 const APART = [Infinity, Infinity, Infinity, Infinity] as const;
 
+/**
+ * 照原样排开（见 GridUse.tile）：one 是素体原样的距离场。
+ * split 以下：第 i 条腿在 legs[i]，相邻两条腿之间照素体正中 [-half, half] 那一段取样（两条腿隔得和素体那一对不一样远，就横着按比例拉开、压窄），
+ * 最外边两条腿外面照素体那条腿外面取样、整个挪过去。素体左右对称，只管离正中多远：接缝都在腿的中轴上，两边取样的地方一样远，表面是连着的一整张。
+ * 往上到 merged 和 twinned 一样，取样的地方渐渐挪到「一整块往两边拉开」的（steps）：要是一路照腿排开到腰上，每一份都带着素体正中线上的
+ * 屁股缝、小腹中线，往腰上一收就是一排扇骨。这样多出来的几道屁股缝在屁股上沿渐渐收掉，正中那道顺着脊柱往上，腰上还是一个人的。
+ * 坐着几个上半身的（Tile.seats）往上不并成一整块，渐渐换成每个座位上一份素体原样的（相邻两份叠着的地方取并集）：上半身坐在那一份上。
+ * 成品角色一副胯三四条腿也是照原样复制胯中段排开（见 character/assemble.ts 的 tile）
+ */
+function tiled(one: Dist, tile: Tile): Dist {
+  const { legs, half } = tile;
+  const [splitFront, mergedFront] = tile.levels;
+  const [splitBack, mergedBack] = tile.rear;
+  const [zBack, zFront] = tile.depth;
+  const n = legs.length;
+  const first = legs[0];
+  const last = legs[n - 1];
+  const seats = tile.seats;
+  /** 再往上一整块也不拉开了：和素体原样一样（坐着几个上半身的，往上一直是座位上那几份） */
+  const end = seats ? Infinity : Math.max(mergedFront, mergedBack, tile.steps[tile.steps.length - 1][0]);
+  /** 照腿排开时在素体上哪里取样（横着的 x）：接缝两边取到的只差个正负号，素体左右对称，是一样的 */
+  const apart = (x: number) => {
+    if (x <= first) return x - first - half;
+    if (x >= last) return x - last + half;
+    let i = 0;
+    while (i < n - 2 && x > legs[i + 1]) i++;
+    return (x - (legs[i] + legs[i + 1]) / 2) * ((2 * half) / (legs[i + 1] - legs[i]));
+  };
+  /** 这个高度、前后位置上并了几成 */
+  const mergedBy = (y: number, z: number) => {
+    // 这个前后位置上从哪个高度开始并、到哪并好
+    const q = (z - zBack) / (zFront - zBack);
+    const g = q <= 0 ? 0 : q >= 1 ? 1 : q * q * (3 - 2 * q);
+    const split = splitBack + (splitFront - splitBack) * g;
+    const merged = mergedBack + (mergedFront - mergedBack) * g;
+    if (y >= merged) return 1;
+    if (y <= split) return 0;
+    const t = (y - split) / (merged - split);
+    return t * t * (3 - 2 * t);
+  };
+  /** 现在 (x, y, z) 的一点在素体上哪里取样（横着的 x） */
+  const sample = (x: number, y: number, z: number) => {
+    const w = mergedBy(y, z);
+    let far = 0;
+    if (w < 1) far += (1 - w) * Math.abs(apart(x));
+    if (w > 0) {
+      spreadBack(tile, x < 0 ? -x : x, y, z);
+      far += w * spread3[0];
+    }
+    return x < 0 ? -far : far;
+  };
+  /** 离表面近了的，除以取样这个变换最大的伸长倍数：横着拉、压过 kx，随高度、前后挪 ky、kz */
+  const lip = (v: number, kx: number, ky: number, kz: number) => {
+    const bend = ky * ky + kz * kz;
+    if (kx * kx <= 1 && bend < 1e-12) return v;
+    const s = kx * kx + bend + 1;
+    return v / Math.sqrt(Math.max(1, (s + Math.sqrt(Math.max(0, s * s - 4 * kx * kx))) / 2));
+  };
+  const at = (x: number, y: number, z: number) => {
+    const sx = sample(x, y, z);
+    return lip(one(sx, y, z), (sample(x + DIFF, y, z) - sx) / DIFF, (sample(x, y + DIFF, z) - sx) / DIFF, (sample(x, y, z + DIFF) - sx) / DIFF);
+  };
+  /**
+   * 坐着几个上半身的，往第 seat 个座位上那一份并：照腿排开的离素体正中多远、座位上那一份离素体正中多远，按并了几成混，
+   * 再照这一点在座位的哪边取正负（带着正负混的话，腿的中轴两边混出来的不再左右对称，表面在那里断开）。
+   * 一副胯上排开的（左右并排）两个座位中间那一段，照腿排开的（中间一个胯下）越往外离素体正中越远，座位上那一份（两个人的外胯）越往外越近，
+   * 混到一半是常数，那一段拉成一片平板，是已知的毛病；试过「每个高度最多挪一定量」，差得少的地方（外胯）一下子挪完，外胯上沿折出一个角。
+   * 横排多胯每个上半身坐一副的（Tile.pairs）中间那一段两边本来就一样，没有这个毛病
+   */
+  /**
+   * 每个上半身坐一副完整的胯的（Tile.pairs）：第 k 副胯照它自己那两条腿（legs[2k]、legs[2k + 1]）排，两条腿中间照素体的胯下拉开、压窄，
+   * 外边照素体那条腿外面挪过去——两条腿隔得和素体那一对一样远时就是一份原样的胯；手动挪过腿的，胯里的腿根跟着挪
+   */
+  const own = (x: number, k: number) => {
+    const l = legs[2 * k];
+    const r = legs[2 * k + 1];
+    if (x <= l) return x - l - half;
+    if (x >= r) return x - r + half;
+    return (x - (l + r) / 2) * ((2 * half) / (r - l));
+  };
+  const seatAt = (x: number, y: number, z: number, seat: number) => {
+    const w = mergedBy(y, z);
+    const lay = (at: number) => (tile.pairs ? own(at, seat) : apart(at));
+    const a = Math.abs(lay(x));
+    const b = x - seats![seat];
+    const far = (1 - w) * a + w * Math.abs(b);
+    // 伸长倍数照这一段直接算（接缝两边取样的地方差个正负号，差分会量出一道假的陡坡）
+    const slope = Math.abs((lay(x + DIFF) - lay(x)) / DIFF);
+    const kx = (1 - w) * (slope < 4 ? slope : 1) + w;
+    const gap = Math.abs(b) - a;
+    const ky = ((mergedBy(y + DIFF, z) - w) / DIFF) * gap;
+    const kz = ((mergedBy(y, z + DIFF) - w) / DIFF) * gap;
+    return lip(one(b < 0 ? -far : far, y, z), kx, ky, kz);
+  };
+  return (x, y, z) => {
+    if (y >= end) return one(x, y, z);
+    if (!seats) return at(x, y, z);
+    // 夹在两个座位中间的，两边那一份都量，取近的（和 twinned 一样，两份往中间靠拢、叠着的地方取并集）
+    let k = 0;
+    while (k < seats.length - 1 && x > seats[k + 1]) k++;
+    const v = seatAt(x, y, z, k);
+    if (k + 1 >= seats.length || x <= seats[k]) return v;
+    const other = seatAt(x, y, z, k + 1);
+    return other < v ? other : v;
+  };
+}
+/** 求变换伸长了几倍时差分的步长（米） */
+const DIFF = 1e-4;
+
+/** 照腿排开了的胯（见 GridUse.tile）在高度 y 上最外边往外挪了多少（排手臂时让开它；照后面的，后面并得晚） */
+export function tileShift(tile: Tile, y: number): number {
+  const [split, merged] = tile.rear;
+  const t = Math.min(1, Math.max(0, (y - split) / (merged - split)));
+  const w = t * t * (3 - 2 * t);
+  const legs = tile.legs[tile.legs.length - 1] - tile.half;
+  if (tile.seats) return (1 - w) * legs + w * tile.seats[tile.seats.length - 1];
+  const far = 10;
+  spreadBack(tile, far, y, 0);
+  return (1 - w) * legs + w * (far - spread3[0]);
+}
+
 /** spreadX、taperX 在高度 y（这块格子自己的）上把离中线的距离乘了多少 */
 export function spreadAt(spread: SpreadX, y: number): number {
   const [top, full, fullTo, bottom] = spread.levels;
@@ -239,7 +367,7 @@ function unspread(spread: SpreadX, lx: number, ly: number): void {
 const spread3 = new Float64Array(3);
 
 /** 并成一整块的那一段（见 Twin.steps）：现在离中线 far、高度 y、前后 z 的一点，拉开以前离中线多远（写进 spread3） */
-function spreadBack(twin: Twin, far: number, y: number, z: number): void {
+function spreadBack(twin: Pick<Twin, 'steps' | 'depth'>, far: number, y: number, z: number): void {
   const { steps } = twin;
   const last = steps.length - 1;
   // 这个高度上拉开多少（a），前面、后面的 core 多宽，在相邻两个高度之间渐变（da、dfront、dback 是它们随高度变得多快）
@@ -310,6 +438,9 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
   const cut = use.clipX;
   const below = use.clipBelow;
   const above = use.clipAbove;
+  /** 照腿排开了的（见 tiled）上下切口在排开以后的地方切：取样的地方随高度挪过（上半身上下挪过时），在素体上取样的那一点切就切错了高度 */
+  const inBelow = use.tile ? undefined : below;
+  const inAbove = use.tile ? undefined : above;
   const cutTo = use.clipTo;
   const round = use.clipRound ?? 0;
   const [bendX, bendZ, bendAngle, bendWidth] = use.bend ?? [0, 0, 0, 1];
@@ -494,8 +625,8 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
       }
     }
     let clip = cut === undefined ? -Infinity : cut - px * flip;
-    if (below !== undefined && below - py > clip) clip = below - py;
-    if (above !== undefined && py - above > clip) clip = py - above;
+    if (inBelow !== undefined && inBelow - py > clip) clip = inBelow - py;
+    if (inAbove !== undefined && py - inAbove > clip) clip = py - inAbove;
     if (lip > 1) {
       if (lip > squeeze) squeeze = lip;
       clip /= lip;
@@ -571,7 +702,20 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
     return clip > d ? clip : d;
   };
   const twin = use.twin;
-  const shaped: Dist = twin ? twinned(one, twin) : one;
+  const tile = use.tile;
+  const laid: Dist | undefined = tile ? tiled(one, tile) : undefined;
+  const shaped: Dist = twin
+    ? twinned(one, twin)
+    : laid
+      ? below === undefined && above === undefined
+        ? laid
+        : (x, y, z) => {
+            let v = laid(x, y, z);
+            if (below !== undefined && below - y > v) v = below - y;
+            if (above !== undefined && y - above > v) v = y - above;
+            return v;
+          }
+      : one;
   const fn: Dist =
     twin && skin
       ? (x, y, z) => {
@@ -649,6 +793,13 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
     if (twin) {
       // 左右各放了一份（并成一整块的那一段拉开得不比 d 多）
       const most = Math.max(twin.d, ...twin.steps.map((step) => step[1]));
+      box.min[0] -= most;
+      box.max[0] += most;
+    }
+    if (tile) {
+      // 最外边两条腿外面的整个挪过去了；往上一整块拉开的、坐着几个上半身的最外边那个座位
+      const seats = (tile.seats ?? []).map(Math.abs);
+      const most = Math.max(0, tile.legs[tile.legs.length - 1] - tile.half, -(tile.legs[0] + tile.half), ...tile.steps.map((step) => step[1]), ...seats);
       box.min[0] -= most;
       box.max[0] += most;
     }

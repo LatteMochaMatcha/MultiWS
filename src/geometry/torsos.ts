@@ -17,7 +17,7 @@
 import { castRay, compileField } from '../sdf/field';
 import { getGrid, spreadAt } from '../sdf/grids';
 import type { TorsoSide } from '../model/spec';
-import { type BoneHint, type Figure, type Fork, type Graft, type GridShape, type Part, type Prim, type WidenBand, nthName, shapeMatrix } from './figure';
+import { type BoneHint, type Figure, type Fork, type Graft, type GridShape, type Part, type Prim, type Tile, type WidenBand, nthName, shapeMatrix } from './figure';
 import { HEAD_HALF_WIDTH } from './head';
 import { ringAt } from './torso';
 import { type Mat3, type Quat, type V3, Q_ID, add, len, mat3Apply, norm, quatBetween, quatConj, quatEuler, quatMul, rotate, sub } from './vec';
@@ -106,6 +106,35 @@ const UPRIGHT_HEAD_GAP = 0.01;
  * 试过 1.2（挤在一起）、2.0（三个腰正好挨着）、2.6（一对腿时胯成了很宽的一大块）
  */
 const UPRIGHT_SPREAD_THREE = 2.3;
+/**
+ * 胯照腿排开了的（二次元素体左右并排、横排多胯，见 GridShape.tile）：每个上半身坐在一个座位上，胯从大腿根往上渐渐换成每个座位上一份
+ * 素体原样的胯（见 Tile.seats）：前面 front、后面 rear 这两个高度之间换（屁股鼓得高，后面换得晚），换完了（top）才分开，
+ * 上半身坐在那一份上（切口以下就挪足了），切口处是同一张皮；上半身各有各的腰，中间一道 V 从胯顶开出来。
+ * 座位：腿平分给几个上半身，坐在每份腿正中（不比照一对腿时直立并排挪得少，见 UPRIGHT_OVERLAP）。每份正好一对腿的，座位上那份素体原样的胯
+ * 两个腿根就在那两条腿上；不是一对的（三条腿两个上半身这种），座位上那份的腿根和腿对不上：腿那块本来往上伸进胯里（外胯那里伸到 0.91），
+ * 胯往里收的时候它会从胯里支出来一圈，所以改照 late 那两个高度换，从腿那块的顶上才开始（见 seatLevels）。
+ * 试过每份正中再往正中收四分之一：每份一对腿的也对不上了，大腿根一圈台阶。试过对不上的腿在 front 往上切掉：大腿外侧那截是腿那块的，
+ * 胯那块在那里只有个封口，切开一道沟。
+ * 试过照一对腿时那样挤在一起、胯往上收成一个人的胯往两边拉开：四条腿的胯 60 厘米宽，两个腰并起来不到 30 厘米，切口以下收不回来，像条蓬蓬裙
+ */
+const SEAT = {
+  front: [0.86, 0.96] as [number, number],
+  rear: [0.9, 0.975] as [number, number],
+  late: { front: [0.915, 0.978] as [number, number], rear: [0.93, 0.98] as [number, number] },
+  top: 0.995,
+};
+/** 腿离座位上那份素体原样的胯的腿根差多少以内算对得上（米） */
+const LEG_FIT = 0.002;
+/**
+ * 坐在座位上的胯从哪往座位上那份换（见 SEAT）：每条腿都正好在某个座位的一个腿根上（离座位正好半个腿距），或者最外边的座位
+ * 不比最外边那条腿靠里（胯往上是变宽的，腿那块盖得住）的早一点换；不然从腿那块的顶上才开始换。legs、seats、half 都是躯干自己的坐标
+ */
+function seatLevels(tile: Tile, seats: readonly number[]): Pick<Tile, 'levels' | 'rear'> {
+  const { legs, half } = tile;
+  const fits = legs.every((x) => seats.some((s) => Math.abs(Math.abs(x - s) - half) < LEG_FIT));
+  const covered = seats[seats.length - 1] >= legs[legs.length - 1] - half - LEG_FIT && seats[0] <= legs[0] + half + LEG_FIT;
+  return fits || covered ? { levels: SEAT.front, rear: SEAT.rear } : { levels: SEAT.late.front, rear: SEAT.late.rear };
+}
 /**
  * 直立并排时里侧的手臂：肩关节歪过以后离正中线不到 BESIDE_ROOT 的，挪回自己这边（不然伸到旁边那个身子里，两边的交叉着长出来；
  * 两边的根离得太近，融合、算权重时两条粘成一块，摆姿势时一条被另一个身子拽着走），从两个肩膀之间张开的那道 V 里长出来。
@@ -209,7 +238,9 @@ export function splitTorsos(figure: Figure, count: number, sources: Partial<Reco
     if (p.kind !== 'ellipsoid' || (!p.cut && !p.soft)) return -Infinity;
     return carveTop(p) + (p.soft ?? 0) + FORK_CLEAR + (p.cut ? FORK_OVERLAP : 0);
   };
-  const forkFrom = Math.min(cutY, Math.max(hipY, ...torso.prims.map(influence)));
+  /** 胯照腿排开了的（见 SEAT） */
+  const seated = sampled ? torso.prims.find((p): p is GridShape => p.kind === 'grid' && !!p.tile) : undefined;
+  const forkFrom = Math.min(cutY, Math.max(hipY, ...torso.prims.map(influence), seated ? SEAT.top : -Infinity));
   // 躯干过渡的上限：拼的胸、手臂根、翅膀根以下。采样胸单独接在胸壁上，保留较长的躯干过渡。
   const rigid = allUpper.filter(
     (p) => p.parent === 'Torso' && (p.type === 'chest' ? !p.prims.some((q) => q.kind === 'grid' || q.kind === 'chest') : sampled && (p.type === 'arm' || p.type === 'wing')),
@@ -223,6 +254,19 @@ export function splitTorsos(figure: Figure, count: number, sources: Partial<Reco
     for (let y = forkFrom; y <= forkTo; y += 0.005) waist = Math.min(waist, 0.6 - castRay(whole, [0.6, y, 0], [-1, 0, 0], 0.6));
     outward = waist * (three ? UPRIGHT_SPREAD_THREE : UPRIGHT_OVERLAP);
   }
+  if (seated) {
+    // 腿平分给几个上半身：从最右边那条腿外面半个腿距到最左边那条腿外面半个腿距，等分几段，座位在每段正中（见 SEAT）；
+    // 不比最外边那条腿往外挪的多（不然往座位上那份换的时候外胯反而往外顶出一个角）。比它靠里的（每个上半身分到三条腿这种）
+    // 往它那边挪一半：胯从腿那块的顶上才开始往里收（见 seatLevels），要收的少一半，外胯上沿不至于一下子折进去
+    // 每个上半身坐一副完整的胯的（Tile.pairs）：座位就在最外边那副胯的正中
+    const { legs, half, pairs } = seated.tile!;
+    const span = legs[legs.length - 1] - legs[0] + 2 * half;
+    const center = (span / 2) * (1 - 1 / slots.length);
+    const edge = legs[legs.length - 1] - half;
+    outward = pairs ? (legs[legs.length - 1] + legs[legs.length - 2]) / 2 : Math.max(outward, center < edge ? (center + edge) / 2 : edge);
+  }
+  /** 座位（见 SEAT）：每个上半身的腰在哪，从 -X 到 +X */
+  const seats = slots.map((slot) => slot * outward).sort((a, b) => a - b);
 
   /* ---- 躯干切成两截：分开的地方以下是胯，往上（多留一截）是复制用的那一份 ---- */
   const pelvisTop = forkFrom + FORK_SEAM;
@@ -235,6 +279,10 @@ export function splitTorsos(figure: Figure, count: number, sources: Partial<Reco
     if (p.kind === 'loft') {
       below.push({ ...p, rings: [...p.rings.filter((r) => r.y < pelvisTop), ringAt(p.rings, pelvisTop)] });
       above.push({ ...p, rings: [ringAt(p.rings, copyBottom), ...p.rings.filter((r) => r.y > copyBottom)] });
+    } else if (p.kind === 'grid' && p.tile) {
+      // 胯照腿排开了：往上换成每个座位上一份（见 SEAT），不另外加宽；上半身那几份不排开
+      below.push({ ...p, clipAbove: pelvisTop, clipRound: 0, tile: { ...p.tile, seats, ...seatLevels(p.tile, seats) } });
+      above.push({ ...p, clipBelow: copyBottom, clipRound: 0, tile: undefined });
     } else if (p.kind === 'grid') {
       // 两个上半身：胯的上半截跟着上半身往两边挪开的那么多加宽（见 SPLIT_HALF）。胯宽（spreadX）是在加宽以后再乘的：先除掉
       const f = p.spreadX ? spreadAt(p.spreadX, forkFrom) : 1;
@@ -393,7 +441,12 @@ export function splitTorsos(figure: Figure, count: number, sources: Partial<Reco
           shift,
           from: forkFrom + TURN_DELAY,
           to: forkTo,
-          ...(three && !upright ? { shiftFrom: forkFrom, shiftTo: forkTo } : { shiftFrom: forkFrom - SPLIT_HALF, shiftTo: forkFrom + SPLIT_HALF }),
+          // 坐在座位上的（见 SEAT）：切口以下就挪足了，切口处坐在胯上座位那一份上
+          ...(seated
+            ? { shiftFrom: copyBottom - 2 * FORK_OVERLAP, shiftTo: copyBottom - FORK_SEAM }
+            : three && !upright
+              ? { shiftFrom: forkFrom, shiftTo: forkTo }
+              : { shiftFrom: forkFrom - SPLIT_HALF, shiftTo: forkFrom + SPLIT_HALF }),
           ...(split ? { split } : {}),
         }
       : { pivot, quat: q, shift, from: forkFrom, to: forkTo, ...(split ? { split } : {}) };
@@ -690,11 +743,30 @@ function crowded(parts: Part[], slots: readonly number[], shoulder: V3): Part[] 
 const mulAdd = (a: V3, b: V3, t: number): V3 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
 /**
+ * 胯照腿排开了的（GridShape.tile）：腿手动左右挪过的，胯上排开的地方跟着腿现在在哪（不然胯里的大腿根还在原处，和腿错开一截）。
+ * 照这副胯上和躯干直接取并集的那几条腿（见 Part.fuseAs），躯干自己的坐标
+ */
+function followLegs(figure: Figure): Figure {
+  const torso = figure.parts.find((p) => p.name === 'Torso');
+  const grid = torso?.prims.find((q): q is GridShape => q.kind === 'grid' && !!q.tile);
+  if (!torso || !grid) return figure;
+  const xs = figure.parts
+    .filter((p) => p.type === 'leg' && p.fuseAs === 'torso')
+    .map((p) => p.pos[0] - torso.pos[0])
+    .sort((a, b) => a - b);
+  const legs = grid.tile!.legs;
+  if (xs.length !== legs.length || xs.every((x, k) => Math.abs(x - legs[k]) < 1e-9)) return figure;
+  const moved: GridShape = { ...grid, tile: { ...grid.tile!, legs: xs } };
+  return { ...figure, parts: figure.parts.map((p) => (p === torso ? { ...p, prims: p.prims.map((q) => (q === grid ? moved : q)) } : p)) };
+}
+
+/**
  * 手动微调挪过、转过某个上半身以后（见 tweak.ts）：它从胯上分出去的那一段照它现在的摆放重新定——分足以后就是挪过、转过的样子，
  * 分开之前还在胯上，腰跟着拉长、拧过去，不会和胯断开、错出一道台阶。旁边的上半身照它们现在的摆放分界。
  * 没有微调的时候算出来和原来一样
  */
-export function refork(figure: Figure): Figure {
+export function refork(given: Figure): Figure {
+  const figure = followLegs(given);
   // 只从躯干自身的分叉取摆放，忽略挂载格子坐标系中的分叉。
   const forkOf = (p: Part): Fork | undefined => {
     for (const q of p.prims) if ((q.kind === 'grid' || q.kind === 'loft') && q.fork && !q.fork.frame) return q.fork;
@@ -729,11 +801,17 @@ export function refork(figure: Figure): Figure {
   });
   // 胯上半截加宽的那一段（见 SPLIT_HALF）照几个上半身现在实际往两边挪了多少改（手动挪过的）
   const outward = [...forks.values()].map((fork) => Math.abs(fork.shift[0])).filter((x) => x > 1e-6);
+  // 坐在座位上的（见 SEAT）：座位照几个上半身的腰现在实际往两边挪了多少（上下、前后挪的跟着转那一段走，切口那里没挪，见 Fork.shiftFrom）
+  const seats = bodies
+    .filter((p) => forks.has(p.name))
+    .map((p) => add(p.pos, rotate(p.quat, forks.get(p.name)!.pivot))[0])
+    .sort((a, b) => a - b);
   const pelvised = bodies.map((p): Part => {
     if (!outward.length || p.name !== 'Torso') return p;
     const amount = outward.reduce((a, b) => a + b, 0) / outward.length;
     const one = [...forks.values()][0];
     const prims = p.prims.map((q): Prim => {
+      if (q.kind === 'grid' && q.tile?.seats) return { ...q, tile: { ...q.tile, seats, ...seatLevels(q.tile, seats) } };
       if (q.kind !== 'grid' || !q.widenX || one.shiftFrom === undefined) return q;
       const mid = (one.shiftFrom + one.shiftTo!) / 2;
       const f = q.spreadX ? spreadAt(q.spreadX, mid) : 1;

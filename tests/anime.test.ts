@@ -416,11 +416,13 @@ describe('二次元少女素体', () => {
     };
     expect(groove(torso.prims)).toBeGreaterThan(groove(torso.prims.filter((p) => p !== cut)) + 0.004);
     expect(groove(torso.prims)).toBeGreaterThan(0.012);
-    // 左右并排：躯干原样不开缝，垫的胯上开
+    // 左右并排：胯照腿排开（每条腿一瓣素体原样的屁股），每两条腿中间那道浅的各挖深一道；不另外垫胯
     const row = buildFigure(anime('', { legLayout: 'row', counts: { ...anime().counts, legs: 4 } }));
-    expect(cuts(part(row, 'Torso').prims)).toHaveLength(0);
-    expect(part(row, 'LowerBody').prims.filter((p) => p.name.startsWith('Glute'))).toHaveLength(4);
-    expect(cuts(part(row, 'LowerBody').prims)).toHaveLength(3);
+    const legs = row.parts.filter((p) => p.type === 'leg').map((p) => p.pos[0]).sort((a, b) => a - b);
+    const crotches = cuts(part(row, 'Torso').prims).map((p) => (p.kind === 'ellipsoid' ? p.center[0] : NaN));
+    expect(crotches).toHaveLength(3);
+    crotches.forEach((x, i) => expect(x).toBeCloseTo((legs[i] + legs[i + 1]) / 2, 9));
+    expect(row.parts.find((p) => p.name === 'LowerBody')).toBeUndefined();
   });
 
   it('人腿人马：前面一对腿还是素体原装的，后面接一截腰、一副胯和一对一样的腿，融合成一整块', () => {
@@ -502,10 +504,11 @@ describe('二次元少女素体', () => {
       expect(low, text).toBeGreaterThan(-0.01);
       expect(low, text).toBeLessThan(0.01);
     }
-    // 人腿人马前面那副胯上三条：腿不在素体原来的位置上，不和躯干取并集；胯底下垫一副胯把腿根包住
+    // 人腿人马前面那副胯上三条：躯干的胯照这三条腿排开（见 tile.test.ts），这三条接在排开以后的原位上、和躯干取并集；不另外垫胯
     const three = buildFigure(anime('人腿人马 前三后三'));
-    expect(three.parts.filter((p) => p.type === 'leg' && p.fuseAs === 'torso')).toEqual([]);
-    expect(part(three, 'LowerBody').prims.map((p) => p.name)).toContain('Pelvis_01');
+    expect((part(three, 'Torso').prims[0] as { tile?: unknown }).tile).toBeTruthy();
+    expect(three.parts.filter((p) => p.type === 'leg' && p.fuseAs === 'torso').map((p) => p.name).sort()).toEqual(['Leg_01', 'Leg_01_L', 'Leg_01_R']);
+    expect(part(three, 'LowerBody').prims.map((p) => p.name)).not.toContain('Pelvis_01');
     // 正好一对的时候还是原装的那一对
     expect(part(buildFigure(anime('人腿人马')), 'Leg_01_L').fuseAs).toBe('torso');
   });

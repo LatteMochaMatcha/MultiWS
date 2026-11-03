@@ -121,6 +121,9 @@ const tube = (name: string, points: V3[], r0: number, r1: number, bulge: number)
   bulge,
 });
 
+/** 一副胯上左右并排 count 条腿：各条腿的髋关节离这副胯正中多远，从 -X 到 +X（和 lowerParts 里排腿一样：相邻两条隔 2 hx，单数时正中一条） */
+export const rowSpots = (count: number, hx: number): number[] => Array.from({ length: count }, (_, i) => (2 * i - (count - 1)) * hx);
+
 /** 横排多胯：相邻两副胯的正中隔两副的半宽之和的这么多分之二（不到 2：稍微叠着，并成一整块） */
 const ABREAST_SPAN = 1.8;
 
@@ -1154,6 +1157,13 @@ export interface LowerOptions {
    */
   twin?: number;
   /**
+   * 现成的胯照腿排开了（二次元素体，见 GridShape.tile）：左右并排、横排多胯时不另外垫胯、屁股（以前是一块横着的椭球），
+   * 腿照排开以后的原位接上（腿的位置和 rowSpots、abreastSpots 一样）
+   */
+  tiled?: boolean;
+  /** 横排多胯每副胯的正中（从 -X 到 +X），不给就照 abreastSpots 排（二次元素体每个上半身坐一副胯时照 D 的两副胯那样挨着，见 Tile.pairs） */
+  hipsAt?: number[];
+  /**
    * 一条人腿（髋关节在局部原点）：side 一侧、第 pair 对，接在 parent 这节骨骼上。
    * side 为 0 是长在中线上的腿，pair 是第几条中线上的腿。
    * native：腿就在原位时（双足站立；人腿人马最前面那一对），这条腿和躯干直接取并集（见 Part.fuseAs）。
@@ -1337,7 +1347,9 @@ export function lowerParts(options: LowerOptions): { parts: Part[]; tailRoot: V3
     // 人腿横排多胯：几副完整的胯（各有自己的屁股、胯下）左右并排，稍微叠着并成一整块；每副胯两条腿（单数时正中那副一条）。
     // 上半身还是一个，坐在正中。每副胯上的两条腿是这副胯自己的左右（套现成的姿势时，每副胯的左腿都照左腿摆）
     const pelvis = options.pelvis ?? [0.162 * hips * b, 0.105 * b, 0.118 * b];
-    const { xs, halves } = abreastSpots(stations, pelvis[0], hx);
+    const spots = abreastSpots(stations, pelvis[0], hx);
+    const xs = options.hipsAt ?? spots.xs;
+    const { halves } = spots;
     // 屁股照左右并排时那样：瓣宽到两道缝之间，只比这副胯往后鼓一点点（不然一瓣一瓣像一排球粘在胯上）
     const [cx, cy, cz] = cheekRadii(b, hips);
     const radii: V3 = [Math.max(cx, hx), cy, cz];
@@ -1349,7 +1361,7 @@ export function lowerParts(options: LowerOptions): { parts: Part[]; tailRoot: V3
     });
     // 相邻两副胯接上的地方背后也是一道缝（不然两副胯里侧的两瓣并成一大块），挖在最后，几副胯的瓣都挖得到
     for (let k = 1; k < n; k++) prims.push(cleft(`Seam_${pad(k)}`, [(xs[k - 1] + xs[k]) / 2, -0.005, cz - pelvis[2] - 0.006 * b], radii, b));
-    lower('LowerBody', [0, pelvisY, hz], prims);
+    if (!options.tiled) lower('LowerBody', [0, pelvisY, hz], prims);
     // 腿从正中往外一副一副排（编号也这么数：正中那副是第一对），左边的先
     const order = xs.map((_, k) => k).sort((a, c) => Math.abs(xs[a]) - Math.abs(xs[c]) || xs[c] - xs[a]);
     for (const k of order) humanRow(stations[k], hz, 'Hips', 0, xs[k]);
@@ -1364,7 +1376,7 @@ export function lowerParts(options: LowerOptions): { parts: Part[]; tailRoot: V3
     const [cx, cy, cz] = cheekRadii(b, hips);
     const radii: V3 = [Math.max(cx, hx), cy, cz];
     const seat = options.rowSeat ? buttocks(stations[0], hx, [0, -0.005, cz - wide[2] - 0.006 * b], radii, 0.06 * hips, 0.03, b) : [];
-    lower('LowerBody', [0, pelvisY, -0.005], [blob('LowerBody', wide, O), ...seat]);
+    if (!options.tiled) lower('LowerBody', [0, pelvisY, -0.005], [blob('LowerBody', wide, O), ...seat]);
     humanRow(stations[0], hz, 'Hips');
     tailRoot = options.tailRoot;
   } else if (form === 'taur') {

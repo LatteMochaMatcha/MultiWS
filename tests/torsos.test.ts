@@ -125,7 +125,8 @@ describe('好几个上半身', () => {
     const grid = part(before, 'UpperBody_L').prims.find((q) => q.kind === 'grid')!;
     if (grid.kind !== 'grid' || !grid.fork) throw new Error('没有分叉');
     const h = grid.clipBelow! + 0.004;
-    const u = (h - grid.fork.shiftFrom!) / (grid.fork.shiftTo! - grid.fork.shiftFrom!);
+    // 挪的那一段可能在切口以下就挪足了（胯照腿排开、上半身坐在座位上的，见 torsos.ts 的 SEAT）
+    const u = Math.min(1, Math.max(0, (h - grid.fork.shiftFrom!) / (grid.fork.shiftTo! - grid.fork.shiftFrom!)));
     const move = u * u * u * (u * (6 * u - 15) + 10);
     for (const x of [0.02, 0.06, 0.09]) {
       const from: V3 = [x + grid.fork.shift[0] * move, h + part(before, 'Torso').pos[1], -0.5];

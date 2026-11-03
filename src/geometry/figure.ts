@@ -146,6 +146,8 @@ export interface GridShape extends Mass {
   fork?: Fork;
   /** 左右各放一份、腰那一段并成一整块（两个人并成一个宽躯干），见 sdf/grids.ts 的 GridUse.twin */
   twin?: Twin;
+  /** 胯上好几条腿时照原样排开（每两条腿中间一份素体的胯下），见 sdf/grids.ts 的 GridUse.tile */
+  tile?: Tile;
   /**
    * 这块格子存的是到一层面片的距离（头发），没有里外：离面片 shell 以内的地方算实心。
    * 融合网格比较粗的时候会自动加厚，免得薄薄的一层在体素网格上破洞
@@ -172,6 +174,33 @@ export interface Twin {
    * 不给就一直各是各的、不并
    */
   levels?: [bottom: number, full: number, fullTo: number, top: number];
+}
+
+/** 胯上好几条腿时照原样排开：见 sdf/grids.ts 的 GridUse.tile */
+export interface Tile {
+  /** 胯那一段每条腿的髋关节离中线多远，从 -X 到 +X 排好；素体自己那一对在 ±half */
+  legs: number[];
+  half: number;
+  /**
+   * 从下往上两个高度：split 以下照 legs 排开，到 merged 渐渐换成一整块往两边拉开（steps）。前面照 levels、后面照 rear
+   * （后面屁股鼓得高，要等整个屁股排完再并），前后之间照 depth 渐变
+   */
+  levels: [split: number, merged: number];
+  rear: [split: number, merged: number];
+  /** 一整块那一段几个高度上往两边拉开多少、离中线多远以内是被拉开的（前面、后面各一个），和 Twin.steps 一样记 */
+  steps: [y: number, amount: number, front: number, back: number][];
+  /** 前后在 depth 这两个 z 之间从后面的（core、rear）渐渐换成前面的 */
+  depth: [back: number, front: number];
+  /**
+   * 坐着几个上半身（见 geometry/torsos.ts 的 splitTorsos）：往上不并成一整块，渐渐换成每个座位上一份素体原样的胯
+   * （座位是每个上半身的腰在哪，从 -X 到 +X），相邻两份叠着的地方取并集；steps 不用
+   */
+  seats?: number[];
+  /**
+   * 横排多胯、每个上半身正好坐一副胯（见 animeLayout.ts 的 tileLegs）：每副胯是一份完整的素体原样的胯，腿就是它原装的那对，
+   * 坐着几个上半身时一直照座位上那几份（相邻两份叠着并成一块），不照腿排开（和 D 的两副胯一样）
+   */
+  pairs?: boolean;
 }
 
 /** 离身体中线的距离按比例拉宽、压窄：见 sdf/grids.ts 的 GridUse.spreadX */

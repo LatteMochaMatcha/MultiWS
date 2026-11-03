@@ -15,10 +15,10 @@ import { FINGER_JOINTS, HAND_STUMP, handGraft } from '../anime/hand';
 import { type BodySpec, legPlan } from '../model/spec';
 import { genitalReady } from '../anime/genital';
 import { type CompiledField, castRay, compileField } from '../sdf/field';
-import { wideFrame } from '../sdf/grids';
+import { tileShift, wideFrame } from '../sdf/grids';
 import { BESIDE_DROP, BESIDE_YAW } from './torsos';
 import { type Stretch, restretch } from '../sdf/stretch';
-import { type Figure, type Graft, type GridShape, type Part, type Prim, type SpreadX, type WidenBand, nthName } from './figure';
+import { type Figure, type Graft, type GridShape, type Part, type Prim, type SpreadX, type Tile, type WidenBand, nthName } from './figure';
 import { type CustomHead, type HeadHair, makeFace, makeHead } from './head';
 import {
   type HangBlock,
@@ -41,6 +41,7 @@ import {
   lowerParts,
   mass,
   pad,
+  rowSpots,
   spiderFloor,
   tag,
   tailParts,
@@ -330,6 +331,16 @@ const PAIR_HIPS = {
   ] as [number, number, number, number][],
   never: 9,
 };
+/**
+ * 胯照腿排开（见 GridShape.tile）：后面从哪个高度开始并、到哪并好——素体的屁股鼓到 0.98 才收进后腰，照 TWIN.split 就并的话
+ * 上半截屁股被拉平，一排半个的屁股、上沿一道横棱。腿比四条左右并排时多了几倍（more，最多算 2），PAIR_HIPS.steps 的每个高度
+ * 跟着挪 lower、拉开的倍数多 wider：从腰往下宽出去的那一段长一点，腰也宽一点
+ */
+const TILE = {
+  rear: [0.95, 1.05] as [number, number],
+  lower: [-0.02, 0, 0.05],
+  wider: [0, 0.12, 0],
+};
 const SHOULDER_CAP = { center: [-0.006, -0.006, 0] as V3, radii: [0.038, 0.03, 0.034] as V3, soft: 0.015 };
 const FAN = {
   inset: 0.02,
@@ -487,6 +498,47 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
   const frontAt = (x: number, y: number) => 0.5 - castRay(probe, [x, y, 0.5], [0, 0, -1], 0.5);
   const backAt = (x: number, y: number) => -0.5 + castRay(probe, [x, y, -0.5], [0, 0, 1], 0.5);
   /**
+   * 胯上好几条腿（左右并排；人腿人马前面那副胯三四条；横排多胯，两副胯各两条的除外——那是照 TWIN 分成两份）：
+   * 躯干那块格子照腿排开（见 GridShape.tile），腿接在排开以后的原位上。以前胯底下垫一块横着的椭球（横排多胯每副胯一块），看着像个椭圆。
+   * 和 D 的两副胯一样：TWIN.split 以下照腿排开，到 TWIN.merged 并成一整块，往两边拉开多少照 PAIR_HIPS.steps
+   * （倍数照最外边那条腿比素体那一对往外挪了多少）——腰上还是一个人的，胯从腰往下顺着宽出去。
+   * 好几个上半身的往上不并成一个人的腰，每个上半身坐在自己那几条腿上面（见 torsos.ts 的 splitTorsos、Tile.seats）
+   */
+  /**
+   * 横排多胯、好几个上半身、每个上半身正好坐一副两条腿的胯（见 Tile.pairs）：几副胯照 D 的两副胯那样挨着（相邻两副隔一副胯半宽的
+   * 2·TWIN.span 倍，稍微叠着），腿就是每副胯原装的那对。照 abreastSpots 排的话里侧两条腿要隔开两个髋关节间距，两副胯在正中差一条缝碰不上，
+   * 只能靠照腿排开的胯下去接，往上换成两个人的胯时中间拉出一片平板
+   */
+  const pairs = form === 'abreast' && c.torsos > 1 && plan.stations.length === c.torsos && plan.stations.every((n) => n === 2);
+  const hipsAt = pairs ? plan.stations.map((_, k) => (2 * k - (plan.stations.length - 1)) * TWIN.span * sideAt(HIP[1] + 0.03, 0)) : undefined;
+  const tileLegs =
+    form === 'row' || ((form === 'biped' || form === 'humantaur') && plan.stations[0] > 2)
+      ? rowSpots(plan.stations[0], HIP[0])
+      : form === 'abreast' && !hipPair
+        ? ((xs) => plan.stations.flatMap((count, k) => rowSpots(count, HIP[0]).map((x) => x + xs[k])))(hipsAt ?? abreastSpots(plan.stations, sideAt(HIP[1] + 0.03, 0), HIP[0]).xs)
+        : null;
+  /** 最外边那条腿比素体那一对往外挪了多少；比四条腿左右并排时多了几倍（more） */
+  const tileOut = tileLegs ? tileLegs[tileLegs.length - 1] - HIP[0] : 0;
+  const more = Math.max(0, tileOut / (2 * HIP[0]) - 1);
+  const tile: Tile | null = tileLegs
+    ? {
+        legs: tileLegs,
+        half: HIP[0],
+        levels: [TWIN.split, TWIN.merged],
+        rear: TILE.rear,
+        // 腿多了胯宽出去得多：从腰往下宽出去的那一段跟着拉长、腰也宽一点，不然腰下面像端着一副肩膀
+        steps: PAIR_HIPS.steps.map(([y, k, front, back], j): [number, number, number, number] => [
+          y + TILE.lower[j] * Math.min(more, 2),
+          (k + TILE.wider[j] * Math.min(more, 2)) * tileOut,
+          front,
+          back,
+        ]),
+        depth: TWIN.depth,
+        ...(pairs ? { pairs: true } : {}),
+      }
+    : null;
+  if (tile) torso[0] = { ...torsoShape, tile };
+  /**
    * 每排胸（见 anime/chest.ts）：下排和第一排一模一样（一样大、离中线一样远），只是往下挪 gap。
    * 胸中心在平胸表面上的哪一点（+X 那边、素体自己的坐标）；肩膀加宽时那里往外挪了多少（x）；胸腔加长以后第一排跟着上移多少（lift）。
    * 并成一个宽躯干的：胸按一个人算，摆在正中，照宽躯干现量的展开图（见 ChestShape.wide）找表面上的那一点（高度是加长以后的）
@@ -501,17 +553,20 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
 
   // 屁股缝：素体自己的屁股上有一道浅的，照着挖深（多出来的胯、加宽的胯上的屁股见 lowerParts）。
   // 照一瓣屁股的正中往下找最鼓的那一圈，缝就开在那个高度的正中
-  // 并成一个宽躯干的：两副胯各一道
-  if (form === 'biped' || hipPair) {
+  // 并成一个宽躯干的：两副胯各一道。胯照腿排开的（左右并排、横排多胯）：每两条腿中间一道——每一份胯中段的正中都是素体那道浅的，
+  // 照素体正中那道量（人腿人马的屁股接着后面的腰，不开缝）
+  // 每个上半身坐一副完整的胯的（Tile.pairs）：每副胯一道（两副胯之间是两个人的外胯挨着，不是胯下）
+  const crotches = hipsAt ?? (tile && (form === 'row' || form === 'abreast') ? tile.legs.slice(1).map((x, i) => (x + tile.legs[i]) / 2) : null);
+  if (form === 'biped' || hipPair || crotches) {
     const radii = cheekRadii(b, 1);
-    (hipPair ? [-twinD, twinD] : [0]).forEach((x, k) => {
-      const own = x;
+    (crotches ?? (hipPair ? [-twinD, twinD] : [0])).forEach((x, k, all) => {
+      const own = crotches ? 0 : x;
       let apex: V3 = [x, HIP[1], backAt(own + CHEEK_X, HIP[1])];
       for (let y = HIP[1] - 0.06; y <= HIP[1] + 0.08; y += 0.005) {
         const z = backAt(own + CHEEK_X, y);
         if (z < apex[2]) apex = [x, y, z];
       }
-      torso.push(cleft(hipPair ? `Cleft_${pad(k + 1)}` : 'Cleft', [x, apex[1], apex[2] + radii[2]], radii, b));
+      torso.push(cleft(all.length > 1 ? `Cleft_${pad(k + 1)}` : 'Cleft', [x, apex[1], apex[2] + radii[2]], radii, b));
     });
   }
 
@@ -630,18 +685,24 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
   let hang: number[] = [];
   if (!stacked && !tPose) {
     // 自然下垂时，最贴身的一对要让开胯、下面几排胸、马身。
-    // 胯上三条以上腿（左右并排、人腿人马前面那副胯）时胯底下垫着一副更宽的胯（见下半身 frontCover），要让开它
-    const cover = plan.stations[0] > 2 && (form === 'row' || form === 'biped' || form === 'humantaur') ? HIP[0] * (plan.stations[0] - 1) + 0.07 * b : 0;
+    // 胯上三条以上腿（左右并排、人腿人马前面那副胯）、没照腿排开时（好几个上半身）胯底下垫着一副更宽的胯（见下半身 frontCover），要让开它
+    const cover = !tile && plan.stations[0] > 2 && (form === 'row' || form === 'biped' || form === 'humantaur') ? HIP[0] * (plan.stations[0] - 1) + 0.07 * b : 0;
     const blocks: HangBlock[] = [
       form === 'taur'
         ? { wide: 0.21 * b, level: TAUR_LEVEL - lift[1] }
         : {
-            wide: form === 'abreast' && !hipPair ? abreastSpots(plan.stations, sideAt(HIP[1] + 0.03, 0), HIP[0]).wide : sideAt(HIPS[1], 0),
+            wide: tile
+              ? sideAt(HIPS[1], 0) + tileShift(tile, HIPS[1])
+              : form === 'abreast' && !hipPair
+                ? abreastSpots(plan.stations, sideAt(HIP[1] + 0.03, 0), HIP[0]).wide
+                : sideAt(HIPS[1], 0),
             level: HIPS[1],
           },
     ];
     // 垫的那副胯是个椭球（正中在 HIP[1] + 0.03，半高 0.1 b）：上半截也很宽，沿着它的上沿多量几个高度
     if (cover) for (const s of [0, 0.4, 0.7, 0.9]) blocks.push({ wide: cover * Math.sqrt(1 - s * s), level: HIP[1] + 0.03 + s * 0.1 * b });
+    // 胯照腿排开了：从腰往下一路宽出去，沿着外胯多量几个高度
+    if (tile) for (let y = HIP[1]; y < SHAPE.waist.y; y += 0.04) blocks.push({ wide: sideAt(y, 0) + tileShift(tile, y), level: y });
     chestRows.forEach((row, j) => {
       // 照胸调的大小量（大胸的胸型比以前那种窄，虽然放大得多一点，这样留的空也够：再宽的话手臂抬得高，手臂根上那片腋下的皮翻出来）
       blocks.push({ wide: upperD + row.x + 0.095 * (j ? row.size : sh.bust), level: row.y });
@@ -911,8 +972,9 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
     rowSeat: true,
     // 并成一个宽躯干的：两副胯就是躯干那两份自己的胯
     ...(hipPair ? { twin: twinD } : {}),
-    // 胯上三条以上腿（人腿人马每副胯好几条）：两个腿根的切口露在外面，垫一副胯包住
-    ...(plan.stations[0] > 2 && (form === 'biped' || form === 'humantaur') ? { cover: frontCover(plan.stations[0]) } : {}),
+    // 胯照腿排开了：不另外垫胯（以前胯上三条以上腿时垫一副椭球的胯，把两个腿根的切口包住）
+    ...(tile ? { tiled: true } : plan.stations[0] > 2 && (form === 'biped' || form === 'humantaur') ? { cover: frontCover(plan.stations[0]) } : {}),
+    ...(hipsAt ? { hipsAt } : {}),
     humanLeg: (side, pair, parent, out) =>
       side
         ? {
@@ -927,13 +989,14 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
               }),
             ],
             bones: legBones(side, pair, parent, legJoints(side, out)),
-            // 还在素体原来位置上的腿：双足站立，或者人腿人马最前面那一对（那副胯上正好一对时）
-            native: nativeLegs(pair),
+            // 还在素体原来位置上的腿：双足站立，或者人腿人马最前面那一对（那副胯上正好一对时）；胯照腿排开了的，那副胯上的都是
+            native: nativeLegs(pair) || (!!tile && parent === 'Hips'),
             part: { grafts: [{ ...footGraft(legName(side, pair)), ...footPlace(side, out) }] },
           }
         : {
             prims: [grid('Leg', 'leg', 1, { ...thick(sub(FOOT_RIM, HIP), SHAPE.leg), clipBelow: LEG_CLIP })],
             bones: legBones(0, pair, parent, legJoints(1)),
+            native: !!tile && parent === 'Hips',
             // 胯上只有这一条（单足）：粗一圈，把两个腿根中间填满
             part: {
               quat: STRAIGHTEN,
