@@ -2463,7 +2463,7 @@ const syncHandPair = buildSeg($('segHandPair'), HAND_PAIRS, (v) => (v === 'all' 
 const handPairLabels = [...$('segHandPair').querySelectorAll('label')];
 
 const gestureButtons = GESTURES.map((gesture) => {
-  const btn = el('button', 'btn', gesture.name);
+  const btn = el('button', 'btn', t(gesture.name));
   btn.type = 'button';
   btn.addEventListener('click', () => reshapeHands(() => gesture.shape));
   $('handGestures').append(btn);
@@ -2919,11 +2919,11 @@ if (POSE_LIBRARY.length) {
     lastPreset = { name: preset.name, preset: preset.posing, base: cloneState(poseState), key: `preset-${++clicks}`, result: null };
     history.seal();
     blendPreset();
-    if (whole() && presetAmount === 100) return t('姿势：{name}', { name: preset.name });
+    if (whole() && presetAmount === 100) return t('姿势：{name}', { name: t(preset.name) });
     const parts = POSE_REGIONS.filter((r) => presetParts.has(r)).map((r) => POSE_REGION_LABEL[r]);
     const where = parts.length === POSE_REGIONS.length ? t('整套') : t('只套到{parts}', { parts: parts.join(t('、')) });
     const arm = presetPair === null ? '' : t('（手臂是第 {n} 对）', { n: presetPair + 1 });
-    return t('姿势：{name}，{where}{arm}，强度 {amount}%。', { name: preset.name, where, arm, amount: presetAmount });
+    return t('姿势：{name}，{where}{arm}，强度 {amount}%。', { name: t(preset.name), where, arm, amount: presetAmount });
   };
   /** 拖强度、改部位时：上一次点的姿势之后没拖过圆点、没撤销，就照新的设定重新套 */
   const reblend = () => {
@@ -2971,7 +2971,7 @@ if (POSE_LIBRARY.length) {
   };
 
   for (const preset of POSE_LIBRARY) {
-    const btn = el('button', 'btn', preset.name);
+    const btn = el('button', 'btn', t(preset.name));
     btn.type = 'button';
     btn.addEventListener('click', () => {
       const note = applyPreset(preset);
