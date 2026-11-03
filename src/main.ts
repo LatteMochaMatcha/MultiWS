@@ -1,4 +1,5 @@
 import './style.css';
+import { type Lang, LANG, LANGS, setLang, t, translatePage } from './i18n';
 import { type Box3, type Raycaster, Matrix4 } from 'three';
 import { TORSO_CREDIT, animeGrid, animeReady, loadAnimeBody } from './anime/body';
 import { FOOT_CREDIT } from './anime/foot';
@@ -134,6 +135,9 @@ import { type RefSlot, REF_SLOTS, ReferenceImages, loadPicture } from './view/re
 import { Tour } from './view/tour';
 import { type SkinSource, FlatParts, PosedMeshes, WHITE_BLEND } from './view/posedMeshes';
 import { type CameraState, type ViewName, VIEW_DEFAULTS, VIEW_LIMITS, Viewport } from './view/viewport';
+
+// 写死在 index.html 里的文字先换成当前语言，后面的代码再往页面上加东西
+translatePage();
 
 const STORE_KEY = 'oc-basemesh-v2';
 const THEME_KEY = 'oc-basemesh-theme';
@@ -899,6 +903,14 @@ function applyTheme() {
   else document.documentElement.dataset.theme = theme;
   $('btnTheme').textContent = `主题：${THEME_LABEL[theme]}`;
 }
+
+const langPick = $<HTMLSelectElement>('lang');
+for (const l of LANGS) langPick.append(new Option(l.label, l.key));
+langPick.value = LANG;
+langPick.addEventListener('change', () => {
+  save();
+  setLang(langPick.value as Lang);
+});
 
 $('btnTheme').addEventListener('click', () => {
   theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
