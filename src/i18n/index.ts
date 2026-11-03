@@ -65,15 +65,19 @@ export function setLang(lang: Lang): void {
 
 type Dict = Record<string, string>;
 
-function merge(files: Record<string, Dict>): Dict {
+/**
+ * 译文表当成文字取进来再 JSON.parse。当成 JSON 模块导入的话，打包时键会写成不带引号的名字，
+ * 「ヴィクトリア・ルービン」里的「・」到 Unicode 15.1 才能放进名字：旧内核（安卓 WebView 110）整个脚本读不了，页面一片空白
+ */
+function merge(files: Record<string, string>): Dict {
   const out: Dict = {};
-  for (const name of Object.keys(files).sort()) Object.assign(out, files[name]);
+  for (const name of Object.keys(files).sort()) Object.assign(out, JSON.parse(files[name]) as Dict);
   return out;
 }
 
 const TABLES: Record<Exclude<Lang, 'zh'>, Dict> = {
-  en: merge(import.meta.glob<Dict>('./en/*.json', { eager: true, import: 'default' })),
-  ja: merge(import.meta.glob<Dict>('./ja/*.json', { eager: true, import: 'default' })),
+  en: merge(import.meta.glob<string>('./en/*.json', { eager: true, query: '?raw', import: 'default' })),
+  ja: merge(import.meta.glob<string>('./ja/*.json', { eager: true, query: '?raw', import: 'default' })),
 };
 
 const table: Dict | null = LANG === 'zh' ? null : TABLES[LANG];
