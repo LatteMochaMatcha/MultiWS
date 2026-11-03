@@ -192,6 +192,43 @@ export function report(root, only) {
   return out;
 }
 
+/** 还没包进 t() / tk() 的中文字面量（跳过注释和带 console. 的行），给包字符串的人对着查 */
+export function rawLiterals(file) {
+  const src = readFileSync(file, 'utf8');
+  const out = [];
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === '/' && src[i + 1] === '/') {
+      i = src.indexOf('\n', i);
+      if (i < 0) break;
+      continue;
+    }
+    if (c === '/' && src[i + 1] === '*') {
+      i = src.indexOf('*/', i + 2);
+      if (i < 0) break;
+      i += 2;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') {
+      let j = i + 1;
+      while (j < src.length && src[j] !== c) j += src[j] === '\\' ? 2 : 1;
+      const lit = src.slice(i + 1, j);
+      if (CJK.test(lit)) {
+        const wrapped = /(?<![\w$.])tk?\(\s*$/.test(src.slice(Math.max(0, i - 8), i));
+        const lineStart = src.lastIndexOf('\n', i) + 1;
+        const code = src.slice(lineStart, src.indexOf('\n', i) < 0 ? undefined : src.indexOf('\n', i));
+        if (!wrapped && !/console\.\w+\(/.test(code)) out.push({ line: lineOf(src, i), text: lit.slice(0, 120) });
+      }
+      // 模板字符串里 ${} 嵌着的引号这里不细分，整段当一个
+      i = j + 1;
+      continue;
+    }
+    i++;
+  }
+  return out;
+}
+
 function main(argv) {
   const root = ROOT;
   const only = [];
@@ -199,6 +236,13 @@ function main(argv) {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--file') only.push(argv[++i].replaceAll('\\', '/'));
     else if (argv[i] === '--dump') dump = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[++i] : join(root, '.harness-tmp/i18n');
+    else if (argv[i] === '--raw') {
+      const rel = argv[++i].replaceAll('\\', '/');
+      const left = rawLiterals(join(root, rel));
+      for (const l of left) console.log(`${rel}:${l.line}  ${l.text}`);
+      console.log(`${rel}：没包的中文字面量 ${left.length} 处（跳过了注释和 console 行；解析器词表、拿来比较的不用包）`);
+      return;
+    }
   }
   const r = report(root, only);
   console.log(`键 ${r.keys.size} 个；缺英文 ${r.missing.en.length}，缺日文 ${r.missing.ja.length}`);
