@@ -123,6 +123,17 @@ export class Gizmo {
     return this.controls.dragging;
   }
 
+  /** 选中的部件在世界坐标里占的那块地方（手机上镜头凑过去用）；没选中就是 null */
+  selectionBox(): THREE.Box3 | null {
+    if (!this.glow.visible) return null;
+    const geometry = this.glow.geometry;
+    if (!geometry.getAttribute('position')) return null;
+    geometry.computeBoundingBox();
+    if (!geometry.boundingBox) return null;
+    this.glow.updateWorldMatrix(true, false);
+    return geometry.boundingBox.clone().applyMatrix4(this.glow.matrixWorld);
+  }
+
   setMode(mode: GizmoMode) {
     this.mode = mode;
     this.controls.setMode(mode);

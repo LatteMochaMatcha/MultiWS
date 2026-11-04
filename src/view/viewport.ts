@@ -100,7 +100,10 @@ export class Viewport {
 
     let frames = 0;
     let since = performance.now();
+    // 手指、鼠标一碰画面，正在飞的镜头就停下（交给人自己转）
+    this.controls.addEventListener('start', () => (this.flight = null));
     const loop = () => {
+      this.stepFlight();
       this.controls.update();
       this.draw();
       // 每半秒报一次帧率（有人听才算）
@@ -191,6 +194,7 @@ export class Viewport {
 
   /** 从 dir 方向看过去，让整个模型落在画面里 */
   private lookFrom(dir: THREE.Vector3) {
+    this.flight = null;
     this.pendingDir = this.stage.clientWidth && this.stage.clientHeight ? null : dir.clone();
     const center = this.box.getCenter(new THREE.Vector3());
     this.controls.target.copy(center);
@@ -245,12 +249,67 @@ export class Viewport {
 
   /** 把镜头摆回存下来的样子 */
   setCamera(state: CameraState) {
+    this.flight = null;
     this.pendingDir = null;
     this.camera.fov = state.fov;
     this.camera.updateProjectionMatrix();
     this.controls.target.set(state.target[0], state.target[1], state.target[2]);
     this.camera.position.set(state.position[0], state.position[1], state.position[2]);
     this.controls.update();
+  }
+
+  /**
+   * 镜头慢慢飞过去（手机上点中部件时凑近、取消时飞回来）。手指一碰画面就停在半路，不跟人抢。
+   * 只动镜头的位置和看着的点，视角不变
+   */
+  flyTo(target: THREE.Vector3, position: THREE.Vector3, ms = 320) {
+    this.pendingDir = null;
+    const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (calm || ms <= 0) {
+      this.controls.target.copy(target);
+      this.camera.position.copy(position);
+      this.controls.update();
+      return;
+    }
+    this.flight = {
+      t0: performance.now(),
+      ms,
+      fromT: this.controls.target.clone(),
+      fromP: this.camera.position.clone(),
+      toT: target.clone(),
+      toP: position.clone(),
+    };
+  }
+
+  /** 凑近一块地方：方向不变，镜头挪到正好让它占画面的 share 那么多（高、宽里占得多的那一边），四周还看得见身体 */
+  focusOn(box: THREE.Box3, share = 0.3) {
+    if (box.isEmpty()) return;
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const half = Math.tan((this.camera.fov * Math.PI) / 360);
+    const extent = Math.max(size.y, Math.max(size.x, size.z) / Math.max(this.camera.aspect, 0.3));
+    const dist = Math.max(this.controls.minDistance * 1.5, extent / share / 2 / half + Math.max(size.x, size.z) / 2);
+    const dir = this.camera.position.clone().sub(this.controls.target).normalize();
+    this.flyTo(center, center.clone().addScaledVector(dir, dist));
+  }
+
+  /** 飞回存下来的镜头（视角不动） */
+  flyToState(state: CameraState) {
+    this.flyTo(new THREE.Vector3(...state.target), new THREE.Vector3(...state.position));
+  }
+
+  /** 正在飞的那一趟：每帧在 loop 里往前推 */
+  private flight: { t0: number; ms: number; fromT: THREE.Vector3; fromP: THREE.Vector3; toT: THREE.Vector3; toP: THREE.Vector3 } | null = null;
+
+  private stepFlight() {
+    const f = this.flight;
+    if (!f) return;
+    const k = Math.min(1, (performance.now() - f.t0) / f.ms);
+    // 先快后慢
+    const e = 1 - (1 - k) ** 3;
+    this.controls.target.lerpVectors(f.fromT, f.toT, e);
+    this.camera.position.lerpVectors(f.fromP, f.toP, e);
+    if (k >= 1) this.flight = null;
   }
 
   /** 保持现在的观察方向，重新把整个模型框进画面（换预设、载入配置后用） */

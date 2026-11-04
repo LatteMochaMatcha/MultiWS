@@ -137,6 +137,7 @@ import { type FusedStats, FusedModel } from './view/fusedModel';
 import { type GizmoMode, GIZMO_MODES, Gizmo } from './view/gizmo';
 import { MATERIAL_INFO } from './view/materials';
 import { type BakedMesh, PartsModel, disposeTree } from './view/partsModel';
+import { Phone, jumpLabel } from './view/phone';
 import { PoseHandles } from './view/poseHandles';
 import { type RefSlot, REF_SLOTS, ReferenceImages, loadPicture } from './view/references';
 import { Tour } from './view/tour';
@@ -946,29 +947,37 @@ function syncFolds() {
 }
 syncFolds();
 
-/** 把面板里的某一栏展开，并滚到看得见的地方 */
+/** 上一次 syncPicked 时选中的是什么（只在变了的时候告诉 phone） */
+let pickedNow = '';
+/** 手机上点中部件前镜头在哪：取消选择时飞回来 */
+let viewBeforePick: CameraState | null = null;
+
+/** 把面板里的某一栏展开，并滚到看得见的地方（手机竖屏上是换到那一栏） */
 function reveal(key: string) {
   const section = sections.get(key);
   if (!section) return;
   if (folded.has(key)) setFolded(key, false);
-  // 手机竖屏上 3D 视图钉在顶上，滚过去模型也还看得见（让开多少位置写在样式里的 scroll-margin）
+  if (phone.on) {
+    // 点中部件时换到「微调」由 phone.picked 管（它记着点中之前在看哪一栏，取消选择时回去）
+    if (key !== 'tweak' || !selected) phone.open(key);
+    return;
+  }
   const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   section.scrollIntoView({ block: 'nearest', behavior: calm ? 'auto' : 'smooth' });
 }
 
-// 手机竖屏上面板很长：3D 视图下面那排栏目名，点一下展开那一栏并滚过去
+// 手机竖屏：抽屉上沿那排栏目名（摆姿势时是底下那条图标），点一下换到那一栏
 for (const [key, section] of sections) {
-  const jump = el('button', '', section.querySelector('.fold')?.textContent ?? key);
+  const jump = el('button', '');
   jump.type = 'button';
-  jump.addEventListener('click', () => {
-    if (folded.has(key)) setFolded(key, false);
-    const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    section.scrollIntoView({ block: 'start', behavior: calm ? 'auto' : 'smooth' });
-  });
+  jumpLabel(jump, key, section.querySelector('.fold')?.textContent ?? key);
+  jump.addEventListener('click', () => reveal(key));
   // 只属于「造型」或「摆姿势」的栏目，它的名字也只在那个模式下出现
   if (section.dataset.mode) jump.dataset.mode = section.dataset.mode;
   $('jump').append(jump);
 }
+/** 手机竖屏的版面（底下的抽屉、一次一栏、弹出层），见 view/phone.ts。栏目名按钮要先有 */
+const phone = new Phone(sections);
 
 /* ---------------- 主题 ---------------- */
 
@@ -1330,23 +1339,8 @@ function learnedPick() {
   }
 }
 
-// 手机竖屏：把 3D 视图放大到整屏（设定面板先收起来），再点一下还原
-const btnZoom = $<HTMLButtonElement>('btnZoom');
-/** 放大之前面板滚到了哪里，还原时滚回去 */
-let scrollBack = 0;
-btnZoom.addEventListener('click', () => {
-  const app = btnZoom.closest('.app');
-  if (!app) return;
-  const big = !app.classList.contains('big');
-  if (big) scrollBack = window.scrollY;
-  app.classList.toggle('big', big);
-  btnZoom.setAttribute('aria-pressed', String(big));
-  btnZoom.textContent = big ? t('还原') : t('放大');
-  if (!big) window.scrollTo(0, scrollBack);
-});
-
 // 手机浏览器里屏幕键盘是盖在页面上的，页面自己不知道变矮了：看得见的高度比页面矮一大截，就是键盘出来了。
-// 记在 <html> 上，样式里把钉着的 3D 视图、栏目名、导出按钮松开，免得挡住正在打字的那一格
+// 记在 <html> 上，样式里把抽屉拉到整屏，正在打字的那一格不被键盘挡住
 const eye = window.visualViewport;
 if (eye) {
   eye.addEventListener('resize', () => {
@@ -1355,7 +1349,8 @@ if (eye) {
 }
 
 // 装成安卓应用时（tools/android 的外壳）：做个记号给样式用；
-// 按返回键时外壳先来问这里——放大着就还原，选中着部件就取消，都没有才真的退出
+// 按返回键时外壳先来问这里——一层一层退：引导、弹出的菜单和面板、选中的部件和关节、摆姿势的卡片、拉高的抽屉，
+// 都没有才真的退出
 if (inAndroidShell) {
   document.documentElement.dataset.shell = 'android';
   (window as unknown as { __ocBack: () => boolean }).__ocBack = () => {
@@ -1363,8 +1358,8 @@ if (inAndroidShell) {
       tour.close();
       return true;
     }
-    if (btnZoom.getAttribute('aria-pressed') === 'true') {
-      btnZoom.click();
+    if (phone.pop) {
+      phone.setPop(null);
       return true;
     }
     if (selected) {
@@ -1375,7 +1370,7 @@ if (inAndroidShell) {
       selectJoint(null);
       return true;
     }
-    return false;
+    return phone.back();
   };
 }
 
@@ -1814,6 +1809,23 @@ function select(name: string | null) {
   selected = name;
   history.seal();
   syncTweak();
+  focusPicked();
+}
+
+/** 手机上屏幕小：点中部件时镜头凑过去，取消选择时飞回原来的地方 */
+function focusPicked() {
+  if (!viewport || !phone.on) {
+    viewBeforePick = null;
+    return;
+  }
+  const box = selected ? gizmo?.selectionBox() : null;
+  if (box) {
+    viewBeforePick ??= viewport.cameraState();
+    viewport.focusOn(box);
+  } else if (!selected && viewBeforePick) {
+    viewport.flyToState(viewBeforePick);
+    viewBeforePick = null;
+  }
 }
 
 const tweakPart = $<HTMLSelectElement>('tweakPart');
@@ -2328,6 +2340,7 @@ function setMode(next: Mode) {
   joint = null;
   if (gizmo) gizmo.enabled = next === 'shape';
   if (poseHandles) poseHandles.enabled = next === 'pose';
+  phone.setMode(next);
   showHint(next);
   history.seal();
   syncPicked();
@@ -2354,6 +2367,12 @@ function syncPicked() {
   if (part || handle) $('hint').classList.remove('tip');
   if (part) $('pickedName').textContent = `${partLabel(part.name)} · ${part.name}`;
   if (handle) $('pickedName').textContent = handle.label;
+  // 手机上：选中、换了选中、取消选中的那一下，抽屉换到「微调」、摆姿势弹出关节的小卡片
+  const now = part ? `part:${part.name}` : handle ? `joint:${handle.id}` : '';
+  if (now !== pickedNow) {
+    pickedNow = now;
+    phone.picked(part ? 'part' : handle ? 'joint' : null);
+  }
 }
 
 /** 按下圆点、或者开始转旋转环：记下这一刻的姿势和钉着的手脚 */
@@ -3770,9 +3789,11 @@ let tourPicked: string | null = null;
 /** 指着面板里的某一栏之前：回到造型，把那一栏展开、滚到看得见（手机上让开钉着的 3D 视图，见样式里的 scroll-margin） */
 const tourShape = (key?: string) => () => {
   setMode('shape');
+  phone.setPop(null);
   if (!key) return;
   if (folded.has(key)) setFolded(key, false);
-  sections.get(key)?.scrollIntoView({ block: 'start' });
+  if (phone.on) phone.open(key);
+  else sections.get(key)?.scrollIntoView({ block: 'start' });
 };
 /** 教调肢体之前：回到造型，还没选中部件就先替人选一条手臂（没有手臂挑腿、尾巴、头），模型上就有箭头可以拖 */
 const tourLimb = (key?: string) => () => {
@@ -3812,9 +3833,7 @@ const tour = new Tour([
     title: t('选择语言'),
     text: t('界面用哪种语言？点一下就换。以后在标题旁边的语言菜单里也能改。'),
     extra: tourLangs,
-    before: () => {
-      if (btnZoom.getAttribute('aria-pressed') === 'true') btnZoom.click();
-    },
+    before: () => phone.setPop(null),
   },
   {
     title: t('欢迎来到 OC 白模工坊'),
@@ -3876,24 +3895,36 @@ const tour = new Tour([
     title: t('造型和摆姿势'),
     text: t('身体定好了就切到左上角的「摆姿势」（现在已经切过去了）：拖关节上的圆点摆动作，点一下圆点出现旋转环，现在就可以试试。面板里还有现成的姿势、手势和表情。'),
     target: () => $('stage'),
-    before: () => setMode('pose'),
+    before: () => {
+      phone.setPop(null);
+      setMode('pose');
+    },
     live: true,
   },
   {
     title: t('视角和撤销'),
     text: t('一下切到正面、侧面、背面看；改错了点「撤销」（Ctrl+Z）。「骨骼」把骨架显示出来。'),
-    target: () => document.querySelector('.dock'),
+    // 手机上 .dock 拆开了（撤销重做在顶栏）：指着浮出来的那一排视角
+    target: () => document.querySelector(phone.on ? '.dock .views' : '.dock'),
+    // 手机上视角、骨骼收在右边「视角」按钮里：先打开
+    before: () => phone.setPop(phone.on ? 'views' : null),
   },
   {
     title: t('导出'),
     text: t('「导出白模」是一整块网格，拿去雕刻；「带骨骼 GLB」进了 Blender 能直接摆姿势；还有 OBJ、3D 打印用的 STL 和截图。Blender 里用「文件 → 导入 → glTF 2.0」。'),
     target: () => document.querySelector('.export'),
+    // 手机上导出按钮收在右边「导出」按钮里：先打开那张面板
+    before: () => phone.setPop(phone.on ? 'export' : null),
   },
   {
     title: t('就这些'),
     text: t('设定会自动存在这个浏览器里，下次打开还在。想再看一遍引导，点这里。'),
     target: () => $('btnTour'),
-    before: () => $('btnTour').closest('header')?.scrollIntoView({ block: 'center' }),
+    before: () => {
+      // 手机上「新手引导」在右上角「更多」菜单里
+      if (phone.on) phone.setPop('menu');
+      else $('btnTour').closest('header')?.scrollIntoView({ block: 'center' });
+    },
   },
 ]);
 tour.onClose = () => {
@@ -3902,6 +3933,7 @@ tour.onClose = () => {
   } catch {
     // 存不了就下次再弹一遍
   }
+  phone.setPop(null);
   setMode(tourFrom);
   if (tourPicked && selected === tourPicked) select(null);
   tourPicked = null;

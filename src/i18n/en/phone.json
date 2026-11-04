@@ -1,0 +1,22 @@
+{
+  "更多": "More",
+  "正面、侧面、背面、斜侧，显示骨骼": "Front, side, back, 3/4 views; show bones",
+  "导出白模、带骨骼 GLB、VRM、OBJ、STL、截图": "Export base mesh, rigged GLB, VRM, OBJ, STL, PNG",
+  "说明": "Notes",
+  "显示各栏的长说明": "Show the longer notes in each section",
+  "描述@@栏目": "Text",
+  "预设@@栏目": "Presets",
+  "数量@@栏目": "Counts",
+  "排布@@栏目": "Layout",
+  "头发@@栏目": "Hair",
+  "体型@@栏目": "Body",
+  "微调@@栏目": "Tweak",
+  "网格@@栏目": "Mesh",
+  "姿势@@栏目": "Pose",
+  "手势@@栏目": "Hands",
+  "表情@@栏目": "Face",
+  "现成@@栏目": "Library",
+  "镜头@@栏目": "Camera",
+  "参考图@@栏目": "Refs",
+  "配置@@栏目": "Config"
+}

@@ -14,7 +14,12 @@
         <button type="button" data-go="pose" aria-pressed="false" title="拖关节上的圆点摆姿势">摆姿势</button>
       </div>
       <div class="readout" id="readout" aria-live="polite"></div>
-      <button type="button" class="zoom" id="btnZoom" aria-pressed="false" title="把 3D 视图放大到整屏，设定面板先收起来">放大</button>
+      <!-- 手机竖屏才出现：右上角「更多」（语言、主题、新手引导、源码），右边一竖排「视角」「导出」 -->
+      <button type="button" class="icon-btn phone-only" id="btnMore" aria-haspopup="true" aria-expanded="false" aria-label="更多"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg></button>
+      <div class="side phone-only">
+        <button type="button" class="round" id="btnViewMenu" aria-expanded="false" aria-label="视角" title="正面、侧面、背面、斜侧，显示骨骼"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3"/><circle cx="12" cy="12" r="3.5"/></svg></button>
+        <button type="button" class="round primary" id="btnExportMenu" aria-haspopup="dialog" aria-expanded="false" aria-label="导出" title="导出白模、带骨骼 GLB、VRM、OBJ、STL、截图"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></button>
+      </div>
       <div class="stage-foot">
         <div class="picked" id="picked" hidden>
           <span id="pickedName"></span>
@@ -27,9 +32,9 @@
             <button type="button" data-view="back">背面</button>
             <button type="button" data-view="three">斜侧</button>
           </div>
-          <div class="views" role="group" aria-label="撤销和重做">
-            <button type="button" id="btnUndo" title="撤销（Ctrl+Z）">撤销</button>
-            <button type="button" id="btnRedo" title="重做（Ctrl+Y）">重做</button>
+          <div class="views history" role="group" aria-label="撤销和重做">
+            <button type="button" id="btnUndo" title="撤销（Ctrl+Z）"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><span class="lbl">撤销</span></button>
+            <button type="button" id="btnRedo" title="重做（Ctrl+Y）"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg><span class="lbl">重做</span></button>
           </div>
           <div class="views" role="group" aria-label="显示">
             <button type="button" id="btnBones" aria-pressed="false" title="显示或隐藏骨架">骨骼</button>
@@ -40,6 +45,13 @@
     </main>
 
     <aside class="panel">
+      <!-- 手机竖屏：「更多」菜单、导出面板打开时垫在下面、盖住整屏的一层，点一下关掉。
+           放在面板里面：菜单（标题区）和导出面板也在面板里，要和它在同一层叠关系里才压得住 -->
+      <div class="scrim" id="scrim" hidden></div>
+      <!-- 手机竖屏：抽屉上沿的把手（拖动、点一下换高低），右边是「说明」开关 -->
+      <div class="grip phone-only" id="grip">
+        <button type="button" class="notes-toggle" id="btnNotes" aria-pressed="false" title="显示各栏的长说明">说明</button>
+      </div>
       <nav class="jump" id="jump" aria-label="跳到某一栏"></nav>
       <div class="panel-scroll" id="panelScroll">
         <header>
@@ -432,6 +444,7 @@
       </div>
 
       <footer class="panel-foot">
+        <h3 class="export-title phone-only">导出</h3>
         <div class="export">
           <button type="button" class="btn primary" id="btnGlb" title="一整块网格，拿去雕刻">导出白模（GLB）</button>
           <button type="button" class="btn" id="btnRig" title="网格 + 骨架 + 权重">带骨骼 GLB</button>

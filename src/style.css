@@ -253,15 +253,12 @@ select:focus-visible,.triple input:focus-visible{outline:2px solid var(--accent)
 @media (prefers-reduced-motion:reduce){.tour-spot{transition:none}}
 
 /* ---------- 窄屏、手机 ---------- */
-/* 「放大」按钮和触屏上的操作提示：只在下面的竖屏版面、触屏上才亮出来 */
-.zoom{display:none;position:absolute;top:10px;right:12px;font:inherit;font-size:12px;border:0;border-radius:9px;padding:8px 12px;background:var(--glass);color:var(--ink);cursor:pointer}
-.zoom[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
-.zoom:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-.zoom:active{transform:translateY(1px)}
-.jump{display:none}
-.jump button{flex:none;font:inherit;font-size:13px;line-height:1.3;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:999px;padding:7px 12px;cursor:pointer}
-.jump button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-.jump button:active{transform:translateY(1px)}
+/* 只在手机竖屏版面里出现的东西（「更多」、右边的视角和导出、抽屉把手、垫底那一层、栏目名那一排） */
+.phone-only,.jump{display:none}
+/* 线条图标：跟着字的颜色 */
+.icon-btn svg,.round svg,.views .ico,.jump svg{stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+/* 撤销、重做：电脑上写字，手机上换成图标 */
+.views .ico{display:none;width:19px;height:19px}
 .hint.tip{display:block;left:50%;right:auto;bottom:64px;transform:translateX(-50%);width:max-content;max-width:calc(100% - 24px);padding:5px 12px;border-radius:999px;background:var(--glass);color:var(--ink);text-align:center}
 /* 连点两下不要把整页放大（加减号要连着点） */
 button,label,summary,select,input{touch-action:manipulation}
@@ -275,56 +272,13 @@ button,label,summary,select,input{touch-action:manipulation}
   header h1,:root[data-lang="en"] header h1{font-size:20px}
   .panel-foot{padding:8px 10px;gap:6px}
 }
-/* 手机上（竖屏、横屏都算）屏幕矮：导出按钮排成一行 */
-@media (max-width:600px),(max-width:820px) and (orientation:portrait),(max-height:520px) and (orientation:landscape){
+/* 手机横屏（还是左右两栏）屏幕矮：导出按钮排成一行。竖屏的导出收在右边的「导出」按钮里，见下面 */
+@media (max-height:520px) and (orientation:landscape) and (min-width:601px){
   .export{grid-template-columns:minmax(0,3.4fr) minmax(0,2.4fr) repeat(4,minmax(0,1.2fr));gap:5px}
   .export .primary{grid-column:auto;padding-block:6px}
   .export .btn{font-size:12px;padding-inline:2px;min-height:40px}
   /* 一开始那句「怎么导进 Blender」先收着，有了新消息再亮出来 */
   .status[data-idle]{display:none}
-}
-/* 窄而竖着（手机竖屏）：上面是 3D 视图，下面是面板，整页一起滚。
-   3D 视图钉在顶上、导出按钮钉在底下：翻到哪一栏都看得见模型、够得着导出。
-   600px 以内不管横竖都算：键盘弹出来时页面会变得比宽还矮，不能因此翻成左右两栏 */
-@media (max-width:600px),(max-width:820px) and (orientation:portrait){
-  html,body{height:auto}
-  .app{display:block;height:auto;--stage-h:max(240px,45vh)}
-  @supports (height:1svh){.app{--stage-h:max(240px,45svh)}}
-  .stage{position:sticky;top:0;z-index:5;height:var(--stage-h);box-shadow:0 1px 0 var(--line)}
-  .mode{top:8px;left:12px}
-  .readout{top:54px;left:12px;right:12px}
-  .stage-foot{left:12px;right:12px;bottom:10px}
-  .zoom{display:block}
-  /* 这个版面里 3D 视图一定是窄的：右下角的鼠标提示直接收起来（上面按视图宽度收的那条规则，旧的浏览器内核不认） */
-  .hint:not(.tip){display:none}
-  .panel{border-left:0;overflow:visible}
-  /* 面板很长：3D 视图下面钉一排栏目名，点一下跳过去 */
-  .jump{display:flex;gap:6px;position:sticky;top:var(--stage-h);z-index:4;overflow-x:auto;padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--line);scrollbar-width:none}
-  .jump::-webkit-scrollbar{display:none}
-  .panel-scroll{flex:none;overflow:visible;width:100%;max-width:640px;margin-inline:auto;padding:16px 16px 20px}
-  /* 滚到某一栏时，别让它躲在钉住的 3D 视图、栏目名和导出按钮后面 */
-  section{scroll-margin-top:calc(var(--stage-h) + 60px);scroll-margin-bottom:84px}
-  .panel-foot{position:sticky;bottom:0;z-index:4;padding:8px 10px;gap:6px}
-  /* 「放大」：面板收起来，3D 视图占满导出按钮以上的整屏 */
-  .app.big{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;height:100vh;height:100dvh}
-  .app.big .stage{position:relative;height:auto}
-  .app.big .panel-scroll,.app.big .jump{display:none}
-  /* 手机浏览器里键盘是盖在页面上的（main.ts 认出来以后加上 typing）：钉着的都松开，
-     让浏览器把正在打字的那一格滚到看得见的地方，不被它们挡住 */
-  :root.typing .stage{position:relative}
-  :root.typing .jump,:root.typing .panel-foot{position:static}
-}
-/* 同上：这个版面里 3D 视图和屏幕一样宽，按屏幕宽度把视角按钮收紧，旧的浏览器内核也认 */
-@media (max-width:400px){.views button{padding-inline:8px}}
-@media (max-width:340px){.views button{padding-inline:5px}.dock{gap:4px}}
-/* 键盘把页面顶矮了（装成安卓应用时是这样）：3D 视图让矮一些，栏目名和导出按钮先不钉着，给输入框腾地方 */
-@media (max-width:600px) and (max-height:480px){
-  .app{--stage-h:max(140px,40vh)}
-  @supports (height:1svh){.app{--stage-h:max(140px,40svh)}}
-  .jump{display:none}
-  .panel-foot{position:static}
-  /* 3D 视图只剩一小条：手势提示就不挤进去了 */
-  .hint.tip{display:none}
 }
 /* 用手指点的屏幕：能点的东西都放大到指头按得准 */
 @media (pointer:coarse){
@@ -353,6 +307,167 @@ button,label,summary,select,input{touch-action:manipulation}
   /* 字小于 16px 的输入框，iPhone 一点就会把整页放大 */
   textarea,select,.triple input{font-size:16px}
   select,.triple input{padding-block:8px}
+}
+
+/* ================= 手机竖屏 =================
+   3D 视图铺满整屏；设定放在底下的抽屉里，一次只看一栏（view/phone.ts 管哪一栏、抽屉多高、开着哪个弹出层）。
+   造型：抽屉四档（data-sheet：peek 只露栏目名 / low 三分之一 / tall 六成 / full 几乎整屏），3D 视图让到抽屉上面。
+   摆姿势：没有抽屉，底下一条图标，点了弹出那一栏的卡片（data-card：open / joint 点中关节的小卡片）。
+   「更多」菜单（就是标题区）、导出面板、视角小浮层：data-pop。
+   600px 以内不管横竖都算：键盘弹出来时页面会变得比宽还矮，不能因此翻成左右两栏。
+   写在「用手指点的屏幕」后面：同样的选择器以这里为准 */
+@media (max-width:600px),(max-width:820px) and (orientation:portrait){
+  html,body{height:100%;overflow:hidden}
+  .app{display:block;height:100%;
+    --sheet-peek:84px;--sheet-low:34%;--sheet-tall:62%;--sheet-gap:56px;--sheet:var(--sheet-low);
+    --bar:58px;--top:env(safe-area-inset-top,0px);--bottom:env(safe-area-inset-bottom,0px);
+    /* 3D 视图底下压在抽屉下面多少（抽屉是圆角，免得露出缝），舞台底边的按钮从这里往上算 */
+    --tuck:18px;--foot:calc(var(--tuck) + 10px)}
+  .app[data-sheet="peek"]{--sheet:var(--sheet-peek)}
+  .app[data-sheet="tall"]{--sheet:var(--sheet-tall)}
+  .app[data-sheet="full"],:root.typing .app[data-sheet]{--sheet:calc(100% - var(--sheet-gap))}
+  .app[data-mode="pose"]{--tuck:0px;--foot:10px}
+  .phone-only{display:block}
+
+  /* ---------- 3D 视图 ---------- */
+  .stage{position:fixed;left:0;right:0;top:0;z-index:1;height:calc(100% - var(--sheet) + var(--tuck))}
+  .app[data-mode="pose"] .stage{height:calc(100% - var(--bar) - 12px - var(--bottom))}
+  /* 顶上一条：左边造型 / 摆姿势，右边撤销、重做、「更多」 */
+  .mode{top:calc(6px + var(--top));left:8px;padding:2px;border-radius:11px;box-shadow:0 1px 3px var(--shade)}
+  .mode button{padding:7px 13px;font-size:13.5px}
+  .icon-btn,.dock .history button{width:38px;height:38px;display:grid;place-items:center;padding:0;font:inherit;border:0;border-radius:11px;background:var(--glass);color:var(--ink);box-shadow:0 1px 3px var(--shade);cursor:pointer}
+  .icon-btn svg{width:20px;height:20px}
+  #btnMore{display:grid;position:absolute;top:calc(6px + var(--top));right:8px}
+  #btnMore[aria-expanded="true"]{background:var(--accent);color:var(--accent-ink)}
+  /* 读数：顶栏下面一行小字，只留身高和头身（有警告也留着） */
+  .readout{top:calc(52px + var(--top));left:12px;right:12px;gap:0 10px}
+  .readout span{padding:0;background:none;font-size:11px;color:var(--muted);text-shadow:0 0 3px var(--stage-top)}
+  .readout span:nth-child(n+3):not(.warn){display:none}
+  .hint:not(.tip){display:none}
+  /* 提示放在左下角、右边那排按钮的左边（和选中的部件同一个位置：一选中提示就收起） */
+  .hint.tip{left:8px;right:64px;bottom:var(--foot);transform:none;width:auto;max-width:none;padding:7px 12px;border-radius:14px;text-align:left;line-height:1.45}
+  /* 右边一竖排：视角、导出 */
+  .side{position:absolute;right:8px;bottom:var(--foot);display:flex;flex-direction:column;gap:8px}
+  .round{width:46px;height:46px;display:grid;place-items:center;padding:0;border:0;border-radius:50%;background:var(--glass);color:var(--ink);box-shadow:0 1px 4px var(--shade);cursor:pointer}
+  .round svg{width:21px;height:21px}
+  .round.primary{background:var(--accent);color:var(--accent-ink)}
+  .round[aria-expanded="true"]:not(.primary){background:var(--ink);color:var(--bg)}
+  .round:active,.icon-btn:active{transform:translateY(1px)}
+  .round:focus-visible,.icon-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  /* 舞台底边那一条拆开，里面的东西各自对着 3D 视图摆：左下角选中的部件，右边浮出视角，撤销重做上顶栏 */
+  .stage-foot,.dock{display:contents}
+  .picked{position:absolute;left:8px;bottom:var(--foot);max-width:calc(100% - 80px);min-height:38px;border-radius:999px;padding:0 3px 0 13px;box-shadow:0 1px 3px var(--shade)}
+  .picked span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .picked button{border-radius:999px}
+  /* 视角、骨骼：点「视角」才从右边浮出来，在「视角」按钮左边，一组一行 */
+  .dock .views{position:absolute;right:62px;bottom:var(--foot);box-shadow:0 1px 4px var(--shade)}
+  .dock .views:first-child{bottom:calc(var(--foot) + 52px)}
+  .app:not([data-pop="views"]) .dock .views:not(.history){visibility:hidden}
+  .app[data-pop] .hint{visibility:hidden}
+  .dock .views button{padding:10px 12px;font-size:13px}
+  .dock .history{top:calc(6px + var(--top));right:52px;bottom:auto;flex-direction:row;gap:6px;padding:0;background:none;box-shadow:none}
+  .dock .history .ico{display:block}
+  .dock .history .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+
+  /* ---------- 抽屉（造型） ---------- */
+  .panel{position:fixed;left:0;right:0;bottom:0;z-index:5;height:var(--sheet);display:flex;flex-direction:column;overflow:hidden;border-left:0;border-radius:16px 16px 0 0;box-shadow:0 -2px 12px var(--shade)}
+  .grip{position:relative;flex:none;height:22px;touch-action:none;cursor:grab}
+  .grip::before{content:"";position:absolute;left:50%;top:7px;width:38px;height:4px;margin-left:-19px;border-radius:2px;background:var(--line)}
+  .notes-toggle{position:absolute;right:6px;top:0;height:24px;padding:0 8px;font:inherit;font-size:12px;color:var(--muted);background:none;border:0;cursor:pointer}
+  .notes-toggle::before{content:"? "}
+  .notes-toggle[aria-pressed="true"]{color:var(--accent)}
+  /* 栏目名：一排，横着滑，选中的下面一道线 */
+  .jump{display:flex;flex:none;overflow-x:auto;padding:0 6px;border-bottom:1px solid var(--line);scrollbar-width:none}
+  .jump::-webkit-scrollbar{display:none}
+  .jump button{flex:none;position:relative;font:inherit;font-size:14px;line-height:1.3;color:var(--muted);background:none;border:0;padding:6px 10px 10px;cursor:pointer;white-space:nowrap}
+  .jump button svg{display:none}
+  .jump button[aria-current="true"]{color:var(--ink);font-weight:600}
+  .jump button[aria-current="true"]::after{content:"";position:absolute;left:10px;right:10px;bottom:0;height:3px;border-radius:2px;background:var(--accent)}
+  .jump button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+  .panel-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;gap:0;padding:12px 14px calc(16px + var(--bottom))}
+  .app[data-sheet="peek"] .panel-scroll{visibility:hidden}
+  /* 一次只看一栏，栏目名在上面那排里了，栏里的标题就不要了 */
+  .panel-scroll>section{display:none;border-top:0;padding-top:0}
+  .panel-scroll>section.tab-on{display:flex}
+  .panel-scroll>section>h2{display:none}
+  .panel-scroll>section.folded>.body{display:flex}
+  .note.long{display:none}
+  .app.notes .note.long{display:block;padding:10px 12px;border-radius:10px;background:var(--bg)}
+  /* 部件数量：两列小格子，一屏放得下大半 */
+  #counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  #counts .row{display:flex;justify-content:space-between;gap:4px;min-width:0;padding:2px 2px 2px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+  #counts .row:last-child{border-bottom:1px solid var(--line)}
+  #counts .row label{min-width:0;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #counts .row small{display:none}
+  /* 英文名字长（Upper body）：放不下就折成两行，别截断 */
+  :root:not([data-lang="zh"]) #counts .row label{white-space:normal;line-height:1.15;font-size:13px}
+  #counts .stepper{flex:none;gap:0}
+  #counts .stepper button{width:36px;height:38px;border:0;background:transparent;font-size:19px}
+  #counts .stepper output{min-width:1.8ch;font-size:15px}
+  /* 手动微调：选中了部件就不要「选中的部件」那一格（左下角的牌子上写着），数字格子紧一点 */
+  section[data-key="tweak"] .body:has(#tweakBody:not([hidden]))>.field:first-child{display:none}
+  .triple{grid-template-columns:3.8em repeat(3,minmax(0,1fr));gap:5px}
+
+  /* ---------- 摆姿势：底下一条图标，点了弹出卡片 ---------- */
+  .app[data-mode="pose"] .panel{height:auto;padding:0 8px calc(6px + var(--bottom));background:transparent;border-radius:0;box-shadow:none;overflow:visible;pointer-events:none}
+  .app[data-mode="pose"] .panel>*{pointer-events:auto}
+  .app[data-mode="pose"] .grip{display:none}
+  .app[data-mode="pose"] .jump{order:2;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:2px;height:var(--bar);padding:4px;border:0;border-radius:16px;background:var(--glass);box-shadow:0 1px 6px var(--shade);overflow:visible}
+  .app[data-mode="pose"] .jump button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:0;padding:0 2px;font-size:11px;border-radius:12px}
+  .app[data-mode="pose"] .jump button svg{display:block;width:21px;height:21px;flex:none}
+  .app[data-mode="pose"] .jump button span{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+  .app[data-mode="pose"] .jump button[aria-current="true"]{background:var(--accent);color:var(--accent-ink);font-weight:400}
+  .app[data-mode="pose"] .jump button::after{display:none}
+  .app[data-card="joint"] .jump button[aria-current="true"]{background:none;color:var(--muted)}
+  .app[data-mode="pose"] .jump [data-key="config"],.app[data-mode="pose"] .jump [data-mode="shape"]{display:none}
+  .app[data-mode="pose"] .panel-scroll{order:1;flex:none;display:none;max-height:46vh;margin-bottom:8px;padding:12px 14px;border-radius:16px;background:var(--panel);box-shadow:0 6px 24px rgba(0,0,0,.22)}
+  .app[data-mode="pose"][data-card] .panel-scroll{display:flex}
+  /* 卡片开着时，3D 视图底边的按钮会被它盖住：先收起来 */
+  .app[data-card] .side,.app[data-card] .picked{visibility:hidden}
+  /* 点中关节：只放关节那几样，两行 */
+  .app[data-card="joint"] .panel-scroll{padding:8px 10px 6px 14px}
+  .app[data-card="joint"] section[data-key="pose"]>.body>*:not(#poseJoint){display:none}
+  .app[data-card="joint"] #poseJoint{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:2px 6px}
+  .app[data-card="joint"] #poseJoint .field{grid-row:1;flex-direction:row;align-items:baseline;gap:8px;min-width:0;font-size:12px;color:var(--muted)}
+  .app[data-card="joint"] #poseJointName{font-size:15px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .app[data-card="joint"] #poseJoint .actions{display:contents}
+  .app[data-card="joint"] #poseJoint .actions .btn{grid-row:1;min-height:36px;padding:6px 10px;font-size:13px;white-space:nowrap}
+  .app[data-card="joint"] #posePinRow{grid-column:1/-1;grid-row:2;min-height:32px;font-size:12.5px;color:var(--muted)}
+
+  /* ---------- 弹出层：「更多」菜单、导出面板 ---------- */
+  .scrim{position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.3)}
+  .scrim[hidden]{display:none}
+  /* 「更多」就是标题区：平时收着，打开时浮在右上角 */
+  header{display:none}
+  /* 标题区在内容区里：摆姿势没开卡片、抽屉收到最低时内容区是收着的，菜单打开时让它在（但看不见、不占地方） */
+  .app[data-mode="pose"][data-pop="menu"]:not([data-card]) .panel-scroll{display:flex;visibility:hidden;height:0;padding:0;margin:0;box-shadow:none}
+  .app[data-pop="menu"] header{visibility:visible;display:flex;flex-direction:column;gap:6px;position:fixed;z-index:11;top:calc(50px + var(--top));right:8px;width:min(290px,calc(100% - 16px));padding:12px;border-radius:14px;background:var(--panel);box-shadow:0 8px 28px rgba(0,0,0,.28)}
+  header h1,header .sub p{display:none}
+  header .title{display:block}
+  header .title-tools{justify-content:space-between;margin:0}
+  header .title .lang{font-size:14px;color:var(--ink);padding:8px}
+  header .sub{margin:0}
+  header .sub .btn{flex:1;font-size:14px;color:var(--ink)}
+  header .repo{margin:2px 0 0}
+  /* 导出：平时只剩状态那一行（冒出来的小条），打开时从底下升起一张面板 */
+  .panel-foot{display:contents}
+  .panel-foot .export,.panel-foot .status,.panel-foot .export-title{display:none}
+  .app[data-pop="export"] .panel-foot .export-title{display:block}
+  .status.toast{display:block;position:fixed;z-index:12;left:50%;top:calc(52px + var(--top));transform:translateX(-50%);width:max-content;max-width:calc(100% - 32px);min-height:0;padding:7px 14px;border-radius:999px;background:var(--ink);color:var(--bg);font-size:13px;line-height:1.45;text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+  .status.toast.warn{background:var(--warn);color:#fff}
+  .app[data-pop="export"] .panel-foot{display:flex;position:fixed;z-index:11;left:0;right:0;bottom:0;flex-direction:column;gap:10px;padding:16px 16px calc(16px + var(--bottom));border-top:0;border-radius:18px 18px 0 0;background:var(--panel);box-shadow:0 -4px 24px rgba(0,0,0,.25)}
+  .export-title{margin:0;font-size:17px}
+  .app[data-pop="export"] .export{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .app[data-pop="export"] .export .btn{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;min-height:58px;padding:10px 12px;border-radius:12px;font-size:14px;font-weight:600;text-align:left;white-space:normal;line-height:1.3}
+  .app[data-pop="export"] .export .btn::after{content:attr(title);font-size:11.5px;font-weight:400;color:var(--muted);line-height:1.35}
+  .app[data-pop="export"] .export .btn.primary{grid-column:1/-1;min-height:62px;font-size:15px}
+  .app[data-pop="export"] .export .btn.primary::after{color:inherit;opacity:.85}
+  .app[data-pop="export"] .panel-foot .status{display:block;position:static}
+}
+/* 很窄的手机（320 宽）：栏目名、两列数量再紧一点 */
+@media (max-width:360px){
+  .jump button{padding-inline:8px;font-size:13.5px}
+  #counts .stepper button{width:32px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 /* 部件数量：好几个上半身时单独改一个上半身的那几行（见 main.ts 的 torsoEdit）；全部一样时有上半身单独设过的数后面加个星号 */
