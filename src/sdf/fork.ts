@@ -191,18 +191,21 @@ function bareWarp(fork: Fork, frame?: Fork['frame']): ForkWarp {
   };
   // 绕 Z 分叉时，逆解高度、分界和伸长倍数与深度无关。小型定长缓存复用同一列的逆解；
   // 只在坐标变换也不混入 Z 时启用，任意轴旋转继续走完整求解。
+  // 启用时一律照深度 0 求、最后加回深度：缓存里记的就是深度 0 的，取出来的和现算的逐值一样
+  // （以前照这一点的深度求，缓存里记「求出来的减深度」，取出来再加回去，差在最后一位上，同一点先算过哪些点结果就不一样）
   const planar = (angle === 0 || (nx === 0 && ny === 0)) && a02 === 0 && a12 === 0 && a20 === 0 && a21 === 0 && b02 === 0 && b12 === 0 && b20 === 0 && b21 === 0;
   const cache = planar ? new Float64Array(512 * 7).fill(NaN) : null;
   return {
-    map(x0, y0, z0, out) {
+    map(x0, y0, depth, out) {
       const slot = (((Math.floor(x0 * 8192) * 73856093) ^ (Math.floor(y0 * 8192) * 19349663)) & 511) * 7;
       if (cache && cache[slot] === x0 && cache[slot + 1] === y0) {
         out[0] = cache[slot + 2];
         out[1] = cache[slot + 3];
-        out[2] = z0 + cache[slot + 4];
+        out[2] = depth + cache[slot + 4];
         out[3] = cache[slot + 5];
         return cache[slot + 6];
       }
+      const z0 = cache ? 0 : depth;
       // 先照部件整个转、挪的样子摆到胯的坐标里（w），再找它是分开之前哪一点（s）挪过来的：
       // s 在高度 h 处只转了、挪了那么多。s 的高度随猜的 h 变，要找 s 的高度正好等于 h 的那个 h：
       // h 在分开的那一段以下（没转没挪）就是 w 自己的高度，以上（转足挪足）就是部件坐标里的高度，不然在两者之间找
@@ -299,9 +302,10 @@ function bareWarp(fork: Fork, frame?: Fork['frame']): ForkWarp {
         cache[slot + 1] = y0;
         cache[slot + 2] = out[0];
         cache[slot + 3] = out[1];
-        cache[slot + 4] = out[2] - z0;
+        cache[slot + 4] = out[2];
         cache[slot + 5] = out[3];
         cache[slot + 6] = result;
+        out[2] = depth + out[2];
       }
       return result;
     },

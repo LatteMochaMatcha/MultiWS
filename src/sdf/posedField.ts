@@ -24,6 +24,8 @@
  * - 好几个上半身的二次元素体（见 SHARED_LIFT）：躯干那几块（胯、每个上半身）一起顺着所有躯干骨骼弯——一个上半身那份只跟自己的脊柱的话，
  *   两个上半身一歪开，正中切开的两个切面就露出来；胸根那一层顺着自己那个上半身的脊柱弯，往外渐渐换成整个跟着那个上半身最近的那节骨骼。
  *   照权重弯的话，挤在一起的两只胸接触的那一圈是一整张皮，两个上半身一分开就被拉成一根管子；这样重新融合，两只胸干干净净地分开。
+ *   两个上半身直立并排的（每个上半身是完整的一份躯干，不是切开拼的，见 OWN_BEND）另有一套：上半身那份从腰往上渐渐换成只跟自己的脊柱弯，
+ *   胸整只照同一种弯法走，胸根和躯干对得上；两个身子歪开时从肚子上面干干净净地分开。
  * 部件之间照旧是圆滑地融合。
  *
  * 不是什么身体都照这个办法，见 refusable。
@@ -117,6 +119,15 @@ const PELVIS_STUB = { down: 0.14 };
  * 正中还会多出一只只「鬼影」胸——胸原来（静止时）在的地方倒着搬回去，照胯那几节搬又落回胸上
  */
 const SHARED_LIFT: [near: number, far: number] = [0.005, 0.05];
+/**
+ * 两个上半身直立并排时上半身那份躯干怎么弯（见 apartMap）：静止时比腰（脊柱起点）高 from 以下和胯、另一个上半身一起顺着所有躯干骨骼弯，
+ * 到 to 换成只跟自己的脊柱弯，之间渐变（按标准人台的尺寸）。
+ * 下沿和胯叠着的那一截两边是同一张皮，要和胯一样弯，不然错开、肚子上横着一道锯齿缝；往上整个一起弯的话，胸根（跟着自己的脊柱）和躯干对不上，
+ * 里侧胸根一圈毛边，两个身子之间冒出几块方块
+ */
+const OWN_BEND: [from: number, to: number] = [0.06, 0.2];
+/** 两个上半身直立并排时胸上离胸表面（照自己的脊柱搬回去量）这么远以外的点不再细算（按标准人台的尺寸，见 chestDrafts） */
+const CHEST_FAR = 0.06;
 /** 顺着好几节骨骼弯时，一节骨骼在一个基本体上哪儿都占不到这么多，就不算它（见 bendMap 的 focus） */
 const FOCUS_LEAST = 1e-3;
 
@@ -452,10 +463,18 @@ function bendMap(bones: number[], skeleton: Skeleton, m: PoseMatrices, stubs: St
   return { map, box };
 }
 
-/** 一个静止时的基本体，顺着 bones 这几节骨骼弯过去（不分段，见 bendMap） */
-function bendDraft(d: Draft, bones: number[], skeleton: Skeleton, m: PoseMatrices, fadeAt: V3 | null, root: number[] | undefined, out: Draft[], stubs: Stub[] = [], focus = false) {
+/** 「倒着搬回静止位置」的一种办法（见 bendMap、apartMap） */
+type Back = {
+  map: (x: number, y: number, z: number, out: Float64Array) => void;
+  box: (d: Draft) => number[];
+  /** 只顺着自己的脊柱搬回去（见 apartMap）：map 是在这个基础上再往「一起弯」那边渐变 */
+  own?: (x: number, y: number, z: number, out: Float64Array) => void;
+};
+
+/** 一个静止时的基本体，顺着 bones 这几节骨骼弯过去（不分段，见 bendMap）；made：另给的弯法（见 apartMap） */
+function bendDraft(d: Draft, bones: number[], skeleton: Skeleton, m: PoseMatrices, fadeAt: V3 | null, root: number[] | undefined, out: Draft[], stubs: Stub[] = [], focus = false, made?: (d: Draft) => Back) {
   const f = draftDist(d);
-  const bend = bendMap(bones, skeleton, m, stubs, focus ? d : undefined);
+  const bend = made ? made(d) : bendMap(bones, skeleton, m, stubs, focus ? d : undefined);
   const q = new Float64Array(3);
   out.push({
     type: T_CUSTOM,
@@ -950,6 +969,53 @@ export function compilePosedField(
   const torsoParts = shared ? figure.parts.filter((part) => part.type === 'torso') : [];
   const torsoBones = torsoParts.flatMap((part) => own.get(part.name) ?? []);
   const torsoStubs = torsoParts.flatMap((part) => pelvis.get(part.name) ?? []);
+  /**
+   * 两个上半身直立并排：每个上半身是完整的一份躯干，上半身那份往上渐渐换成只跟自己的脊柱弯，胸照同一种弯法（见 OWN_BEND）。
+   * 切开拼起来的——并成宽躯干切成两半的（clipX）、三个上半身和相邻的各留一半的（fork.split）——照旧整个一起弯，各跟各的话切面露出来
+   */
+  const apart =
+    shared && !torsoParts.some((part) => part.prims.some((prim) => prim.kind === 'grid' && (prim.clipX !== undefined || !!prim.fork?.split?.length)));
+  const apartMaps = new Map<string, (d: Draft) => Back>();
+  /** 两个上半身直立并排时某个上半身那份躯干（和长在上面的胸）怎么倒着搬回去（见 OWN_BEND）；不是这种的 undefined */
+  const apartMap = (name: string): ((d: Draft) => Back) | undefined => {
+    if (!apart || !/^UpperBody/.test(name)) return undefined;
+    const spine = own.get(name);
+    if (!spine?.length) return undefined;
+    let made = apartMaps.get(name);
+    if (made) return made;
+    const scale = xfs.get(name)?.scale ?? 1;
+    const waist = Math.min(...spine.map((b) => skeleton.bones[b].head[1]));
+    const [lo, hi] = OWN_BEND.map((v) => waist + v * scale);
+    made = (d: Draft): Back => {
+      const all = bendMap(torsoBones, skeleton, matrices, torsoStubs, d);
+      const mine = bendMap(spine, skeleton, matrices, [], d);
+      const a = new Float64Array(3);
+      return {
+        own: mine.map,
+        map: (x, y, z, out) => {
+          mine.map(x, y, z, out);
+          const t = (out[1] - lo) / (hi - lo);
+          if (t >= 1) return;
+          all.map(x, y, z, a);
+          if (t <= 0) {
+            out[0] = a[0];
+            out[1] = a[1];
+            out[2] = a[2];
+            return;
+          }
+          const w = t * t * (3 - 2 * t);
+          for (let k = 0; k < 3; k++) out[k] = a[k] + (out[k] - a[k]) * w;
+        },
+        box: (dd) => {
+          const p = all.box(dd);
+          const q = mine.box(dd);
+          return [Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.min(p[2], q[2]), Math.max(p[3], q[3]), Math.max(p[4], q[4]), Math.max(p[5], q[5])];
+        },
+      };
+    };
+    apartMaps.set(name, made);
+    return made;
+  };
   /** 静止时胸那一带离躯干表面多远（烤好的，见 torsoNearChests） */
   let torsoRest: Dist | null = null;
   const restTorso = (): Dist => (torsoRest ??= torsoNearChests(figure.parts, xfs, minR));
@@ -976,6 +1042,8 @@ export function compilePosedField(
     let body: Part | undefined = part;
     while (body && body.type !== 'torso') body = body.parent ? byName.get(body.parent) : undefined;
     const spine = body && /^UpperBody/.test(body.name) ? own.get(body.name) : undefined;
+    // 两个上半身直立并排：整只胸和自己那个上半身的躯干一样弯（见 OWN_BEND），胸根始终贴着躯干
+    const follow = body ? apartMap(body.name) : undefined;
     const q = new Float64Array(3);
     /** 一个静止时的基本体整个跟着那节骨骼搬过去以后占多大（corners：用哪几个角） */
     const rigidBox = (corners: readonly number[]): number[] => {
@@ -992,6 +1060,33 @@ export function compilePosedField(
     const merge = (a: number[], b: number[]): number[] => [0, 1, 2, 3, 4, 5].map((k) => (k < 3 ? Math.min(a[k], b[k]) : Math.max(a[k], b[k])) + (k < 3 ? -MARGIN : MARGIN));
     for (const d of rest) {
       const f = draftDist(d);
+      if (follow) {
+        const far = CHEST_FAR * xf.scale;
+        const along = follow(d);
+        drafts.push({
+          type: T_CUSTOM,
+          group: d.group,
+          nums: [],
+          mode: d.mode,
+          k: d.k,
+          custom: (x, y, z) => {
+            // 离胸远的（胸的格子盒子很大，大半是空的）照自己的脊柱搬回去估一下就够了：两种弯法差不到这么多，远处的值不影响表面
+            along.own!(x, y, z, q);
+            const guess = f(q[0], q[1], q[2]);
+            if (guess > far) return guess;
+            along.map(x, y, z, q);
+            const v = f(q[0], q[1], q[2]);
+            if (!seam) return v;
+            // 里侧的胸在两个身子正中切齐的那一刀跟着胸弯：两个身子各弯各的，往同一边扭、歪时里侧的胸越过正中，
+            // 照两个身子一起弯的话那一刀留在正中，把胸切出一个平面
+            const cut = n[0] * q[0] + n[1] * q[1] + n[2] * q[2] + c;
+            return v > cut ? v : cut;
+          },
+          box: along.box(d),
+          ...(d.span ? { cull: [boxCorners(along.box({ ...d, corners: tightCorners(d), outerCorners: undefined }))] } : {}),
+        });
+        continue;
+      }
       const whole = seam || !spine ? bendMap(torsoBones, skeleton, m, torsoStubs, d) : null;
       const bend = spine ? bendMap(spine, skeleton, m, [], d) : whole!;
       const tight = { ...d, corners: tightCorners(d), outerCorners: undefined };
@@ -1086,7 +1181,8 @@ export function compilePosedField(
       partDrafts(part, xf, group, minR, rest);
       const origin = carried(matrices, nearest(carriers, xf.pos) * 12, xf.pos);
       const root = blend ? [...origin, blend[0] * xf.scale, blend[1] * xf.scale] : undefined;
-      for (const d of rest) bendDraft(d, carriers, skeleton, matrices, origin, root, drafts, together ? torsoStubs : pelvis.get(part.name), together);
+      const made = together ? apartMap(part.name) : undefined;
+      for (const d of rest) bendDraft(d, carriers, skeleton, matrices, origin, root, drafts, together ? torsoStubs : pelvis.get(part.name), together, made);
       continue;
     }
     const plan = mine.length > 1 || part.type === 'leg' ? planOf(part, mine, skeleton) : null;
