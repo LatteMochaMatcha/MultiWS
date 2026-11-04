@@ -19,6 +19,8 @@
  * - 照着现成的模型采样出来的腿（二次元素体）不在这里摆：这种腿的根是一圈毛边，静止时和躯干的开口对得严丝合缝
  *   才看不出来，在场里怎么弯都会错开。所以融合时让它整个跟着胯（见 heldLegs），融合完再照蒙皮权重搬过去
  *   （见 posedFuse.ts）——腿和「拖着的时候」那张网格上的一模一样。
+ * - 一个上半身的二次元素体，胸整个和躯干一样弯（见 bodyChest）：胸长在躯干上，躯干怎么弯胸就怎么弯，胸根始终贴着躯干。
+ *   以前整个跟着最近的那节脊柱搬，几节脊柱转得不一样时胸根和躯干错开，一圈锯齿状的沟、毛边。
  * - 好几个上半身的二次元素体（见 SHARED_LIFT）：躯干那几块（胯、每个上半身）一起顺着所有躯干骨骼弯——一个上半身那份只跟自己的脊柱的话，
  *   两个上半身一歪开，正中切开的两个切面就露出来；胸根那一层顺着自己那个上半身的脊柱弯，往外渐渐换成整个跟着那个上半身最近的那节骨骼。
  *   照权重弯的话，挤在一起的两只胸接触的那一圈是一整张皮，两个上半身一分开就被拉成一根管子；这样重新融合，两只胸干干净净地分开。
@@ -936,7 +938,15 @@ export function compilePosedField(
   }
 
   // 好几个上半身的二次元素体（见 SHARED_LIFT）：躯干那几块一起顺着所有躯干骨骼弯（腿根那几截也算上），胸根顺着自己那个上半身的脊柱弯
-  const shared = isSampled(figure.parts) && severalBodies(figure.parts);
+  const sampled = isSampled(figure.parts);
+  const shared = sampled && severalBodies(figure.parts);
+  /**
+   * 一个上半身的二次元素体：胸整个和躯干一样弯（同一组骨骼、腿根那几截，见 bendDraft），胸根始终贴着躯干。
+   * 好几个上半身的另有一套（见 chestDrafts）
+   */
+  const body = sampled && !shared ? figure.parts.find((part) => part.name === 'Torso') : undefined;
+  const bodyBones = body ? (own.get(body.name) ?? []) : [];
+  const bodyStubs = body ? (pelvis.get(body.name) ?? []) : [];
   const torsoParts = shared ? figure.parts.filter((part) => part.type === 'torso') : [];
   const torsoBones = torsoParts.flatMap((part) => own.get(part.name) ?? []);
   const torsoStubs = torsoParts.flatMap((part) => pelvis.get(part.name) ?? []);
@@ -1048,6 +1058,12 @@ export function compilePosedField(
     };
     if (shared && part.type === 'chest') {
       chestDrafts(part, xf, group);
+      continue;
+    }
+    if (bodyBones.length && part.type === 'chest' && !bodyBones.every((b) => same(matrices, b * 12, bodyBones[0] * 12))) {
+      const rest: Draft[] = [];
+      partDrafts(part, xf, group, minR, rest);
+      for (const d of rest) bendDraft(d, bodyBones, skeleton, matrices, null, undefined, drafts, bodyStubs);
       continue;
     }
     if (!mine) {
