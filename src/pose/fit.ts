@@ -110,14 +110,6 @@ export function followArms(solver: Solver, posing: Posing): { posing: Posing; fo
   const arms = limbs.filter((limb) => limb.kind === 'arm');
   const followers: number[] = [];
   if (posing.version === 1 || arms.length <= 2) return { posing, followers };
-  /** 手臂长在哪个上半身上：往上找到的第一节脊柱带的边（Spine_L 是 _L，正中那个是空的） */
-  const torsoOf = (bone: number): string => {
-    for (let b = rig.parent[bone]; b >= 0; b = rig.parent[b]) {
-      const m = /^(?:Spine|Chest|UpperChest)(_[LR])?(?:\.\d+)?$/.exec(rig.names[b]);
-      if (m) return m[1] ?? '';
-    }
-    return '';
-  };
   const bones = { ...posing.bones };
   for (const limb of arms) {
     if (limb.pair === 0 || posing.bones[rig.names[limb.upper]]) continue;
@@ -131,7 +123,7 @@ export function followArms(solver: Solver, posing: Posing): { posing: Posing; fo
       return Math.hypot(at[0] - p[0], at[1] - p[1], at[2] - p[2]) < SAME_SHOULDER * first.len1;
     });
     if (crowded) continue;
-    const same = torsoOf(limb.upper) === torsoOf(first.upper);
+    const same = torsoOf(rig, limb.upper) === torsoOf(rig, first.upper);
     const tag = limb.side > 0 ? 'L' : 'R';
     for (const [name, told] of Object.entries(posing.bones)) {
       if (ARM_BONE.exec(name)?.[1] !== tag) continue;
@@ -144,4 +136,13 @@ export function followArms(solver: Solver, posing: Posing): { posing: Posing; fo
     followers.push(limbs.indexOf(limb));
   }
   return followers.length ? { posing: { ...posing, bones }, followers } : { posing, followers };
+}
+
+/** 一根骨骼（手臂）长在哪个上半身上：往上找到的第一节脊柱带的边（Spine_L 是 _L，正中那个是空的） */
+export function torsoOf(rig: Pick<Solver['rig'], 'names' | 'parent'>, bone: number): string {
+  for (let b = rig.parent[bone]; b >= 0; b = rig.parent[b]) {
+    const m = /^(?:Spine|Chest|UpperChest)(_[LR])?(?:\.\d+)?$/.exec(rig.names[b]);
+    if (m) return m[1] ?? '';
+  }
+  return '';
 }

@@ -23,6 +23,7 @@ import { buildSkeleton } from '../src/rig/skeleton';
 import { compileField, fieldAt } from '../src/sdf/field';
 import { VOXEL } from '../src/sdf/fuse';
 import { runJob } from '../src/sdf/job';
+import { posedBodyDist } from '../src/sdf/posedBody';
 import { refusable } from '../src/sdf/posedField';
 import { type V3, VIEWS, type ViewName, frameFor, png, render } from './softRender';
 
@@ -126,7 +127,9 @@ function fittedPosing(spec: BodySpec, figure: Figure, solver: ReturnType<typeof 
     return keep;
   });
   const field = compileField({ scale: figure.scale, parts }, { blend: spec.blend });
-  return clearArms(solver, next, (x, y, z) => fieldAt(field, x, y, z), figure.scale, spec.shape.limbs, followers);
+  // 手腕外面那一截照摆好的姿势量（见 sdf/posedBody.ts）
+  const posed = posedBodyDist(figure, spec.blend, poseMatrices(solver.rig, forward(solver.rig, stateOf(solver, next)), figure.scale));
+  return clearArms(solver, next, (x, y, z) => fieldAt(field, x, y, z), figure.scale, spec.shape.limbs, followers, posed);
 }
 
 /** 网格的边：只被一个三角面用的（破口）、被三个以上用的（不是流形） */

@@ -87,6 +87,30 @@ function deepest(kit: ReturnType<typeof kitOf>, posing: Posing, arms: number[]):
   }
   return worst;
 }
+/** 手腕外面（顺着前臂）2 cm 那一点离身体多远：照最近的那根身上的骨骼换算回静止姿势里量 */
+function stubGap(kit: ReturnType<typeof kitOf>, posing: Posing, i: number): number {
+  const { solver, body } = kit;
+  const { rig } = solver;
+  const frame = forward(rig, stateOf(solver, posing));
+  const limb = solver.limbs[i];
+  const e = frame.pos[limb.lower];
+  const w = frame.pos[limb.end];
+  const l = Math.hypot(w[0] - e[0], w[1] - e[1], w[2] - e[2]);
+  const p = [0, 1, 2].map((k) => w[k] + ((w[k] - e[k]) / l) * 0.02 * kit.figure.scale);
+  let best = -1;
+  let gap = Infinity;
+  rig.names.forEach((n, b) => {
+    if (!/^(Hips|Spine|Chest|UpperChest|Neck|Head|UpperLeg|LowerLeg)/.test(n)) return;
+    const a = frame.pos[b];
+    const ab = rotateBy(frame.rot[b], [rig.tail[b][0] - rig.head[b][0], rig.tail[b][1] - rig.head[b][1], rig.tail[b][2] - rig.head[b][2]]);
+    const l2 = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2 || 1;
+    const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1] + (p[2] - a[2]) * ab[2]) / l2));
+    const d = Math.hypot(p[0] - a[0] - ab[0] * t, p[1] - a[1] - ab[1] * t, p[2] - a[2] - ab[2] * t);
+    if (d < gap) [gap, best] = [d, b];
+  });
+  const q = rotateBy(quatConj(frame.rot[best]), [p[0] - frame.pos[best][0], p[1] - frame.pos[best][1], p[2] - frame.pos[best][2]]);
+  return body(rig.head[best][0] + q[0], rig.head[best][1] + q[1], rig.head[best][2] + q[2]);
+}
 function rotateBy(q: Quat, v: number[]): number[] {
   const [x, y, z, w] = q;
   const tx = 2 * (y * v[2] - z * v[1]);
@@ -177,6 +201,30 @@ describe('手臂让开身体', () => {
         if (!atRest) expect(deepest(kit, after, [i]), `${name} ${limb.name}`).toBeLessThan(0.012 * kit.figure.scale);
       }
       if (name === '抱着胳膊') expect(followers.every((i) => quatAngle(state.local[solver.limbs[i].upper]) > 0.1), name).toBe(true);
+    }
+  });
+
+  it('三个上半身：正中那个身子的两条手臂两边都是别的身子，垂下去、叉腰、坐着、蹲着都不再埋进旁边的身子里（以前转 40° 推不开就那样插着，手掉成单独一块）', () => {
+    const kit = kitOf(make({ torsos: 3 }));
+    const { solver } = kit;
+    const middle = armsOf(solver, 0);
+    for (const name of ['自然站立', '叉腰', '坐着', '蹲着']) {
+      const { posing, followers } = followArms(solver, fitArms(solver, torsos(preset(name))));
+      const after = clearArms(solver, posing, kit.body, kit.figure.scale, 1, followers);
+      for (const i of middle) expect(deepest(kit, after, [i]), `${name} ${solver.limbs[i].name}`).toBeLessThan(-0.01 * kit.figure.scale);
+    }
+  });
+
+  it('叉腰：手腕外面那一截（缝手的地方，前臂的距离场伸出手腕 3 cm）离开胯，手缝得上', () => {
+    for (const spec of [make(), make({ torsos: 2, legs: 4 }, { legLayout: 'abreast' })]) {
+      const kit = kitOf(spec);
+      const { solver } = kit;
+      const { posing, followers } = followArms(solver, fitArms(solver, torsos(preset('叉腰'))));
+      const after = clearArms(solver, posing, kit.body, kit.figure.scale, 1, followers);
+      for (const i of armsOf(solver, 0)) {
+        expect(stubGap(kit, posing, i), `${spec.legLayout} ${solver.limbs[i].name} 让开前`).toBeLessThan(0.02 * kit.figure.scale);
+        expect(stubGap(kit, after, i), `${spec.legLayout} ${solver.limbs[i].name}`).toBeGreaterThan(0.025 * kit.figure.scale);
+      }
     }
   });
 });

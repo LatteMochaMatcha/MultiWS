@@ -28,6 +28,7 @@ import { buildSkeleton } from '../src/rig/skeleton';
 import { compileField, fieldAt } from '../src/sdf/field';
 import { VOXEL } from '../src/sdf/fuse';
 import { runJob } from '../src/sdf/job';
+import { posedBodyDist } from '../src/sdf/posedBody';
 import { refusable } from '../src/sdf/posedField';
 import { type V3, VIEWS, frameFor, png, render } from './softRender';
 
@@ -99,7 +100,14 @@ export function specOf(c: Case): BodySpec {
 }
 
 /** 和工坊里点姿势按钮一样（main.ts 的 fitted）：多出来的腿照左右腿摆、几个上半身的脊柱都照着摆，手臂挑一条摆、别的跟着动，再让开身体 */
-export function fittedPosing(spec: BodySpec, solver: ReturnType<typeof makeSolver>, posing: Posing, clear: ((x: number, y: number, z: number) => number) | null, scale: number): Posing {
+export function fittedPosing(
+  spec: BodySpec,
+  solver: ReturnType<typeof makeSolver>,
+  posing: Posing,
+  clear: ((x: number, y: number, z: number) => number) | null,
+  scale: number,
+  figure?: Figure,
+): Posing {
   const bones = { ...fitLegs(posing, legPlan(spec).form, spec.counts.legs, solver.rig).bones };
   if (spec.counts.torsos > 1) {
     for (const [name, turn] of Object.entries(posing.bones)) {
@@ -108,7 +116,10 @@ export function fittedPosing(spec: BodySpec, solver: ReturnType<typeof makeSolve
     }
   }
   const { posing: next, followers } = followArms(solver, fitArms(solver, { ...posing, bones }));
-  return clear ? clearArms(solver, next, clear, scale, spec.shape.limbs, followers) : next;
+  if (!clear) return next;
+  // 手腕外面那一截照摆好的姿势量（见 sdf/posedBody.ts）
+  const posed = figure ? posedBodyDist(figure, spec.blend, poseMatrices(solver.rig, forward(solver.rig, stateOf(solver, next)), figure.scale)) : null;
+  return clearArms(solver, next, clear, scale, spec.shape.limbs, followers, posed);
 }
 
 /** 量手臂插没插进身体用的场：只算身子、头、腿、胸（main.ts 的 bodyDist） */
@@ -221,7 +232,7 @@ export function figureBody(spec: BodySpec, voxel: number): Body {
     rest: { pos: plain.positions.map((v) => v * unit), triangles: plain.triangles, vertices: plain.info.vertices },
     restRow: { parts: figure.parts.length, components: plain.info.components, ...edgeCheck(plain.triangles, plain.info.vertices), ms, clashes: findClashes(figure).map((c) => `${c.a}×${c.b} ${(c.depth * 100).toFixed(1)}cm`) },
     pose: (raw) => {
-      const posing = fittedPosing(spec, solver, raw, clear, unit);
+      const posing = fittedPosing(spec, solver, raw, clear, unit, figure);
       const frame = forward(solver.rig, stateOf(solver, posing));
       const exact = poseMatrices(solver.rig, frame, unit);
       if (refusable(figure, exact)) {

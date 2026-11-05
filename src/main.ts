@@ -131,6 +131,7 @@ import { type HairShape, hairReady, loadHairShape } from './hair/shapes';
 import { compileField, fieldAt } from './sdf/field';
 import { provideGenital, provideHair, provideShapes, spreadWork } from './sdf/meshClient';
 import { type Picker, makePicker } from './sdf/pick';
+import { posedBodyDist } from './sdf/posedBody';
 import { refusable } from './sdf/posedField';
 import { BoneOverlay } from './view/boneOverlay';
 import { CharacterModel } from './view/characterModel';
@@ -2985,7 +2986,10 @@ if (POSE_LIBRARY.length) {
     if (!kit) return own;
     const { posing: next, followers } = followArms(kit.solver, fitArms(kit.solver, own));
     const body = bodyDist();
-    return body && figure ? clearArms(kit.solver, next, body, figure.scale, spec.shape.limbs, followers) : next;
+    if (!body || !figure) return next;
+    // 手腕外面那一截照摆好的姿势量（见 sdf/posedBody.ts）
+    const posed = posedBodyDist(figure, spec.blend, poseMatrices(kit.solver.rig, forward(kit.solver.rig, stateOf(kit.solver, next)), figure.scale));
+    return clearArms(kit.solver, next, body, figure.scale, spec.shape.limbs, followers, posed);
   };
 
   /* ---- 只套一部分、只套几成（照 Blender 姿态库，见 pose/blend.ts） ---- */
