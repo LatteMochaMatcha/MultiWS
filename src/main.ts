@@ -119,6 +119,7 @@ import { rootReach, settleCollars } from './pose/collar';
 import { type PoseRegion, POSE_REGIONS, armPairOf, blendPose, regionOf } from './pose/blend';
 import { type DrapeKind, BodySurface, boneRadius, drape, drapeBones } from './pose/drape';
 import { fitArms, followArms } from './pose/fit';
+import { fitLegs } from './pose/fitLegs';
 import { POSE_LIBRARY } from './pose/library';
 import { type Posing, POSING_VERSION, cleanPosing, emptyPosing, flipPosing, isPosed, placedTwins } from './pose/posing';
 import { type Frame, type PoseRig, type PoseState, cloneState, forward, pointOn, poseMatrices, posedBones, shiftRoot, tailOf } from './pose/rig';
@@ -2965,26 +2966,8 @@ let syncPresetPanel = () => {};
 if (POSE_LIBRARY.length) {
   $('poseLibraryNote').textContent =
     t('点一下就套到现在这个角色身上，并且落到地面；不满意接着拖圆点改。这些姿势取自 Quaternius 的 Universal Animation Library（CC0），是给普通人形做的：手指也跟着摆（握着的、张着的、放松的）。套上去时手臂插进身体的（胯宽、胸大时常见），绕肩膀往外让一点。肩部聚拢的几条手臂：姿势和垂着差不多时一起摆（还是散开着），差得多时只摆方向最接近的那一条。别的多出来的手臂跟着原来的那条做同样的动作（上下排的还是错开着；好几个上半身时，每个上半身各自做一整套），碰到身体、别的手臂就让开，让不开的保持自己静止时的样子。尾巴、翅膀保持自己静止时的样子。');
-  /**
-   * 现成的姿势是给两条腿的人摆的。人马、蛛形的腿和胯不照它摆（马腿照人腿的样子弯会很怪，马身也不该跟着躺下去）：
-   * 只套腰以上，下半身保持静止的样子。
-   * 腿左右并排、胯部聚拢、横排多胯时，多出来的几对是同样的腿排在旁边、挤在后面：左边的都照左腿摆，右边的都照右腿摆
-   * （横排多胯是每副胯自己的左腿、右腿）。
-   * 长在中线上的腿（单足、单数条并排的正中那条）不照它摆，保持站着。
-   */
-  const fittedLegs = (posing: Posing): Posing => {
-    if (metrics?.legForm === 'row' || metrics?.legForm === 'gather' || metrics?.legForm === 'abreast') {
-      const bones = { ...posing.bones };
-      for (const [name, turn] of Object.entries(posing.bones)) {
-        if (!/^(UpperLeg|LowerLeg|Foot|Toes)_[LR]$/.test(name)) continue;
-        for (let k = 1; k < Math.ceil(spec.counts.legs / 2); k++) bones[nthName(name, k)] = turn;
-      }
-      return { ...posing, bones };
-    }
-    if (metrics?.legForm !== 'taur' && metrics?.legForm !== 'spider') return posing;
-    const bones = Object.fromEntries(Object.entries(posing.bones).filter(([name]) => !/^(Hips|UpperLeg|LowerLeg|Foot|Toe)/.test(name)));
-    return { version: posing.version, bones };
-  };
+  /** 现成的姿势是给两条腿的人摆的：多条腿时腿怎么摆见 pose/fitLegs.ts */
+  const fittedLegs = (posing: Posing): Posing => fitLegs(posing, metrics?.legForm, spec.counts.legs, kit?.solver.rig);
   /** 好几个上半身：每个的脊柱（Spine_L、Chest_R …）都照姿势里那一串摆；外侧的手臂名字和平常一样，本来就套得上 */
   const fittedTorsos = (posing: Posing): Posing => {
     if (spec.counts.torsos < 2) return posing;

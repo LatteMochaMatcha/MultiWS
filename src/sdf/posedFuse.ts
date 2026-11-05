@@ -26,6 +26,12 @@ import type { FusedMesh } from './surfaceNets';
 const REACH = 2;
 /** 抄权重时两边的法线至少要这么一致（点积）：挨着大腿的前臂、手朝着大腿，不能把大腿的权重抄给它 */
 const FACING = 0.2;
+/**
+ * 一个都没抄到、周围却大半都抄到了的顶点（腿上一道小褶子里法线朝反了的、精细网格多出来的一点细节）：照周围抄到的那几个平均，
+ * 最多往里补几圈。不补的话它不跟着腿走，留在「腿跟着胯」时的位置，和搬过去的邻居连成一根几十厘米长的针。
+ * 周围大半都没抄到的（手臂、躯干）不补
+ */
+const FILL = { rounds: 3, most: 0.5 };
 
 /** 上一次算的「拖着的时候」那张网格（静止时的位置、法线、权重）：同一副身体换着姿势融合时不用重算 */
 let lastBind: { key: string; positions: Float32Array; normals: Float32Array; joints: Uint16Array; weights: Float32Array } | null = null;
@@ -105,6 +111,8 @@ function skinLegs(mesh: FusedMesh, parts: Part[], options: FuseOptions, pose: Po
   const limit = mesh.bound ? mesh.bound.start : mesh.positions.length / 3;
   const joints = new Uint16Array(limit * 4).fill(still);
   const weights = new Float32Array(limit * 4);
+  /** 哪些顶点抄到了 */
+  const got = new Uint8Array(limit);
   const { positions, normals } = mesh;
   // 一个顶点周围的点各带着哪些骨骼、加起来各占多少（骨骼不多，顺着找就行）
   const mixBone = new Int32Array(32);
@@ -179,9 +187,12 @@ function skinLegs(mesh: FusedMesh, parts: Part[], options: FuseOptions, pose: Po
       sum += mixShare[top];
       mixShare[top] = 0;
     }
-    if (sum > 0) for (let k = 0; k < 4; k++) weights[v * 4 + k] /= sum;
-    else weights[v * 4] = 1;
+    if (sum > 0) {
+      for (let k = 0; k < 4; k++) weights[v * 4 + k] /= sum;
+      got[v] = 1;
+    } else weights[v * 4] = 1;
   }
+  fillMissing(mesh.triangles, limit, got, joints, weights, still);
   skinVerticesDualInPlace(positions.subarray(0, limit * 3), normals.subarray(0, limit * 3), joints, weights, extra);
 
   // 缝在腿上的脚：融合时跟着胯，照它自己的权重也搬过去（手的骨骼不在腿上，extra 是单位矩阵，不动）
@@ -198,6 +209,61 @@ function skinLegs(mesh: FusedMesh, parts: Part[], options: FuseOptions, pose: Po
     bound.weights.subarray(0, sewn * 4),
     extra,
   );
+}
+
+/** 一个都没抄到、周围大半都抄到了的顶点照周围平均（见 FILL）；就地改 joints、weights、got */
+export function fillMissing(triangles: ArrayLike<number>, limit: number, got: Uint8Array, joints: Uint16Array, weights: Float32Array, still: number) {
+  if (got.every((g) => g === 1)) return;
+  // 没抄到的那几个顶点的邻居（三角面里的另外两个点）
+  const near = new Map<number, Set<number>>();
+  for (let t = 0; t < triangles.length; t += 3) {
+    for (let e = 0; e < 3; e++) {
+      const v = triangles[t + e];
+      if (v >= limit || got[v]) continue;
+      let list = near.get(v);
+      if (!list) near.set(v, (list = new Set()));
+      for (const u of [triangles[t + ((e + 1) % 3)], triangles[t + ((e + 2) % 3)]]) if (u < limit) list.add(u);
+    }
+  }
+  const bone: number[] = [];
+  const share: number[] = [];
+  for (let round = 0; round < FILL.rounds && near.size; round++) {
+    const done: number[] = [];
+    for (const [v, list] of near) {
+      let have = 0;
+      bone.length = 0;
+      share.length = 0;
+      for (const u of list) {
+        if (!got[u]) continue;
+        have++;
+        for (let k = 0; k < 4; k++) {
+          const w = weights[u * 4 + k];
+          if (w <= 0) continue;
+          const at = bone.indexOf(joints[u * 4 + k]);
+          if (at >= 0) share[at] += w;
+          else {
+            bone.push(joints[u * 4 + k]);
+            share.push(w);
+          }
+        }
+      }
+      if (!have || have < list.size * FILL.most) continue;
+      // 留最重的四根，重新凑成 1
+      const order = bone.map((_, i) => i).sort((a, b) => share[b] - share[a]).slice(0, 4);
+      const sum = order.reduce((n, i) => n + share[i], 0);
+      for (let k = 0; k < 4; k++) {
+        joints[v * 4 + k] = k < order.length ? bone[order[k]] : still;
+        weights[v * 4 + k] = k < order.length ? share[order[k]] / sum : 0;
+      }
+      done.push(v);
+    }
+    if (!done.length) break;
+    // 这一圈补上的下一圈才算（不然补的先后影响结果）
+    for (const v of done) {
+      got[v] = 1;
+      near.delete(v);
+    }
+  }
 }
 
 export function fusePosed(parts: Part[], options: FuseOptions & { pose: PoseMatrices }): FusedMesh {

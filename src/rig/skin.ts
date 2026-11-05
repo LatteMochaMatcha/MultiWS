@@ -14,6 +14,7 @@
  *    各自最靠根的那节骨骼（锁骨、大腿、尾巴的第一节）的份额，照被挤的程度让给那根共同的父骨骼。
  *    不然那里六七根骨骼各占差不多，留哪 4 根全看零头，隔壁的顶点一换人，表面就拧成麻花。
  *    效果是：几条手臂的根融在一起的那一团跟着躯干，两条腿中间那一道跟着胯；手臂、腿各自伸出去以后才各跟各的。
+ *    横排多胯两副胯挨着的地方（见 SEAM）不让：那里两条里侧的大腿并在一起长下去二十来厘米，不是胯。
  * 每个顶点最多留 4 根骨骼，权重加起来是 1。
  * 权重在表面上是连续的：相邻两个顶点的权重要是差一截，摆姿势时那里就会裂开一道缝。
  * 所以排在后面的骨骼不是直接砍掉，而是所有的都减去同一个门槛再比（见下面第 4 步）。
@@ -56,6 +57,15 @@ const TRIM = 0.02;
  * 各跟各的上半身——以前两边各占一半，一个上半身一弯，两只胸被扯成一根长条
  */
 const APART: [near: number, far: number] = [0.005, 0.02];
+/**
+ * 横排多胯（二次元素体的胯照腿排开，见 geometry/figure.ts 的 Tile）两副胯挨着的那条缝：从 -X 往 +X 排，一条左腿后面紧跟着一条右腿，
+ * 中间就是两副胯挨着的地方（一副胯的左腿、右腿之间是平常的裆；左右并排、前后串联的都是右右左左，没有这样的缝）。
+ * 那里两条里侧的大腿是两副素体原装的胯的外侧并在一起，挨得比平常两条腿还近，并着往下长二十来厘米。
+ * 平常挤在一起的两条腿把大腿的份额让给胯（见文件开头第 3 条），在这里就成了大腿内侧一长条跟着胯：一坐下大腿转平，
+ * 那一条留在原处，被拽成屁股底下一片锯齿状的皮。所以缝两边这么宽（两条里侧的髋关节离缝的距离的倍数）以内、
+ * 髋关节往下 below 以下（按标准人台的尺寸）不让，两条大腿各跟各的；往上照旧（屁股那里的缝跟着胯）
+ */
+const SEAM = { wide: [0.5, 1] as [full: number, none: number], below: [0, 0.05] as [from: number, full: number] };
 /**
  * 阴茎、阴囊和别的部件之间的过渡带只有平常的几成：它们小，又贴着大腿、挨着别的那几根，
  * 照平常那么宽的过渡带，每根各带一个的小阴囊大半跟着大腿走，转它的骨骼时被扯成一根根尖刺
@@ -192,6 +202,8 @@ export interface SkinPlan {
   mostStrands: number;
   /** 点到第 i 根骨骼（它的那一段或者几段）的距离的平方 */
   boneDist2: (i: number, x: number, y: number, z: number) => number;
+  /** 横排多胯两副胯挨着的缝（见 SEAM）：缝在哪（x）、两条里侧的髋关节离它多远、多高，两条腿接在哪根骨骼上 */
+  seams: { x: number; half: number; hip: number; parent: number }[];
 }
 
 export function planSkin(
@@ -350,6 +362,23 @@ export function planSkin(
   };
   const body = Int32Array.from({ length: groups }, (_, g) => bodyOf(kept[sample[g]]));
   const torso = Uint8Array.from(kept, (part) => (part.type === 'torso' ? 1 : 0));
+  // 横排多胯两副胯挨着的缝（见 SEAM）：每条腿最靠根的那节（大腿）照 x 排，左腿后面紧跟着右腿的两条中间
+  const seams: SkinPlan['seams'] = [];
+  {
+    const roots: { x: number; y: number; side: string; parent: number }[] = [];
+    for (let g = 0; g < groups; g++) {
+      if (kind[g] !== 'leg') continue;
+      const first = skeleton.bones[entries[sample[g]].bones[0]];
+      // 长在中线上的腿（没有左右）也排进去：它两边的两条中间隔着它，不算挨着
+      const side = /_([LR])(?:\.\d+)?$/.exec(first.name)?.[1] ?? 'C';
+      roots.push({ x: first.head[0], y: first.head[1], side, parent: first.parent });
+    }
+    roots.sort((a, b) => a.x - b.x);
+    for (let i = 0; i + 1 < roots.length; i++) {
+      const [a, b] = [roots[i], roots[i + 1]];
+      if (a.side === 'L' && b.side === 'R' && a.parent === b.parent && b.x > a.x) seams.push({ x: (a.x + b.x) / 2, half: (b.x - a.x) / 2, hip: Math.min(a.y, b.y), parent: a.parent });
+    }
+  }
   return {
     count,
     positions,
@@ -373,6 +402,7 @@ export function planSkin(
     bones: nb,
     mostStrands,
     boneDist2,
+    seams,
   };
 }
 
@@ -506,7 +536,8 @@ export function weighVertices(
   joints: Uint16Array,
   weights: Float32Array,
 ) {
-  const { positions, entries, rep, band, soft, groups, parentBone, kind, sample, home, socket, lead, groupOf, body, torso } = plan;
+  const { positions, entries, rep, band, soft, groups, parentBone, kind, sample, home, socket, lead, groupOf, body, torso, seams } = plan;
+  const seamBelow = SEAM.below.map((v) => v * (band / BAND));
   const apartNear = APART[0] * (band / BAND);
   const apartFar = APART[1] * (band / BAND);
   const several = body.some((b) => b >= 0);
@@ -564,6 +595,21 @@ export function weighVertices(
       groupShare[group] += part;
     }
 
+    // 横排多胯两副胯挨着的缝（见 SEAM）：离缝多近、在髋关节下面多远，接在哪根骨骼上的腿不让份额
+    let seamKeep = 0;
+    let seamParent = -1;
+    for (const seam of seams) {
+      const across = Math.abs(x - seam.x) / seam.half;
+      if (across >= SEAM.wide[1]) continue;
+      const a = across <= SEAM.wide[0] ? 1 : 1 - smooth((across - SEAM.wide[0]) / (SEAM.wide[1] - SEAM.wide[0]));
+      const down = seam.hip - y;
+      const b = down <= seamBelow[0] ? 0 : down >= seamBelow[1] ? 1 : smooth((down - seamBelow[0]) / (seamBelow[1] - seamBelow[0]));
+      if (a * b > seamKeep) {
+        seamKeep = a * b;
+        seamParent = seam.parent;
+      }
+    }
+
     touched.length = 0;
     for (let i = 0; i < here.length; i++) {
       const group = here[i];
@@ -578,6 +624,7 @@ export function weighVertices(
           if (j !== i && parentBone[other] === up && kind[other] === kind[group] && groupShare[other] > rival) rival = groupShare[other];
         }
         crowd = Math.min(1, rival / part);
+        if (seamKeep > 0 && up === seamParent && kind[group] === 'leg') crowd *= 1 - seamKeep;
       }
       // 这一伙的份额摊到它的骨骼上
       const { bones, outer, strand, strands } = entries[sample[group]];
@@ -660,6 +707,9 @@ export function weighVertices(
     for (let slot = 0; slot < kept; slot++) weights[o + slot] /= keptSum;
   }
 }
+
+/** 0 到 1 之间平滑地过渡（smoothstep） */
+const smooth = (t: number) => t * t * (3 - 2 * t);
 
 /** 最后一步：分部件时关节上的球整个跟着一节骨骼；位置一样的顶点抄一份 */
 export function finishSkin(plan: SkinPlan, joints: Uint16Array, weights: Float32Array): SkinWeights {

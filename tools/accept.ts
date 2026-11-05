@@ -9,11 +9,12 @@ import { join } from 'node:path';
 import { installAnimeBody } from '../src/anime/body';
 import { skinInPlace } from '../src/character/pose';
 import { findClashes } from '../src/geometry/clash';
-import { type Figure, nthName } from '../src/geometry/figure';
+import type { Figure } from '../src/geometry/figure';
 import { buildFigure } from '../src/geometry/layout';
 import { type BodySpec, defaultSpec, normalizeSpec } from '../src/model/spec';
 import { clearArms } from '../src/pose/clear';
 import { fitArms, followArms } from '../src/pose/fit';
+import { fitLegs } from '../src/pose/fitLegs';
 import { POSE_LIBRARY } from '../src/pose/library';
 import type { Posing } from '../src/pose/posing';
 import { forward, poseMatrices } from '../src/pose/rig';
@@ -107,16 +108,7 @@ function specOf(base: Case, setting: keyof typeof SETTINGS): BodySpec {
  * 肩上挤着的手臂挑一条摆、别的跟着动，再让手臂让开身体
  */
 function fittedPosing(spec: BodySpec, figure: Figure, solver: ReturnType<typeof makeSolver>, posing: Posing): Posing {
-  let bones = { ...posing.bones };
-  const form = figure.metrics.legForm;
-  if (form === 'row' || form === 'gather' || form === 'abreast') {
-    for (const [name, turn] of Object.entries(posing.bones)) {
-      if (!/^(UpperLeg|LowerLeg|Foot|Toes)_[LR]$/.test(name)) continue;
-      for (let k = 1; k < Math.ceil(spec.counts.legs / 2); k++) bones[nthName(name, k)] = turn;
-    }
-  } else if (form === 'taur' || form === 'spider') {
-    bones = Object.fromEntries(Object.entries(bones).filter(([name]) => !/^(Hips|UpperLeg|LowerLeg|Foot|Toe)/.test(name)));
-  }
+  const bones = { ...fitLegs(posing, figure.metrics.legForm, spec.counts.legs, solver.rig).bones };
   if (spec.counts.torsos > 1) {
     for (const [name, turn] of Object.entries(posing.bones)) {
       const m = /^(Spine|Chest|UpperChest)(\.\d+)?$/.exec(name);
