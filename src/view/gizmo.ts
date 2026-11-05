@@ -20,6 +20,8 @@ const DEG = Math.PI / 180;
 const CLICK_SLOP = 4;
 /** 手指比鼠标抖得多，放宽一些 */
 const TAP_SLOP = 10;
+/** 同一个部件改了形状，停手多久以后重算高亮外壳（毫秒） */
+const GLOW_SETTLE_MS = 400;
 
 export class Gizmo {
   /** 在模型上点了一下：点中的部件名；点在空白处是 null */
@@ -40,6 +42,9 @@ export class Gizmo {
   private readonly handle = new THREE.Object3D();
   private readonly glow: THREE.Mesh;
   private glowKey = '';
+  /** 高亮外壳是哪个部件的；同一个部件形状变了时，等停手再重算（见 sync） */
+  private glowName = '';
+  private glowTimer = 0;
   private mode: GizmoMode = 'translate';
   private frame: PartFrame | null = null;
   private override: PartOverride = {};
@@ -153,14 +158,25 @@ export class Gizmo {
     if (!part || !figure || !this.frame) {
       if (this.controls.object) this.controls.detach();
       this.glow.visible = false;
+      window.clearTimeout(this.glowTimer);
+      this.glowName = '';
       return;
     }
 
+    // 高亮外壳照这个部件自己的形状现算（粗一档）。格子做的部件（胸、躯干、手臂）算一次要几十到几百毫秒：
+    // 换了选中的部件马上算；同一个部件拖着、滑着改形状时先沿用原来的外壳（下面照位置、朝向、大小摆过去），
+    // 停手一会儿再照最新的形状算一次——不然每动一下都要等它，选中部件时调体型、微调就一顿一顿的
     const key = shapeKey(part);
+    window.clearTimeout(this.glowTimer);
     if (key !== this.glowKey) {
-      this.glow.geometry.dispose();
-      this.glow.geometry = buildPartGeometry(part);
-      this.glowKey = key;
+      const rebuild = () => {
+        this.glow.geometry.dispose();
+        this.glow.geometry = buildPartGeometry(part, true);
+        this.glowKey = key;
+        this.glowName = part.name;
+      };
+      if (part.name !== this.glowName) rebuild();
+      else this.glowTimer = window.setTimeout(rebuild, GLOW_SETTLE_MS);
     }
     const xf = worldTransforms(figure).get(part.name)!;
     this.glow.position.set(xf.pos[0], xf.pos[1], xf.pos[2]);
@@ -186,6 +202,8 @@ export class Gizmo {
       return;
     }
     if (key !== this.glowKey) {
+      window.clearTimeout(this.glowTimer);
+      this.glowName = '';
       this.glow.geometry.dispose();
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.BufferAttribute(glow(), 3));

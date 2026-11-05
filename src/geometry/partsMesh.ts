@@ -166,7 +166,8 @@ function wingGeo(p: Wing) {
 }
 
 /** cuff：见 gridGeo */
-function primGeos(p: Prim, cuff = 1): THREE.BufferGeometry[] {
+/** rough：粗一档（选中部件的高亮外壳用，见 view/gizmo.ts）：格子做的胸、躯干、手臂在主线程上现算，细的要一两秒 */
+function primGeos(p: Prim, cuff = 1, rough = false): THREE.BufferGeometry[] {
   switch (p.kind) {
     case 'ellipsoid':
       // 挖掉的体块（眼窝）只在融合网格里有意义
@@ -180,16 +181,16 @@ function primGeos(p: Prim, cuff = 1): THREE.BufferGeometry[] {
     case 'wing':
       return [wingGeo(p)];
     case 'grid':
-      return p.cut ? [] : [gridGeo(p, cuff)];
+      return p.cut ? [] : [gridGeo(p, cuff, rough)];
     case 'chest':
-      return [chestGeo(p)];
+      return [chestGeo(p, rough)];
   }
 }
 
 /** 胸：只取胸根以内那一块，插进躯干一点（躯干在分部件时是平胸，见 anime/chest.ts） */
-function chestGeo(p: ChestShape) {
+function chestGeo(p: ChestShape, rough = false) {
   const d = chestDist(p, true);
-  const mesh = meshField(fieldFromFunction(d.fn, d.min, d.max), 0.004);
+  const mesh = meshField(fieldFromFunction(d.fn, d.min, d.max), rough ? ROUGH_CHEST : 0.004);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
@@ -201,11 +202,11 @@ function chestGeo(p: ChestShape) {
  * 采样好的形状：从它的距离场里取一张网格出来（和格子差不多细）。
  * cuff：手的袖口相对手臂（沿手臂的方向）是原来的几分之几长——手臂被手动拉长以后手不跟着拉长，袖口就显得短了
  */
-function gridGeo(p: GridShape, cuff: number) {
+function gridGeo(p: GridShape, cuff: number, rough = false) {
   const grid = getGrid(p.grid);
   // 手臂的格子在融合时多留了一截伸进手里（见 anime/hand.ts）；这里不融合，切到手的切口里面一点就够了，免得和手叠着
   const d = gridDist(grid, p.clipTo === undefined ? p : { ...p, clipTo: p.clipTo - HAND_STUMP - HAND_CUFF * cuff + 0.003 });
-  const mesh = meshField(fieldFromFunction(d.fn, d.min, d.max), grid.cell * 1.2);
+  const mesh = meshField(fieldFromFunction(d.fn, d.min, d.max), grid.cell * (rough ? ROUGH_GRID : 1.2));
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
@@ -229,8 +230,15 @@ function graftGeo(part: Part, graft: Graft) {
   return geo;
 }
 
-/** 一个部件的网格，坐标在部件自己的局部空间里（stretch、resize 已经算进顶点） */
-export function buildPartGeometry(part: Part): THREE.BufferGeometry {
+/** 粗一档时胸的格子多大、格子做的部件按自己格子的几倍算（选中部件的高亮外壳用） */
+const ROUGH_CHEST = 0.016;
+const ROUGH_GRID = 2.5;
+
+/**
+ * 一个部件的网格，坐标在部件自己的局部空间里（stretch、resize 已经算进顶点）。
+ * rough：粗一档，只当高亮的外壳用（见 view/gizmo.ts）
+ */
+export function buildPartGeometry(part: Part, rough = false): THREE.BufferGeometry {
   const m = shapeMatrix(part);
   const grafts = part.grafts ?? [];
   // 手臂被手动拉长了的话，手不跟着拉长：手的袖口沿手臂的方向就比手臂短了一截
@@ -244,7 +252,7 @@ export function buildPartGeometry(part: Part): THREE.BufferGeometry {
     const stretched = before.clone().applyMatrix3(new THREE.Matrix3().set(...m));
     cuff = fore.clone().applyMatrix3(kept).length() / stretched.length();
   }
-  const prims = part.prims.flatMap((p) => primGeos(p, cuff));
+  const prims = part.prims.flatMap((p) => primGeos(p, cuff, rough));
   // 拉伸只作用在部件自己的基本体上
   if (m) for (const g of prims) g.applyMatrix4(new THREE.Matrix4().set(m[0], m[1], m[2], 0, m[3], m[4], m[5], 0, m[6], m[7], m[8], 0, 0, 0, 0, 1));
   const geos = [...prims, ...grafts.map((graft) => graftGeo(part, graft))];
