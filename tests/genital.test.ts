@@ -404,3 +404,58 @@ describe('分部件、穿模', () => {
         }
   });
 });
+
+describe('软硬', () => {
+  /** 每根阴茎从根部到切口朝哪（世界里往上多少度） */
+  const elevations = (spec: BodySpec) =>
+    genitals(spec)
+      .filter((p) => p.name.startsWith('Penis_'))
+      .map((p) => {
+        const d = rotate(p.quat, norm(sub(penisMesh().end, penisMesh().root)));
+        return (Math.atan2(d[1], Math.hypot(d[0], d[2])) * 180) / Math.PI;
+      });
+
+  it('软的：几根、根部、阴囊和硬的一样，整根小一圈、往前下方垂', () => {
+    useGenital();
+    for (const [n, rest] of [
+      [1, {}],
+      [3, { penisLayout: 'fan' }],
+      [4, { penisLayout: 'grid', scrotum: 'each' }],
+    ] as const) {
+      const hard = genitals(make({ penises: n }, rest));
+      const soft = genitals(make({ penises: n }, { ...rest, penisSoft: true }));
+      expect(soft.map((p) => p.name)).toEqual(hard.map((p) => p.name));
+      for (const [i, p] of soft.entries()) {
+        if (!p.name.startsWith('Penis_')) continue;
+        expect(p.scale!, p.name).toBeLessThan(hard[i].scale!);
+      }
+      // 最下面的垂得最多；上面几排往前翘着跨过去，也不往上翘
+      const droop = elevations(make({ penises: n }, { ...rest, penisSoft: true }));
+      expect(Math.min(...droop), `${n}`).toBeLessThan(-40);
+      expect(Math.max(...droop), `${n}`).toBeLessThan(0);
+      expect(Math.min(...elevations(make({ penises: n }, rest))), `${n}`).toBeGreaterThan(-10);
+    }
+  });
+
+  it('软的上下叠：最下面那根垂得最多，上面的往前翘着跨过去；融合出来一整块，每根都缝上了', () => {
+    useGenital();
+    const spec = make({ penises: 3 }, { penisLayout: 'stack', scrotum: 'each', penisSoft: true });
+    const up = elevations(spec);
+    expect(up[0]).toBeLessThan(up[1]);
+    expect(up[1]).toBeLessThan(up[2]);
+    for (const s of [spec, make({ penises: 6 }, { penisSoft: true }), make({ legs: 4, penises: 4 }, { legLayout: 'taur', penisSoft: true })]) {
+      const parts = buildFigure(s).parts;
+      const mesh = fuseParts(parts, { voxel: VOXEL.preview, blend: s.blend });
+      expect(mesh.info.components).toBe(1);
+      expect(mesh.tris?.length ?? 0).toBeGreaterThanOrEqual(s.counts.penises * penisMesh().triangles.length);
+    }
+  });
+
+  it('开关关着时回到硬的；存配置时硬的不写这个键，软的写', () => {
+    expect(withoutAdult(make({ penises: 1 }, { penisSoft: true })).penisSoft).toBe(false);
+    expect(JSON.parse(serializeSpec(defaultSpec()))).not.toHaveProperty('penisSoft');
+    const soft = JSON.parse(serializeSpec(make({ penises: 1 }, { penisSoft: true })));
+    expect(soft.penisSoft).toBe(true);
+    expect(normalizeSpec(soft).penisSoft).toBe(true);
+  });
+});

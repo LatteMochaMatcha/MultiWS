@@ -18,7 +18,9 @@
  *   --url <地址>        开发服务器，缺省在 5173–5179 上找
  *   --spec page|default|complex|fork3|<文件>   缺省 page：问开发服务器要正在用的那一页的设定（只读）
  *   --styles a,b        anime、mannequin、character，缺省三种都量
- *   --drag shape,pose   缺省两样都量；chest 是改一下胸围（胸要重新烤）多久出预览、精细
+ *   --drag shape,pose   缺省两样都量；chest 是改一下胸围（胸要重新烤）多久出预览、精细；
+ *                       bust 是按住「胸部大小」滑块来回拖（真的发 pointerdown / input / change），记每次 input 花多少、帧率、换了几张网格
+ *   --old-slide         拖 bust 时不发 pointerdown：照 2026-11-05 以前那样，每动一下都存档、刷新整个面板，成品角色每次重拼
  *   --part <部件名>      造型里拖哪个部件，缺省第一条左手臂
  *   --seconds <秒>      拖多久，缺省 3
  *   --reach <米>        摆姿势时手画的圈多大，缺省 0.15（手臂伸得直时常常够不着，身体跟过去，全身都动）
@@ -324,6 +326,43 @@ return {
 };
 `;
 
+/** 按住「胸部大小」滑块来回拖（0.8 ↔ 1.6，一个来回），每帧一次 input */
+const BUST = String.raw`
+oc.setMode('shape');
+await sleep(300);
+const input = document.getElementById('s-bust');
+const ups0 = window.__updates.length;
+const follows0 = oc.fused.follows ?? 0;
+const t0 = performance.now();
+if (!OLD_SLIDE) input.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+const handler = [];
+const N = Math.round(SECONDS * 60);
+for (let i = 0; i < N; i++) {
+  await frame();
+  const k = (i / N) * Math.PI * 2;
+  input.value = String(Math.round((1.2 - 0.4 * Math.cos(k)) * 100) / 100);
+  const a = performance.now();
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  handler.push(performance.now() - a);
+}
+await frame();
+const dragEnd = performance.now();
+const follows = (oc.fused.follows ?? 0) - follows0;
+input.dispatchEvent(new Event('change', { bubbles: true }));
+input.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+await sleep(STYLE === 'character' ? 1500 : 4000);
+const during = window.__updates.slice(ups0).filter((u) => u.at <= dragEnd);
+return {
+  inputMs: stats(handler),
+  fps: +(N / ((dragEnd - t0) / 1000)).toFixed(1),
+  meshPerSecond: +(during.length / ((dragEnd - t0) / 1000)).toFixed(1),
+  followFrames: follows,
+  longTasksOver50: window.__longs.filter((l) => l.at >= t0 && l.at <= dragEnd && l.ms > 50).length,
+  longestTaskMs: Math.round(Math.max(0, ...window.__longs.filter((l) => l.at >= t0 && l.at <= dragEnd).map((l) => l.ms))),
+  bustAfter: oc.spec().shape.bust,
+};
+`;
+
 /* ---------------- 主流程 ---------------- */
 
 const base = await findServer();
@@ -342,13 +381,14 @@ try {
     return { cores: navigator.hardwareConcurrency, gpu: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '?' };`);
   console.error(`（${base}，${env.cores} 线程，${env.gpu}）`);
   const vars = (style) =>
-    `const SPEC = ${JSON.stringify(spec)}; const STYLE = ${JSON.stringify(style)}; const SECONDS = ${seconds}; const REACH = ${reach}; const BEND = ${bend}; const PART = ${JSON.stringify(option('--part') ?? null)};\n`;
+    `const SPEC = ${JSON.stringify(spec)}; const STYLE = ${JSON.stringify(style)}; const SECONDS = ${seconds}; const REACH = ${reach}; const BEND = ${bend}; const PART = ${JSON.stringify(option('--part') ?? null)}; const OLD_SLIDE = ${args.includes('--old-slide')};\n`;
   for (const style of styles) {
     const setup = await cdp.run(vars(style) + SETUP);
     const row = { setup };
     if (drags.includes('shape')) row.shape = await cdp.run(vars(style) + SHAPE);
     if (drags.includes('pose')) row.pose = await cdp.run(vars(style) + POSE);
     if (drags.includes('chest')) row.chest = await cdp.run(vars(style) + CHEST);
+    if (drags.includes('bust')) row.bust = await cdp.run(vars(style) + BUST);
     results[style] = row;
     console.log(JSON.stringify({ style, ...row }, null, 1));
   }

@@ -4,7 +4,7 @@ import { type Box3, type Raycaster, Matrix4 } from 'three';
 import { TORSO_CREDIT, animeGrid, animeReady, loadAnimeBody } from './anime/body';
 import { FOOT_CREDIT } from './anime/foot';
 import { GENITAL_CREDIT, genitalReady, loadGenital } from './anime/genital';
-import { adultOn, setAdult, withoutAdult } from './model/adult';
+import { adultOn, keepAdult, restoreAdult, setAdult, withoutAdult } from './model/adult';
 import { type CharacterBuild, assembleCharacter } from './character/assemble';
 import { characterGlb, characterShape, characterSkeleton, poseBuild } from './character/export';
 import { characterVrm } from './character/vrm';
@@ -13,13 +13,13 @@ import { characterSource, hairDonor, hairLit, lightenHair, loadCharacter, loadHa
 import type { CharacterSource } from './character/source';
 import { ROSTER, rosterEntry } from './character/roster';
 import { skinInPlace } from './character/pose';
-import { type TweakedCharacter, characterPartAt, characterPartGlow, tweakCharacter } from './character/tweak';
+import { type TweakedCharacter, characterPartAt, characterPartGlow, characterParts, tweakCharacter } from './character/tweak';
 import { describeClashes, findClashes } from './geometry/clash';
 import { type Figure, type FigureMetrics, type PartType, nthName } from './geometry/figure';
 import { buildFigure } from './geometry/layout';
 import { partFrame } from './geometry/tweak';
 import { type V3, Q_ID, UP, len, norm, quatBetween, quatMul, sub } from './geometry/vec';
-import { inAndroidShell, saveBlob, saveText } from './io/download';
+import { cleanFileName, inAndroidShell, saveBlob, saveText } from './io/download';
 import { exportGlb } from './io/exportGlb';
 import { OfflineError } from './io/fetchFile';
 import { type GlbMesh, writeGlb } from './io/glb';
@@ -51,10 +51,12 @@ import {
   type PartOverride,
   type Pose,
   type ShapeDef,
+  type ShapeKey,
   type Vec3,
   ARM_LAYOUTS,
   BLEND,
   BODY_STYLES,
+  BUST_MAX_OTHER,
   COUNT_DEFS,
   COUNT_HINTS,
   HIP_LEGS,
@@ -120,6 +122,7 @@ import { type PoseRegion, POSE_REGIONS, armPairOf, blendPose, regionOf } from '.
 import { type DrapeKind, BodySurface, boneRadius, drape, drapeBones } from './pose/drape';
 import { fitArms, followArms } from './pose/fit';
 import { fitLegs } from './pose/fitLegs';
+import { armOfBone, armPairCount, followPair } from './pose/follow';
 import { POSE_LIBRARY } from './pose/library';
 import { type Posing, POSING_VERSION, cleanPosing, emptyPosing, flipPosing, isPosed, placedTwins } from './pose/posing';
 import { type Frame, type PoseRig, type PoseState, cloneState, forward, pointOn, poseMatrices, posedBones, shiftRoot, tailOf } from './pose/rig';
@@ -161,6 +164,8 @@ const MESH_LABEL: Record<MeshMode, string> = { fused: t('融合成一整块'), p
 const HAND_LABEL: Record<HandStyle, string> = { fingers: t('分指'), mitten: t('并指（手套形）') };
 const PENIS_LABEL: Record<PenisLayout, string> = { row: t('左右并排'), stack: t('上下叠'), fan: t('扇形散开'), grid: t('几乘几') };
 const SCROTUM_LABEL: Record<ScrotumMode, string> = { shared: t('几根共用一个'), each: t('每根各带一个') };
+const PENIS_STATES = ['hard', 'soft'] as const;
+const PENIS_STATE_LABEL: Record<(typeof PENIS_STATES)[number], string> = { hard: t('硬'), soft: t('软') };
 const GENDER_LABEL: Record<Gender, string> = { female: t('女性'), male: t('男性') };
 const BODY_LABEL: Record<BodyStyle, string> = { mannequin: t('白模人台'), anime: t('二次元素体'), character: t('成品角色') };
 /** 这几个滑块对这种身体不起作用 */
@@ -297,6 +302,13 @@ const history = new History<Snapshot>(
 
 /** 正拖着操纵杆（见 gizmo.onDrag）：每动一下只记撤销、重建模型，存档和刷新整个面板等松手再做 */
 let tweaking = false;
+/**
+ * 正按着拖的体型滑块（见 sliders）：和拖操纵杆一样，每动一下只记撤销、更新滑块旁的数、重建模型，存档和刷新面板等松手再做。
+ * 拖着胸部大小时成品角色也不每次重拼（见 showCharacter）
+ */
+let sliding: ShapeKey | null = null;
+/** 拖滑块时攒下了没存档、没刷新面板的改动 */
+let slid = false;
 
 /**
  * 设定改完了：记进撤销历史、存档、刷新界面。
@@ -313,8 +325,28 @@ function commit(key?: string) {
     scheduleRebuild();
     return;
   }
+  if (sliding && key === `shape:${sliding}`) {
+    btnUndo.disabled = !history.canUndo;
+    btnRedo.disabled = !history.canRedo;
+    for (const sync of sliders) sync();
+    slid = true;
+    scheduleRebuild();
+    return;
+  }
   save();
   render();
+}
+
+/** 松开体型滑块：攒下的改动存档、刷新面板（拖着胸部大小时成品角色只是照比例放大的，这时重拼一次） */
+function endSlide() {
+  if (!sliding) return;
+  const was = sliding;
+  sliding = null;
+  if (!slid) return;
+  slid = false;
+  save();
+  render();
+  if (was === 'bust') scheduleRebuild();
 }
 
 function restore(snapshot: Snapshot | null) {
@@ -486,22 +518,39 @@ const syncPenis = buildSeg($('segPenis'), PENIS_LAYOUTS, (v) => PENIS_LABEL[v], 
 const syncScrotum = buildSeg($('segScrotum'), SCROTUM_MODES, (v) => SCROTUM_LABEL[v], (scrotum) =>
   fromParams({ ...spec, scrotum }),
 );
+// 软硬一键换：只换这一项，几根、排法、大小、姿势、微调照旧（描述里不写）
+const syncPenisState = buildSeg($('segPenisState'), PENIS_STATES, (v) => PENIS_STATE_LABEL[v], (state) => {
+  spec = { ...spec, penisSoft: state === 'soft' };
+  commit();
+});
 /** 成人部件的开关和两排选项：开关关着、成品角色、没有阴茎时都藏起来 */
 const adultBox = $<HTMLInputElement>('adultOn');
 adultBox.checked = adultOn();
 adultBox.addEventListener('change', () => {
+  // 关上：先把阴茎的设定（几根、大小、排法、姿势、微调）收起来，再去掉已有的（commit 里去），描述原样留着，写了也不长。
+  // 打开：照现在的描述重新认一遍（之前写了「两根阴茎」的，这时才长出来），再把关之前收起来的原样放回去——只是藏起来，不用重新捏
+  if (!adultBox.checked) keepAdult(spec);
   setAdult(adultBox.checked);
-  // 打开：照现在的描述重新认一遍（之前写了「两根阴茎」的，这时才长出来）；
-  // 关上：去掉已有的（commit 里去），描述原样留着，写了也不长
-  if (adultBox.checked) fromText(desc.value);
-  else commit();
+  if (!adultBox.checked) commit();
+  else {
+    const parsed = applyParse(spec, readText(desc.value));
+    const back = normalizeSpec(restoreAdult(parsed));
+    // 收起来的放回来了：描述重写成带阴茎的规范写法（不然下次改描述又认成没有）
+    if (back.counts.penises !== parsed.counts.penises) fromParams(back);
+    else {
+      spec = back;
+      commit('text');
+    }
+  }
 });
 function syncAdult() {
   // 别的标签页里拨过的：这一页的勾跟着
   adultBox.checked = adultOn();
   const shown = adultShown() && spec.counts.penises > 0;
+  $('penisStateField').hidden = !shown;
   $('penisLayoutField').hidden = !shown;
   $('scrotumField').hidden = !shown;
+  syncPenisState(spec.penisSoft ? 'soft' : 'hard', true);
   syncPenis(spec.penisLayout, spec.counts.penises > 1);
   syncScrotum(spec.scrotum, true);
   syncPenisRow(shown && spec.counts.penises > 1 && spec.penisLayout === 'grid');
@@ -890,8 +939,19 @@ const sliders = SHAPE_DEFS.map((d) => {
   const out = el('output');
   out.htmlFor.add(id);
   input.addEventListener('input', () => fromShape(d.key, Number(input.value)));
+  // 按住拖：松手前每动一下只重建模型（见 commit）
+  input.addEventListener('pointerdown', () => {
+    endSlide();
+    sliding = d.key;
+  });
   // 松开滑块：这一次拖动到此为止，算一步撤销
-  input.addEventListener('change', () => history.seal());
+  input.addEventListener('change', () => {
+    history.seal();
+    endSlide();
+  });
+  // 没拖动（值没变就没有 change）、拖到一半被系统手势打断
+  input.addEventListener('pointerup', endSlide);
+  input.addEventListener('pointercancel', endSlide);
   row.append(label, input, out);
   $('shapes').append(row);
   return () => {
@@ -1035,7 +1095,7 @@ let tweaked: TweakedCharacter | null = null;
  * 上一次拼好、还没套手动微调的成品角色，和拼它用的设定（手动微调、姿势不算）。
  * 只改了微调（拖操纵杆）时不用重拼，把微调重新套上去就行
  */
-let characterBase: { key: string; build: CharacterBuild } | null = null;
+let characterBase: { key: string; bust: number; build: CharacterBuild } | null = null;
 /** 成品角色每重新套一次微调加一：选中高亮的形状照它换 */
 let characterVersion = 0;
 /** 骨架的示意线，点「骨骼」按钮才显示 */
@@ -1630,15 +1690,37 @@ function ensureGenital() {
     });
 }
 
+/** 成品角色的几排胸（Chest_01_L …）在手动微调之外再放大 k 倍：拖胸部大小滑块时先这样顶着，松手再照新的大小重拼 */
+function grownChests(build: CharacterBuild, overrides: Readonly<Record<string, PartOverride>>, k: number): Record<string, PartOverride> {
+  const out = { ...overrides };
+  for (const part of characterParts(build)) {
+    if (part.type !== 'chest') continue;
+    const o = overrides[part.name];
+    const s = o?.scale ?? [1, 1, 1];
+    out[part.name] = { ...o, scale: [s[0] * k, s[1] * k, s[2] * k] };
+  }
+  return out;
+}
+
 /** 显示成品角色：按部件数量把她拼出来。拼不出来（文件有问题）就返回 false，退回白模人台 */
 function showCharacter(): boolean {
   const source = characterSource(spec.character);
   if (!source) return false;
   try {
     const donor = hairDonor(spec.hair.style);
-    const key = JSON.stringify([{ ...spec, overrides: null, characterOverrides: null, posing: null }, spec.character, Boolean(donor), hairSources().map((s) => Boolean(s && hairLit(s)))]);
-    if (characterBase?.key !== key) characterBase = { key, build: assembleCharacter(source, spec, donor) };
-    tweaked = tweakCharacter(characterBase.build, spec.characterOverrides);
+    // 胸部大小单独比：拖着它的滑块时不重拼（一次几十到一百多毫秒，滑块跟着卡），照上一次拼好的把胸按比例放大，松手再重拼
+    const bust = Math.min(spec.shape.bust, BUST_MAX_OTHER);
+    const key = JSON.stringify([
+      { ...spec, shape: { ...spec.shape, bust: null }, overrides: null, characterOverrides: null, posing: null },
+      spec.character,
+      Boolean(donor),
+      hairSources().map((s) => Boolean(s && hairLit(s))),
+    ]);
+    if (characterBase?.key !== key || (characterBase.bust !== bust && sliding !== 'bust')) {
+      characterBase = { key, bust, build: assembleCharacter(source, spec, donor) };
+    }
+    const grow = bust / characterBase.bust;
+    tweaked = tweakCharacter(characterBase.build, grow === 1 ? spec.characterOverrides : grownChests(characterBase.build, spec.characterOverrides, grow));
     character = tweaked.build;
     characterVersion++;
   } catch (err) {
@@ -2396,14 +2478,47 @@ function commitPose(keep: Posing = spec.posing, key?: string) {
   commit(key);
 }
 
-/** 直接换一个姿势（对称、翻转、还原） */
+/** 直接换一个姿势（对称、翻转、还原）。打开了「几对手臂一起动」的话，别的几对照领头的那一对摆好再存 */
 function editPosing(next: Posing, key?: string) {
+  if (kit && followOn) next = posingOf(kit.solver, following(stateOf(kit.solver, next)), next);
   spec = { ...spec, posing: next };
   commit(key);
 }
 
+/* ---- 几对手臂一起动（见 pose/follow.ts）：只是界面上的状态，不进撤销、不存档 ---- */
+
+/** 打开了的话，别的几对手臂一直照领头的那一对摆 */
+let followOn = false;
+/** 左右各是哪一对领头（从 0 数）：最后拖过、转过的那一对，没拖过是第一对。关着的时候也记 */
+const followLeads = { left: 0, right: 0 };
+/** 打开了时，别的几对照领头的那一对摆 */
+const following = (state: PoseState): PoseState => (kit && followOn ? followPair(kit.solver, state, followLeads) : state);
+/** 拖、转的是哪一对手臂上的点，就让那一对领头 */
+function takeLead(handle: Handle | null | undefined) {
+  if (!kit || !handle) return;
+  const { solver } = kit;
+  const limb = handle.limb >= 0 ? solver.limbs[handle.limb] : null;
+  const arm = limb ? (limb.kind === 'arm' ? { pair: limb.pair, side: limb.side } : null) : (armOfBone(solver, handle.turn) ?? armOfBone(solver, handle.anchor));
+  if (!arm) return;
+  if (arm.side > 0) followLeads.left = arm.pair;
+  else followLeads.right = arm.pair;
+}
+const FOLLOW_CHOICES = ['off', 'on'] as const;
+const syncFollow = buildSeg($('segPoseFollow'), FOLLOW_CHOICES, (v) => (v === 'off' ? t('各摆各的') : t('一起动')), (v) => {
+  followOn = v === 'on';
+  // 打开就照领头的那一对摆一遍，记一步撤销
+  if (kit && poseState && followOn) {
+    poseState = following(poseState);
+    showPose();
+    commitPose();
+  } else renderPosePanel();
+});
+
 if (poseHandles) {
-  poseHandles.onGrab = beginGrab;
+  poseHandles.onGrab = (handle) => {
+    takeLead(handle);
+    beginGrab();
+  };
   poseHandles.onDrag = (handle, target) => {
     if (!kit || !grab) return;
     const { solver } = kit;
@@ -2411,6 +2526,7 @@ if (poseHandles) {
     else if (handle.kind === 'bend') poseState = dragBend(solver, grab.start, handle.limb, target);
     else if (handle.kind === 'body') poseState = dragBody(solver, grab.start, target, grab.pins);
     else if (handle.links.length) poseState = dragAim(solver, grab.start, handle.links, { bone: handle.anchor, rest: handle.rest }, target, grab.pins);
+    if (poseState) poseState = following(poseState);
     showPose();
   };
   poseHandles.onRelease = (_handle, moved) => {
@@ -2418,11 +2534,14 @@ if (poseHandles) {
     if (moved) commitPose();
   };
   poseHandles.onPick = (handle) => selectJoint(handle?.id ?? null);
-  poseHandles.onTurnStart = beginGrab;
+  poseHandles.onTurnStart = () => {
+    takeLead(pickedHandle());
+    beginGrab();
+  };
   poseHandles.onTurn = (delta) => {
     const handle = pickedHandle();
     if (!kit || !grab || !handle) return;
-    poseState = turnBone(kit.solver, grab.start, handle.turn, quatMul(delta, grab.frame.rot[handle.turn]), grab.pins);
+    poseState = following(turnBone(kit.solver, grab.start, handle.turn, quatMul(delta, grab.frame.rot[handle.turn]), grab.pins));
     showPose();
   };
   poseHandles.onTurnEnd = () => {
@@ -2518,6 +2637,56 @@ function usePosing(posing: Posing, ground: boolean) {
 const readTriple = (v: unknown): [number, number, number] | null =>
   Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number' && Number.isFinite(n)) ? [v[0], v[1], v[2]] : null;
 
+/* ---- 保存配置、姿势时问文件名：上次用的名字记在这个浏览器里，下次照它填好 ---- */
+
+const SAVE_NAME_KEY = 'oc-basemesh-save-names';
+const SAVE_DEFAULT = { config: 'oc_config', pose: 'oc_pose' } as const;
+const SAVE_TITLE = { config: tk('保存配置'), pose: tk('保存姿势') } as const;
+const nameDialog = $<HTMLDialogElement>('nameDialog');
+const saveName = $<HTMLInputElement>('saveName');
+// 名字框里按回车就是「保存」（表单里第一个提交按钮是「取消」，不拦的话回车等于取消）
+saveName.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.isComposing) return;
+  e.preventDefault();
+  nameDialog.close('ok');
+});
+
+/** 弹出小框问存成什么名字（不带扩展名，后面加 .json）；取消返回 null */
+function askFileName(kind: keyof typeof SAVE_DEFAULT): Promise<string | null> {
+  let saved: Record<string, unknown> = {};
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(SAVE_NAME_KEY) ?? '{}');
+    if (typeof raw === 'object' && raw !== null) saved = raw as Record<string, unknown>;
+  } catch {
+    // 读不到就用默认的名字
+  }
+  const last = typeof saved[kind] === 'string' ? cleanFileName(saved[kind]) : '';
+  $('nameTitle').textContent = t(SAVE_TITLE[kind]);
+  saveName.value = last || SAVE_DEFAULT[kind];
+  nameDialog.returnValue = '';
+  nameDialog.showModal();
+  saveName.select();
+  return new Promise((resolve) => {
+    nameDialog.addEventListener(
+      'close',
+      () => {
+        if (nameDialog.returnValue !== 'ok') {
+          resolve(null);
+          return;
+        }
+        const name = cleanFileName(saveName.value) || SAVE_DEFAULT[kind];
+        try {
+          localStorage.setItem(SAVE_NAME_KEY, JSON.stringify({ ...saved, [kind]: name }));
+        } catch {
+          // 存不了下次还是默认的名字
+        }
+        resolve(`${name}.json`);
+      },
+      { once: true },
+    );
+  });
+}
+
 $('btnPoseSave').addEventListener('click', async () => {
   if (!kit) return;
   const { solver } = kit;
@@ -2527,9 +2696,11 @@ $('btnPoseSave').addEventListener('click', async () => {
     posing: posingOf(solver, stateOf(solver, spec.posing), spec.posing),
     ...(viewport ? { camera: viewport.cameraState() } : {}),
   };
+  const name = await askFileName('pose');
+  if (!name) return;
   try {
-    const where = await saveText('oc_pose.json', JSON.stringify(file, null, 2));
-    setStatus(t('已保存姿势 oc_pose.json，{where}。', { where }));
+    const where = await saveText(name, JSON.stringify(file, null, 2));
+    setStatus(t('已保存姿势 {file}，{where}。', { file: name, where }));
   } catch (err) {
     setStatus(t('姿势没存成：{err}', { err: errText(err) }), true);
   }
@@ -2585,8 +2756,12 @@ function reshapeHands(change: (shape: HandShape) => HandShape, key?: string) {
   if (!kit || !poseState) return;
   const { solver } = kit;
   let next = poseState;
-  for (const hand of pickedHands()) next = shapeHand(solver, next, hand, change(readHand(solver, next, hand)));
-  poseState = next;
+  for (const hand of pickedHands()) {
+    next = shapeHand(solver, next, hand, change(readHand(solver, next, hand)));
+    // 只改了某一对的手：几对手臂一起动时就让那一对领头
+    if (handPair !== 'all') followLeads[hand.side > 0 ? 'left' : 'right'] = hand.pair;
+  }
+  poseState = following(next);
   showPose();
   commitPose(spec.posing, key);
 }
@@ -3028,7 +3203,9 @@ if (POSE_LIBRARY.length) {
     if (!kit || !lastPreset) return;
     const { rig } = kit.solver;
     const target = presetState(lastPreset.preset, lastPreset.base);
-    poseState = blendPose(rig, lastPreset.base, target, presetAmount / 100, presetPick(rig), whole() || presetParts.has('torso'));
+    // 几对手臂一起动时：套给哪一对，就让那一对领头（套给全部时是第一对，姿势本来就是照它写的），别的几对照它摆
+    followLeads.left = followLeads.right = presetPair ?? 0;
+    poseState = following(blendPose(rig, lastPreset.base, target, presetAmount / 100, presetPick(rig), whole() || presetParts.has('torso')));
     showPose();
     dropToGround();
     commitPose(spec.posing, lastPreset.key);
@@ -3126,6 +3303,8 @@ $('btnPoseJointReset').addEventListener('click', () => {
     bones: Object.fromEntries(Object.entries(spec.posing.bones).filter(([name]) => !names.has(name))),
   };
   if (handle.kind !== 'body' && spec.posing.root) next.root = spec.posing.root;
+  // 几对手臂一起动时：放回去的那一对领头，别的几对也跟着放回去（不然马上又被领头的那一对拽回原样）
+  takeLead(handle);
   editPosing(next);
 });
 
@@ -3189,6 +3368,12 @@ function renderPosePanel() {
     // 阴茎那一组只在打开了「显示成人部件」、身上有阴茎时出现
     if (group === 'genital') wrap.hidden = !(adultShown() && spec.counts.penises > 0);
   }
+  // 几对手臂一起动：有两对以上手臂才显示；领头的那一对没有了（手臂减掉了）就回到第一对
+  const pairs = kit ? armPairCount(kit.solver) : 0;
+  if (followLeads.left >= pairs) followLeads.left = 0;
+  if (followLeads.right >= pairs) followLeads.right = 0;
+  $('poseFollowRow').hidden = pairs < 2;
+  syncFollow(followOn ? 'on' : 'off', true);
   syncPresetPanel();
   renderHand();
   renderFace();
@@ -3640,9 +3825,11 @@ async function exportVrm() {
 $('btnVrm').addEventListener('click', () => void exportVrm());
 
 $('btnJson').addEventListener('click', async () => {
+  const name = await askFileName('config');
+  if (!name) return;
   try {
-    const where = await saveText('oc_config.json', serializeSpec(spec, text));
-    setStatus(t('已保存配置 oc_config.json，{where}。', { where }));
+    const where = await saveText(name, serializeSpec(spec, text));
+    setStatus(t('已保存配置 {file}，{where}。', { file: name, where }));
   } catch (err) {
     setStatus(t('配置没存成：{err}', { err: errText(err) }), true);
   }

@@ -126,6 +126,10 @@
               <span>每副胯上几条腿（人腿人马、前后串联）</span>
               <div class="stepper" id="hipLegs"></div>
             </div>
+            <div class="field" id="penisStateField" hidden title="一键换软硬：几根、排法、大小、微调都照旧，软的小一圈、往前下方垂">
+              <span>阴茎软硬</span>
+              <div class="seg" id="segPenisState" role="radiogroup" aria-label="阴茎软硬"></div>
+            </div>
             <div class="field" id="penisLayoutField" hidden>
               <span>好几根阴茎</span>
               <div class="seg" id="segPenis" role="radiogroup" aria-label="好几根阴茎怎么排"></div>
@@ -264,6 +268,10 @@
                 <label class="check"><input type="checkbox" id="posePinFeet"> 脚</label>
                 <label class="check"><input type="checkbox" id="posePinHands"> 手</label>
               </div>
+            </div>
+            <div class="field" id="poseFollowRow" hidden title="选「一起动」以后，拖哪一对手臂，别的几对就照它摆（左右各算各的）；同一个上半身上的还是原来那样错开、散开着">
+              <span>几对手臂</span>
+              <div class="seg" id="segPoseFollow" role="radiogroup" aria-label="几对手臂"></div>
             </div>
             <div class="actions">
               <button type="button" class="btn" id="btnPoseL2R" title="把左半边的姿势照到右半边">左边 → 右边</button>
@@ -469,6 +477,16 @@
       <div class="actions">
         <button type="submit" class="btn" value="cancel">取消</button>
         <button type="submit" class="btn primary" value="ok" id="vrmOk">导出</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog class="vrm-dialog" id="nameDialog" aria-labelledby="nameTitle">
+    <form method="dialog">
+      <h2 id="nameTitle">保存配置</h2>
+      <label class="field"><span>文件名</span><span class="name-row"><input id="saveName" maxlength="80" autocomplete="off" spellcheck="false"><span id="saveExt" translate="no">.json</span></span></label>
+      <div class="actions">
+        <button type="submit" class="btn" value="cancel">取消</button>
+        <button type="submit" class="btn primary" value="ok">保存</button>
       </div>
     </form>
   </dialog>

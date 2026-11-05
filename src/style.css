@@ -226,6 +226,10 @@ select:focus-visible,.triple input:focus-visible{outline:2px solid var(--accent)
 .vrm-dialog form{display:flex;flex-direction:column;gap:10px}
 .vrm-dialog h2{margin:0;font-size:16px}
 .vrm-dialog input,.vrm-dialog select{font:inherit;padding:6px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+/* 保存配置、姿势时填文件名：名字框后面跟着固定的扩展名 */
+.name-row{display:flex;align-items:center;gap:6px}
+.name-row input{flex:1;min-width:0}
+.name-row span{color:var(--muted)}
 .status{min-height:1.5em;font-size:12px;color:var(--muted)}
 .status.warn{color:var(--warn)}
 

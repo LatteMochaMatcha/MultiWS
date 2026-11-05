@@ -383,6 +383,8 @@ export interface BodySpec {
   /** 阴茎排成几乘几时每排几根，见 PENIS_ROW */
   penisRow: number;
   scrotum: ScrotumMode;
+  /** 阴茎是软的（疲软）：根部、几根、排法、大小照旧，整根小一圈、往下垂（见 geometry/genital.ts 的 SOFT_SIZE）。不写进描述 */
+  penisSoft: boolean;
   pose: Pose;
   earShape: EarShape;
   hands: HandStyle;
@@ -426,6 +428,7 @@ export function defaultSpec(): BodySpec {
     penisLayout: 'row',
     penisRow: PENIS_ROW.def,
     scrotum: 'shared',
+    penisSoft: false,
     pose: 'A',
     earShape: 'cat',
     hands: 'fingers',
@@ -655,6 +658,7 @@ export function normalizeSpec(input: unknown): BodySpec {
     penisLayout: pick(PENIS_LAYOUTS, src.penisLayout, 'row'),
     penisRow: clampPenisRow(src.penisRow),
     scrotum: pick(SCROTUM_MODES, src.scrotum, 'shared'),
+    penisSoft: src.penisSoft === true,
     pose: pick(POSES, src.pose, 'A'),
     earShape: pick(EAR_SHAPES, src.earShape, 'cat'),
     hands: pick(HAND_STYLES, src.hands, 'fingers'),
@@ -678,11 +682,11 @@ export function serializeSpec(spec: BodySpec, text?: string): string {
  */
 function withoutAdultKeys(spec: BodySpec): object {
   const def = defaultSpec();
-  if (spec.counts.penises || spec.shape.penisSize !== def.shape.penisSize || spec.penisLayout !== def.penisLayout || spec.penisRow !== def.penisRow || spec.scrotum !== def.scrotum)
+  if (spec.counts.penises || spec.shape.penisSize !== def.shape.penisSize || spec.penisLayout !== def.penisLayout || spec.penisRow !== def.penisRow || spec.scrotum !== def.scrotum || spec.penisSoft)
     return spec;
   const { penises: _p, ...counts } = spec.counts;
   const { penisSize: _s, ...shape } = spec.shape;
-  const { penisLayout: _l, penisRow: _r, scrotum: _c, ...rest } = spec;
+  const { penisLayout: _l, penisRow: _r, scrotum: _c, penisSoft: _f, ...rest } = spec;
   return { ...rest, counts, shape };
 }
 

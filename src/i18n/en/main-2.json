@@ -28,7 +28,7 @@
   "白模的头发没有骨骼（整个跟着头动），垂不下来；要尾巴垂下来，先勾上「尾巴也垂」。": "Base mesh hair has no bones (it moves with the head as one piece), so it can't hang down. To make the tails hang down, check \"Drape tails too\" first.",
   "白模的头发没有骨骼（整个跟着头动），垂不下来。": "Base mesh hair has no bones (it moves with the head as one piece), so it can't hang down.",
   "{kinds}照重力垂下来了；身体再动以后，再点一次「自然下垂」。": "Draped under gravity: {kinds}. After the body moves again, click \"Drape\" once more.",
-  "已保存姿势 oc_pose.json，{where}。": "Pose saved as oc_pose.json {where}.",
+  "已保存姿势 {file}，{where}。": "Pose saved as {file} {where}.",
   "姿势没存成：{err}": "Couldn't save the pose: {err}",
   "已载入姿势 {name}。": "Loaded pose {name}.",
   "这个文件里没有读到姿势。": "No pose was found in this file.",
@@ -117,7 +117,7 @@
   "摆的姿势不进 VRM": "the pose you set is not included in the VRM",
   "注意它分成了 {n} 块": "note: it is split into {n} {n:piece|pieces}",
   "已导出 oc_basemesh.vrm（{notes}），{where}。": "Exported oc_basemesh.vrm ({notes}), saved {where}.",
-  "已保存配置 oc_config.json，{where}。": "Config saved as oc_config.json {where}.",
+  "已保存配置 {file}，{where}。": "Config saved as {file} {where}.",
   "配置没存成：{err}": "Couldn't save the config: {err}",
   "已载入 {name}。": "Loaded {name}.",
   "这个文件不是有效的配置文件。": "This file is not a valid config file.",
@@ -155,5 +155,7 @@
   "左@@上半身": "Left",
   "中@@上半身": "Middle",
   "右@@上半身": "Right",
-  "有的上半身单独设过；在「全部一样」下加减会把它们都改成一样": "Some upper bodies have their own value; + / − under “All” sets them all to the same"
+  "有的上半身单独设过；在「全部一样」下加减会把它们都改成一样": "Some upper bodies have their own value; + / − under “All” sets them all to the same",
+  "各摆各的": "Separate",
+  "一起动": "Together"
 }

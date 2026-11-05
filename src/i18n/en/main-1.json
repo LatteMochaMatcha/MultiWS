@@ -142,5 +142,7 @@
   "Z 是前后的长短，X 宽、Y 高": "Z is length (front/back); X is width, Y is height",
   "X 是翼展，Y 高、Z 厚": "X is wingspan; Y is height, Z is thickness",
   "X 宽、Y 长、Z 厚": "X is width, Y is length, Z is thickness",
-  "（在模型上点一个部件，或者在这里选）": "(Click a part on the model, or pick one here)"
+  "（在模型上点一个部件，或者在这里选）": "(Click a part on the model, or pick one here)",
+  "硬": "Hard",
+  "软": "Soft"
 }

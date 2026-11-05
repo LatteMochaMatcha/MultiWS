@@ -43,6 +43,20 @@ async function saveViaShell(android: AndroidShell, filename: string, blob: Blob)
   return /\.png$/i.test(filename) ? t('在相册的「{folder}」里', { folder: SHELL_FOLDER }) : t('在手机「下载」文件夹的「{folder}」里', { folder: SHELL_FOLDER });
 }
 
+/**
+ * 用户填的文件名（不带扩展名）：Windows、安卓不认的字去掉，首尾空格、末尾的点去掉，自己写了 .json 的也去掉（存的时候统一加），
+ * 最多 80 个字。什么都不剩就是空字符串
+ */
+export function cleanFileName(raw: string): string {
+  return raw
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '')
+    .trim()
+    .replace(/\.json$/i, '')
+    .replace(/[. ]+$/, '')
+    .slice(0, 80)
+    .trim();
+}
+
 /** 把一段数据存成文件。返回一句话，说文件到哪去了 */
 export async function saveBlob(filename: string, blob: Blob): Promise<string> {
   if (shell) return saveViaShell(shell, filename, blob);

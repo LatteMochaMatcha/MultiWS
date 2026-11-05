@@ -17,10 +17,12 @@ import {
   SCROTUM_HALF,
   SCROTUM_ROOT,
   penisBones,
+  penisMesh,
 } from '../anime/genital';
 import type { PenisLayout, ScrotumMode } from '../model/spec';
+import { gridDist, getGrid } from '../sdf/grids';
 import type { BoneHint, Graft, Part } from './figure';
-import { type Quat, type V3, add, dot, len, mul, norm, quatConj, quatEuler, quatMul, rotate, sub } from './vec';
+import { type Quat, type V3, Q_ID, add, dot, len, mul, norm, quatConj, quatEuler, quatMul, rotate, sub } from './vec';
 
 // 同 layout.ts 的 pad、bone（layout.ts 要引这个文件，不反过来引它）
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -71,12 +73,40 @@ const BEYOND = PENIS_LINE.slice(BEYOND_FROM);
 const SHAFT_SIDE = 0.0255;
 const SHAFT_TOP = 0.0245;
 const SHAFT_BELLY = 0.032;
-const MID = PENIS_LINE.map((at, k) => {
+const SHAFT = PENIS_LINE.map((at, k) => {
   const way = norm(sub(PENIS_LINE[Math.min(k + 2, PENIS_LINE.length - 1)], PENIS_LINE[Math.max(k - 2, 0)]));
   return { at, up: norm([0, way[2], -way[1]]), from: len(sub(at, PENIS_BASE)) };
-}).filter((p, k) => k < BEYOND_FROM && p.from >= FADE[1] && k % 2 === 0);
+}).filter((_, k) => k < BEYOND_FROM && k % 2 === 0);
+const MID = SHAFT.filter((p) => p.from >= FADE[1]);
+/**
+ * 站着的软的连根部那一截也算上：上下叠几根时，上面那根垂下来，切口正好落在下面那根的根部前面
+ * （硬的往上翘、往前伸，切口挨不到别的那根的根部）
+ */
+const MID_SOFT = SHAFT;
 /** 切口往外那一截隔一个取一个（看离别的那根中段多远用） */
 const TIPS = BEYOND.filter((_, k) => k % 2 === 0);
+/**
+ * 软的（疲软）：整根是硬的几成大（长短、粗细一起：照着拉长、压扁的话素体上斜着的那根就歪了）；
+ * 站着的往前下方垂多少（从水平往下多少弧度；垂得再直，龟头就顶上阴囊了）。
+ * 挂在身体底下的（人马、前后串联后面那副胯）硬的时候本来就朝前下方，软的只小一圈、不再往下转：
+ * 再往下垂就碰上后腿，几排之间也隔不开（根部越排越开，排到膝盖那么低）。
+ * 最多往下转多少（挂点朝向古怪时别转过头）；龟头碰上阴囊的少垂几成再摆，最多几次
+ */
+const SOFT_SIZE = 0.74;
+const SOFT_HANG = 1.05;
+const SOFT_MOST = 2.2;
+const SOFT_BACK = 0.85;
+const SOFT_TRIES = 6;
+/** 站着的软的上下叠、几乘几：一排比一排往前翘多少，是刚好隔开的几倍 */
+const SOFT_WIDE = 1.3;
+/** 硬的那根从根部到切口的方向（素体的坐标） */
+const HARD_DIR = norm(sub(PENIS_CUT, PENIS_BASE));
+/**
+ * 软的龟头那截（连切口那一圈）离阴囊至少多远（米）：切口和阴囊挨上了融成一片缝不上，龟头插进阴囊是穿模。
+ * 不用像几根之间那样隔开 GAP_MIN：阴茎、阴囊之间是硬接（见 SOFT），不挨着就不会粘
+ */
+const SAC_CLEAR = 0.004;
+
 /** 看离身体多远的两处：切口、中间那一节的末端 */
 const CLEAR_AT = [PENIS_CUT, PENIS_JOINTS[2]];
 /** 阴囊：比素体上的位置往上挪多少；贴着身体的那一面往身体（大腿前面）里埋多深（素体的单位） */
@@ -141,6 +171,10 @@ export interface GenitalOptions {
   /** 编号从几开始：好几副胯时接着前一副编（Penis_03、Scrotum_02 …） */
   firstPenis: number;
   firstScrotum: number;
+  /** 软的（疲软）：根部、几根、排法都和硬的一样，整根小一圈、往前下方垂（见 SOFT_SIZE、SOFT_HANG） */
+  soft?: boolean;
+  /** 身上一点（米，和摆好的部件同一个坐标）离身体表面多远：软的龟头垂下去别碰上手、大腿。没有就不看 */
+  body?: (x: number, y: number, z: number) => number;
 }
 
 /** 一根阴茎：根部在 base（身上），朝向 quat */
@@ -189,11 +223,86 @@ function scrotumPart(index: number, root: V3, quat: Quat, scale: number, parent:
   };
 }
 
-/** 一副胯上的阴茎和阴囊。下面的位置都先写在挂点的坐标里（u 往右、v 往上、w 往外），最后才搬到身上 */
+/**
+ * 一副胯上的阴茎和阴囊。软的先照 SOFT_HANG 垂下去；几根的切口那截隔不开、龟头那截碰上阴囊、身体（垂下来的手、大腿）的
+ * （切口和它们融成一片缝不上，龟头插进去是穿模），少垂一点再摆，最多 SOFT_TRIES 次
+ */
 export function genitalParts(o: GenitalOptions): Part[] {
+  if (o.count <= 0) return [];
+  if (!o.soft) return arrange(o, Q_ID, o.scale).parts;
+  const size = o.scale * SOFT_SIZE;
+  let fall = droopAngle(o.mount);
+  let parts: Part[] = [];
+  for (let tries = 0; tries <= SOFT_TRIES; tries++) {
+    const placed = arrange(o, quatEuler(fall, 0, 0), size);
+    parts = placed.parts;
+    const penises = parts.filter((p) => p.name.startsWith('Penis_'));
+    const sacs = parts.filter((p) => p.name.startsWith('Scrotum_'));
+    const free = (penis: Part) => sacs.every((sac) => sacGap(penis, sac) >= SAC_CLEAR) && (!o.body || bodyGap(penis, o.body) >= SAC_CLEAR);
+    if (placed.settled && penises.every(free)) break;
+    fall *= SOFT_BACK;
+  }
+  return parts;
+}
+
+/** 软的时候绕左右的轴往下转多少（弧度）：照挂点的朝向，转到朝身体外面、前下方 SOFT_HANG 为止；挂在身体底下的不转 */
+function droopAngle(mount: Mount): number {
+  if (mount.under) return 0;
+  const want = rotate(quatConj(mount.quat), [0, -Math.sin(SOFT_HANG), Math.cos(SOFT_HANG)]);
+  // 绕 +X 转 a，朝向的仰角（atan2(y, z)）少 a
+  const a = Math.atan2(HARD_DIR[1], HARD_DIR[2]) - Math.atan2(want[1], want[2]);
+  return Math.min(Math.max(a, 0), SOFT_MOST);
+}
+
+/** 阴囊的距离场（素体的单位，原点是贴着身体那一面的正中），用到时才取 */
+let sacField: ((x: number, y: number, z: number) => number) | null = null;
+
+/** 缝上去的龟头那截网格上的点（隔几个取一个，素体的坐标；切口那一圈也在里面），用到时才取 */
+let glans: V3[] | null = null;
+
+/** 这根的龟头那截（连切口那一圈）网格上的点摆到身上在哪 */
+function glansOn(penis: Part): V3[] {
+  if (!glans) {
+    const { positions } = penisMesh();
+    glans = [];
+    for (let i = 0; i < positions.length; i += 9) glans.push([positions[i], positions[i + 1], positions[i + 2]]);
+  }
+  const ps = penis.scale ?? 1;
+  return glans.map((p) => add(penis.pos, rotate(penis.quat, mul(sub(p, PENIS_BASE), ps))));
+}
+
+/** 龟头那截离阴囊的表面最近多远（米）：照网格上的点、阴囊的距离场量 */
+function sacGap(penis: Part, sac: Part): number {
+  sacField ??= gridDist(getGrid(SCROTUM_GRID)).fn;
+  const size = sac.scale ?? 1;
+  const back = quatConj(sac.quat);
+  let least = Infinity;
+  for (const w of glansOn(penis)) {
+    const l = mul(rotate(back, sub(w, sac.pos)), 1 / size);
+    least = Math.min(least, sacField(l[0], l[1], l[2]) * size);
+  }
+  return least;
+}
+
+/** 龟头那截离身体（不算阴茎、阴囊）的表面最近多远（米） */
+function bodyGap(penis: Part, body: NonNullable<GenitalOptions['body']>): number {
+  let least = Infinity;
+  for (const w of glansOn(penis)) least = Math.min(least, body(w[0], w[1], w[2]));
+  return least;
+}
+
+/**
+ * 摆一副胯上的阴茎和阴囊。下面的位置都先写在挂点的坐标里（u 往右、v 往上、w 往外），最后才搬到身上。
+ * droop：每根在自己的坐标里先这样转（软的往下垂，硬的不转）；ps：阴茎的大小（素体的一个单位在身上多长）。
+ * settled：几根切口那截彼此隔开了（试遍了根部间距都隔不开的，照最后一次摆，settled 是 false；软的就少垂一点再摆）
+ */
+function arrange(o: GenitalOptions, droop: Quat, ps: number): { parts: Part[]; settled: boolean } {
   const n = o.count;
-  if (n <= 0) return [];
   const s = o.scale;
+  /** 素体上的一点（阴茎上的）在这一根自己的坐标里（根部是原点，还没照排法转开） */
+  const shaft = (p: V3): V3 => rotate(droop, mul(sub(p, PENIS_BASE), ps));
+  /** shaft 倒过来：这一根自己的坐标 → 素体上的点 */
+  const unshaft = (v: V3): V3 => add(mul(rotate(quatConj(droop), v), 1 / ps), PENIS_BASE);
   const { origin, quat, parent, under: below } = o.mount;
   const layout = below ? 'stack' : o.layout;
   const world = (p: V3): V3 => add(origin, rotate(quat, p));
@@ -216,7 +325,8 @@ export function genitalParts(o: GenitalOptions): Part[] {
       const across = row < rows - 1 ? cols : n - cols * (rows - 1);
       const side = (k % cols) - (across - 1) / 2;
       const lift = row - (rows - 1);
-      return { du: side * style.root, dv: (below ? lift : row) * (layout === 'grid' ? GRID.rise : STACK.rise), su: side, sv: lift };
+      // 站着的软的反过来：最下面那排垂得最多，上面的一排比一排往前翘、从下面那排的根部上面跨过去（照硬的那样往下转的话正好垂在它们的根部上）
+      return { du: side * style.root, dv: (below ? lift : row) * (layout === 'grid' ? GRID.rise : STACK.rise), su: side, sv: o.soft && !below ? row : lift };
     });
   };
   /**
@@ -239,13 +349,14 @@ export function genitalParts(o: GenitalOptions): Part[] {
     const f = Math.sin(half) / m;
     return [-sv * f, su * f, 0, Math.cos(half)];
   };
-  // 转开到切口那一圈彼此隔开为止：先找刚好隔开的那一份角度（二分），再照排法乘几倍
+  // 转开到切口那一圈彼此隔开为止：先找刚好隔开的那一份角度（二分），再照排法乘几倍。
+  // 软的切口小一圈，也照硬的那么远隔开（照它自己的大小算，上下叠的几根在素体上隔 1.3 cm 时有的缝不上）
   const need = 2 * RIM_WIDE * s + Math.max(GAP * s, GAP_MIN);
   /** 两根切口往外的那一截最近隔多远 */
   const apart = (bases: V3[], t: number) => {
     const lines = bases.map((base, k) => {
       const q = tilt(k, t);
-      return BEYOND.map((p) => add(base, rotate(q, mul(sub(p, PENIS_BASE), s))));
+      return BEYOND.map((p) => add(base, rotate(q, shaft(p))));
     });
     let least = Infinity;
     for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (const a of lines[i]) for (const b of lines[j]) least = Math.min(least, len(sub(a, b)));
@@ -256,14 +367,14 @@ export function genitalParts(o: GenitalOptions): Part[] {
     const turns = bases.map((_, k) => tilt(k, t));
     let least = Infinity;
     for (let i = 0; i < n; i++) {
-      const tips = TIPS.map((p) => add(bases[i], rotate(turns[i], mul(sub(p, PENIS_BASE), s))));
+      const tips = TIPS.map((p) => add(bases[i], rotate(turns[i], shaft(p))));
       for (let j = 0; j < n; j++) {
         if (i === j) continue;
         const back = quatConj(turns[j]);
         for (const x of tips) {
           // 搬到第 j 根自己的坐标里（素体的单位）
-          const q = add(mul(rotate(back, sub(x, bases[j])), 1 / s), PENIS_BASE);
-          for (const { at, up } of MID) {
+          const q = unshaft(rotate(back, sub(x, bases[j])));
+          for (const { at, up } of o.soft && !below ? MID_SOFT : MID) {
             const d = sub(q, at);
             const side = d[0];
             const lift = dot(d, up);
@@ -275,7 +386,7 @@ export function genitalParts(o: GenitalOptions): Part[] {
         }
       }
     }
-    return (least - RIM_WIDE) * s;
+    return (least - RIM_WIDE) * ps;
   };
   /** 切口附近离身体表面还有多远（中心线上那一点在表面外面多远，减去切口的半径）：往上翘的贴到肚子上，切口和肚皮融成一片也缝不上 */
   const clear = (bases: V3[], t: number) => {
@@ -283,9 +394,9 @@ export function genitalParts(o: GenitalOptions): Part[] {
     bases.forEach((base, k) => {
       const q = tilt(k, t);
       for (const at of CLEAR_AT) {
-        const p = add(base, rotate(q, mul(sub(at, PENIS_BASE), s)));
+        const p = add(base, rotate(q, shaft(at)));
         const w = o.surface(p[0], p[1]);
-        if (w !== null) least = Math.min(least, p[2] - w - RIM_WIDE * s);
+        if (w !== null) least = Math.min(least, p[2] - w - RIM_WIDE * ps);
       }
     });
     return least;
@@ -306,9 +417,9 @@ export function genitalParts(o: GenitalOptions): Part[] {
     let most = 0;
     bases.forEach((base, k) => {
       const q = tilt(k, t);
-      for (const p of PENIS_LINE) most = Math.max(most, Math.abs(base[0] + rotate(q, mul(sub(p, PENIS_BASE), s))[0]));
+      for (const p of PENIS_LINE) most = Math.max(most, Math.abs(base[0] + rotate(q, shaft(p))[0]));
     });
-    return most + RIM_WIDE * s;
+    return most + RIM_WIDE * ps;
   };
   // 根部从挨着开始试：先看最多能转多少（不碰肚子、不超过 most），再看转那么多能不能隔开；隔不开就把根部隔开一点再试。
   // 上下叠、几乘几、身体底下的：根部落到身体外面了（越隔越开只会更出去），就每排多一根重来。
@@ -319,8 +430,10 @@ export function genitalParts(o: GenitalOptions): Part[] {
   let bases: V3[] = [];
   let splay = 0;
   let cols = order[0];
+  let settled = n < 2;
   for (const c of n > 1 ? order : []) {
     cols = c;
+    settled = false;
     places = placesFor(cols);
     const last = c === order[order.length - 1];
     let off = false;
@@ -336,9 +449,11 @@ export function genitalParts(o: GenitalOptions): Part[] {
       const ok = (t: number) => apart(free, t) >= need && crowd(free, t) >= gap;
       if (!ok(top)) continue;
       const just = bisect(ok, true, top);
-      splay = Math.min(just * style.wide, top);
+      // 站着的软的一排比一排往前翘（见 placesFor），刚好隔开的话下面两排的切口还是挨得太近、缝不上：多转开一些
+      splay = Math.min(just * style.wide * (o.soft && !below ? SOFT_WIDE : 1), top);
       // 转得比刚好隔开的多（扇形）反而让龟头凑到别的那根中段上的，就照刚好隔开的
       if (!ok(splay)) splay = just;
+      settled = true;
       break;
     }
     if (off && !last) continue;
@@ -346,7 +461,7 @@ export function genitalParts(o: GenitalOptions): Part[] {
     break;
   }
   if (n < 2) bases = places.map(() => baseAt(0, 0));
-  const parts: Part[] = bases.map((base, k) => penisPart(o.firstPenis + k, world(base), splay ? quatMul(quat, tilt(k, splay)) : quat, s, parent));
+  const parts: Part[] = bases.map((base, k) => penisPart(o.firstPenis + k, world(base), quatMul(splay ? quatMul(quat, tilt(k, splay)) : quat, droop), ps, parent));
 
   /**
    * 阴囊：在 base 那根的底下，贴着身体（大腿前面）放；half 是它的半宽。
@@ -390,7 +505,7 @@ export function genitalParts(o: GenitalOptions): Part[] {
     const center: V3 = [0, lowest[1], baseAt(0, lowest[1])[2]];
     parts.push(scrotumPart(o.firstScrotum, sacAt(center, size, SCROTUM_HALF * size, lowest[1]), quat, size, parent));
   }
-  return parts;
+  return { parts, settled };
 }
 
 /** 一副胯用掉几个编号（阴茎、阴囊）：下一副胯从这之后接着编 */

@@ -5,6 +5,7 @@
  * 参数变了以后先出一版粗的（拖动时跟手），停下来再换成细一档的预览网格。
  * 一直在拖的时候，后台算好一张就换上一张（它照的是稍早一点的参数）；新网格到之前，屏幕上那张照每个顶点属于哪个部件
  * 整块挪到现在的样子（见 sdf/labels.ts）：手臂每一帧都跟着操纵杆走，肩膀那里的融合圆角等新网格到了再补上。
+ * 换上新网格那一下不是直接跳过去：新网格先贴在原来那张的表面上，再平滑地变成自己的样子（见 view/morph.ts）。
  * 摆姿势时身体不再变了，预览网格到了以后再换成更细的一张（最细和导出的一样）：关节弯起来更顺。
  * （手不在这张格子里：它是缝上去的现成网格，什么精度下手指都是分开的，见 sdf/graft.ts。）
  * 部件特别多的身体细不到那个程度：顶点太多，拖圆点的时候每一帧都要把它们搬一遍，会卡。
@@ -26,6 +27,7 @@ import type { BindMesh } from '../sdf/posedFuse';
 import type { FusedMesh, FusedMeshInfo } from '../sdf/surfaceNets';
 import { MATERIALS } from './materials';
 import { shapeKey } from './partsModel';
+import { morphLeft, surfaceOffsets } from './morph';
 import { type SkinSource, WHITE_BLEND } from './posedMeshes';
 
 export interface FusedStats {
@@ -63,6 +65,13 @@ const DRAG_TARGET = 110;
 const DRAG_VOXELS = [VOXEL.preview, VOXEL.draft];
 /** 记网格是照哪副参数算的时候，「手臂是先张开再融合的」那一种带着这个后缀 */
 const BOUND = '|bind';
+/**
+ * 换网格时的过渡（见 view/morph.ts）：新网格从贴着原来那张的表面变到自己的样子要多久（毫秒），
+ * 照上一张网格隔了多久来（拖着的时候一张接一张，过渡正好接上下一张），在这两个数之间
+ */
+const MORPH_MS = [90, 220] as const;
+/** 新网格的顶点离原来那张最近的顶点比这还远（部件自己的单位）就不过渡，直接是新的样子 */
+const MORPH_REACH = 0.05;
 /** 停止拖动多久以后把粗网格换成预览精度 */
 const SETTLE_MS = 200;
 /** 姿势停下来多久以后照它重新融合一张 */
@@ -144,6 +153,15 @@ export class FusedModel {
   /** exact 那张是照多细的格子算的（没有就是无穷大） */
   private exactVoxel = Infinity;
   private poseTimer = 0;
+  /**
+   * 换网格时的过渡（见 view/morph.ts）：base 是这张网格该在的位置（整块挪过的），off 是贴到原来那张表面上要挪的，
+   * 从 t0 起 ms 毫秒收回到 0。没在过渡是 null
+   */
+  private morph: { base: Float32Array; off: Float32Array; t0: number; ms: number } | null = null;
+  /** 推过渡的那一帧排上了没有（同一时间只排一个） */
+  private morphing = false;
+  /** 上一次换网格是什么时候（定过渡多长用） */
+  private swappedAt = 0;
 
   constructor() {
     this.root.name = 'OC_BaseMesh';
@@ -239,8 +257,12 @@ export class FusedModel {
         const fresh = key === this.wantKey;
         const brings = Boolean(skin) && !this.skin && voxel <= this.shownVoxel;
         if (fresh ? key === this.shownKey && voxel >= this.shownVoxel && !brings : serial < this.shownSent || this.wantSkin) return;
+        // 屏幕上原来那张现在的样子（整块挪过的、过渡到一半的都算）：新网格从贴着它开始过渡。要权重的（摆姿势）不过渡
+        const before = this.info && !skin && !this.wantSkin ? (this.body.geometry.getAttribute('position')?.array as Float32Array | undefined) : undefined;
+        this.morph = null;
         this.body.geometry.dispose();
         this.body.geometry = toGeometry(mesh);
+        if (before) this.startMorph(before);
         this.shownKey = key;
         this.shownVoxel = voxel;
         this.shownSent = serial;
@@ -310,7 +332,8 @@ export class FusedModel {
       if (!movable || !geo.boundingBox) return;
       geo.computeBoundingSphere();
       this.rest = {
-        positions: (position.array as Float32Array).slice(),
+        // 正在过渡的话，屏幕上的顶点还没到位：照这张网格该在的位置记
+        positions: (this.morph?.base ?? (position.array as Float32Array)).slice(),
         normals: (normal.array as Float32Array).slice(),
         box: geo.boundingBox.clone(),
         sphere: geo.boundingSphere!.clone(),
@@ -327,7 +350,61 @@ export class FusedModel {
     geo.boundingSphere = rest.sphere.clone();
     geo.boundingSphere.radius += far;
     if (moves.some(Boolean)) this.follows++;
+    // 正在过渡：整块挪过的是这张网格该在的位置，过渡还没收回去的那一截加在上面
+    if (this.morph) {
+      this.morph.base.set(position.array as Float32Array);
+      geo.boundingBox.expandByScalar(MORPH_REACH);
+      geo.boundingSphere.radius += MORPH_REACH;
+      this.applyMorph();
+    }
   }
+
+  /** 新网格刚换上：量出每个顶点贴到原来那张表面上要挪多少，从那里开始过渡 */
+  private startMorph(before: Float32Array) {
+    const geo = this.body.geometry;
+    const position = geo.getAttribute('position') as THREE.BufferAttribute;
+    const normal = geo.getAttribute('normal') as THREE.BufferAttribute;
+    const now = performance.now();
+    const gap = now - this.swappedAt;
+    this.swappedAt = now;
+    const off = surfaceOffsets(before, position.array as Float32Array, normal.array as Float32Array, MORPH_REACH);
+    this.morph = { base: (position.array as Float32Array).slice(), off, t0: now, ms: Math.min(MORPH_MS[1], Math.max(MORPH_MS[0], gap)) };
+    geo.boundingBox?.expandByScalar(MORPH_REACH);
+    geo.computeBoundingSphere();
+    this.applyMorph();
+    // 每一帧把过渡往前推一点（一帧一次：阴影、画面各画一遍也只推一次、只传一次顶点）
+    if (!this.morphing) {
+      this.morphing = true;
+      requestAnimationFrame(this.stepMorph);
+    }
+  }
+
+  /** 照过渡进行到哪儿写顶点；过渡完了放回这张网格该在的位置 */
+  private applyMorph(): void {
+    const morph = this.morph;
+    if (!morph) return;
+    const position = this.body.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const out = position.array as Float32Array;
+    const left = morphLeft((performance.now() - morph.t0) / morph.ms);
+    if (left <= 0) {
+      out.set(morph.base);
+      this.morph = null;
+    } else {
+      const { base, off } = morph;
+      for (let i = 0; i < out.length; i++) out[i] = base[i] + off[i] * left;
+    }
+    position.needsUpdate = true;
+  }
+
+  private readonly stepMorph = () => {
+    this.morphing = Boolean(this.morph);
+    if (!this.morph) return;
+    // 进了摆姿势：顶点要交给骨骼去搬，过渡直接做完
+    if (this.wantSkin) this.morph.t0 = -Infinity;
+    this.applyMorph();
+    this.morphing = Boolean(this.morph);
+    if (this.morph) requestAnimationFrame(this.stepMorph);
+  };
 
   /**
    * 摆姿势：matrices 是每根骨骼的蒙皮矩阵（这张网格自己的单位，骨骼的顺序同 buildSkeleton）；null 是不摆了。

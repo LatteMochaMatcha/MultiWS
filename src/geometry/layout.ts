@@ -11,7 +11,7 @@ import { FINGER_JOINTS, HAND_ELBOW, HAND_LENGTH, HAND_WRIST, handGraft } from '.
 import { layoutAnime } from './animeLayout';
 import { FACE_OUT, faceTurns, fanShift, gatherOut, headCluster, headShrink, headTurn, shoulderSpan } from './bodyPlan';
 import { type BoneHint, type Figure, type Graft, type Part, type Prim, type Ring, type Side, type Tube, nthName } from './figure';
-import { castRay, compileField } from '../sdf/field';
+import { castRay, compileField, fieldAt } from '../sdf/field';
 import { type Mount, UNDER, genitalParts } from './genital';
 import { type HeadHair, CRANIUM, HEAD_HALF_HEIGHT, HEAD_HALF_WIDTH, SKULL, makeFace, makeHead } from './head';
 import { WING_OUTLINE, sampleTube } from './shapes';
@@ -708,6 +708,8 @@ export function genitalsOn(parts: Part[], mounts: Mount[], spec: BodySpec, scale
       },
       firstPenis: penises,
       firstScrotum: scrotums,
+      soft: spec.penisSoft,
+      body: (x, y, z) => fieldAt(probe, x, y, z),
     });
     penises += made.filter((p) => p.name.startsWith('Penis_')).length;
     scrotums += made.filter((p) => p.name.startsWith('Scrotum_')).length;

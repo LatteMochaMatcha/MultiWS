@@ -180,7 +180,9 @@ export function pieceFrames(parts: Part[]): Map<string, Float64Array> {
     const xf = xfs.get(part.name)!;
     const outer = quatMat3(xf.quat).map((v) => v * xf.scale) as Mat3;
     const shape = shapeMatrix(part);
-    put(part.name, shape ? mat3Mul(outer, shape) : outer, xf.pos);
+    const grown = chestGrowth(part);
+    const linear = shape ? mat3Mul(outer, shape) : outer;
+    put(part.name, grown ? mat3Mul(linear, grown) : linear, xf.pos);
     // 接上去的网格不跟着部件拉伸，照 graftFrame 摆（见 sdf/graft.ts）
     part.grafts?.forEach((graft, g) => {
       const { matrix, offset: o } = graftFrame(part, graft);
@@ -192,6 +194,23 @@ export function pieceFrames(parts: Part[]): Map<string, Float64Array> {
     });
   }
   return out;
+}
+
+/**
+ * 胸的大小（「胸部大小」滑块、手动放大）不在部件的缩放里，在基本体里：拖着的时候照它的比例把胸那一块放大缩小，
+ * 不然新网格算出来之前胸一点都不跟着变。白模人台的胸是一团椭球，照它的三个半径，和它自己放大一模一样；
+ * 二次元素体的胸贴在躯干上（见 anime/chest.ts），绕胸中心等比放大胸部大小的平方根那么多，只是个大概，新网格到了就换上：
+ * 胸那一块里连带着标了一圈躯干的表面，照大小放大（离新网格平均近一点）的话，一下子从 1 拖到 1.4 时胸底下挤出一道台阶，
+ * 开平方挪得少一半，台阶也小一半。都不是就返回 null
+ */
+function chestGrowth(part: Part): Mat3 | null {
+  if (part.type !== 'chest') return null;
+  const prim = part.prims[0];
+  if (prim?.kind === 'ellipsoid') return [prim.radii[0], 0, 0, 0, prim.radii[1], 0, 0, 0, prim.radii[2]];
+  if (prim?.kind !== 'chest') return null;
+  const [sx, sy, sz] = prim.scale ?? [1, 1, 1];
+  const k = Math.sqrt(prim.size);
+  return [k * sx, 0, 0, 0, k * sy, 0, 0, 0, k * sz];
 }
 
 /** 从 from 那样摆到 to 那样摆，每一块要乘的变换（每块 12 个数，同 pieceFrames）。哪边少了这一块、或者它没动，就是 null */

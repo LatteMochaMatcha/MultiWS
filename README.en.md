@@ -158,7 +158,7 @@ All three body styles can wear four ready-made hairstyles: long straight, side p
 
 - Undo / Redo: the buttons at the bottom left, or `Ctrl + Z` / `Ctrl + Y`. The undo history is cleared when you refresh the page; the settings themselves stay.
 - All settings (including manual tweaks and the pose you set) are saved automatically in this browser.
-- "Save config" in the "Config" section saves a separate `oc_config.json`, and "Load config…" reads it back.
+- "Save config" in the "Config" section first asks for a file name (`oc_config` by default, then whatever you used last) and saves it as `.json`; "Load config…" reads it back.
 
 ## Three body styles
 
@@ -210,7 +210,7 @@ How it differs from the base meshes:
 
 ### Adult parts (off by default)
 
-The "Show adult parts" switch under "Part counts" is off by default and is remembered only on this computer and in this browser; it does not travel with the config file. Once it is on, the Mannequin and the Anime body can get penises (0–6 per pelvis, side by side, stacked, fanned or in a grid) and a scrotum; Pose has its own set of handles for them, and a rigged export gives each one three bones. The asset requires attribution; see [Assets and attribution](#assets-and-attribution).
+The "Show adult parts" switch under "Part counts" is off by default and is remembered only on this computer and in this browser; it does not travel with the config file. Once it is on, the Mannequin and the Anime body can get penises (0–6 per pelvis, side by side, stacked, fanned or in a grid) and a scrotum; "Penis state" switches between hard and soft in one click (count, layout, size and tweaks stay the same; soft is a little smaller and hangs forward and down); Pose has its own set of handles for them, and a rigged export gives each one three bones. Turning the switch off only hides them: turn it back on and the count, size, layout and posing come back as they were. The asset requires attribution; see [Assets and attribution](#assets-and-attribution).
 
 ## Manual tweaks
 
@@ -245,9 +245,10 @@ Click "Pose" at the top left of the 3D view and a set of handles lights up on th
 
 - **Show which handles**: when there are so many handles that they get in the way, fold away the groups you don't need. The finger group and the hair-and-hems group are folded by default.
 - **Keep in place**: by default the feet stay planted on the ground and the hands follow the body; select a hand or foot to pin or release it on its own ("Keep this in place when dragging elsewhere").
+- **"Arm pairs"**: with two or more arm pairs, pick "Together" and whichever pair you drag, the other pairs copy it (left and right separately; arms on the same torso stay staggered); pick "Separate" to pose them one by one.
 - **"Left → Right" / "Right → Left", "Flip horizontally", "Drop to ground"**.
 - **Drape**: after lying down, bending over or sitting, click it and a Ready-made character's hair, skirt and sleeves fall under gravity and stop outside the body and the ground when they touch them. Tick "Drape tails too" to let the tail hang as well.
-- **"Save pose" / "Load pose…"**: saves a pose as `oc_pose.json`, which can be applied to other characters and other body styles (matched by bone name).
+- **"Save pose" / "Load pose…"**: asks for a file name (`oc_pose` by default) and saves the pose as `.json`, which can be applied to other characters and other body styles (matched by bone name).
 
 **Hand gestures**: the two hands, the left hand, the right hand, or one particular pair of arms; 16 ready-made gestures (Fist, Peace, OK, Thumbs up…), one slider for each of the five fingers; turn on the "Fingers" handles to drag the fingertips directly.
 

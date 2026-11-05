@@ -23,3 +23,7 @@ docs/accept/*/*_*.png
 
 # 用户在工坊页面上画红圈存下的问题单（截图、当时的设定），只给 agent 看
 notes/
+
+# 总览重测的原始数据、浏览器工具的日志
+docs/accept/*/shard-*.jsonl
+.playwright-mcp/
