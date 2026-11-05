@@ -993,7 +993,8 @@ for (const [key, section] of sections) {
   const jump = el('button', '');
   jump.type = 'button';
   jumpLabel(jump, key, section.querySelector('.fold')?.textContent ?? key);
-  jump.addEventListener('click', () => reveal(key));
+  // 人点的就照点的换（选着部件时从别的栏点回「微调」也要换过去）；reveal 只管程序替人换栏
+  jump.addEventListener('click', () => phone.open(key));
   // 只属于「造型」或「摆姿势」的栏目，它的名字也只在那个模式下出现
   if (section.dataset.mode) jump.dataset.mode = section.dataset.mode;
   $('jump').append(jump);
