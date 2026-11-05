@@ -70,7 +70,7 @@
   "头、躯干、手臂、腿的形状来自 VRoid Studio 旧版的女性素体（CC0）。它只有一种体型：性别、体格、肩宽、腰宽、胯宽、四肢粗细、手的样式对它不起作用。": "The shapes of the head, torso, arms, and legs come from the old female base body of VRoid Studio (CC0). It has only one body shape, so gender, build, shoulder width, waist width, hip width, limb thickness, and hand style have no effect on it.",
   "性别": "Gender",
   "姿势": "Pose",
-  "身高、头身比按标准人形算；多排手臂、人马、蛛形会更高，以左上角的读数为准。": "The \"Height\" and \"Heads tall\" sliders assume a standard humanoid; extra rows of arms and centaur or arachne bodies make the figure taller, so go by the readout at the top left.",
+  "身高、头身比按标准人形算；多排手臂、人马、蛛形会更高，以顶上的读数为准。": "The \"Height\" and \"Heads tall\" sliders assume a standard humanoid; extra rows of arms and centaur or arachne bodies make the figure taller, so go by the readout at the top.",
   "手动微调": "Manual tweaks",
   "选中的部件": "Selected part",
   "在模型上拖动": "Drag on the model",

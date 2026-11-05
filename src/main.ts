@@ -154,8 +154,6 @@ translatePage();
 
 const STORE_KEY = 'oc-basemesh-v2';
 const THEME_KEY = 'oc-basemesh-theme';
-/** 面板里哪几栏折叠着 */
-const UI_KEY = 'oc-basemesh-ui';
 const START_TEXT = t('两个头，两对手，两对胸');
 
 const HEAD_LABEL: Record<HeadLayout, string> = { cluster: t('凑成一簇'), faces: t('一个头几张脸'), wide: t('宽躯干') };
@@ -973,62 +971,24 @@ btnRedo.addEventListener('click', redo);
 // 还没有现成的姿势可选：那一栏就不出现
 if (!POSE_LIBRARY.length) document.querySelector('section[data-key="poses"]')?.remove();
 
-/* ---------- 面板的各栏可以折叠，折叠状态记在浏览器里 ---------- */
-
-const folded = new Set<string>();
-try {
-  const saved: unknown = JSON.parse(localStorage.getItem(UI_KEY) ?? '[]');
-  if (Array.isArray(saved)) for (const key of saved) if (typeof key === 'string') folded.add(key);
-} catch {
-  // 读不到就全部展开
-}
+/* ---------- 面板的各栏：一次只看一栏，左边（手机上是上沿、底下）的栏目名按钮换栏 ---------- */
 
 const sections = new Map<string, HTMLElement>();
-for (const section of document.querySelectorAll<HTMLElement>('section[data-key]')) {
-  sections.set(section.dataset.key!, section);
-  section.querySelector('.fold')?.addEventListener('click', () => setFolded(section.dataset.key!, !folded.has(section.dataset.key!)));
-}
-
-function setFolded(key: string, closed: boolean) {
-  if (closed) folded.add(key);
-  else folded.delete(key);
-  try {
-    localStorage.setItem(UI_KEY, JSON.stringify([...folded]));
-  } catch {
-    // 存不了也照样折叠
-  }
-  syncFolds();
-}
-
-function syncFolds() {
-  for (const [key, section] of sections) {
-    const closed = folded.has(key);
-    section.classList.toggle('folded', closed);
-    section.querySelector('.fold')?.setAttribute('aria-expanded', String(!closed));
-  }
-}
-syncFolds();
+for (const section of document.querySelectorAll<HTMLElement>('section[data-key]')) sections.set(section.dataset.key!, section);
 
 /** 上一次 syncPicked 时选中的是什么（只在变了的时候告诉 phone） */
 let pickedNow = '';
 /** 手机上点中部件前镜头在哪：取消选择时飞回来 */
 let viewBeforePick: CameraState | null = null;
 
-/** 把面板里的某一栏展开，并滚到看得见的地方（手机竖屏上是换到那一栏） */
+/** 换到面板里的某一栏 */
 function reveal(key: string) {
-  const section = sections.get(key);
-  if (!section) return;
-  if (folded.has(key)) setFolded(key, false);
-  if (phone.on) {
-    // 点中部件时换到「微调」由 phone.picked 管（它记着点中之前在看哪一栏，取消选择时回去）
-    if (key !== 'tweak' || !selected) phone.open(key);
-    return;
-  }
-  const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  section.scrollIntoView({ block: 'nearest', behavior: calm ? 'auto' : 'smooth' });
+  if (!sections.has(key)) return;
+  // 点中部件时换到「微调」由 phone.picked 管（它记着点中之前在看哪一栏，取消选择时回去）
+  if (key !== 'tweak' || !selected) phone.open(key);
 }
 
-// 手机竖屏：抽屉上沿那排栏目名（摆姿势时是底下那条图标），点一下换到那一栏
+// 栏目名按钮：电脑上面板左边一竖排图标，手机竖屏上抽屉上沿一排字（摆姿势时是底下那条图标）
 for (const [key, section] of sections) {
   const jump = el('button', '');
   jump.type = 'button';
@@ -1038,7 +998,7 @@ for (const [key, section] of sections) {
   if (section.dataset.mode) jump.dataset.mode = section.dataset.mode;
   $('jump').append(jump);
 }
-/** 手机竖屏的版面（底下的抽屉、一次一栏、弹出层），见 view/phone.ts。栏目名按钮要先有 */
+/** 面板的版面（一次一栏、弹出层、冒出来的状态；手机竖屏上还有底下的抽屉），见 view/phone.ts。栏目名按钮要先有 */
 const phone = new Phone(sections);
 
 /* ---------------- 主题 ---------------- */
@@ -1447,7 +1407,7 @@ let fusedStats: FusedStats | null = null;
 
 const count = (n: number) => Math.round(n).toLocaleString('zh-CN');
 
-/** 左上角读数里「面数」那一格的文字，以及跟在后面的警告 */
+/** 读数（电脑上在顶栏，手机上在顶上一行小字）里「面数」那一格的文字，以及跟在后面的警告 */
 let readout = { triangles: '', warning: '' };
 /** 开发模式下穿模检查的结果 */
 let clashNote = '';
@@ -3952,7 +3912,7 @@ function render() {
 
 /* ---------------- 新手引导 ---------------- */
 
-/** 看完或跳过新手引导就记一笔，以后不再自动弹出（标题旁的「新手引导」可以再看） */
+/** 看完或跳过新手引导就记一笔，以后不再自动弹出（右上角「⋯」菜单里的「新手引导」可以再看） */
 const TOUR_KEY = 'oc-basemesh-tour';
 /** 在引导第一步换了语言要整页重新载入：记下载入后接着从第几步看（只记在这个标签页里） */
 const TOUR_AT_KEY = 'oc-basemesh-tour-at';
@@ -3960,14 +3920,13 @@ const TOUR_AT_KEY = 'oc-basemesh-tour-at';
 let tourFrom: Mode = 'shape';
 /** 引导替人选中的部件：关掉时它还选着就取消 */
 let tourPicked: string | null = null;
-/** 指着面板里的某一栏之前：回到造型，把那一栏展开、滚到看得见（手机上让开钉着的 3D 视图，见样式里的 scroll-margin） */
+/** 开始引导时两个模式各停在哪一栏：引导会换栏，关掉时回去 */
+let tourTabs: Phone['tabState'] | null = null;
+/** 指着面板里的某一栏之前：回到造型，换到那一栏 */
 const tourShape = (key?: string) => () => {
   setMode('shape');
   phone.setPop(null);
-  if (!key) return;
-  if (folded.has(key)) setFolded(key, false);
-  if (phone.on) phone.open(key);
-  else sections.get(key)?.scrollIntoView({ block: 'start' });
+  if (key) phone.open(key);
 };
 /** 教调肢体之前：回到造型，还没选中部件就先替人选一条手臂（没有手臂挑腿、尾巴、头），模型上就有箭头可以拖 */
 const tourLimb = (key?: string) => () => {
@@ -4005,13 +3964,13 @@ function tourLangs() {
 const tour = new Tour([
   {
     title: t('选择语言'),
-    text: t('界面用哪种语言？点一下就换。以后在标题旁边的语言菜单里也能改。'),
+    text: t('界面用哪种语言？点一下就换。以后在右上角「⋯」菜单里也能改。'),
     extra: tourLangs,
     before: () => phone.setPop(null),
   },
   {
     title: t('欢迎来到 OC 白模工坊'),
-    text: t('写一句身体设定，就能生成能导进 Blender 的多肢体角色模型。下面花半分钟认一认几个地方；不想看就点「跳过」，以后点标题旁边的「新手引导」可以再看。'),
+    text: t('写一句身体设定，就能生成能导进 Blender 的多肢体角色模型。下面花半分钟认一认几个地方；不想看就点「跳过」，以后在右上角「⋯」菜单里点「新手引导」可以再看。'),
   },
   {
     title: t('身体描述'),
@@ -4077,8 +4036,8 @@ const tour = new Tour([
   },
   {
     title: t('视角和撤销'),
-    text: t('一下切到正面、侧面、背面看；改错了点「撤销」（Ctrl+Z）。「骨骼」把骨架显示出来。'),
-    // 手机上 .dock 拆开了（撤销重做在顶栏）：指着浮出来的那一排视角
+    text: t('一下切到正面、侧面、背面看；「骨骼」把骨架显示出来。改错了点顶上的「撤销」（Ctrl+Z）。'),
+    // 撤销、重做在顶栏；手机上 .dock 拆开了：指着浮出来的那一排视角
     target: () => document.querySelector(phone.on ? '.dock .views' : '.dock'),
     // 手机上视角、骨骼收在右边「视角」按钮里：先打开
     before: () => phone.setPop(phone.on ? 'views' : null),
@@ -4087,18 +4046,15 @@ const tour = new Tour([
     title: t('导出'),
     text: t('「导出白模」是一整块网格，拿去雕刻；「带骨骼 GLB」进了 Blender 能直接摆姿势；还有 OBJ、3D 打印用的 STL 和截图。Blender 里用「文件 → 导入 → glTF 2.0」。'),
     target: () => document.querySelector('.export'),
-    // 手机上导出按钮收在右边「导出」按钮里：先打开那张面板
-    before: () => phone.setPop(phone.on ? 'export' : null),
+    // 导出收在「导出」按钮里（电脑在顶栏右边，手机在右边那一竖排）：先打开那张面板
+    before: () => phone.setPop('export'),
   },
   {
     title: t('就这些'),
     text: t('设定会自动存在这个浏览器里，下次打开还在。想再看一遍引导，点这里。'),
     target: () => $('btnTour'),
-    before: () => {
-      // 手机上「新手引导」在右上角「更多」菜单里
-      if (phone.on) phone.setPop('menu');
-      else $('btnTour').closest('header')?.scrollIntoView({ block: 'center' });
-    },
+    // 「新手引导」在右上角「更多」菜单里
+    before: () => phone.setPop('menu'),
   },
 ]);
 tour.onClose = () => {
@@ -4111,11 +4067,14 @@ tour.onClose = () => {
   setMode(tourFrom);
   if (tourPicked && selected === tourPicked) select(null);
   tourPicked = null;
+  if (tourTabs) phone.tabState = tourTabs;
+  tourTabs = null;
 };
 function startTour(at = 0) {
   if (tour.open) return;
   tourFrom = mode;
   tourPicked = null;
+  tourTabs = phone.tabState;
   tour.start(at);
 }
 $('btnTour').addEventListener('click', () => startTour());

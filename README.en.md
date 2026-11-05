@@ -67,8 +67,9 @@ After that you only need steps 2 and 4 each time.
 
 ![How it looks on a phone in portrait](docs/mobile.png)
 
-- **The left side is the 3D view**. The "Shape / Pose" switch at the top left chooses what you are doing; below it are the readouts for height, heads tall and triangle count, and orange text after them is a warning. Left-drag to rotate, scroll to zoom, right-drag to pan, click a part to select it. At the bottom left are the view buttons (Front / Side / Back / 3/4), Undo / Redo, and "Bones" to show the skeleton.
-- **The right side is the settings panel**: Body description, Presets, Part counts, Layout, Hair, Body shape, Manual tweaks, Mesh, Camera & lighting, Reference images, and Config. Click a section's title to fold it. The export buttons are pinned to the bottom of the panel.
+- **The toolbar along the top**: on the left, the "Shape / Pose" switch chooses what you are doing, next to Undo / Redo; on the right are the readouts for height, heads tall and triangle count (orange text after them is a warning), the "Export" button, and the "⋯" menu (language, theme, tour, source code link).
+- **The left side is the 3D view**. Left-drag to rotate, scroll to zoom, right-drag to pan, click a part to select it. At the bottom left are the view buttons (Front / Side / Back / 3/4) and "Bones" to show the skeleton.
+- **The right side is the settings panel**, with a column of section icons on its left: Body description, Presets, Part counts, Layout, Hair, Body shape, Manual tweaks, Mesh (in Pose mode these become Pose, Hands, Face and Pose library), then Camera & lighting, Reference images and Config, which both modes share. Click one and the panel shows only that section; selecting a part switches to "Manual tweaks", and deselecting goes back. The longer notes in each section stay hidden until you click "Notes" at the top right of the panel.
 - **Language**: the interface is available in Chinese, English and Japanese. Use the language drop-down at the top right (to the left of the theme button). The first time you open it, it follows the browser's language; adding `?lang=en` (or `zh`, `ja`) to the address also works.
 - **Tour**: it appears automatically the first time you open the workshop. It starts by asking for a language, then walks you through a few areas; in the steps on the 3D view, adjusting individual limbs, and posing, you can try things out on the model right away. It can be skipped; to see it again, click "Tour" under the title.
 - **Phone in portrait**: the 3D view is the top half and the settings the bottom half, and the whole page scrolls together. Drag with one finger to rotate; pinch with two fingers to zoom and drag with two fingers to pan.
@@ -138,7 +139,7 @@ Type the body description into the "Body description" box; the model updates by 
 - **Gender**: Female (default) or Male; only affects the Mannequin.
 - **Pose**: A-pose (default) or T-pose. T-pose is handier when you want to rig bones or give the model to an image generator as a reference.
 - **Sliders**: height, heads tall, build, shoulder width, bust size, waist width, hip width, limb thickness, arm length, leg length, tail fluffiness and tail length. Pushed to either end they give very exaggerated cartoon proportions. When arms or legs are lengthened, the hands and feet are not stretched along with them; leg length does not change the height (the whole figure is scaled proportionally).
-- Extra rows of arms, centaurs and arachnes make the actual height greater; go by the readout at the top left.
+- Extra rows of arms, centaurs and arachnes make the actual height greater; go by the readout at the top.
 
 ### Hair
 
@@ -224,11 +225,11 @@ When the automatic placement isn't what you want, you can adjust a single part: 
 - With "Also adjust the opposite side" on, left/right pairs of parts change together, mirrored.
 - The torso carries the neck, heads, arms, breasts and wings; a head carries the eyes, horns and ears. The feet always stay on the ground.
 - Tweaked parts are listed under "Tweaked". "Reset this part" resets only the selected part, and "Reset all" clears every tweak; clicking a preset also clears them (you can undo).
-- If you push too far (pulling an arm away from the body), the mesh breaks apart and the top left shows "The mesh has split into N pieces".
+- If you push too far (pulling an arm away from the body), the mesh breaks apart and the readout at the top shows "The mesh has split into N pieces".
 
 ## Pose
 
-Click "Pose" at the top left of the 3D view and a set of handles lights up on the joints; drag them to pose the figure. Click "Shape" to go back and keep editing the body. What you see and export in "Shape" is always the rest pose; what you see and export in "Pose" is the posed figure. All three body styles can be posed.
+Click "Pose" on the left of the toolbar and a set of handles lights up on the joints; drag them to pose the figure. Click "Shape" to go back and keep editing the body. What you see and export in "Shape" is always the rest pose; what you see and export in "Pose" is the posed figure. All three body styles can be posed.
 
 ![Posing](docs/pose-overview.png)
 
@@ -276,7 +277,7 @@ These only affect how things look on screen and in screenshots, not the exported
 
 ## Export
 
-The export section is at the bottom of the panel. After you click, wait for the line below it to say it's done; the file is in your browser's download folder.
+Click "Export" on the right of the toolbar and pick a format (in portrait on a phone it's the round download button on the right). After you click, wait for the message that pops up to say it's done; the file is in your browser's download folder.
 
 | Button | File | What's in it | When to use it |
 | --- | --- | --- | --- |
