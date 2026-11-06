@@ -36,6 +36,8 @@ class UpdateUi {
   private status: ShellStatus;
   /** 这个页面载入时外壳给的版本：外壳换了新版、页面还没刷新时，它还是旧的 */
   private readonly pageVersion: string | null;
+  /** 页面载入时外壳是什么时候开的：exe 换了安装包重启以后会变 */
+  private readonly started: string | null;
   /** 这次打开里点过「以后再说」的版本 */
   private readonly dismissed = new Set<string>();
   /** 「检查更新」是人点的：结果写在设置那一行上 */
@@ -54,6 +56,7 @@ class UpdateUi {
   ) {
     this.status = status;
     this.pageVersion = status.version;
+    this.started = status.started;
     this.card.setAttribute('role', 'status');
     this.card.hidden = true;
     document.body.append(this.card);
@@ -85,10 +88,12 @@ class UpdateUi {
 
   private follow(): void {
     window.clearTimeout(this.timer);
-    const busy = this.status.status === 'checking' || this.status.status === 'downloading';
+    const installer = this.status.installer?.status;
+    const busy = this.status.status === 'checking' || this.status.status === 'downloading' || installer === 'downloading' || installer === 'installing';
     if (!busy && this.kicked <= 0) return;
     if (!busy) this.kicked--;
-    this.timer = window.setTimeout(() => void this.act(() => this.api.status()), this.status.status === 'downloading' ? 500 : 300);
+    const fast = this.status.status === 'downloading' || installer === 'downloading';
+    this.timer = window.setTimeout(() => void this.act(() => this.api.status()), installer === 'installing' ? 1000 : fast ? 500 : 300);
   }
 
   private kick(call: () => Promise<ShellStatus>): void {
@@ -97,12 +102,20 @@ class UpdateUi {
   }
 
   private async act(call: () => Promise<ShellStatus>): Promise<void> {
+    let next: ShellStatus;
     try {
-      this.status = await call();
+      next = await call();
     } catch {
-      // 外壳没回话（关了黑窗口之类）：什么都不改
+      // 外壳没回话：exe 正在换安装包重启的话是正常的，过一会儿再问；别的情况（关了黑窗口之类）什么都不改
+      if (this.status.installer?.status === 'installing') this.timer = window.setTimeout(() => void this.act(() => this.api.status()), 1000);
       return;
     }
+    // 换了新的安装包、外壳重新开过了：刷新页面，用新外壳带的网页
+    if (this.started && next.started && next.started !== this.started) {
+      location.reload();
+      return;
+    }
+    this.status = next;
     this.render();
     this.follow();
   }
@@ -135,6 +148,7 @@ class UpdateUi {
     if (!this.manual) return;
     if (s.status === 'checking') this.rowNote.textContent = t('正在检查…');
     else if (s.status === 'offline') this.rowNote.textContent = t('连不上更新服务器，稍后再试');
+    else if (s.installer && s.installer.status !== 'none' && s.status !== 'available') this.rowNote.textContent = t('安装包有新版本 {version}', { version: s.installer.version });
     else if (s.needsNewShell) {
       this.rowNote.append(document.createTextNode(t('新版本要重新下载安装包：')));
       const link = el('a', '', t('去下载'));
@@ -199,12 +213,52 @@ class UpdateUi {
         button(t('稍后'), 'plain', () => this.later(view)),
         button(t('刷新'), 'primary', () => location.reload()),
       );
-    } else {
+    } else if (view.kind === 'failed') {
       head.append(el('b', '', t('{version} 没下完', { version: view.version })), close);
       body.push(el('p', 'update-meta', t('可能是网络断了。已经下好的部分留着，重试时只补剩下的。')));
       actions.append(
         button(t('以后再说'), 'plain', () => this.later(view)),
         button(t('重试'), 'primary', () => this.kick(() => this.api.download())),
+      );
+    } else if (view.kind === 'installer') {
+      head.append(el('b', '', t('安装包有新版本 {version}', { version: view.version })), close);
+      body.push(el('p', 'update-meta', t('这次改了工坊的外壳本身，要下载整个安装包（{size}）。设定都还在。', { size: formatBytes(view.bytes) })));
+      actions.append(
+        button(t('以后再说'), 'plain', () => this.later(view)),
+        button(t('下载安装包'), 'primary', () => this.kick(() => this.api.installerDownload())),
+      );
+    } else if (view.kind === 'installer-downloading') {
+      head.append(el('b', '', t('正在下载安装包 {version}', { version: view.version })), close);
+      const bar = el('div', 'update-bar');
+      const fill = el('span');
+      fill.style.width = `${view.total > 0 ? Math.min(100, (view.done / view.total) * 100) : 0}%`;
+      bar.append(fill);
+      body.push(bar, el('p', 'update-meta', `${formatBytes(view.done)} / ${formatBytes(view.total)}`));
+      close.title = t('在后台接着下');
+      close.setAttribute('aria-label', t('在后台接着下'));
+    } else if (view.kind === 'installer-ready') {
+      head.append(el('b', '', t('安装包 {version} 已经下好了', { version: view.version })), close);
+      body.push(el('p', 'update-meta', view.platform === 'exe'
+        ? t('点「安装」会关掉工坊、换上新版再自动打开，设定都还在。')
+        : t('点「安装」以后，在系统弹出的窗口里点「安装」；装好后重新打开工坊，设定都还在。第一次会先让你允许这个应用安装应用。')));
+      actions.append(
+        button(t('稍后'), 'plain', () => this.later(view)),
+        button(t('安装'), 'primary', () => this.kick(() => this.api.installerInstall())),
+      );
+    } else if (view.kind === 'installer-installing') {
+      head.append(el('b', '', view.platform === 'exe' ? t('正在换上新版，工坊马上重新打开…') : t('请在系统的窗口里确认安装')));
+      if (view.platform === 'apk') body.push(el('p', 'update-meta', t('装好以后系统会关掉工坊，再点开就是新版。')));
+    } else {
+      head.append(el('b', '', t('安装包 {version} 没装上', { version: view.version })), close);
+      body.push(el('p', 'update-meta', t('可以稍后再试，或者到下载页面手动下载新的安装包。')));
+      const link = el('a', '', t('去下载'));
+      link.href = RELEASES;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      body.push(link);
+      actions.append(
+        button(t('以后再说'), 'plain', () => this.later(view)),
+        button(t('重试'), 'primary', () => this.kick(() => this.api.installerDownload())),
       );
     }
     this.card.replaceChildren(head, ...body, ...(actions.childElementCount ? [actions] : []));
@@ -217,6 +271,7 @@ class UpdateUi {
   private later(view: CardView): void {
     if (view.kind === 'none') return;
     if (view.kind === 'available' || view.kind === 'failed') this.dismissed.add(view.version);
+    else if (view.kind === 'installer' || view.kind === 'installer-ready' || view.kind === 'installer-failed') this.dismissed.add(`installer:${view.version}`);
     else this.closed = `${view.kind}:${view.version}`;
     this.card.hidden = true;
   }

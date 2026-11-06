@@ -37,6 +37,16 @@ sealed class Manifest
     public Dictionary<string, string> Notes = new Dictionary<string, string>();
     public List<ManifestFile> Files = new List<ManifestFile>();
     public Dictionary<string, ManifestFile> ByPath = new Dictionary<string, ManifestFile>(StringComparer.Ordinal);
+    // 新的安装包（"exe"、"apk"），可以没有
+    public Dictionary<string, Installer> Installers = new Dictionary<string, Installer>();
+
+    public sealed class Installer
+    {
+        public string Version;
+        public int Shell;
+        public long Size;
+        public string Sha256;
+    }
 
     // 读一份清单，格式和 src/update/manifest.ts 的 parseManifest 一样严。有不对的地方就抛异常
     public static Manifest Parse(string text)
@@ -76,6 +86,28 @@ sealed class Manifest
             m.ByPath[file.Path] = file;
         }
         if (!m.ByPath.ContainsKey("index.html")) throw new FormatException("no index.html");
+        Dictionary<string, object> installers = raw.ContainsKey("installers") ? raw["installers"] as Dictionary<string, object> : null;
+        if (raw.ContainsKey("installers") && installers == null) throw new FormatException("bad installers");
+        if (installers != null)
+        {
+            foreach (string kind in new[] { "exe", "apk" })
+            {
+                if (!installers.ContainsKey(kind)) continue;
+                Dictionary<string, object> i = installers[kind] as Dictionary<string, object>;
+                if (i == null) throw new FormatException("bad installer");
+                Installer installer = new Installer();
+                installer.Version = i.ContainsKey("version") ? i["version"] as string : null;
+                if (installer.Version == null || !VersionPattern.IsMatch(installer.Version)) throw new FormatException("bad installer version");
+                if (!i.ContainsKey("shell") || !(i["shell"] is int) || (int)i["shell"] < 1) throw new FormatException("bad installer shell");
+                installer.Shell = (int)i["shell"];
+                if (!i.ContainsKey("size") || !(i["size"] is int || i["size"] is long)) throw new FormatException("bad installer size");
+                installer.Size = Convert.ToInt64(i["size"]);
+                if (installer.Size <= 0) throw new FormatException("bad installer size");
+                installer.Sha256 = i.ContainsKey("sha256") ? i["sha256"] as string : null;
+                if (installer.Sha256 == null || !ShaPattern.IsMatch(installer.Sha256)) throw new FormatException("bad installer sha256");
+                m.Installers[kind] = installer;
+            }
+        }
         return m;
     }
 
@@ -107,8 +139,9 @@ sealed class Manifest
 
 static class Updater
 {
-    // 外壳和网页之间约定的版本。清单的 minShell 比它大，这个外壳就不用那份清单（要重新下载安装包）
-    public const int ShellVersion = 1;
+    // 外壳的版本（打包时照 tools/update/config.json 的 shell 写进 BuildInfo）。
+    // 清单的 minShell 比它大，这个外壳就不用那份清单的网页；清单里 exe 安装包的 shell 比它大，就提示「安装包有新版本」
+    public const int ShellVersion = BuildInfo.Shell;
     const string CurrentName = "current.json";
     const string PreviousName = "previous.json";
     const string DownloadingName = "downloading.json";
@@ -158,6 +191,21 @@ static class Updater
     static long bytesTotal;
     static long bytesDone;
     static bool busy;
+
+    // 新的安装包（第 5 期）：下载站的清单里 exe 安装包的 shell 比这个外壳大时才有
+    // none 没有、available 可以下、downloading 正在下、ready 下好了、installing 正在换（马上重启）、error 出错
+    static Manifest.Installer installer;
+    static string installerStatus = "none";
+    static string installerError;
+    static long installerDone;
+    static string[] launchArgs = new string[0];
+    static readonly string Started = DateTime.UtcNow.ToString("o");
+
+    // 测试、换安装包重启时 Launcher 把命令行参数交过来，重启的新外壳照样用
+    public static void SetLaunchArgs(string[] args)
+    {
+        launchArgs = args;
+    }
 
     public static bool Enabled { get { return enabled; } }
 
@@ -277,6 +325,12 @@ static class Updater
             case "settings":
                 Settings(ReadBody(request));
                 return Json(Status());
+            case "installer/download":
+                Start(InstallerDownload);
+                return Json(Status());
+            case "installer/install":
+                InstallerInstall();
+                return Json(Status());
         }
         response.StatusCode = 404;
         return Json(Message("unknown"));
@@ -329,6 +383,20 @@ static class Updater
             p["done"] = bytesDone;
             p["total"] = bytesTotal;
             d["progress"] = p;
+            d["platform"] = "exe";
+            // 外壳这次是什么时候开的：换安装包重启以后会变，网页看到变了就刷新
+            d["started"] = Started;
+            if (installer != null)
+            {
+                Dictionary<string, object> i = new Dictionary<string, object>();
+                i["version"] = installer.Version;
+                i["shell"] = installer.Shell;
+                i["bytes"] = installer.Size;
+                i["status"] = installerStatus;
+                i["error"] = installerError;
+                i["done"] = installerDone;
+                d["installer"] = i;
+            }
             return d;
         }
     }
@@ -413,6 +481,7 @@ static class Updater
                 return;
             }
             View v = view;
+            OfferInstaller(found);
             needsNewShell = false;
             latest = null;
             bytesTotal = bytesDone = 0;
@@ -439,6 +508,144 @@ static class Updater
         Log("有新版本 " + found.Version + "（约 " + Mb(bytesTotal) + "）",
             "新しいバージョン " + found.Version + " があります（約 " + Mb(bytesTotal) + "）",
             "A new version is available: " + found.Version + " (about " + Mb(bytesTotal) + ")");
+    }
+
+    // 清单里有比这个外壳新的 exe 安装包：记下来给网页提示。下过的不用再下（在 objects 里、大小对）
+    static void OfferInstaller(Manifest found)
+    {
+        Manifest.Installer offered;
+        if (!found.Installers.TryGetValue("exe", out offered) || offered.Shell <= ShellVersion)
+        {
+            if (installerStatus != "installing") { installer = null; installerStatus = "none"; installerError = null; }
+            return;
+        }
+        if (installer != null && installer.Sha256 == offered.Sha256 && installerStatus != "error") return;
+        installer = offered;
+        installerError = null;
+        installerDone = 0;
+        FileInfo have = new FileInfo(Path.Combine(objectsDir, offered.Sha256));
+        installerStatus = have.Exists && have.Length == offered.Size ? "ready" : "available";
+        Log("安装包有新版本 " + offered.Version, "インストーラーの新しいバージョン " + offered.Version + " があります",
+            "A new installer is available: " + offered.Version);
+    }
+
+    // 下载新的 exe：和网页的文件一样按 sha256 核对，存在 objects 里
+    static void InstallerDownload()
+    {
+        Manifest.Installer target;
+        lock (Gate)
+        {
+            if (installer == null || (installerStatus != "available" && installerStatus != "error")) return;
+            target = installer;
+            installerStatus = "downloading";
+            installerError = null;
+            installerDone = 0;
+        }
+        ManifestFile file = new ManifestFile { Path = "OC白模工坊.exe", Size = target.Size, Sha256 = target.Sha256 };
+        string lastError = null;
+        foreach (Source s in sources)
+        {
+            try
+            {
+                FetchObject(s.Base + s.Objects + target.Sha256, file, true);
+                lock (Gate) { installerStatus = "ready"; }
+                return;
+            }
+            catch (Exception e) { lastError = e.Message; }
+        }
+        lock (Gate) { installerStatus = "error"; installerError = "download failed: " + lastError; }
+    }
+
+    // 换上新的 exe：自己改名成 .old，新的放到原来的位置，用同样的参数开它，然后自己退出。
+    // 新的 exe 等这个进程退出了才占端口（--wait-pid），再把 .old 删掉。网页看到外壳的 started 变了就刷新
+    static void InstallerInstall()
+    {
+        lock (Gate)
+        {
+            if (installer == null || installerStatus != "ready") return;
+            string exe = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
+            string old = exe + ".old";
+            string fresh = Path.Combine(objectsDir, installer.Sha256);
+            try
+            {
+                // 换之前再核对一遍：下好以后在本机放了一阵，别换上一个坏掉的
+                using (FileStream f = File.OpenRead(fresh))
+                using (SHA256 hash = SHA256.Create())
+                {
+                    if (f.Length != installer.Size || Hex(hash.ComputeHash(f)) != installer.Sha256) throw new IOException("downloaded installer is damaged");
+                }
+                if (File.Exists(old)) File.Delete(old);
+                File.Move(exe, old);
+                try { File.Copy(fresh, exe); }
+                catch (Exception)
+                {
+                    File.Move(old, exe);
+                    throw;
+                }
+            }
+            catch (Exception e)
+            {
+                installerStatus = "error";
+                installerError = "cannot replace the exe: " + e.Message;
+                return;
+            }
+
+            List<string> args = new List<string>();
+            for (int i = 0; i < launchArgs.Length; i++)
+            {
+                if (launchArgs[i] == "--wait-pid") { i++; continue; }
+                if (launchArgs[i] == "--no-browser") continue;
+                args.Add(launchArgs[i].IndexOf(' ') >= 0 ? "\"" + launchArgs[i] + "\"" : launchArgs[i]);
+            }
+            // 页面本来就开着，新的外壳不用再开浏览器
+            args.Add("--no-browser");
+            args.Add("--wait-pid");
+            args.Add(System.Diagnostics.Process.GetCurrentProcess().Id.ToString());
+            try
+            {
+                System.Diagnostics.ProcessStartInfo start = new System.Diagnostics.ProcessStartInfo(exe, string.Join(" ", args.ToArray()));
+                start.UseShellExecute = true;
+                start.WorkingDirectory = Path.GetDirectoryName(exe);
+                System.Diagnostics.Process.Start(start);
+            }
+            catch (Exception e)
+            {
+                // 新的开不起来：换回旧的，照常用
+                try
+                {
+                    File.Delete(exe);
+                    File.Move(old, exe);
+                }
+                catch (Exception) { }
+                installerStatus = "error";
+                installerError = "cannot start the new exe: " + e.Message;
+                return;
+            }
+            installerStatus = "installing";
+        }
+        Log("正在换上新的安装包，工坊会自己重新打开", "新しいインストーラーに切り替えています。工房は自動でもう一度開きます",
+            "Switching to the new installer; the workshop will reopen by itself");
+        // 先让这次请求回给网页，再退出
+        Thread quit = new Thread(delegate() { Thread.Sleep(800); Environment.Exit(0); });
+        quit.IsBackground = false;
+        quit.Start();
+    }
+
+    // 换安装包重启：等旧的进程退出（它占着端口），再删掉旧的 exe
+    public static void AfterReplace(string[] args)
+    {
+        int at = Array.IndexOf(args, "--wait-pid");
+        if (at < 0 || at + 1 >= args.Length) return;
+        int pid;
+        if (!int.TryParse(args[at + 1], out pid)) return;
+        try { System.Diagnostics.Process.GetProcessById(pid).WaitForExit(15000); }
+        catch (ArgumentException) { }
+        string old = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName + ".old";
+        for (int i = 0; i < 10 && File.Exists(old); i++)
+        {
+            try { File.Delete(old); }
+            catch (Exception) { Thread.Sleep(300); }
+        }
     }
 
     // 本机还没有的文件（同一份内容只算一次）
@@ -536,6 +743,12 @@ static class Updater
     // 下一个文件：先写 .part，边下边算 sha256，对上了才改成正式的名字
     static void FetchObject(string url, ManifestFile f)
     {
+        FetchObject(url, f, false);
+    }
+
+    // forInstaller：进度记在安装包那边（installerDone），不算进网页的下载进度
+    static void FetchObject(string url, ManifestFile f, bool forInstaller)
+    {
         string final = Path.Combine(objectsDir, f.Sha256);
         string part = final + ".part";
         long counted = 0;
@@ -556,7 +769,7 @@ static class Updater
                     if (counted > f.Size) throw new IOException("file is larger than the manifest says");
                     hash.TransformBlock(buffer, 0, n, null, 0);
                     to.Write(buffer, 0, n);
-                    lock (Gate) { bytesDone += n; }
+                    lock (Gate) { if (forInstaller) installerDone += n; else bytesDone += n; }
                 }
                 hash.TransformFinalBlock(buffer, 0, 0);
                 if (counted != f.Size) throw new IOException("file is smaller than the manifest says");
@@ -567,7 +780,7 @@ static class Updater
         }
         catch (Exception)
         {
-            lock (Gate) { bytesDone -= counted; }
+            lock (Gate) { if (forInstaller) installerDone -= counted; else bytesDone -= counted; }
             try { File.Delete(part); } catch (IOException) { }
             throw;
         }
@@ -726,6 +939,8 @@ static class Updater
             lock (Gate)
             {
                 if (latest != null) foreach (ManifestFile f in latest.Files) keep.Add(f.Sha256);
+                if (installer != null) keep.Add(installer.Sha256);
+                if (busy && installerStatus == "downloading") return;
                 if (busy && status == "downloading") return;
             }
             foreach (string file in Directory.GetFiles(objectsDir))

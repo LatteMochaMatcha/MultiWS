@@ -5,7 +5,7 @@ import { cardFor, formatBytes, pickNotes, readStatus, type ShellStatus } from '.
 function status(over: Partial<ShellStatus> = {}): ShellStatus {
   return {
     shell: 1, enabled: true, version: '2.7.2', builtin: '2.7.2', usingBuiltin: true, autoCheck: true, skip: null, lastCheck: null,
-    status: 'idle', error: null, needsNewShell: false, progress: { done: 0, total: 0 }, ...over,
+    status: 'idle', error: null, needsNewShell: false, progress: { done: 0, total: 0 }, platform: 'exe', started: null, ...over,
   };
 }
 const latest = { version: '2.7.3', notes: { zh: '修了手' }, bytes: 3_000_000 };
@@ -99,5 +99,33 @@ describe('卡片显示什么', () => {
   });
   it('下载出错：提示重试', () => {
     expect(cardFor(status({ status: 'error', latest }), none, '2.7.2').kind).toBe('failed');
+  });
+});
+
+describe('新的安装包的卡片', () => {
+  const none = new Set<string>();
+  const installer: NonNullable<ShellStatus['installer']> = { version: '2.8.0', shell: 2, bytes: 70_000_000, status: 'available', error: null, done: 0 };
+  it('网页没有要提示的时候才显示安装包', () => {
+    expect(cardFor(status({ status: 'uptodate', installer }), none, '2.7.2')).toEqual({ kind: 'installer', version: '2.8.0', bytes: 70_000_000, platform: 'exe' });
+    expect(cardFor(status({ status: 'available', latest, installer }), none, '2.7.2').kind).toBe('available');
+  });
+  it('下载中、下好了、正在装、出错', () => {
+    const at = (over: Partial<typeof installer>) => cardFor(status({ status: 'uptodate', installer: { ...installer, ...over } }), none, '2.7.2');
+    expect(at({ status: 'downloading', done: 5 })).toEqual({ kind: 'installer-downloading', version: '2.8.0', done: 5, total: 70_000_000 });
+    expect(at({ status: 'ready' })).toEqual({ kind: 'installer-ready', version: '2.8.0', platform: 'exe' });
+    expect(at({ status: 'installing' }).kind).toBe('installer-installing');
+    expect(at({ status: 'error', error: 'x' })).toEqual({ kind: 'installer-failed', version: '2.8.0', error: 'x' });
+  });
+  it('点过「以后再说」就不再弹；正在装的不受影响', () => {
+    const hidden = new Set(['installer:2.8.0']);
+    expect(cardFor(status({ status: 'uptodate', installer }), hidden, '2.7.2').kind).toBe('none');
+    expect(cardFor(status({ status: 'uptodate', installer: { ...installer, status: 'installing' } }), hidden, '2.7.2').kind).toBe('installer-installing');
+  });
+  it('读外壳的状态时带上安装包、平台、启动时间', () => {
+    const s = readStatus({ ...status({ platform: 'apk', started: 't1' }), installer: { ...installer, status: 'ready' } });
+    expect(s?.platform).toBe('apk');
+    expect(s?.started).toBe('t1');
+    expect(s?.installer?.status).toBe('ready');
+    expect(readStatus({ ...status(), installer: { ...installer, status: 'flying' } })?.installer).toBeUndefined();
   });
 });

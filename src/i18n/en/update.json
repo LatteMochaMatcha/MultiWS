@@ -20,5 +20,18 @@
   "刷新": "Reload",
   "{version} 没下完": "{version} didn't finish downloading",
   "可能是网络断了。已经下好的部分留着，重试时只补剩下的。": "The connection may have dropped. What's already downloaded is kept; retrying only fetches the rest.",
-  "重试": "Retry"
+  "重试": "Retry",
+  "安装包有新版本 {version}": "A new installer is available: {version}",
+  "这次改了工坊的外壳本身，要下载整个安装包（{size}）。设定都还在。": "This update changes the workshop app itself, so the whole installer has to be downloaded ({size}). Your settings stay as they are.",
+  "下载安装包": "Download installer",
+  "正在下载安装包 {version}": "Downloading installer {version}",
+  "安装包 {version} 已经下好了": "Installer {version} is ready",
+  "点「安装」会关掉工坊、换上新版再自动打开，设定都还在。": "\"Install\" closes the workshop, switches to the new version and opens it again by itself. Your settings stay as they are.",
+  "点「安装」以后，在系统弹出的窗口里点「安装」；装好后重新打开工坊，设定都还在。第一次会先让你允许这个应用安装应用。": "After tapping \"Install\", tap \"Install\" in the system window that appears, then open the workshop again; your settings stay as they are. The first time, you'll be asked to allow this app to install apps.",
+  "安装": "Install",
+  "正在换上新版，工坊马上重新打开…": "Switching to the new version; the workshop will reopen in a moment…",
+  "请在系统的窗口里确认安装": "Confirm the installation in the system window",
+  "装好以后系统会关掉工坊，再点开就是新版。": "Once it's installed, the system closes the workshop; open it again to use the new version.",
+  "安装包 {version} 没装上": "Installer {version} wasn't installed",
+  "可以稍后再试，或者到下载页面手动下载新的安装包。": "Try again later, or download the new installer manually from the download page."
 }

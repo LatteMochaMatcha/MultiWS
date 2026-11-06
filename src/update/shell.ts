@@ -21,13 +21,24 @@ export interface ShellStatus {
   needsNewShell: boolean;
   latest?: { version: string; notes: Partial<Record<NoteLanguage, string>>; bytes: number };
   progress: { done: number; total: number };
+  /** 哪种外壳 */
+  platform: 'exe' | 'apk' | null;
+  /** 外壳这次是什么时候开的：exe 换了安装包重启以后会变 */
+  started: string | null;
+  /** 新的安装包（外壳本身的更新），没有就不在 */
+  installer?: { version: string; shell: number; bytes: number; status: InstallerState; error: string | null; done: number };
 }
+
+export type InstallerState = 'none' | 'available' | 'downloading' | 'ready' | 'installing' | 'error';
+const INSTALLER_STATES: readonly InstallerState[] = ['none', 'available', 'downloading', 'ready', 'installing', 'error'];
 
 export interface ShellApi {
   status(): Promise<ShellStatus>;
   check(): Promise<ShellStatus>;
   download(): Promise<ShellStatus>;
   settings(change: { autoCheck?: boolean; skip?: string | null }): Promise<ShellStatus>;
+  installerDownload(): Promise<ShellStatus>;
+  installerInstall(): Promise<ShellStatus>;
 }
 
 const STATES: readonly UpdateState[] = ['idle', 'checking', 'uptodate', 'available', 'downloading', 'ready', 'offline', 'error'];
@@ -51,7 +62,20 @@ export function readStatus(raw: unknown): ShellStatus | null {
     error: typeof r.error === 'string' ? r.error : null,
     needsNewShell: r.needsNewShell === true,
     progress: { done: Number(progress.done) || 0, total: Number(progress.total) || 0 },
+    platform: r.platform === 'exe' || r.platform === 'apk' ? r.platform : null,
+    started: typeof r.started === 'string' ? r.started : null,
   };
+  const installer = r.installer as Record<string, unknown> | undefined;
+  if (installer && typeof installer === 'object' && typeof installer.version === 'string' && INSTALLER_STATES.includes(installer.status as InstallerState)) {
+    status.installer = {
+      version: installer.version,
+      shell: Number(installer.shell) || 0,
+      bytes: Number(installer.bytes) || 0,
+      status: installer.status as InstallerState,
+      error: typeof installer.error === 'string' ? installer.error : null,
+      done: Number(installer.done) || 0,
+    };
+  }
   const latest = r.latest as Record<string, unknown> | undefined;
   if (latest && typeof latest === 'object' && typeof latest.version === 'string') {
     const notes: Partial<Record<NoteLanguage, string>> = {};
@@ -77,6 +101,8 @@ function httpShell(): ShellApi {
     check: () => call('check', {}),
     download: () => call('download', {}),
     settings: (change) => call('settings', change),
+    installerDownload: () => call('installer/download', {}),
+    installerInstall: () => call('installer/install', {}),
   };
 }
 
@@ -86,6 +112,8 @@ interface AndroidBridge {
   check(): string;
   download(): string;
   settings(json: string): string;
+  installerDownload(): string;
+  installerInstall(): string;
 }
 
 function androidShell(bridge: AndroidBridge): ShellApi {
@@ -99,6 +127,8 @@ function androidShell(bridge: AndroidBridge): ShellApi {
     check: () => call(() => bridge.check()),
     download: () => call(() => bridge.download()),
     settings: (change) => call(() => bridge.settings(JSON.stringify(change))),
+    installerDownload: () => call(() => bridge.installerDownload()),
+    installerInstall: () => call(() => bridge.installerInstall()),
   };
 }
 
@@ -146,12 +176,46 @@ export type CardView =
   | { kind: 'available'; version: string; bytes: number; notes: Partial<Record<NoteLanguage, string>> }
   | { kind: 'downloading'; version: string; done: number; total: number }
   | { kind: 'ready'; version: string }
-  | { kind: 'failed'; version: string };
+  | { kind: 'failed'; version: string }
+  // 新的安装包：网页这边没有要提示的时候才轮到它
+  | { kind: 'installer'; version: string; bytes: number; platform: 'exe' | 'apk' }
+  | { kind: 'installer-downloading'; version: string; done: number; total: number }
+  | { kind: 'installer-ready'; version: string; platform: 'exe' | 'apk' }
+  | { kind: 'installer-installing'; version: string; platform: 'exe' | 'apk' }
+  | { kind: 'installer-failed'; version: string; error: string | null };
 
 /**
  * pageVersion：这个页面载入时外壳给的是哪一版。外壳下好新版以后换过去了，但刷新之前页面上跑的还是旧版的代码
  */
 export function cardFor(status: ShellStatus, dismissed: ReadonlySet<string>, pageVersion: string | null): CardView {
+  const web = webCard(status, dismissed, pageVersion);
+  if (web.kind !== 'none') return web;
+  return installerCard(status, dismissed);
+}
+
+/** 安装包的卡片。dismissed 里记的是「installer:版本」 */
+function installerCard(status: ShellStatus, dismissed: ReadonlySet<string>): CardView {
+  const i = status.installer;
+  const platform = status.platform;
+  if (!i || !platform) return { kind: 'none' };
+  const hidden = dismissed.has(`installer:${i.version}`);
+  switch (i.status) {
+    case 'available':
+      return hidden ? { kind: 'none' } : { kind: 'installer', version: i.version, bytes: i.bytes, platform };
+    case 'downloading':
+      return { kind: 'installer-downloading', version: i.version, done: i.done, total: i.bytes };
+    case 'ready':
+      return hidden ? { kind: 'none' } : { kind: 'installer-ready', version: i.version, platform };
+    case 'installing':
+      return { kind: 'installer-installing', version: i.version, platform };
+    case 'error':
+      return hidden ? { kind: 'none' } : { kind: 'installer-failed', version: i.version, error: i.error };
+    default:
+      return { kind: 'none' };
+  }
+}
+
+function webCard(status: ShellStatus, dismissed: ReadonlySet<string>, pageVersion: string | null): CardView {
   const latest = status.latest;
   if (!latest) return { kind: 'none' };
   switch (status.status) {

@@ -42,8 +42,11 @@ import java.util.regex.Pattern;
 
 final class Updater {
     private static final String TAG = "OcWorkshop";
-    /** 外壳和网页之间约定的版本。清单的 minShell 比它大，这个外壳就不用那份清单（要重新下载安装包） */
-    static final int SHELL_VERSION = 1;
+    /**
+     * 外壳的版本（打包时照 tools/update/config.json 的 shell 写进 BuildInfo）。清单的 minShell 比它大，就不用那份清单的网页；
+     * 清单里 apk 安装包的 shell 比它大，就提示「安装包有新版本」
+     */
+    static final int SHELL_VERSION = BuildInfo.SHELL;
     private static final String MANIFEST = "update-manifest.json";
     private static final String CURRENT = "current.json";
     private static final String PREVIOUS = "previous.json";
@@ -74,6 +77,9 @@ final class Updater {
         final Map<String, String> notes = new LinkedHashMap<>();
         final List<Entry> files = new ArrayList<>();
         final Map<String, Entry> byPath = new HashMap<>();
+        /** 新的安装包（"exe"、"apk"），可以没有。Entry.path 放安装包里网页的版本号 */
+        final Map<String, Entry> installers = new HashMap<>();
+        final Map<String, Integer> installerShells = new HashMap<>();
 
         /** 和 src/update/manifest.ts 的 parseManifest 一样严，有不对的地方就抛异常 */
         static Manifest parse(String text) throws JSONException {
@@ -108,6 +114,24 @@ final class Updater {
                 m.byPath.put(path, e);
             }
             if (!m.byPath.containsKey("index.html")) throw new JSONException("no index.html");
+            if (raw.has("installers")) {
+                JSONObject installers = raw.optJSONObject("installers");
+                if (installers == null) throw new JSONException("bad installers");
+                for (String kind : new String[] { "exe", "apk" }) {
+                    if (!installers.has(kind)) continue;
+                    JSONObject i = installers.getJSONObject(kind);
+                    String version = i.optString("version", "");
+                    if (!VERSION.matcher(version).matches()) throw new JSONException("bad installer version");
+                    Object shell = i.opt("shell");
+                    if (!(shell instanceof Integer) || (Integer) shell < 1) throw new JSONException("bad installer shell");
+                    Object size = i.opt("size");
+                    if (!(size instanceof Integer || size instanceof Long) || ((Number) size).longValue() <= 0) throw new JSONException("bad installer size");
+                    String sha = i.optString("sha256", "");
+                    if (!SHA.matcher(sha).matches()) throw new JSONException("bad installer sha256");
+                    m.installers.put(kind, new Entry(version, ((Number) size).longValue(), sha));
+                    m.installerShells.put(kind, (Integer) shell);
+                }
+            }
             return m;
         }
 
@@ -166,6 +190,16 @@ final class Updater {
     private long bytesTotal;
     private long bytesDone;
     private boolean busy;
+
+    // 新的安装包（第 5 期）：清单里 apk 安装包的 shell 比这个外壳大时才有
+    // none / available / downloading / ready / installing（系统的安装窗口开着）/ error
+    private Entry installer;
+    private int installerShell;
+    private String installerStatus = "none";
+    private String installerError;
+    private long installerDone;
+    private final String started = iso(System.currentTimeMillis());
+    private static final String INSTALL_ACTION = "app.ocbasemesh.workshop.INSTALL_STATUS";
 
     Updater(Context context) {
         this.context = context;
@@ -276,6 +310,19 @@ final class Updater {
         }
 
         @JavascriptInterface
+        public String installerDownload() {
+            if (enabled) start(Updater.this::installerDownload);
+            return statusJson();
+        }
+
+        @JavascriptInterface
+        public String installerInstall() {
+            // 要把整个安装包抄进系统的安装会话：放到后台线程，别卡住网页
+            if (enabled) start(Updater.this::installerInstall);
+            return statusJson();
+        }
+
+        @JavascriptInterface
         public String booted() {
             synchronized (gate) {
                 if (pendingVersion != null && !builtinView && view != null && view.version.equals(pendingVersion)) {
@@ -315,6 +362,18 @@ final class Updater {
                 p.put("done", bytesDone);
                 p.put("total", bytesTotal);
                 d.put("progress", p);
+                d.put("platform", "apk");
+                d.put("started", started);
+                if (installer != null) {
+                    JSONObject i = new JSONObject();
+                    i.put("version", installer.path);
+                    i.put("shell", installerShell);
+                    i.put("bytes", installer.size);
+                    i.put("status", installerStatus);
+                    i.put("error", installerError != null ? installerError : JSONObject.NULL);
+                    i.put("done", installerDone);
+                    d.put("installer", i);
+                }
                 return d.toString();
             } catch (JSONException e) {
                 return "{}";
@@ -381,6 +440,7 @@ final class Updater {
                 error = lastError;
                 return;
             }
+            offerInstaller(found);
             needsNewShell = false;
             latest = null;
             bytesTotal = bytesDone = 0;
@@ -401,6 +461,146 @@ final class Updater {
             for (Entry f : missing(found)) bytesTotal += f.size;
             status = "available";
         }
+    }
+
+    // ---------- 新的安装包 ----------
+
+    /** 清单里有比这个外壳新的 apk：记下来给网页提示。下过的不用再下 */
+    private void offerInstaller(Manifest found) {
+        Entry offered = found.installers.get("apk");
+        Integer shell = found.installerShells.get("apk");
+        if (offered == null || shell == null || shell <= SHELL_VERSION) {
+            if (!"installing".equals(installerStatus)) {
+                installer = null;
+                installerStatus = "none";
+                installerError = null;
+            }
+            return;
+        }
+        if (installer != null && installer.sha256.equals(offered.sha256) && !"error".equals(installerStatus)) return;
+        installer = offered;
+        installerShell = shell;
+        installerError = null;
+        installerDone = 0;
+        File have = new File(objectsDir, offered.sha256);
+        installerStatus = have.isFile() && have.length() == offered.size ? "ready" : "available";
+    }
+
+    private void installerDownload() {
+        Entry target;
+        synchronized (gate) {
+            if (installer == null || !("available".equals(installerStatus) || "error".equals(installerStatus))) return;
+            target = installer;
+            installerStatus = "downloading";
+            installerError = null;
+            installerDone = 0;
+        }
+        Entry file = new Entry("OC白模工坊.apk", target.size, target.sha256);
+        String lastError = null;
+        for (String[] s : BuildInfo.SOURCES) {
+            try {
+                fetchObject(s[0] + s[1] + target.sha256, file, true);
+                synchronized (gate) {
+                    installerStatus = "ready";
+                }
+                return;
+            } catch (Exception e) {
+                lastError = String.valueOf(e.getMessage());
+            }
+        }
+        synchronized (gate) {
+            installerStatus = "error";
+            installerError = "download failed: " + lastError;
+        }
+    }
+
+    /**
+     * 交给系统装：写进一个 PackageInstaller 的会话再提交，系统弹出确认窗口（要用户点「安装」）。
+     * 新包和这个包签名一样（tools/android/sign.keystore），装上去设定都还在；装好以后这个应用会被系统关掉，用户再点开就是新版
+     */
+    private void installerInstall() {
+        File fresh;
+        Entry target;
+        synchronized (gate) {
+            if (installer == null || !"ready".equals(installerStatus)) return;
+            target = installer;
+            fresh = new File(objectsDir, target.sha256);
+            installerStatus = "installing";
+            installerError = null;
+        }
+        try {
+            // 装之前再核对一遍，别把下好以后坏掉的文件交出去
+            MessageDigest hash = MessageDigest.getInstance("SHA-256");
+            try (InputStream in = new FileInputStream(fresh)) {
+                byte[] buffer = new byte[81920];
+                int n;
+                while ((n = in.read(buffer)) > 0) hash.update(buffer, 0, n);
+            }
+            if (fresh.length() != target.size || !hex(hash.digest()).equals(target.sha256)) throw new IOException("downloaded installer is damaged");
+
+            android.content.pm.PackageInstaller packages = context.getPackageManager().getPackageInstaller();
+            android.content.pm.PackageInstaller.SessionParams params =
+                    new android.content.pm.PackageInstaller.SessionParams(android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+            params.setAppPackageName(context.getPackageName());
+            int id = packages.createSession(params);
+            try (android.content.pm.PackageInstaller.Session session = packages.openSession(id)) {
+                try (OutputStream out = session.openWrite("base.apk", 0, target.size); InputStream in = new FileInputStream(fresh)) {
+                    byte[] buffer = new byte[81920];
+                    int n;
+                    while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+                    session.fsync(out);
+                }
+                listenForInstall();
+                android.content.Intent result = new android.content.Intent(INSTALL_ACTION).setPackage(context.getPackageName());
+                int flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                        | (android.os.Build.VERSION.SDK_INT >= 31 ? android.app.PendingIntent.FLAG_MUTABLE : 0);
+                session.commit(android.app.PendingIntent.getBroadcast(context, id, result, flags).getIntentSender());
+            }
+        } catch (Exception e) {
+            synchronized (gate) {
+                installerStatus = "error";
+                installerError = "install failed: " + e.getMessage();
+            }
+        }
+    }
+
+    private boolean listening;
+
+    /** 系统装的结果：要用户确认时打开系统的确认窗口；失败、取消时让网页能重试 */
+    private void listenForInstall() {
+        if (listening) return;
+        listening = true;
+        android.content.BroadcastReceiver receiver = new android.content.BroadcastReceiver() {
+            @Override
+            public void onReceive(Context c, android.content.Intent intent) {
+                int code = intent.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, -999);
+                if (code == android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                    android.content.Intent confirm = intent.getParcelableExtra(android.content.Intent.EXTRA_INTENT);
+                    if (confirm != null) {
+                        confirm.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                        try {
+                            context.startActivity(confirm);
+                        } catch (Exception e) {
+                            synchronized (gate) {
+                                installerStatus = "error";
+                                installerError = "cannot open the system installer: " + e.getMessage();
+                            }
+                        }
+                    }
+                    return;
+                }
+                if (code == android.content.pm.PackageInstaller.STATUS_SUCCESS) return;
+                // 用户点了取消、或者装不上（签名不一样之类）：回到「下好了」，网页能再点一次
+                String message = intent.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE);
+                synchronized (gate) {
+                    installerStatus = code == android.content.pm.PackageInstaller.STATUS_FAILURE_ABORTED ? "ready" : "error";
+                    installerError = code == android.content.pm.PackageInstaller.STATUS_FAILURE_ABORTED ? null : "install failed (" + code + "): " + message;
+                }
+            }
+        };
+        android.content.IntentFilter filter = new android.content.IntentFilter(INSTALL_ACTION);
+        if (android.os.Build.VERSION.SDK_INT >= 33) context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        else context.registerReceiver(receiver, filter);
     }
 
     private List<Entry> missing(Manifest m) {
@@ -496,6 +696,11 @@ final class Updater {
     }
 
     private void fetchObject(String url, Entry f) throws Exception {
+        fetchObject(url, f, false);
+    }
+
+    /** forInstaller：进度记在安装包那边（installerDone），不算进网页的下载进度 */
+    private void fetchObject(String url, Entry f, boolean forInstaller) throws Exception {
         File fin = new File(objectsDir, f.sha256);
         File part = new File(objectsDir, f.sha256 + ".part");
         long counted = 0;
@@ -512,7 +717,8 @@ final class Updater {
                     hash.update(buffer, 0, n);
                     out.write(buffer, 0, n);
                     synchronized (gate) {
-                        bytesDone += n;
+                        if (forInstaller) installerDone += n;
+                        else bytesDone += n;
                     }
                 }
             } finally {
@@ -524,7 +730,8 @@ final class Updater {
             if (!part.renameTo(fin)) throw new IOException("cannot rename " + part);
         } catch (Exception e) {
             synchronized (gate) {
-                bytesDone -= counted;
+                if (forInstaller) installerDone -= counted;
+                else bytesDone -= counted;
             }
             part.delete();
             throw e;
@@ -674,6 +881,8 @@ final class Updater {
             }
             synchronized (gate) {
                 if (latest != null) for (Entry f : latest.files) keep.add(f.sha256);
+                if (installer != null) keep.add(installer.sha256);
+                if (busy && "downloading".equals(installerStatus)) return;
                 if (busy && "downloading".equals(status)) return;
             }
             File[] files = objectsDir.listFiles();

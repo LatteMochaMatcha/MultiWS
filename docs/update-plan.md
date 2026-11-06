@@ -102,7 +102,7 @@
 
 - **exe**：清单里多写一项新 exe 的地址和 sha256。下载核对后，先把正在运行的 exe 改名成 `.old`，把新 exe 放到原来的位置，再重启；下次启动时删掉 `.old`。
 - **apk**：下载新 apk，核对后调起系统安装界面，用户点「安装」。
-  - 要加「安装未知应用」权限（`REQUEST_INSTALL_PACKAGES`）和 FileProvider。
+  - 要加「安装未知应用」权限（`REQUEST_INSTALL_PACKAGES`）。实际做的时候没用 FileProvider（那要 AndroidX），改用系统自带的 `PackageInstaller` 会话。
   - 签名钥匙 `tools/android/sign.keystore` 绝对不能丢，丢了新包就盖不上旧包。
 
 ## 要注意的地方
@@ -196,6 +196,8 @@
 | `POST /__shell/download` | 下载 `latest`（`status` 是 `available` 或下载出错时） |
 | `POST /__shell/settings` | 请求体 `{"autoCheck": true/false, "skip": "版本号" 或 null}` |
 | `POST /__shell/booted` | 启动成功（插进去的脚本会发，网页不用管） |
+| `POST /__shell/installer/download` | 下载新的 exe 安装包（第 5 期） |
+| `POST /__shell/installer/install` | 换上新的 exe 并重启（第 5 期） |
 
 `status` 的取值：`idle` 没查过、`checking` 正在查、`uptodate` 已是最新、`available` 有新版、`downloading` 正在下、`ready` 下好了（刷新页面就是新版）、`offline` 连不上、`error` 出错。所有 POST 都要带请求头 `X-Shell: 1`，不带的回 403；这样别的网站在浏览器里发不出这些请求。
 
@@ -289,9 +291,45 @@
 - 更新卡片、进度、设置里的两项、三语文字。
 - 自己试一遍完整流程：发一个 2.7.3 测试版到 `update-store` → 旧 exe/apk 收到提示 → 更新 → 刷新 → 设定都还在。
 
-### 第 5 期：外壳本身的更新
+### 第 5 期：外壳本身的更新（11-07 做完）
 
-- 照上面第 7 节做。
+怎么用：改了外壳（`Launcher.cs`、`Updater.cs`、`tools/android/` 下的 Java、打包脚本里写进外壳的东西）以后：
+
+1. 把 `tools/update/config.json` 的 `shell` 加一。外壳和网页之间的约定也变了的话，`minShell` 也跟着加，旧外壳就不会用新网页。
+2. `npm run release -- -Installers -NotesZh …`：现打 exe 和 apk，把它们写进清单的 `installers`，按 sha256 传到两个下载站。
+3. 以后只发网页（不加 `-Installers`）时，清单里的 `installers` 照搬下载站上现在那份。照搬前先核对那份的签名，对不上就停下，免得下载站被人改过、又被我们重新签上名。这样还没换外壳的人照样能收到上次发的安装包。
+
+做好的：
+
+- 清单多了一个可以没有的 `installers` 字段：`{ "exe": { version, shell, size, sha256 }, "apk": {…} }`，格式还是 1，旧外壳不认识就不管它。TS（`manifest.ts`，测试 2 项）、C#、Java 三边读法一样严。
+- `config.json` 加了 `shell`，打包时写进 `BuildInfo.Shell`（exe）和 `BuildInfo.SHELL`（apk），外壳的版本只在这里写一处。
+- 外壳查到清单里自己那种安装包的 `shell` 比自己大，就在状态里给出 `installer`（`none`、`available`、`downloading`、`ready`、`installing`、`error`），文件下到 `objects/<sha256>`，核对方法和网页的文件一样。网页那边没有要提示的更新时，卡片才轮到安装包。
+- 状态里还加了 `platform`（`exe` / `apk`）和 `started`（外壳这次是什么时候开的）。
+- **exe**：`POST /__shell/installer/download`、`/__shell/installer/install`。
+  - 装之前再核对一遍下好的文件。
+  - 自己改名成 `.exe.old`，新 exe 放到原来的位置，用同样的参数加上 `--no-browser --wait-pid <旧进程>` 开新 exe，0.8 秒后自己退出。
+  - 新 exe 等旧进程退出了才占端口，再删掉 `.old`。
+  - 网页看到 `started` 变了就自动刷新。
+  - 换不了（文件夹不能写）或者新 exe 开不起来，就换回旧的，卡片显示「没装上」，带下载页面的链接。
+- **apk**：`OcShell.installerDownload()`、`installerInstall()`。
+  - 写进 `PackageInstaller` 会话再提交，系统弹出「要更新此应用吗？」。
+  - 点「取消」回到「已经下好了」，可以再点；点「更新」后系统装上去，工坊被关掉，再点开就是新版。
+  - `AndroidManifest.xml` 加了 `REQUEST_INSTALL_PACKAGES`。真机上第一次会先让用户允许这个应用安装应用。
+- 网页：安装包的五种卡片（有新版、正在下载、下好了、正在装、没装上），13 句新文字的英、日译文。「检查更新」后面的小字在有安装包时写「安装包有新版本」。测试加了 4 项。
+
+验过的：
+
+- **exe**：用测试钥匙做了一个「旧」exe（外壳 1）和一个「新」exe（外壳 2，网页标成 2.8.0）。假下载站上网页不变，只放新 exe 当安装包。旧 exe 放在单独的文件夹里，在浏览器面板里打开：
+  - 卡片显示「安装包有新版本 2.8.0（69 MB）」。点「下载安装包」→「已经下好了」→「安装」：几秒后页面自己刷新，外壳是 2、网页是 2.8.0，卡片不再出现。
+  - 文件夹里只剩新的 `OC.exe`（sha256 和新 exe 一样，`.old` 删掉了）。在跑的只有新 exe，参数和原来一样。
+  - 把文件夹设成不能写再装：显示「cannot replace the exe: 对路径的访问被拒绝」，旧 exe 照常运行，文件没动。
+- **apk**（MuMu）：「旧」试用包（外壳 1）和「新」试用包（外壳 2，同一个包名、同一把签名钥匙），新的放在假下载站上：
+  - 卡片显示「安装包有新版本 2.8.0」，下载完点「安装」，系统弹出「要更新此应用吗？」，网页上显示「请在系统的窗口里确认安装」。
+  - 点「取消」：回到「已经下好了」。再点「安装」、在系统窗口点「更新」：装好以后工坊被关掉。重新打开：外壳是 2、网页是 2.8.0，存的东西和「引导已看过」都在，不再提示安装包。
+  - MuMu 没有先要「允许安装应用」那一步，真机上多半会有一次，这一步没验到。
+- `npm run release -- -DryRun -SkipBuild`：从真的下载站读到 2.7.2 那份清单，签名核对通过，里面没有 `installers`，新清单也就没有。`-Installers` 的 DryRun 会现打 exe 和 apk、写进清单。
+
+没做的：exe 换安装包时会弹出一个新的黑窗口（新 exe 自己的），旧的那个关掉了。看起来像「窗口闪了一下」，没另外处理。
 
 ## 已定的事（2026-11-06）
 

@@ -91,6 +91,25 @@ describe('生成、写出、读回', () => {
   });
 });
 
+describe('新的安装包（installers）', () => {
+  const exe = { version: '2.8.0', shell: 2, size: 70_000_000, sha256: hash('e') };
+  it('写出来再读回一样；没有就不写这个字段', () => {
+    const withIt = { ...sample(), installers: { exe } };
+    expect(parseManifest(serializeManifest(withIt))).toEqual(withIt);
+    expect(serializeManifest(sample())).not.toContain('installers');
+  });
+  it('不认识的种类丢掉，字段不对就报错', () => {
+    const raw = JSON.parse(serializeManifest({ ...sample(), installers: { exe } }));
+    raw.installers.dmg = { version: '1', shell: 1, size: 1, sha256: hash('f') };
+    expect(parseManifest(JSON.stringify(raw)).installers).toEqual({ exe });
+    for (const breakIt of [(i: Record<string, unknown>) => { i.shell = 0; }, (i: Record<string, unknown>) => { i.sha256 = 'x'; }, (i: Record<string, unknown>) => { i.size = 0; }]) {
+      const copy = structuredClone(raw);
+      breakIt(copy.installers.exe);
+      expect(() => parseManifest(JSON.stringify(copy))).toThrow();
+    }
+  });
+});
+
 describe('要下哪些文件', () => {
   it('只下本机没有的内容', () => {
     const target = sample();

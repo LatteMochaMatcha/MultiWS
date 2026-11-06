@@ -32,6 +32,22 @@ export interface Manifest {
   notes: Partial<Record<NoteLanguage, string>>;
   /** 按路径排好序 */
   files: ManifestFile[];
+  /**
+   * 新的安装包（第 5 期，外壳自己的更新），可以没有。外壳只在 shell 比自己的外壳版本大时提示。
+   * 旧外壳不认识这个字段，照样能用这份清单
+   */
+  installers?: Partial<Record<InstallerKind, Installer>>;
+}
+
+export type InstallerKind = 'exe' | 'apk';
+
+export interface Installer {
+  /** 安装包里网页的版本 */
+  version: string;
+  /** 安装包里外壳的版本（整数） */
+  shell: number;
+  size: number;
+  sha256: string;
 }
 
 const VERSION = /^\d+(\.\d+){0,3}$/;
@@ -60,14 +76,43 @@ export function isSafePath(path: string): boolean {
 /** 整理成一份清单：检查每一项、按路径排序。有不对的地方直接报错，不会生成一份坏清单 */
 export function buildManifest(input: Omit<Manifest, 'format'>): Manifest {
   const manifest: Manifest = { format: MANIFEST_FORMAT, ...input, files: [...input.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)) };
+  if (manifest.installers === undefined) delete manifest.installers;
+  else manifest.installers = readInstallers(manifest.installers);
   check(manifest);
   return manifest;
 }
 
 /** 写成文本：两格缩进、结尾换行。签名签的就是这段文本的 UTF-8 原样字节 */
 export function serializeManifest(manifest: Manifest): string {
-  const { format, version, minShell, published, notes, files } = manifest;
-  return `${JSON.stringify({ format, version, minShell, published, notes, files: files.map(({ path, size, sha256 }) => ({ path, size, sha256 })) }, null, 2)}\n`;
+  const { format, version, minShell, published, notes, files, installers } = manifest;
+  const out: Record<string, unknown> = { format, version, minShell, published, notes, files: files.map(({ path, size, sha256 }) => ({ path, size, sha256 })) };
+  if (installers && Object.keys(installers).length) {
+    const sorted: Record<string, Installer> = {};
+    for (const kind of ['exe', 'apk'] as const) {
+      const i = installers[kind];
+      if (i) sorted[kind] = { version: i.version, shell: i.shell, size: i.size, sha256: i.sha256 };
+    }
+    out.installers = sorted;
+  }
+  return `${JSON.stringify(out, null, 2)}\n`;
+}
+
+/** 读 installers：只认 exe、apk 两种，每项的字段都要对，不对就报错 */
+function readInstallers(raw: unknown): Manifest['installers'] {
+  if (raw === undefined) return undefined;
+  if (!raw || typeof raw !== 'object') throw new Error('installers 不是一个对象');
+  const out: Partial<Record<InstallerKind, Installer>> = {};
+  for (const kind of ['exe', 'apk'] as const) {
+    const i = (raw as Record<string, unknown>)[kind] as Record<string, unknown> | undefined;
+    if (i === undefined) continue;
+    if (!i || typeof i !== 'object') throw new Error(`installers.${kind} 不是一个对象`);
+    if (typeof i.version !== 'string' || !VERSION.test(i.version)) throw new Error(`installers.${kind} 的版本号不对`);
+    if (!Number.isInteger(i.shell) || (i.shell as number) < 1) throw new Error(`installers.${kind} 的 shell 要是正整数`);
+    if (!Number.isInteger(i.size) || (i.size as number) <= 0) throw new Error(`installers.${kind} 的大小不对`);
+    if (typeof i.sha256 !== 'string' || !SHA256.test(i.sha256)) throw new Error(`installers.${kind} 的 sha256 不对`);
+    out[kind] = { version: i.version, shell: i.shell as number, size: i.size as number, sha256: i.sha256 };
+  }
+  return out;
 }
 
 /** 读一份清单。格式不认识、字段不对都报错 */
@@ -96,6 +141,8 @@ export function parseManifest(text: string): Manifest {
     notes,
     files: Array.isArray(raw.files) ? raw.files : null,
   } as unknown as Manifest;
+  const installers = readInstallers(raw.installers);
+  if (installers) manifest.installers = installers;
   check(manifest);
   return manifest;
 }

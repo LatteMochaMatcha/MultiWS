@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- OC 白模工坊的安卓外壳。只申请联网：用来检查和下载工坊的更新（Updater.java），不发送任何关于用户的信息。
+<!-- OC 白模工坊的安卓外壳。申请两样：
+       - 联网：检查和下载工坊的更新（Updater.java），不发送任何关于用户的信息；
+       - 安装应用：安装包本身有新版时，把下好的新 apk 交给系统装（系统会弹窗让用户确认，第一次还要用户允许）。
      文件只往「下载」「图片」里自己的文件夹写。 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="app.ocbasemesh.workshop">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="false"

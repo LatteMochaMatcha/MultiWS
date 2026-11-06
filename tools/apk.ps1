@@ -123,6 +123,8 @@ package app.ocbasemesh.workshop;
 
 final class BuildInfo {
     static final String VERSION = $(& $quote $versionName);
+    /** 外壳的版本（tools/update/config.json 的 shell）：清单的 minShell、新安装包的 shell 都和它比 */
+    static final int SHELL = $([int]$(if ($config.shell) { $config.shell } else { 1 }));
     /** 核对更新签名的公钥（X.509 SubjectPublicKeyInfo，base64） */
     static final String PUBLIC_KEY = $(& $quote $key);
     /** 下载站，按顺序试：{ 清单所在的地址, 文件在这个地址下的前缀 } */

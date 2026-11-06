@@ -5,6 +5,7 @@
 //   --notes <文件>  更新说明，一个 {"zh": "...", "en": "...", "ja": "..."} 的 JSON 文件
 //   --out <文件>    清单另写一份到这里（dist 里那份照样写，但不带更新说明）
 //   --dist <目录>   网页不在 dist 里时（另外打包到别处试的时候）
+//   --installers <文件>  新的安装包，一个 {"exe": {version, shell, size, sha256}, "apk": {...}} 的 JSON 文件（只写进 --out 那份）
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
@@ -48,7 +49,9 @@ export async function main(args: string[], root: string): Promise<void> {
   if (out) {
     const notesPath = option(args, '--notes');
     const notes: Manifest['notes'] = notesPath ? JSON.parse(readFileSync(resolve(notesPath), 'utf8')) : {};
-    writeFileSync(resolve(out), serializeManifest(buildManifest({ ...base, notes })), 'utf8');
+    const installersPath = option(args, '--installers');
+    const installers: Manifest['installers'] = installersPath ? JSON.parse(readFileSync(resolve(installersPath), 'utf8')) : undefined;
+    writeFileSync(resolve(out), serializeManifest(buildManifest({ ...base, notes, installers })), 'utf8');
   }
   const total = files.reduce((sum, file) => sum + file.size, 0);
   console.log(`文件清单：${version}，${files.length} 个文件，${(total / 1024 / 1024).toFixed(1)} MB`);

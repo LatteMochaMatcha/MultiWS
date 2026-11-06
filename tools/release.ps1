@@ -1,6 +1,9 @@
 # 发一个软件内自动更新的新版本（方案见 docs/update-plan.md）。用法：
 #   npm run release -- -NotesZh "修了手" -NotesEn "Fixed hands" -NotesJa "手を修正"
 #   npm run release -- -DryRun      只在 release/update/ 里生成文件，不上传
+#   npm run release -- -Installers  连新的 exe、apk 一起发（改了外壳 Launcher.cs、Updater.cs、Java 那边时）：
+#                                   先照 tools/update/config.json 的 shell 把外壳版本加一，外壳收到后会提示「安装包有新版本」
+#   不加 -Installers 时，清单里的安装包照搬下载站上现在那份（先核对签名），旧外壳照样能收到上次发的安装包
 #
 # 做五件事：
 #   1. 打包网页（npm run build；加 -SkipBuild 就用现有的 dist）；
@@ -17,6 +20,7 @@ param(
   [string]$NotesJa = '',
   [switch]$DryRun,
   [switch]$SkipBuild,
+  [switch]$Installers,
   # 下载站上已经是这个版本（或更新的）时默认不发，免得旧外壳收不到「更新」；确实要重发同一版时加 -Force
   [switch]$Force,
   [string]$KeyPath = (Join-Path $HOME '.oc-update-key\private.pem')
@@ -107,10 +111,50 @@ if ($notes.Count -eq 0) { Write-Warning '没写更新说明（-NotesZh / -NotesE
 $notesFile = Join-Path $out 'notes.json'
 [System.IO.File]::WriteAllText($notesFile, ($notes | ConvertTo-Json -Compress), [System.Text.UTF8Encoding]::new($false))
 $latest = Join-Path $out 'latest.json'
+
+# 安装包：-Installers 时现打一份 exe、apk；不然照搬下载站上现在那份清单里的（签名核对得上才照搬）
+$installerFiles = @{}
+$installersFile = Join-Path $out 'installers.json'
+$installerList = [ordered]@{}
+if ($Installers) {
+  $built = Join-Path $out 'installers'
+  New-Item -ItemType Directory -Path $built | Out-Null
+  Invoke-Checked { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'pack.ps1') -OutDir $built } '打 exe'
+  Invoke-Checked { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'apk.ps1') -OutDir $built } '打 apk'
+  $version = (Get-Content -LiteralPath (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
+  foreach ($kind in 'exe', 'apk') {
+    $file = Get-Item -LiteralPath (Join-Path $built "OC白模工坊.$kind")
+    $sha = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLower()
+    $installerList[$kind] = [ordered]@{ version = $version; shell = [int]$config.shell; size = $file.Length; sha256 = $sha }
+    $installerFiles[$sha] = $file.FullName
+  }
+}
+else {
+  $previous = Join-Path $out 'published.json'
+  curl.exe -s -f --max-time 20 -o $previous "${r2Base}latest.json"
+  $previousOk = $LASTEXITCODE -eq 0
+  curl.exe -s -f --max-time 20 -o "$previous.sig" "${r2Base}latest.json.sig"
+  if ($previousOk -and $LASTEXITCODE -eq 0) {
+    if (-not (Test-Signature $previous "$previous.sig")) { throw '下载站上现在那份清单的签名对不上：不照搬它的安装包，先查查是怎么回事' }
+    $old = Get-Content -LiteralPath $previous -Raw | ConvertFrom-Json
+    if ($old.installers) {
+      foreach ($kind in 'exe', 'apk') { if ($old.installers.$kind) { $installerList[$kind] = $old.installers.$kind } }
+    }
+  }
+  Remove-Item -LiteralPath $previous, "$previous.sig" -ErrorAction SilentlyContinue
+}
+$manifestArgs = @('--notes', $notesFile, '--out', $latest)
+if ($installerList.Count) {
+  [System.IO.File]::WriteAllText($installersFile, ($installerList | ConvertTo-Json -Depth 4), [System.Text.UTF8Encoding]::new($false))
+  $manifestArgs += @('--installers', $installersFile)
+  '安装包：' + (($installerList.Keys | ForEach-Object { "$_ $($installerList[$_].version)（外壳 $($installerList[$_].shell)）" }) -join '、')
+}
+
 Push-Location $root
-try { Invoke-Checked { node tools/run.mjs tools/update-manifest.ts --notes $notesFile --out $latest } '写清单' }
+try { Invoke-Checked { node tools/run.mjs tools/update-manifest.ts @manifestArgs } '写清单' }
 finally { Pop-Location }
 Remove-Item -LiteralPath $notesFile
+Remove-Item -LiteralPath $installersFile -ErrorAction SilentlyContinue
 $manifest = Get-Content -LiteralPath $latest -Raw | ConvertFrom-Json
 
 # ---- 3. 签名 ----
@@ -129,6 +173,12 @@ foreach ($file in $manifest.files) {
 }
 foreach ($file in $unique.Values) {
   Copy-Item -LiteralPath (Join-Path $dist ($file.path -replace '/', '\')) -Destination (Join-Path $objects $file.sha256)
+}
+# 现打的安装包也按 sha256 传（照搬的那些早就在下载站上了）
+foreach ($sha in $installerFiles.Keys) {
+  if ($unique.Contains($sha)) { continue }
+  Copy-Item -LiteralPath $installerFiles[$sha] -Destination (Join-Path $objects $sha)
+  $unique[$sha] = [pscustomobject]@{ path = Split-Path $installerFiles[$sha] -Leaf; size = (Get-Item -LiteralPath $installerFiles[$sha]).Length; sha256 = $sha }
 }
 $totalMB = ($unique.Values | Measure-Object size -Sum).Sum / 1MB
 '{0} 份不同的内容，共 {1:N1} MB，在 {2}' -f $unique.Count, $totalMB, $objects

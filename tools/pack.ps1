@@ -38,6 +38,8 @@ using System.Reflection;
 static class BuildInfo
 {
     public const string Version = $(& $quote $version);
+    // 外壳的版本（tools/update/config.json 的 shell）：清单的 minShell、新安装包的 shell 都和它比
+    public const int Shell = $([int]$(if ($config.shell) { $config.shell } else { 1 }));
     public const string PublicKeyXml = $(& $quote $key);
     // 下载站，按顺序试：{ 清单所在的地址, 文件在这个地址下的前缀 }
     public static readonly string[][] Sources = new string[][] { $sources };

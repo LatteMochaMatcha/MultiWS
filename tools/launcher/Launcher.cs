@@ -57,7 +57,8 @@ static class Launcher
 
     static int Main(string[] args)
     {
-        // 自己检查用：--no-browser 只开网站，不打开浏览器；--port <n> 换个起始端口；--state <目录> 更新文件另放（测试时不碰真的）
+        // 自己检查用：--no-browser 只开网站，不打开浏览器；--port <n> 换个起始端口；--state <目录> 更新文件另放（测试时不碰真的）。
+        // --wait-pid <n> 是换安装包时旧的 exe 开新的 exe 用的
         bool browse = Array.IndexOf(args, "--no-browser") < 0;
         string state = Option(args, "--state");
         string portOption = Option(args, "--port");
@@ -65,6 +66,9 @@ static class Launcher
         try { Console.OutputEncoding = Encoding.UTF8; } catch (IOException) { }
         try { Console.Title = Pick("OC 白模工坊", "OC素体工房", "OC Base Mesh Workshop"); } catch (IOException) { }
 
+        // 换了新的安装包、由旧的 exe 开起来时（--wait-pid）：先等旧的退出、让出端口，再删掉旧的 exe
+        Updater.AfterReplace(args);
+        Updater.SetLaunchArgs(args);
         Unpack();
         Updater.Init(Files, state);
 
