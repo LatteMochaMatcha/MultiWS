@@ -1,4 +1,4 @@
-// 网页和外壳（exe、以后的 apk）之间关于更新的那几句话。方案和接口表见 docs/update-plan.md 第 2 期。
+// 网页和外壳（exe 走同一网站下的 /__shell/，apk 走 window.OcShell）之间关于更新的那几句话。方案和接口表见 docs/update-plan.md 第 2 期。
 // 在开发服务器上、或者直接用浏览器打开时没有外壳：detectShell() 返回 null，网页上就不出现任何更新入口。
 import type { NoteLanguage } from './manifest';
 
@@ -80,8 +80,40 @@ function httpShell(): ShellApi {
   };
 }
 
+/** apk 外壳挂在网页上的 window.OcShell（tools/android/src/.../Updater.java 的 Bridge）：每个方法都同步返回状态的 JSON */
+interface AndroidBridge {
+  status(): string;
+  check(): string;
+  download(): string;
+  settings(json: string): string;
+}
+
+function androidShell(bridge: AndroidBridge): ShellApi {
+  const call = async (run: () => string): Promise<ShellStatus> => {
+    const status = readStatus(JSON.parse(run()));
+    if (!status) throw new Error('外壳回的不是状态');
+    return status;
+  };
+  return {
+    status: () => call(() => bridge.status()),
+    check: () => call(() => bridge.check()),
+    download: () => call(() => bridge.download()),
+    settings: (change) => call(() => bridge.settings(JSON.stringify(change))),
+  };
+}
+
 /** 有外壳就返回能跟它说话的接口和现在的状态，没有返回 null。不会抛错 */
 export async function detectShell(): Promise<{ api: ShellApi; status: ShellStatus } | null> {
+  const bridge = typeof window !== 'undefined' ? (window as unknown as { OcShell?: AndroidBridge }).OcShell : undefined;
+  if (bridge && typeof bridge.status === 'function') {
+    try {
+      const api = androidShell(bridge);
+      const status = await api.status();
+      return status.enabled ? { api, status } : null;
+    } catch {
+      return null;
+    }
+  }
   if (typeof location === 'undefined' || !/^https?:$/.test(location.protocol)) return null;
   // exe 外壳只开在本机的 localhost 上；别的地方（开发服务器的局域网地址、放在网站上）不用问
   if (location.hostname !== 'localhost') return null;

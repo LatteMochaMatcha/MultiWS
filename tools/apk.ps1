@@ -6,16 +6,32 @@
 # 做六件事：
 #   1. 画图标上的字；
 #   2. aapt2 把外壳的资源和打包好的网页（dist 文件夹）装进安装包；
-#   3. javac 编外壳（tools/android/src 里那一个 Java 文件）；
+#   3. javac 编外壳（tools/android/src 里的 Java 文件，加上照 tools/update/ 生成的 BuildInfo.java：版本号、更新用的公钥、下载站）；
 #   4. d8 把它转成安卓认的格式，塞进安装包；
 #   5. zipalign 对齐；
 #   6. apksigner 签名。
+#
+# 试更新功能用的参数（平常打包都不用加）：
+#   -OutDir <目录>          装好的包放到别处，不覆盖 release 里的
+#   -Dist <目录>            网页不在 dist 里时
+#   -UpdateConfig <文件>    换一份下载站（格式同 tools/update/config.json）；里面有 http:// 的地址时允许明文连接
+#   -PublicKey <文件>       换一把核对签名的公钥（格式同 tools/update/public-key.spki.b64）
+#   -PackageSuffix <后缀>   包名后面加上它（例如 .test），和手机上装着的正式版并存，不会盖掉它
+param(
+  [string]$OutDir,
+  [string]$Dist,
+  [string]$UpdateConfig,
+  [string]$PublicKey,
+  [string]$PackageSuffix
+)
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path $PSScriptRoot -Parent
-$dist = Join-Path $root 'dist'
+$dist = if ($Dist) { $Dist } else { Join-Path $root 'dist' }
 $shell = Join-Path $PSScriptRoot 'android'
-$release = Join-Path $root 'release'
+$release = if ($OutDir) { $OutDir } else { Join-Path $root 'release' }
+$updateConfig = if ($UpdateConfig) { $UpdateConfig } else { Join-Path $PSScriptRoot 'update\config.json' }
+$updateKey = if ($PublicKey) { $PublicKey } else { Join-Path $PSScriptRoot 'update\public-key.spki.b64' }
 $name = 'OC白模工坊'
 # 安卓 10 起存文件不用申请权限；写 34 是因为 35 会强制把页面铺到状态栏底下
 $minSdk = 29
@@ -95,6 +111,34 @@ try {
   Copy-Item -LiteralPath (Join-Path $shell 'res') -Destination (Join-Path $work 'res') -Recurse
   Copy-Item -LiteralPath (Join-Path $shell 'src') -Destination (Join-Path $work 'src') -Recurse
   Copy-Item -LiteralPath (Join-Path $shell 'AndroidManifest.xml') -Destination $work
+
+  # 编进外壳的东西：版本号、核对更新签名的公钥、下载站
+  $config = Get-Content -LiteralPath $updateConfig -Raw | ConvertFrom-Json
+  $key = (Get-Content -LiteralPath $updateKey -Raw).Trim()
+  $quote = { param($s) '"' + ($s -replace '\\', '\\' -replace '"', '\"') + '"' }
+  $sourceList = ($config.sources | ForEach-Object { 'new String[] { ' + (& $quote $_.base) + ', ' + (& $quote $_.objects) + ' }' }) -join ', '
+  $buildInfo = @"
+// tools/apk.ps1 打包时生成的，不要手改
+package app.ocbasemesh.workshop;
+
+final class BuildInfo {
+    static final String VERSION = $(& $quote $versionName);
+    /** 核对更新签名的公钥（X.509 SubjectPublicKeyInfo，base64） */
+    static final String PUBLIC_KEY = $(& $quote $key);
+    /** 下载站，按顺序试：{ 清单所在的地址, 文件在这个地址下的前缀 } */
+    static final String[][] SOURCES = new String[][] { $sourceList };
+    /** 试更新用的包（-PackageSuffix）才让电脑上的 Chrome 调试里面的网页；正式包不行 */
+    static final boolean INSPECTABLE = $(if ($PackageSuffix) { 'true' } else { 'false' });
+}
+"@
+  [System.IO.File]::WriteAllText((Join-Path $work 'src\app\ocbasemesh\workshop\BuildInfo.java'), $buildInfo, [System.Text.UTF8Encoding]::new($false))
+  # 只有试更新用的本机下载站是 http://：这时才允许明文连接（正式的下载站都是 https）
+  if (@($config.sources | Where-Object { $_.base -like 'http://*' }).Count -gt 0) {
+    $manifestPath = Join-Path $work 'AndroidManifest.xml'
+    $xml = [System.IO.File]::ReadAllText($manifestPath)
+    [System.IO.File]::WriteAllText($manifestPath, $xml.Replace('<application', '<application android:usesCleartextTraffic="true"'), [System.Text.UTF8Encoding]::new($false))
+  }
+
   $assets = Join-Path $work 'assets'
   New-Item -ItemType Directory -Path $assets | Out-Null
   $www = Join-Path $assets 'www'
@@ -110,8 +154,9 @@ try {
   & $aapt2 compile --dir (Join-Path $work 'res') -o $compiled
   Assert-Step 'aapt2 compile（编资源）'
   $apk = Join-Path $work 'base.apk'
+  $rename = if ($PackageSuffix) { @('--rename-manifest-package', "app.ocbasemesh.workshop$PackageSuffix") } else { @() }
   & $aapt2 link -o $apk -I $androidJar --manifest (Join-Path $work 'AndroidManifest.xml') `
-    --min-sdk-version $minSdk --target-sdk-version $targetSdk --version-code $versionCode --version-name $versionName $compiled
+    --min-sdk-version $minSdk --target-sdk-version $targetSdk --version-code $versionCode --version-name $versionName @rename $compiled
   Assert-Step 'aapt2 link（装资源）'
 
   # 3. 外壳。-source / -target 11：新的 JDK 默认编出来的格式 d8 不一定认
@@ -159,7 +204,7 @@ try {
 
   # release 文件夹里还有 npm run pack 生成的 exe 和压缩包：只换安装包这一个
   if (-not (Test-Path $release)) { New-Item -ItemType Directory -Path $release | Out-Null }
-  $out = Join-Path $release "$name.apk"
+  $out = Join-Path $release "$name$PackageSuffix.apk"
   Copy-Item -LiteralPath $signed -Destination $out -Force
 
   $badging = & $aapt2 dump badging $signed

@@ -227,7 +227,32 @@
   - 新版打不开、能退回；
   - 完全没网。
 
-### 第 3 期：apk 外壳
+### 第 3 期：apk 外壳（11-07 做完）
+
+做好的：
+
+- `tools/android/src/.../Updater.java`：照 exe 的 `Updater.cs` 重写的一份，规则、本机文件（`state.json`、`current`、`previous`、`downloading`、`objects/`）都一样，放在应用自己的 `files/update/` 里，卸载时一起删掉。用安卓自带的 `org.json`、`HttpURLConnection`、`SHA256withRSA`，没加任何库。外壳版本 `Updater.SHELL_VERSION = 1`。
+- `MainActivity.java`：网页的文件改成 `updater.open(path)`（照现在用的版本取），`index.html` 插启动回报脚本（调 `OcShell.booted()`），挂上 `window.OcShell`（`status`、`check`、`download`、`settings(json)`、`booted`，都同步返回状态的 JSON）。
+- `AndroidManifest.xml` 加了联网权限 `INTERNET`（普通权限，装的时候自动给），注释改成「联网只为更新」。
+- 网页：`src/update/shell.ts` 的 `detectShell()` 先看有没有 `window.OcShell`，有就走桥。第 4 期的卡片和「更多」菜单里那一行在 apk 里也直接能用。测试加了 2 项。
+- `apk.ps1`：
+  - 打包时生成 `BuildInfo.java`（版本号、公钥 `public-key.spki.b64`、下载站）。
+  - 新参数：`-OutDir`、`-Dist`、`-UpdateConfig`、`-PublicKey`、`-PackageSuffix`。
+  - 下载站里有 `http://` 时才允许明文连接（只有试更新用的本机下载站是 http）。
+  - 加了 `-PackageSuffix` 的试用包，可以用电脑上的 Chrome 调试里面的网页（`BuildInfo.INSPECTABLE`）；正式包不行。
+- 三语使用说明里手机那段「不用联网」也改了。
+
+验过的（MuMu 模拟器，安卓 15，WebView 110）：
+
+- 正式包能打出来，只多了 `INTERNET` 一个权限。
+- 试用包包名是 `app.ocbasemesh.workshop.updtest`，和你装着的正式版并存，测完已卸掉。网页是真的，标成 2.7.3；假下载站在电脑上，用 `adb reverse` 接进模拟器，上面放 2.7.4。测试钥匙和第 4 期一样。
+  - 打开时引导开着，卡片不弹；跳过引导后，弹出「有新版本 2.7.4 · 要下载 32 KB」。签名用安卓的 Java 核对通过。
+  - 点「现在更新」（真点和用调试工具点都试过）：只下了改过的 2 个文件，卡片变成「已经下好了」。点「刷新」后是 2.7.4，新文件取得到，卡片不再弹，加的那个头和「引导已看过」都还在。强制关掉重开，还是 2.7.4。
+  - 新版打不开：下好 2.7.5 后，连着两次打开都在 1.2 秒内强制关掉（来不及发启动成功）；第三次打开退回 2.7.4，再查也不提示 2.7.5。
+  - 没网：停掉假下载站再查，显示 offline，页面照常能用。
+- 有一次没复现出来的怪事：第一次装好、第一次打开时，真点完「+」和「现在更新」以后，页面整个重新载入了一次，回到了还没跳过引导的样子，也没下载。日志里没有崩溃，也没有进程重启。之后清掉数据重装、按同样的顺序真点了两遍，都正常。怀疑是模拟器第一次打开这个应用时自己转屏引起的，先记在这里；以后真机上再碰到就从这里查。
+
+原来的计划：
 
 - 和 exe 做同样几件事，接口走 JS 桥。
 - 在模拟器上把第 2 期那几种情况再测一遍。模拟器你自己也在用，往里点之前先看前台是不是我的应用。

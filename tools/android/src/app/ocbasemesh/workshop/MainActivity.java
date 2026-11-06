@@ -1,6 +1,7 @@
 // OC 白模工坊的安卓外壳（给手机用）。
 // 打包好的网页（dist 文件夹）装在安装包的 assets/www 里。这里只有一个铺满屏幕的 WebView，做四件事：
-//   1. 网页要的每个文件都从 assets/www 里取（不联网，这个应用也没有联网权限）；
+//   1. 网页要的每个文件都从 assets/www 里取；下载过新版的话，改过的文件从下好的那份里取（Updater.java）。
+//      联网只用来检查和下载工坊的更新，网页本身的文件从不联网取；
 //   2. 网页要存文件（导出的模型、截图、配置）时，替它写进手机的「下载」或「图片」；
 //   3. 网页要选文件（载入配置）时，打开系统的文件选择；
 //   4. 按返回键时先问网页要不要自己处理（还原放大的视图、取消选中）。
@@ -65,10 +66,15 @@ public class MainActivity extends Activity {
     private WebView web;
     /** 网页正等着的「选文件」结果 */
     private ValueCallback<Uri[]> picking;
+    /** 软件内自动更新：现在用哪一版的网页、检查和下载新版 */
+    private Updater updater;
 
     @Override
     protected void onCreate(Bundle saved) {
         super.onCreate(saved);
+        updater = new Updater(this);
+        updater.init();
+        if (BuildInfo.INSPECTABLE) WebView.setWebContentsDebuggingEnabled(true);
         web = new WebView(this);
         // 自己检查用：adb shell am start -n app.ocbasemesh.workshop/.MainActivity --ei w 360 --ei h 590
         // 把页面限制成这么大（单位 dp），在横着的模拟器上也能看竖屏手机的版面。平常打开没有这两个数，页面铺满整屏
@@ -137,24 +143,32 @@ public class MainActivity extends Activity {
         });
 
         web.addJavascriptInterface(new Files(), "OcAndroid");
+        web.addJavascriptInterface(updater.new Bridge(), "OcShell");
         // 转屏之类不会重开这个界面；真的被系统重开了就重新载入，设定在网页的存储里，丢不了
         web.loadUrl(HOME);
+        updater.startupCheck();
     }
 
-    /** 网页要的文件：从安装包里的 assets/www 取。别的地址一律不管（没有联网权限，本来也出不去） */
+    /** 网页要的文件：按现在用的这一版取（安装包自带的，或者下好的新版）。别的地址一律不管 */
     private WebResourceResponse serve(Uri url) {
         if (!HOST.equals(url.getHost())) return null;
         String path = url.getPath();
         if (path == null || path.isEmpty() || path.equals("/")) path = "/index.html";
         String type = TYPES.get(path.substring(path.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT));
         boolean text = type != null && (type.startsWith("text/") || type.equals("application/json") || type.equals("image/svg+xml"));
-        try {
-            InputStream file = getAssets().open("www" + path);
-            return new WebResourceResponse(type != null ? type : "application/octet-stream", text ? "utf-8" : null, file);
-        } catch (IOException e) {
+        InputStream file = updater.open(path.substring(1));
+        if (file != null && path.equals("/index.html")) {
+            try {
+                file = updater.withProbe(file);
+            } catch (IOException e) {
+                file = null;
+            }
+        }
+        if (file == null) {
             return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found",
                     Collections.<String, String>emptyMap(), new ByteArrayInputStream(new byte[0]));
         }
+        return new WebResourceResponse(type != null ? type : "application/octet-stream", text ? "utf-8" : null, file);
     }
 
     @Override

@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- OC 白模工坊的安卓外壳。没有申请任何权限：不联网，文件只往「下载」「图片」里自己的文件夹写。 -->
+<!-- OC 白模工坊的安卓外壳。只申请联网：用来检查和下载工坊的更新（Updater.java），不发送任何关于用户的信息。
+     文件只往「下载」「图片」里自己的文件夹写。 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="app.ocbasemesh.workshop">
+
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="false"

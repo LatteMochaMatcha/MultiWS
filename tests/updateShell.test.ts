@@ -29,6 +29,40 @@ describe('读外壳的状态', () => {
   });
 });
 
+describe('安卓外壳的 window.OcShell', () => {
+  it('有桥就走桥：方法返回 JSON 文字，设置原样传过去', async () => {
+    const calls: string[] = [];
+    const reply = JSON.stringify({ ...status({ status: 'available' }), latest });
+    (globalThis as { window?: unknown }).window = {
+      OcShell: {
+        status: () => reply,
+        check: () => (calls.push('check'), reply),
+        download: () => (calls.push('download'), reply),
+        settings: (json: string) => (calls.push(`settings ${json}`), reply),
+      },
+    };
+    try {
+      const { detectShell } = await import('../src/update/shell');
+      const found = await detectShell();
+      expect(found?.status.latest?.version).toBe('2.7.3');
+      await found?.api.download();
+      await found?.api.settings({ autoCheck: false });
+      expect(calls).toEqual(['download', 'settings {"autoCheck":false}']);
+    } finally {
+      delete (globalThis as { window?: unknown }).window;
+    }
+  });
+  it('桥说更新功能没开就当没有外壳', async () => {
+    (globalThis as { window?: unknown }).window = { OcShell: { status: () => JSON.stringify(status({ enabled: false })) } };
+    try {
+      const { detectShell } = await import('../src/update/shell');
+      expect(await detectShell()).toBeNull();
+    } finally {
+      delete (globalThis as { window?: unknown }).window;
+    }
+  });
+});
+
 describe('更新说明、大小', () => {
   it('先用当前语言，没有就用中文、英文、日文', () => {
     expect(pickNotes({ zh: '中', en: 'en' }, 'en')).toBe('en');

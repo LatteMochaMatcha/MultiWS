@@ -76,7 +76,8 @@ This exe works on computers only. Android phones have a separate installer, "OCç
 1. Send the apk file to the phone (QQ, WeChat, a USB cable, anything works) and open it on the phone.
 2. The phone will stop you with a warning about apps from unknown sources: choose allow, continue installing,
    or install anyway (each phone maker words it differently).
-3. After it is installed there is a cyan "OC" icon on the home screen. Tap it to open the workshop; no internet needed.
+3. After it is installed there is a cyan "OC" icon on the home screen. Tap it to open the workshop. When it opens it
+   goes online to check for a new version; it works fine without internet too.
 
 It needs Android 10 or newer; iPhones and HarmonyOS NEXT phones can't install it.
 Hold the phone upright: the model is in the top half of the screen and the settings are in the bottom half, and the
