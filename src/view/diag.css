@@ -1,0 +1,17 @@
+/* 3D 显示诊断的卡片和「更多」里那一行（src/view/diag.ts）。颜色都用 style.css 里的变量 */
+
+.diag-card{position:fixed;left:50%;top:64px;transform:translateX(-50%);z-index:60;width:min(460px,calc(100vw - 24px));max-height:calc(100% - 96px);
+  display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:12px;background:var(--panel);color:var(--ink);
+  border:1px solid var(--line);box-shadow:0 8px 28px rgba(0,0,0,.28);font-size:13px}
+.diag-card[hidden]{display:none}
+.diag-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.diag-head b{font-size:14px;font-weight:600}
+.diag-close{font:inherit;font-size:20px;line-height:1;color:var(--muted);background:none;border:0;padding:0 4px;cursor:pointer}
+.diag-tip{margin:0;line-height:1.5}
+.diag-detail{margin:0;flex:1 1 auto;min-height:60px;overflow:auto;padding:8px;border-radius:8px;background:var(--bg);
+  font:11.5px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-all;-webkit-user-select:text;user-select:text}
+.diag-actions{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+
+.diag-row{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin:6px 0 0;font-size:12px;color:var(--muted)}
+.diag-safe{display:inline-flex;align-items:center;gap:4px;cursor:pointer}
+.diag-safe input{margin:0;accent-color:var(--accent)}

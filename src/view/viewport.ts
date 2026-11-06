@@ -4,6 +4,7 @@
 import { t } from '../i18n';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { SAFE_GL, noteProblem, watchRenderer } from './diag';
 
 /** side 是从角色的左手边看过去；right 是从右手边；top、bottom 是正上方、正下方（略偏一点，免得镜头转不动） */
 export type ViewName = 'front' | 'side' | 'back' | 'three' | 'right' | 'top' | 'bottom';
@@ -53,13 +54,18 @@ export class Viewport {
   private pendingDir: THREE.Vector3 | null = null;
 
   constructor(private readonly stage: HTMLElement) {
-    // preserveDrawingBuffer：截图时要能读回画面
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
+    // preserveDrawingBuffer：截图时要能读回画面。
+    // 兼容模式（见 diag.ts）：有的低端手机显卡（PowerVR 之类）开了抗锯齿、透明底、保留画面、阴影以后什么都画不出来，全关掉，分辨率也降到 1 倍
+    this.renderer = SAFE_GL
+      ? new THREE.WebGLRenderer({ antialias: false, alpha: false, preserveDrawingBuffer: false, powerPreference: 'default' })
+      : new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+    this.renderer.setPixelRatio(SAFE_GL ? 1 : Math.min(devicePixelRatio, 2));
+    if (SAFE_GL) this.renderer.setClearColor(getComputedStyle(stage).getPropertyValue('--stage-bot').trim() || '#b6c4c8', 1);
+    this.renderer.shadowMap.enabled = !SAFE_GL;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     stage.prepend(this.renderer.domElement);
+    watchRenderer(this.renderer);
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
@@ -103,9 +109,14 @@ export class Viewport {
     // 手指、鼠标一碰画面，正在飞的镜头就停下（交给人自己转）
     this.controls.addEventListener('start', () => (this.flight = null));
     const loop = () => {
-      this.stepFlight();
-      this.controls.update();
-      this.draw();
+      // 某一帧出了错也接着画下一帧：不然一次出错整个 3D 视图就停在那里（错误记下来，诊断卡片里看得到）
+      try {
+        this.stepFlight();
+        this.controls.update();
+        this.draw();
+      } catch (err) {
+        noteProblem(`${t('画一帧时出错')}：${err instanceof Error ? err.message : String(err)}`, true);
+      }
       // 每半秒报一次帧率（有人听才算）
       frames++;
       const now = performance.now();
@@ -317,6 +328,35 @@ export class Viewport {
     const dir = this.camera.position.clone().sub(this.controls.target);
     if (dir.lengthSq() < 1e-9) dir.copy(VIEW_DIR.three);
     this.lookFrom(dir.normalize());
+  }
+
+  /**
+   * 诊断用：马上画一帧，数一数画面上有多少个点不是空的（透明底时看透明度，兼容模式的不透明底看和底色差多少）。
+   * 要在同一个任务里画完就读：兼容模式不保留画面，过了这一帧就读不到了
+   */
+  probe(): { triangles: number; filled: number; sampled: number } {
+    const r = this.renderer;
+    this.draw();
+    const triangles = r.info.render.triangles;
+    const gl = r.getContext();
+    const w = gl.drawingBufferWidth;
+    const h = gl.drawingBufferHeight;
+    if (!w || !h) return { triangles, filled: 0, sampled: 0 };
+    // 读整个画面：模型还没出来时只有地上那圈参照线，它不一定在画面正中
+    const rw = w;
+    const rh = h;
+    const px = new Uint8Array(rw * rh * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.readPixels(0, 0, rw, rh, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    // 不透明底：拿左上角那个点当底色（那里只有空地，兼容模式又没有阴影）
+    const corner = new Uint8Array(4);
+    if (SAFE_GL) gl.readPixels(2, h - 3, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, corner);
+    let filled = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      const diff = Math.abs(px[i] - corner[0]) + Math.abs(px[i + 1] - corner[1]) + Math.abs(px[i + 2] - corner[2]);
+      if (SAFE_GL ? diff > 24 : px[i + 3] > 8) filled++;
+    }
+    return { triangles, filled, sampled: rw * rh };
   }
 
   /** 当前画面的 PNG，背景透明，不带地上的参照圈、选中高亮和操纵杆 */

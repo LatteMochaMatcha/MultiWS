@@ -149,11 +149,15 @@ import { Tour } from './view/tour';
 import { type SkinSource, FlatParts, PosedMeshes, WHITE_BLEND } from './view/posedMeshes';
 import { type CameraState, type ViewName, VIEW_DEFAULTS, VIEW_LIMITS, Viewport } from './view/viewport';
 import { installUpdateUi } from './update/ui';
+import { installDiag, installDiagRow, noteProblem, watchViewport } from './view/diag';
 
 // 写死在 index.html 里的文字先换成当前语言，后面的代码再往页面上加东西
 translatePage();
 // 在 exe 里打开时：有新版的提示卡片、面板顶上的版本号和「检查更新」（开发服务器上什么都不加）
 installUpdateUi();
+// 3D 视图空白时的诊断卡片和兼容模式（见 view/diag.ts）：先装上，后面出的错都记得到
+installDiag();
+installDiagRow();
 
 const STORE_KEY = 'oc-basemesh-v2';
 const THEME_KEY = 'oc-basemesh-theme';
@@ -1078,7 +1082,9 @@ try {
   viewport.overlay.add(bones.root);
   gizmo = new Gizmo(viewport);
   poseHandles = new PoseHandles(viewport);
+  watchViewport(viewport);
 } catch (err) {
+  noteProblem(`WebGL: ${err instanceof Error ? err.message : String(err)}`);
   const msg = $('stageMsg');
   msg.hidden = false;
   msg.textContent = t('这个浏览器没能启动 3D 显示（WebGL）。换用新版 Edge 或 Chrome，或在浏览器设置里打开硬件加速后再试。');
@@ -3351,6 +3357,7 @@ const statusEl = $('status');
 function setStatus(message: string, warn = false) {
   statusEl.textContent = message;
   statusEl.classList.toggle('warn', warn);
+  if (warn) noteProblem(message);
   // 一开始那句提示在手机上是收着的；有了新消息就亮出来
   delete statusEl.dataset.idle;
 }
