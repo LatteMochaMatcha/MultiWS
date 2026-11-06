@@ -1,13 +1,13 @@
 {
   "name": "oc-basemesh-workshop",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.7.2",
   "description": "OC 白模工坊 v2 —— 多肢体角色白模生成器",
   "type": "module",
   "scripts": {
     "dev": "vite --open",
     "serve": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && node tools/run.mjs tools/update-manifest.ts",
     "preview": "vite preview",
     "pack": "npm run build && pwsh -NoProfile -File tools/pack.ps1",
     "apk": "npm run build && pwsh -NoProfile -File tools/apk.ps1",
@@ -15,7 +15,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "agent": "node tools/agent.mjs",
-    "accept": "node tools/run.mjs tools/accept.ts"
+    "accept": "node tools/run.mjs tools/accept.ts",
+    "release": "pwsh -NoProfile -File tools/release.ps1"
   },
   "dependencies": {
     "three": "^0.186.1"

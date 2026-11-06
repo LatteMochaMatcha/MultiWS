@@ -13,6 +13,12 @@ $dist = Join-Path $root 'dist'
 $release = Join-Path $root 'release'
 $name = 'OC白模工坊'
 $package = "$name-v2"
+# 版本号只在 package.json 里写一处；exe 属性里的版本是四段数字，不够的补 0
+$version = (Get-Content -LiteralPath (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
+if ($version -notmatch '^\d+(\.\d+){0,3}$') { throw "package.json 的版本号要是几段数字（例如 2.7.2）：$version" }
+$parts = @($version.Split('.'))
+while ($parts.Count -lt 4) { $parts += '0' }
+$assemblyVersion = $parts -join '.'
 
 if (-not (Test-Path (Join-Path $dist 'index.html'))) { throw '还没有打包好的网页：先运行 npm run build' }
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
@@ -79,7 +85,14 @@ try {
   $stage = Join-Path $work $package
   New-Item -ItemType Directory -Path $stage | Out-Null
   $exe = Join-Path $stage "$name.exe"
-  & $csc /nologo /target:exe /optimize+ /codepage:65001 "/out:$exe" "/win32icon:$icon" "/resource:$appZip,app.zip" /reference:System.IO.Compression.dll (Join-Path $PSScriptRoot 'launcher\Launcher.cs')
+  $versionCs = Join-Path $work 'Version.cs'
+  [System.IO.File]::WriteAllText($versionCs, @"
+using System.Reflection;
+[assembly: AssemblyVersion("$assemblyVersion")]
+[assembly: AssemblyFileVersion("$assemblyVersion")]
+[assembly: AssemblyInformationalVersion("$version")]
+"@, [System.Text.UTF8Encoding]::new($false))
+  & $csc /nologo /target:exe /optimize+ /codepage:65001 "/out:$exe" "/win32icon:$icon" "/resource:$appZip,app.zip" /reference:System.IO.Compression.dll (Join-Path $PSScriptRoot 'launcher\Launcher.cs') $versionCs
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path $exe)) { throw 'exe 没编出来，看上面编译器的提示' }
 
   # 使用说明带上 BOM：老一点的记事本靠它认出这是 UTF-8，不然中文会乱码

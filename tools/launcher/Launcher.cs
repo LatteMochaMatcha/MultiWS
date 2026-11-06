@@ -19,8 +19,7 @@ using System.Threading;
 [assembly: AssemblyTitle("OC 白模工坊")]
 [assembly: AssemblyProduct("OC 白模工坊 v2")]
 [assembly: AssemblyDescription("多肢体角色白模生成器")]
-[assembly: AssemblyVersion("2.0.0.0")]
-[assembly: AssemblyFileVersion("2.0.0.0")]
+// 版本号不写在这里：tools/pack.ps1 照 package.json 生成一个 Version.cs，和这个文件一起编
 
 static class Launcher
 {
