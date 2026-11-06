@@ -1,8 +1,8 @@
 {
   "minShell": 1,
   "sources": [
-    "https://pub-d985d51f23684c13b3c981336d18882a.r2.dev/",
-    "https://github.com/LatteMochaMatcha/MutliWS/releases/download/update-store/"
+    { "base": "https://pub-d985d51f23684c13b3c981336d18882a.r2.dev/", "objects": "objects/" },
+    { "base": "https://github.com/LatteMochaMatcha/MutliWS/releases/download/update-store/", "objects": "" }
   ],
   "r2Bucket": "oc-workshop-update",
   "githubRepo": "LatteMochaMatcha/MutliWS",

@@ -4,13 +4,15 @@
 # 只用 Windows 自带的东西：.NET Framework 的 C# 编译器（csc.exe）。做四件事：
 #   1. 把打包好的网页（dist 文件夹）压成 app.zip；
 #   2. 画一个图标；
-#   3. 把 tools/launcher/Launcher.cs 编成 exe，app.zip 嵌在里面；
+#   3. 把 tools/launcher/ 里的 Launcher.cs、Updater.cs 编成 exe，app.zip 嵌在里面；
 #   4. exe 和使用说明一起压成 zip。
+# -OutDir <目录>：放到别处（试打包时不覆盖 release 里的）
+param([string]$OutDir)
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path $PSScriptRoot -Parent
 $dist = Join-Path $root 'dist'
-$release = Join-Path $root 'release'
+$release = if ($OutDir) { $OutDir } else { Join-Path $root 'release' }
 $name = 'OC白模工坊'
 $package = "$name-v2"
 # 版本号只在 package.json 里写一处；exe 属性里的版本是四段数字，不够的补 0
@@ -19,6 +21,29 @@ if ($version -notmatch '^\d+(\.\d+){0,3}$') { throw "package.json 的版本号�
 $parts = @($version.Split('.'))
 while ($parts.Count -lt 4) { $parts += '0' }
 $assemblyVersion = $parts -join '.'
+
+# 编进 exe 的东西：版本号、核对更新签名的公钥、下载站（tools/update/）。生成一个 Build.cs 和 Launcher.cs、Updater.cs 一起编
+function New-BuildInfo {
+  $update = Join-Path $PSScriptRoot 'update'
+  $key = (Get-Content -LiteralPath (Join-Path $update 'public-key.xml') -Raw).Trim()
+  $config = Get-Content -LiteralPath (Join-Path $update 'config.json') -Raw | ConvertFrom-Json
+  $quote = { param($s) '"' + ($s -replace '\\', '\\' -replace '"', '\"') + '"' }
+  $sources = ($config.sources | ForEach-Object { 'new string[] { ' + (& $quote $_.base) + ', ' + (& $quote $_.objects) + ' }' }) -join ', '
+  @"
+using System.Reflection;
+[assembly: AssemblyVersion("$assemblyVersion")]
+[assembly: AssemblyFileVersion("$assemblyVersion")]
+[assembly: AssemblyInformationalVersion("$version")]
+
+static class BuildInfo
+{
+    public const string Version = $(& $quote $version);
+    public const string PublicKeyXml = $(& $quote $key);
+    // 下载站，按顺序试：{ 清单所在的地址, 文件在这个地址下的前缀 }
+    public static readonly string[][] Sources = new string[][] { $sources };
+}
+"@
+}
 
 if (-not (Test-Path (Join-Path $dist 'index.html'))) { throw '还没有打包好的网页：先运行 npm run build' }
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
@@ -85,14 +110,9 @@ try {
   $stage = Join-Path $work $package
   New-Item -ItemType Directory -Path $stage | Out-Null
   $exe = Join-Path $stage "$name.exe"
-  $versionCs = Join-Path $work 'Version.cs'
-  [System.IO.File]::WriteAllText($versionCs, @"
-using System.Reflection;
-[assembly: AssemblyVersion("$assemblyVersion")]
-[assembly: AssemblyFileVersion("$assemblyVersion")]
-[assembly: AssemblyInformationalVersion("$version")]
-"@, [System.Text.UTF8Encoding]::new($false))
-  & $csc /nologo /target:exe /optimize+ /codepage:65001 "/out:$exe" "/win32icon:$icon" "/resource:$appZip,app.zip" /reference:System.IO.Compression.dll (Join-Path $PSScriptRoot 'launcher\Launcher.cs') $versionCs
+  $buildCs = Join-Path $work 'Build.cs'
+  [System.IO.File]::WriteAllText($buildCs, (New-BuildInfo), [System.Text.UTF8Encoding]::new($false))
+  & $csc /nologo /target:exe /optimize+ /codepage:65001 "/out:$exe" "/win32icon:$icon" "/resource:$appZip,app.zip" /reference:System.IO.Compression.dll /reference:System.Web.Extensions.dll (Join-Path $PSScriptRoot 'launcher\Launcher.cs') (Join-Path $PSScriptRoot 'launcher\Updater.cs') $buildCs
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path $exe)) { throw 'exe 没编出来，看上面编译器的提示' }
 
   # 使用说明带上 BOM：老一点的记事本靠它认出这是 UTF-8，不然中文会乱码

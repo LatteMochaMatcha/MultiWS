@@ -53,7 +53,7 @@ All three styles can wear hair: see the "Hair" entry under "How to use it" below
 [How to open it]
 
 You need: Windows 10 or 11, and any one of Edge / Chrome / Firefox (the Edge that comes with Windows is fine).
-No installation and no internet connection needed.
+No installation needed. When it opens, it goes online to check for a new version; it works fine without internet too.
 
 1. First extract the zip file (don't double-click inside the zip).
 2. Double-click "OC白模工坊.exe".
@@ -61,7 +61,8 @@ No installation and no internet connection needed.
      This is because the program isn't digitally signed, so Windows doesn't recognize it; every small tool made
      by an individual behaves this way.
    - If your antivirus software asks whether to allow it, choose allow. It only starts a local web page on your
-     own computer; it doesn't go online and doesn't write anything to the disk.
+     own computer. It goes online only to check for and download workshop updates, sends nothing about you,
+     and keeps downloaded update files in %LOCALAPPDATA%\OC白模工坊.
 3. A small black window appears, and at the same time your browser opens the workshop page automatically.
    If the browser doesn't open, copy the address in the black window (http://localhost:5210/) into the browser.
 4. Don't close the black window while you are using the workshop. When you're done, close it and the program exits.

@@ -3,7 +3,8 @@
 //   1. 把 app.zip 读进内存；
 //   2. 在本机开一个小网站，只有这台电脑自己能访问（地址是 http://localhost:5210/）；
 //   3. 用默认浏览器打开它。
-// 关掉这个窗口就退出。不联网，不往硬盘上写东西。
+// 关掉这个窗口就退出。
+// 打开时会检查有没有新版本（Updater.cs，网页的设置里可以关）：只下载更新文件，存在 %LOCALAPPDATA%\OC白模工坊\update 里，不带任何能认出你的信息。
 // 编译见 tools/pack.ps1：用的是 Windows 自带的 C# 编译器（csc.exe），所以这里只能写老版本的 C# 语法。
 using System;
 using System.Collections.Generic;
@@ -19,12 +20,12 @@ using System.Threading;
 [assembly: AssemblyTitle("OC 白模工坊")]
 [assembly: AssemblyProduct("OC 白模工坊 v2")]
 [assembly: AssemblyDescription("多肢体角色白模生成器")]
-// 版本号不写在这里：tools/pack.ps1 照 package.json 生成一个 Version.cs，和这个文件一起编
+// 版本号、更新用的公钥和下载站不写在这里：tools/pack.ps1 生成一个 Build.cs（BuildInfo），和这个文件、Updater.cs 一起编
 
 static class Launcher
 {
     // 端口固定，浏览器才认得出是同一个网站，上次的设定才还在。被占了就往后挪
-    const int FirstPort = 5210;
+    static int FirstPort = 5210;
     const int Tries = 10;
     // 用来认「这个端口上是不是已经开着一个工坊」
     const string Mark = "oc-basemesh-workshop";
@@ -32,7 +33,7 @@ static class Launcher
     // 控制台窗口里给人看的字按系统界面语言选：zh 中文，ja 日文，其余都是英文
     static readonly string Lang = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
 
-    static string Pick(string zh, string ja, string en)
+    internal static string Pick(string zh, string ja, string en)
     {
         if (Lang == "zh") return zh;
         if (Lang == "ja") return ja;
@@ -56,12 +57,16 @@ static class Launcher
 
     static int Main(string[] args)
     {
-        // 自己检查用：--no-browser 只开网站，不打开浏览器
+        // 自己检查用：--no-browser 只开网站，不打开浏览器；--port <n> 换个起始端口；--state <目录> 更新文件另放（测试时不碰真的）
         bool browse = Array.IndexOf(args, "--no-browser") < 0;
+        string state = Option(args, "--state");
+        string portOption = Option(args, "--port");
+        if (portOption != null) FirstPort = int.Parse(portOption);
         try { Console.OutputEncoding = Encoding.UTF8; } catch (IOException) { }
         try { Console.Title = Pick("OC 白模工坊", "OC素体工房", "OC Base Mesh Workshop"); } catch (IOException) { }
 
         Unpack();
+        Updater.Init(Files, state);
 
         HttpListener listener = null;
         int port = 0;
@@ -124,9 +129,16 @@ static class Launcher
                                "  Keep this window open while you use the workshop. Close it when you are done and the program exits."));
         Console.WriteLine();
         if (browse) Browse(port);
+        Updater.StartupCheck();
 
         Thread.Sleep(Timeout.Infinite);
         return 0;
+    }
+
+    static string Option(string[] args, string name)
+    {
+        int at = Array.IndexOf(args, name);
+        return at >= 0 && at + 1 < args.Length ? args[at + 1] : null;
     }
 
     static string Address(int port)
@@ -216,10 +228,16 @@ static class Launcher
                 body = Encoding.UTF8.GetBytes(Mark);
                 response.ContentType = "text/plain";
             }
-            else if (Files.TryGetValue(path, out body))
+            else if ((body = Updater.Handle(path, context.Request, response)) != null)
             {
+                // 更新的接口：状态、检查、下载、启动成功、设置
+            }
+            else if ((body = Updater.Resolve(path)) != null)
+            {
+                // 按现在用的这一版取：自带的，或者下载好的新版
                 string type;
                 response.ContentType = Types.TryGetValue(Path.GetExtension(path), out type) ? type : "application/octet-stream";
+                if (path == "index.html") body = Updater.AddBootProbe(body);
             }
             else
             {

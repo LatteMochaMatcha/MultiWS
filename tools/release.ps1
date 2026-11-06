@@ -27,7 +27,7 @@ $root = Split-Path $PSScriptRoot -Parent
 $dist = Join-Path $root 'dist'
 $out = Join-Path $root 'release\update'
 $config = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'update\config.json') -Raw | ConvertFrom-Json
-$r2Base = $config.sources[0]
+$r2Base = $config.sources[0].base
 $wrangler = 'wrangler@4'
 
 function Invoke-Checked([scriptblock]$Command, [string]$What) {
