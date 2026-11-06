@@ -1,0 +1,27 @@
+/* 网页上的更新入口（src/update/ui.ts）：3D 视图左上角的卡片、面板顶上的那一行。颜色都用 style.css 里的变量，深色主题跟着变 */
+
+/* 电脑上：顶栏下面、3D 视图的左上角（右边是设定面板，下面是视角按钮，这里空着） */
+.update-card{position:fixed;left:12px;top:52px;z-index:40;width:min(340px,calc(100vw - 32px));display:flex;flex-direction:column;gap:8px;
+  padding:12px 14px;border-radius:12px;background:var(--panel);color:var(--ink);border:1px solid var(--line);box-shadow:0 8px 28px rgba(0,0,0,.28);font-size:13px}
+.update-card[hidden]{display:none}
+.update-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.update-head b{font-size:14px;font-weight:600}
+.update-close{font:inherit;font-size:18px;line-height:1;color:var(--muted);background:none;border:0;padding:0 2px;cursor:pointer}
+.update-close:hover{color:var(--ink)}
+.update-close:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:4px}
+.update-notes{margin:0;white-space:pre-line;line-height:1.5}
+.update-meta{margin:0;color:var(--muted);line-height:1.5;font-size:12px}
+.update-bar{height:6px;border-radius:3px;background:var(--chip);overflow:hidden}
+.update-bar span{display:block;height:100%;background:var(--accent);transition:width .3s}
+.update-actions{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;margin-top:2px}
+.update-actions .btn.ghost{margin-right:auto}
+
+.update-row{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin:6px 0 0;font-size:12px;color:var(--muted)}
+.update-auto{display:inline-flex;align-items:center;gap:4px;cursor:pointer}
+.update-auto input{margin:0;accent-color:var(--accent)}
+.update-note a{color:var(--accent)}
+
+/* 手机竖屏：卡片放到顶栏下面，别压住下半屏的设定 */
+@media (max-width:760px){
+  .update-card{left:12px;right:12px;width:auto;top:calc(env(safe-area-inset-top,0px) + 64px)}
+}

@@ -148,9 +148,12 @@ import { type RefSlot, REF_SLOTS, ReferenceImages, loadPicture } from './view/re
 import { Tour } from './view/tour';
 import { type SkinSource, FlatParts, PosedMeshes, WHITE_BLEND } from './view/posedMeshes';
 import { type CameraState, type ViewName, VIEW_DEFAULTS, VIEW_LIMITS, Viewport } from './view/viewport';
+import { installUpdateUi } from './update/ui';
 
 // 写死在 index.html 里的文字先换成当前语言，后面的代码再往页面上加东西
 translatePage();
+// 在 exe 里打开时：有新版的提示卡片、面板顶上的版本号和「检查更新」（开发服务器上什么都不加）
+installUpdateUi();
 
 const STORE_KEY = 'oc-basemesh-v2';
 const THEME_KEY = 'oc-basemesh-theme';
