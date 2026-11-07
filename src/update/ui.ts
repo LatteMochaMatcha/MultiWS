@@ -25,6 +25,16 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
   return node;
 }
 
+/**
+ * 换掉一个元素里的全部内容。不用 replaceChildren：它要 Chrome 86，2.7.3 在安卓 WebView 83 上就是卡在这里，
+ * 「检查更新」一点就抛错、什么都不做，旧手机就再也收不到修好的版本。更新入口是送修复的那条路，
+ * 这个文件只用 Chrome 80 也有的东西，也不靠 src/polyfill.ts（主程序别处出错时它还得能用）
+ */
+function setChildren(parent: Element, ...nodes: Node[]): void {
+  while (parent.firstChild) parent.removeChild(parent.firstChild);
+  for (const node of nodes) parent.appendChild(node);
+}
+
 function button(label: string, kind: 'primary' | 'plain' | 'ghost', onClick: () => void): HTMLButtonElement {
   const b = el('button', kind === 'plain' ? 'btn' : `btn ${kind}`, label);
   b.type = 'button';
@@ -148,7 +158,7 @@ class UpdateUi {
   /** 设置那一行后面的小字：只说人点「检查更新」得到的结果 */
   private renderNote(): void {
     const s = this.status;
-    this.rowNote.replaceChildren();
+    setChildren(this.rowNote);
     if (!this.manual) return;
     if (s.status === 'checking') this.rowNote.textContent = t('正在检查…');
     else if (s.status === 'offline') this.rowNote.textContent = t('连不上更新服务器，稍后再试');
@@ -265,7 +275,7 @@ class UpdateUi {
         button(t('重试'), 'primary', () => this.kick(() => this.api.installerDownload())),
       );
     }
-    this.card.replaceChildren(head, ...body, ...(actions.childElementCount ? [actions] : []));
+    setChildren(this.card, head, ...body, ...(actions.childElementCount ? [actions] : []));
   }
 
   /**
