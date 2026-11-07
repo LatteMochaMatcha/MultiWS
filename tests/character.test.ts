@@ -14,7 +14,8 @@ import { headCluster, headShrink, headSpacing, headTurn, shoulderSpan } from '..
 import { quatEuler } from '../src/geometry/vec';
 import { writeGlb } from '../src/io/glb';
 import { readAccessor, readGlb } from '../src/io/glbRead';
-import { type BodySpec, type HairSpec, colorToLinear, defaultSpec } from '../src/model/spec';
+import { type BodySpec, type CharacterId, type HairSpec, colorToLinear, defaultSpec } from '../src/model/spec';
+import { characterUrl, rosterEntry } from '../src/character/roster';
 import { applyParse, parseDescription } from '../src/parser';
 
 let cached: CharacterSource | null = null;
@@ -2160,6 +2161,90 @@ describe('成品角色：好几个上半身', () => {
     const blueHair = hair.filter((m) => b.materials[m.material].color[2] > b.materials[m.material].color[0] * 1.5);
     expect(blueHair.length).toBeGreaterThan(0);
     for (const m of blueHair) expect(m.positions[0]).toBeGreaterThan(0.1);
+  });
+
+  describe('某个上半身换成别的角色（男女连体）', () => {
+    const others = new Map<string, CharacterSource>();
+    const other = (id: CharacterId) => {
+      let made = others.get(id);
+      if (!made) {
+        const file = readFileSync(new URL(`../public/${characterUrl(id)}`, import.meta.url));
+        others.set(id, (made = readCharacter(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength) as ArrayBuffer, rosterEntry(id))));
+      }
+      return made;
+    };
+    const mixed = (text: string, torsoCharacters: BodySpec['torsoCharacters'], rest: Partial<BodySpec> = {}) =>
+      assembleCharacter(source(), make(text, { ...rest, torsoCharacters }), null, other);
+    /** 这块网格长在哪个上半身上（权重最多的那根骨骼往上找脊柱） */
+    const torsoOfMesh = (b: CharacterBuild, mesh: CharacterBuild['meshes'][number]) => {
+      let i = mesh.joints[0];
+      while (i >= 0 && !/^Spine_[LRM]?$|^Spine$/.test(b.bones[i].name)) i = b.bones[i].parent;
+      return i >= 0 ? b.bones[i].name : 'Hips';
+    };
+
+    it('右边换成男生：右边上半身的网格用男生的材质和贴图，左边还是她；头一样高，名字不重复', () => {
+      const b = mixed('两个上半身', { R: 'fumiriya' });
+      expectSkinned(b);
+      expect(b.ignored).toEqual([]);
+      const names = b.bones.map((x) => x.name);
+      expect(new Set(names).size).toBe(names.length);
+      const male = other('fumiriya');
+      expect(b.images.length).toBe(source().images.length + male.images.length);
+      const right = b.meshes.filter((m) => torsoOfMesh(b, m) === 'Spine_R');
+      const left = b.meshes.filter((m) => torsoOfMesh(b, m) === 'Spine_L');
+      expect(right.length).toBeGreaterThan(0);
+      expect(left.length).toBeGreaterThan(0);
+      // 男生的衣服（M00_…_Tops）只在右边，她的连衣裙只在左边和胯上
+      expect(right.some((m) => /^M00_.*_Tops_/.test(b.materials[m.material].name))).toBe(true);
+      expect(left.some((m) => /^M00_/.test(b.materials[m.material].name))).toBe(false);
+      for (const m of right) {
+        const material = b.materials[m.material];
+        if (material.image >= 0) expect(material.image).toBeGreaterThanOrEqual(source().images.length);
+      }
+      // 两个头差不多一样高（男生的模型高出一截，照脊柱到头缩放过）
+      const heads = b.bones.filter((x) => /^Head(\.\d+)?$/.test(x.name));
+      expect(heads).toHaveLength(2);
+      expect(Math.abs(heads[0].head[1] - heads[1].head[1])).toBeLessThan(0.06);
+      // 表情只有她自己那张脸
+      expect(b.faces).toHaveLength(1);
+      expect(b.morphs).toBeDefined();
+    });
+
+    it('她自己那个上半身（左边）换成男生：她原来的腰以上去掉，胯和腿还在', () => {
+      const b = mixed('两个上半身', { L: 'haruto' });
+      expectSkinned(b);
+      const names = b.bones.map((x) => x.name);
+      expect(new Set(names).size).toBe(names.length);
+      expect(names.some((n) => n.startsWith('Unused_'))).toBe(false);
+      expect(names.filter((n) => /^Head(\.\d+)?$/.test(n))).toHaveLength(2);
+      expect(names.filter((n) => /^UpperArm_/.test(n))).toHaveLength(4);
+      expect(names.filter((n) => /^UpperLeg/.test(n))).toEqual(build().bones.map((x) => x.name).filter((n) => /^UpperLeg/.test(n)));
+      const left = b.meshes.filter((m) => torsoOfMesh(b, m) === 'Spine_L');
+      expect(left.every((m) => /^(M00_|F00_000_Hair_00_HAIR$)/.test(b.materials[m.material].name) || /_HAIR|_FACE|_EYE|_SKIN/.test(b.materials[m.material].name))).toBe(true);
+      // 留下的脸只有右边那个复制出来的她的
+      expect(b.faces).toHaveLength(1);
+    });
+
+    it('三个上半身两边换成男生、和身子一样的不算换；没载入的照她自己的拼', () => {
+      const b = mixed('三个上半身', { L: 'fumiriya', R: 'haruto', M: 'vita' });
+      expectSkinned(b);
+      expect(new Set(b.bones.map((x) => x.name)).size).toBe(b.bones.length);
+      expect(b.images.length).toBe(source().images.length + other('fumiriya').images.length + other('haruto').images.length);
+      // 角色没载入（others 给 null）：和没换一模一样
+      const none = assembleCharacter(source(), make('两个上半身', { torsoCharacters: { R: 'fumiriya' } }), null, () => null);
+      expect(none.bones).toEqual(build('两个上半身').bones);
+      // 一个上半身时不看它
+      expect(mixed('', { L: 'fumiriya' }).bones).toEqual(build().bones);
+    });
+
+    it('换成男生的上半身也能单独设数量：两个头两对手臂', () => {
+      const b = mixed('两个上半身，右边的上半身两个头、两对手臂', { R: 'fumiriya' });
+      expectSkinned(b);
+      const names = b.bones.map((x) => x.name);
+      expect(new Set(names).size).toBe(names.length);
+      expect(names.filter((n) => /^Head(\.\d+)?$/.test(n))).toHaveLength(3);
+      expect(names.filter((n) => /^UpperArm_/.test(n))).toHaveLength(6);
+    });
   });
 
   it('手动微调：胯是 Torso，每个上半身一个部件，手臂、头挂在自己那个上半身上', () => {

@@ -144,5 +144,8 @@
   "X 宽、Y 长、Z 厚": "X is width, Y is length, Z is thickness",
   "（在模型上点一个部件，或者在这里选）": "(Click a part on the model, or pick one here)",
   "硬": "Hard",
-  "软": "Soft"
+  "软": "Soft",
+  "{side}边的上半身用哪个角色": "Character for the {side} upper body",
+  "跟身子一样": "Same as body",
+  "角色「{label}」没载入成功，那个上半身先照身子的角色拼：{err}": "Couldn't load the character \"{label}\", so that upper body uses the body's character for now: {err}"
 }

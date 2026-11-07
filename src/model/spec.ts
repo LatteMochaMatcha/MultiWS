@@ -231,7 +231,7 @@ export type BodyStyle = (typeof BODY_STYLES)[number];
  * 「成品角色」样式用哪个角色。每个角色是一个现成的 VRoid 模型，来历和许可见 character/roster.ts；
  * 第一个（vita）是一开始就有的那个，也是默认的。别的身体样式用不到这一项。
  */
-export const CHARACTER_IDS = ['vita', 'victoria', 'shino', 'shibu', 'vivi', 'rabbit', 'kuro', 'sailor', 'alice', 'kotori'] as const;
+export const CHARACTER_IDS = ['vita', 'victoria', 'shino', 'shibu', 'vivi', 'rabbit', 'kuro', 'sailor', 'alice', 'kotori', 'fumiriya', 'haruto', 'noble', 'fritz', 'shinya', 'marron'] as const;
 export type CharacterId = (typeof CHARACTER_IDS)[number];
 /**
  * 「载入自己的 VRM」：用户自己给的角色文件。文件不随工坊分发，也不写进配置文件，
@@ -403,6 +403,25 @@ export interface BodySpec {
   posing: Posing;
   /** 好几个上半身时每个上半身单独设的头、手臂、胸、角、眼睛、兽耳（见 TorsoCounts）；成品角色不看它 */
   torsoCounts?: TorsoCounts;
+  /**
+   * 成品角色好几个上半身时，某个上半身换成别的角色（比如一个男生、一个女生）：没设的、和 character 一样的照 character。
+   * 胯、腿照 character；两种白模不看它
+   */
+  torsoCharacters?: TorsoCharacters;
+}
+
+/** 每个上半身换成了哪个成品角色（见 BodySpec.torsoCharacters） */
+export type TorsoCharacters = Partial<Record<TorsoSide, CharacterId>>;
+
+/** 整理 torsoCharacters：只留认得的角色 */
+export function cleanTorsoCharacters(value: unknown): TorsoCharacters {
+  const out: TorsoCharacters = {};
+  if (!isRecord(value)) return out;
+  for (const side of TORSO_SIDES) {
+    const id = value[side];
+    if ((CHARACTER_IDS as readonly unknown[]).includes(id)) out[side] = id as CharacterId;
+  }
+  return out;
 }
 
 export function defaultCounts(): BodyCounts {
@@ -439,6 +458,7 @@ export function defaultSpec(): BodySpec {
     characterOverrides: {},
     posing: emptyPosing(),
     torsoCounts: {},
+    torsoCharacters: {},
   };
 }
 
@@ -669,6 +689,7 @@ export function normalizeSpec(input: unknown): BodySpec {
     characterOverrides: readOverrides(src.characterOverrides),
     posing: cleanPosing(src.posing),
     torsoCounts: clampTorsoCounts(src.torsoCounts),
+    torsoCharacters: cleanTorsoCharacters(src.torsoCharacters),
   };
 }
 

@@ -203,6 +203,10 @@
               <label class="btn file" for="fileVrm" title="选一个自己的 VRM 文件（VRoid Studio 导出的最好）：文件只存在这台设备的浏览器里">载入自己的 VRM…<input type="file" id="fileVrm" accept=".vrm,.glb,model/gltf-binary" hidden></label>
             </div>
             <p class="note" id="characterNote" hidden></p>
+            <div class="field" id="torsoCharRow" title="好几个上半身时，每个上半身可以换成别的角色（比如一个男生、一个女生）；胯和腿照上面选的角色。左右是角色自己的左右：正面看，她的左边在屏幕右边" hidden>
+              <span>每个上半身的角色</span>
+              <div class="torso-chars" id="torsoChars"></div>
+            </div>
             <p class="note" id="bodyNote" hidden>头、躯干、手臂、腿的形状来自 VRoid Studio 旧版的女性素体（CC0）。它只有一种体型：性别、体格、肩宽、腰宽、胯宽、四肢粗细、手的样式对它不起作用。</p>
             <div class="field">
               <span>性别</span>

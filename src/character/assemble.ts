@@ -18,7 +18,7 @@ import { type HangBlock, GAP, armDirection, hangAngles } from '../geometry/layou
 import { FAN_YAW, INNER_ARM_DROP, SLOT_SIDE, torsoLean, torsoSlots } from '../geometry/torsos';
 import { type V3, UP, len, norm, quatBetween, quatConj, quatEuler, quatMul, rotate } from '../geometry/vec';
 import { t } from '../i18n';
-import { type BodySpec, PER_TORSO_KEYS, colorToLinear, countsOf, headHairColor, legPlan, BUST_MAX_OTHER } from '../model/spec';
+import { type BodySpec, type CharacterId, PER_TORSO_KEYS, colorToLinear, countsOf, headHairColor, legPlan, BUST_MAX_OTHER } from '../model/spec';
 import { type BeastPiece, beastBody } from './beast';
 import { type ExtraHead, type ExtraKind, extraParts } from './extras';
 import type { HairDonor } from './hair';
@@ -499,6 +499,16 @@ interface TorsoDonor {
   perHeads: number;
   headHalf: number;
   ignored: string[];
+  /** 这一份是照哪个角色拼的：换成别的角色的上半身（BodySpec.torsoCharacters）时不是她，材质、贴图另接、骨架照头的高低缩放 */
+  source: CharacterSource;
+  images: SourceImage[];
+}
+/** 一个角色文件里从脊柱到头有多高（文件里原样的）：换成别的角色的上半身时照它缩放 */
+function reachOf(source: CharacterSource): number {
+  const names = boneNames(source.bones);
+  const y = (name: string) => source.bones[names.indexOf(name)]?.pos[1] ?? Number.NaN;
+  const reach = y('Head') - y('Spine');
+  return Number.isFinite(reach) && reach > 0 ? reach : 1;
 }
 /** 第 slot 个上半身照它自己的数拼的那一份；和她自己那个上半身一样多的是 null */
 type DonorFor = (slot: -1 | 0 | 1) => TorsoDonor | null;
@@ -511,13 +521,43 @@ const torsoSpec = (spec: BodySpec, slot: -1 | 0 | 1): BodySpec =>
  * hair：换发型用的那副头发（见 hair.ts）。设定里选的不是原装、而这副头发还没取回来（或者给的不是选的那一副）时，
  * 先照原装的头发拼。
  */
-export function assembleCharacter(source: CharacterSource, spec: BodySpec, hair: HairDonor | null = null): CharacterBuild {
+export function assembleCharacter(
+  source: CharacterSource,
+  spec: BodySpec,
+  hair: HairDonor | null = null,
+  /** 别的角色（某个上半身换成了她们，见 BodySpec.torsoCharacters）：还没载入的给 null，那个上半身先照她自己的拼 */
+  others: (id: CharacterId) => CharacterSource | null = () => null,
+): CharacterBuild {
   // 好几个上半身：先照她自己那个上半身（两个时左边，三个时正中）的数拼；别的上半身数量不一样的，照它自己的数另拼一份（见 TorsoDonor）
-  const own = torsoSpec(spec, torsoSlots(spec.counts.torsos)[0]);
+  const slots = torsoSlots(spec.counts.torsos);
+  const own = torsoSpec(spec, slots[0]);
+  /** 第 slot 个上半身换成了哪个别的角色（载入了的） */
+  const otherOf = (slot: -1 | 0 | 1): { id: CharacterId; source: CharacterSource } | null => {
+    if (spec.counts.torsos < 2) return null;
+    const id = spec.torsoCharacters?.[SLOT_SIDE[slot]];
+    const other = id && id !== spec.character ? others(id) : null;
+    return id && other && other !== source ? { id, source: other } : null;
+  };
+  // 别的角色那个上半身的头从全身第几个头数起（分开染发照全身的第几个头，见 HairSpec.heads）：从右往左一个上半身一个上半身地数
+  const perHeads = (slot: -1 | 0 | 1) => (spec.headLayout === 'faces' ? 1 : countsOf(spec, SLOT_SIDE[slot]).heads);
+  const headBase = (slot: -1 | 0 | 1) => slots.filter((other) => other < slot).reduce((sum: number, other) => sum + perHeads(other), 0);
   const donors = new Map<string, TorsoDonor>();
   return assemble(source, own, hair, (slot) => {
     const mine = torsoSpec(spec, slot);
-    if (PER_TORSO_KEYS.every((key) => mine.counts[key] === own.counts[key])) return null;
+    const other = otherOf(slot);
+    if (other) {
+      // 换成别的角色：照这个上半身的数拼一份她，原装头发；发色照这个上半身上的头在全身排第几挑
+      const base = headBase(slot);
+      const heads = Array.from({ length: perHeads(slot) }, (_, i) => spec.hair.heads[base + i] ?? '');
+      const key = `${other.id}|${base}|${JSON.stringify(mine.counts)}`;
+      let donor = donors.get(key);
+      if (!donor) {
+        const theirs: BodySpec = { ...mine, character: other.id, hair: { ...spec.hair, style: 'own', heads }, overrides: {}, characterOverrides: {} };
+        donors.set(key, (donor = assemble(other.source, theirs, null, null)));
+      }
+      return donor;
+    }
+    if (slot === slots[0] || PER_TORSO_KEYS.every((key) => mine.counts[key] === own.counts[key])) return null;
     const key = JSON.stringify(mine.counts);
     let donor = donors.get(key);
     if (!donor) donors.set(key, (donor = assemble(source, mine, hair, null)));
@@ -551,7 +591,7 @@ function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | nul
   /** 换上去的头发的材质从第几个开始 */
   const donorBase = materials.length;
   if (donor) materials.push(...donorAssets(source, donor).materials);
-  const images = donor ? donorAssets(source, donor).images : source.images;
+  let images = donor ? donorAssets(source, donor).images : source.images;
   /** 现在这副头发的材质在清单里排第几 */
   const hairIndex = (i: number) => (donor ? donorBase + i : i);
   /** 还没染过的材质 */
@@ -2325,6 +2365,8 @@ function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | nul
       perHeads: faces ? 1 : c.heads,
       headHalf: crest.wide * hs,
       ignored,
+      source,
+      images,
     };
   }
   if (c.torsos > 1) {
@@ -2351,6 +2393,8 @@ function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | nul
       perHeads: faces ? 1 : c.heads,
       headHalf: crest.wide * hs,
     };
+    /** 别的角色的那一份接过来时，它的材质排到了清单的第几（材质的下标 → 这里的下标） */
+    const foreignAssets = new Map<TorsoDonor, Map<number, number>>();
     /** 照它自己的数拼的那一份（donor）腰以上接到胯上：三角面的取法和复制她自己的上半身一样 */
     const graft = (donor: TorsoDonor, slot: number): Upper => {
       // 它的脊柱和下面所有的骨骼，父骨骼总在子骨骼前面（和 subtree 一样）
@@ -2358,19 +2402,41 @@ function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | nul
       for (let i = 0; i < members.length; i++) {
         for (let b = 0; b < donor.parent.length; b++) if (donor.parent[b] === members[i]) members.push(b);
       }
+      // 别的角色的上半身：各个模型高矮不一样（男生的高出一截），照「脊柱到头」的长短缩放，脊柱对到她的脊柱上，头和她的差不多高
+      const foreign = donor.source !== source;
+      const grow = foreign ? reachOf(source) / reachOf(donor.source) : 1;
+      const from0 = donor.rest[donor.spine];
+      const to0 = rest[spine];
+      const place = (p: ArrayLike<number>, o = 0): V3 =>
+        foreign
+          ? [to0[0] + (p[o] - from0[0]) * grow, to0[1] + (p[o + 1] - from0[1]) * grow, to0[2] + (p[o + 2] - from0[2]) * grow]
+          : [p[o], p[o + 1], p[o + 2]];
       const map = new Map<number, number>();
       for (const b of members) {
         map.set(b, names.length);
         names.push(donor.names[b]);
-        origin.push(donor.origin[b]);
+        // 别的角色的骨骼不记来历（来历只认她自己的文件和换上的发型）：导出 VRM 时这个上半身的头发不晃
+        origin.push(foreign ? null : donor.origin[b]);
         marker.push(donor.marker[b]);
         parent.push(b === donor.spine ? hips : map.get(donor.parent[b])!);
-        rest.push([donor.rest[b][0], donor.rest[b][1], donor.rest[b][2]]);
+        rest.push(place(donor.rest[b]));
         const tail = donor.ends.get(b);
-        if (tail) ends.set(map.get(b)!, [tail[0], tail[1], tail[2]]);
+        if (tail) ends.set(map.get(b)!, place(tail));
+      }
+      // 别的角色的材质和贴图整份接在清单后面（同一个角色接两次的只接一次）
+      let foreignMaterials = foreignAssets.get(donor);
+      if (foreign && !foreignMaterials) {
+        const imageBase = images.length;
+        images = [...images, ...donor.images];
+        foreignMaterials = new Map();
+        foreignAssets.set(donor, foreignMaterials);
+        for (const [i, m] of donor.materials.entries()) {
+          foreignMaterials.set(i, materials.length + sided.push({ ...m, image: m.image >= 0 ? m.image + imageBase : -1 }) - 1);
+        }
       }
       // 材质换成这里清单上的：染好的那几份换回照哪一个染的（下面照全身第几个头重新挑），别的照是不是同一份找
       const materialOf = (index: number) => {
+        if (foreignMaterials) return foreignMaterials.get(index)!;
         const base = donor.dyedFrom.get(index);
         if (base !== undefined || index < undyed.length) return base ?? index;
         const made = donor.materials[index];
@@ -2404,10 +2470,12 @@ function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | nul
           weights: new Float32Array(count * 4),
           indices: Uint32Array.from(indices),
         };
-        if (from.faceVertex) made.faceVertex = new Int32Array(count);
+        // 别的角色的脸不做表情（表情的数据只带她自己的一份）：脸照原样
+        const face = foreign ? undefined : from.faceVertex;
+        if (face) made.faceVertex = new Int32Array(count);
         for (const [v, id] of remap) {
-          if (from.faceVertex) made.faceVertex![id] = from.faceVertex[v];
-          made.positions.set(from.positions.subarray(v * 3, v * 3 + 3), id * 3);
+          if (face) made.faceVertex![id] = face[v];
+          made.positions.set(place(from.positions, v * 3), id * 3);
           made.normals.set(from.normals.subarray(v * 3, v * 3 + 3), id * 3);
           made.uvs.set(from.uvs.subarray(v * 2, v * 2 + 2), id * 2);
           // 跟着腰以下的权重归到胯上：同一根骨骼只占一格，权重加在一起
@@ -2433,13 +2501,14 @@ function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | nul
         heads: donor.heads.map(({ bone, index }) => ({ bone: map.get(bone)!, index })),
         armPairs: donor.armPairs,
         perHeads: donor.perHeads,
-        headHalf: donor.headHalf,
+        headHalf: donor.headHalf * grow,
       };
     };
     /** 每个上半身照哪一份 */
     const upperOf = new Map<number, Upper>();
     for (const slot of slots) {
-      const donor = slot === ownSlot ? null : donorFor(slot);
+      // 她自己那个上半身只有换成别的角色时才有 donor
+      const donor = donorFor(slot);
       upperOf.set(slot, donor ? graft(donor, slot) : self);
     }
     const uppers = [...new Set(upperOf.values())];
@@ -2514,6 +2583,42 @@ function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | nul
         if (tail) ends.set(made, [tail[0], tail[1], tail[2]]);
       }
       boneIn.set(slot, map);
+    }
+    // 她自己那个上半身换成了别的角色：复制完（别的上半身可能还照她复制）以后，她原来的腰以上去掉，只留胯和腿；
+    // 那几根骨骼不带顶点了，当标记丢掉（名字改掉，免得和复制出来的重名）。
+    // 胯上腰那一圈还带着一点她脊柱的权重：换到接上来的那个上半身上同名的骨骼（Spine、Chest …），腰还是跟着它弯
+    if (upperOf.get(ownSlot) !== self) {
+      const mine = new Set(self.body);
+      const theirs = new Map(upperOf.get(ownSlot)!.body.map((b) => [was[b], b]));
+      const instead = new Map(self.body.map((b) => [b, theirs.get(was[b]) ?? hips]));
+      for (let n = original - 1; n >= 0; n--) {
+        const chunk = chunks[n];
+        if (copiedTo.has(chunk)) continue;
+        const on = share(chunk, mine);
+        const kept = keepTriangles(chunk, (a, b, d) => (on[a] + on[b] + on[d]) / 3 < TORSO_SPLIT);
+        if (kept) {
+          for (let i = 0; i < kept.joints.length; i++) kept.joints[i] = instead.get(kept.joints[i]) ?? kept.joints[i];
+          // 换过去以后同一根骨骼可能占了两格：并成一格
+          for (let v = 0; v < kept.joints.length; v += 4) {
+            for (let x = 0; x < 4; x++) {
+              for (let y = x + 1; y < 4; y++) {
+                if (kept.weights[v + y] && kept.joints[v + y] === kept.joints[v + x]) {
+                  kept.weights[v + x] += kept.weights[v + y];
+                  kept.weights[v + y] = 0;
+                  kept.joints[v + y] = 0;
+                }
+              }
+            }
+          }
+        }
+        if (kept === chunk) continue;
+        if (kept) chunks[n] = kept;
+        else chunks.splice(n, 1);
+      }
+      for (const b of self.body) {
+        marker[b] = true;
+        names[b] = `Unused_${names[b]}`;
+      }
     }
     // 里侧的翅膀（挨着旁边那个上半身的那一边）和旁边那一对交叉在一起：不要了（两种白模也是这样，见 torsos.ts 的 crowded）
     const innerWings = new Set<number>();

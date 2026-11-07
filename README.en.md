@@ -6,7 +6,7 @@ A base mesh generator for multi-limbed characters. Write one sentence describing
 
 ![Multi-headed, multi-armed forms in the three body styles](docs/body-forms.png)
 
-- **Three body styles**: Mannequin, Anime body, and Ready-made (ten ready-made VRoid characters; you can also load your own VRM).
+- **Three body styles**: Mannequin, Anime body, and Ready-made (sixteen ready-made VRoid characters, ten girls and six boys; with several upper bodies each one can be a different character; you can also load your own VRM).
 - **Parts**: 1–3 upper bodies, 1–5 heads, 0–4 pairs of arms, 0–4 pairs of breasts, 1–12 legs, plus tails, wings, horns and animal ears; lower bodies such as centaur, arachne (spider body) and humantaur.
 - **Adjusting**: body-shape sliders; move, rotate and scale any single part; undo / redo.
 - **Posing**: drag the joints to pose; 60 ready-made poses and 16 hand gestures; Ready-made characters also get expressions and gaze.
@@ -199,8 +199,16 @@ Below "Body style" there is a row of portraits; click one to switch. Switching c
 | Sailor suit: ponytail, sailor uniform | 水色（ポニーテルの女の子） | 白い白米 | VRoid Hub terms |
 | Orange: long orange hair, school uniform | Alice Chan | edisonlee55 (yuna0x0) | CC BY-SA 4.0 |
 | Red skirt: green hair, red skirt | Kotori | Fox Jump | CC BY |
+| Gradient-hair boy: orange-to-purple short hair, shirt and vest | 桜田史利矢 | VRoid Project (pixiv) | CC0 |
+| Black-hair boy: short black hair, hooded jacket | HairSample_Male | VRoid Project (pixiv) | CC0 |
+| Formal black-hair: black hair, red eyes, formal coat | プリセット/黒髪青年 | sin | VRoid Hub terms; modified versions must say there is an original model (written into exports automatically) |
+| White-shirt boy: black hair, white shirt | 汎用少年キャラFritz | Kiritaro | VRoid Hub terms; not for politics or defamation |
+| Monochrome hoodie: black-and-white, black hoodie | モノクロ男性【シンヤ】 | Nakamori Aka | VRoid Hub terms; not for crime |
+| Brown knit vest: brown hair, knit vest | マロン | Pikapika | VRoid Hub terms; no sexual use |
 
-**Loading your own VRM**: pick a VRM file with "Load your own VRM…" below the portraits (0.x and 1.0 both work; one made in VRoid Studio works best) and it becomes the eleventh character; multiple heads, multiple arms, posing, expressions and hairstyle swaps all work as usual. The file is stored only in this device's browser, so on another device you need to pick it again. For VRMs made in other software, bones are matched using the humanoid bone table, and skin, clothes and hair are matched by VRoid's material names; when the matching is incomplete, the notes in the panel will tell you.
+**Character per upper body** (a boy and a girl joined at the waist, and so on): with two or more upper bodies, a "Character per upper body" row appears below the portraits, with one drop-down for Left and Right (and Middle with three). The character you pick there replaces that upper body (head, hair, arms and clothes); the hips and legs stay the character picked in the portraits. "Same as body" means no change. It works together with counts set in "Edit which upper body" (say, two pairs of arms on the boy's side). The swapped-in upper body is scaled by its spine-to-head length so both heads end up about the same height; its face has no expressions, and its hair doesn't sway in VRM exports.
+
+**Loading your own VRM**: pick a VRM file with "Load your own VRM…" below the portraits (0.x and 1.0 both work; one made in VRoid Studio works best) and it becomes the seventeenth character; multiple heads, multiple arms, posing, expressions and hairstyle swaps all work as usual. The file is stored only in this device's browser, so on another device you need to pick it again. For VRMs made in other software, bones are matched using the humanoid bone table, and skin, clothes and hair are matched by VRoid's material names; when the matching is incomplete, the notes in the panel will tell you.
 
 How it differs from the base meshes:
 
@@ -382,6 +390,7 @@ All the ready-made assets used in the workshop allow redistribution. Download li
 | Anime body | Foot mesh © Fox Jump (Kotori), CC BY; the torso contours were informed by Fly_jkey's "Woman", CC BY 4.0 |
 | Ready-made character "Orange" | Alice Chan © edisonlee55, CC BY-SA 4.0 (anything you modify and redistribute must also be released under CC BY-SA 4.0) |
 | Ready-made character "Red skirt" | Kotori © Fox Jump, CC BY |
+| Ready-made character "Formal black-hair" | プリセット/黒髪青年 © sin (VRoid Hub); the author asks modified versions to say there is an original model |
 | Adult parts | The penis and scrotum come from "DJP Male Base Mesh Mark 03" © Death Joe Productions, CC BY 4.0 |
 
 **No attribution required**: the Anime body, the first five Ready-made characters and the four hairstyles come from VRoid Studio's old samples (pixiv, CC0); the ready-made poses come from Quaternius's Universal Animation Library 1 and 2 (CC0); the breast shape and torso contours also drew on Death Joe Productions' base body and Blender's official Human Base Meshes (CC0). The three characters Rabbit ears, Wolf ears and Sailor suit follow the terms their authors set on VRoid Hub: modification, redistribution and commercial use are allowed, and no attribution is needed (Wolf ears must not be used for sexual depictions; the author of Sailor suit additionally forbids use for NFTs, politics and religion).

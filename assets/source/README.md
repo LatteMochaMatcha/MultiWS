@@ -186,3 +186,29 @@ node tools/run.mjs tools/build-genital.ts
 
 `build-genital.ts` 只取阴茎（切口以外原样的网格，写成 `src/anime/penisMesh.json`）和阴囊（采成距离场格子，写进 `public/genital.bin`，尺寸在 `src/anime/genitalMeta.json`），别的部分不进工坊。
 导出时署名写进文件：`src/anime/genital.ts` 的 `GENITAL_CREDIT`。离线试接、出图用 `tools/try-genital.ts`（见 `docs/genital-plan.md` 第 1 期）。
+
+## 两个男生（2026-11-07）
+
+和最上面的样例 3 同一页（<https://opengameart.org/content/vroid-studio-cc0-models>）、同样是 pixiv 以 CC0 放出的 VRoid 旧版样例（总说明「▼CC0 license models」那一段）。他点名同意后下载，给「成品角色」好几个上半身时把某一个上半身换成男生用（男女连体，见 `BodySpec.torsoCharacters`），也能单独当一个角色选。
+由 `node tools/run.mjs tools/build-characters.ts fumiriya haruto` 加工成 `public/character/fumiriya.vrm`、`haruto.vrm`（同样只把用不到的贴图换成 1×1 的占位图）；头像 `public/character/thumb/` 是文件里自带的缩略图缩成 192×192。
+
+| 工坊里的名字 | 压缩包 / VRM | 是什么 | 许可说明 | 校验 |
+| --- | --- | --- | --- | --- |
+| 渐变短发男生（`fumiriya`） | `sakurada_fumiriya.zip` / `sakurada_fumiriya/Sakurada Fumiriya.vrm` | 桜田史利矢，VRoid 的男生样例角色。橙色渐变到紫色的短发，白衬衫、黑色背心 | 文件的元数据写的是 `Other` 加 VRoid Hub 条件页的网址（谁都能用、可改、可再分发、可商用、不用署名），CC0 是那一页上声明的 | 压缩包 15.86 MB，SHA-256 以 `F3C53EEA` 开头、`FC66` 结尾；VRM 19.6 MB → 加工后 11.9 MB |
+| 黑短发男生（`haruto`，名字是工坊起的） | `hairsample_male.zip` / `hairsample_male/HairSample_Male.vrm` | 发型样例（HairSample_Male）。黑色短发，白色连帽外套 | 文件的元数据写着 `CC0` | 压缩包 15.47 MB，SHA-256 以 `BA874402` 开头、`0129` 结尾；VRM 18.9 MB → 加工后 11.8 MB |
+
+下载地址是 `https://opengameart.org/sites/default/files/<压缩包名>`。同一页上还有 `base_male.zip`（男性基础模型），没有下载。
+
+## 再四个男生（2026-11-07，VRoid Hub）
+
+VRoid Hub 上作者把条件设成谁都能用、可改、可再分发、可商用的男生模型（照 VRoid Hub 的数据逐个核对过，文件自己的元数据里记着同样的条件）。他点名同意以后，在 Claude 自带的浏览器面板里登录 pixiv、勾「按使用条件使用」下载，存到 `G:\下载` 再拷到这里。都是 VRoid Studio 正式版导出的 VRM 0.0。
+由 `node tools/run.mjs tools/build-characters.ts noble fritz shinya marron` 加工成 `public/character/<名字>.vrm`；头像是文件里的缩略图缩成 192×192（黑发礼服青年的缩略图脸偏到一边，用的是 VRoid Hub 上的立绘裁出来的脸）。
+
+| 工坊里的名字 | 文件 | 原名 / 作者 | 网页 | 备注 | 校验（SHA-256 开头） |
+| --- | --- | --- | --- | --- | --- |
+| 黑发礼服青年（`noble`） | `hub_noble/6594862416337265358.vrm` | プリセット/黒髪青年（文件里叫「プリセットのみ/転生貴族風青年」）/ sin | <https://hub.vroid.com/characters/9103390712787836864/models/1189100618626473688> | 说明里写着「改変する場合は元となるモデルがあることを明記して下さい」：工坊导出时自动写上署名（roster.ts 的 credit） | 15.69 MB，`9e35a6ff9483` |
+| 白衬衫少年（`fritz`） | `hub_fritz/340860444786907840.vrm` | 汎用少年キャラFritz（kiritaroOC_Fritz）/ 霧太郎 | <https://hub.vroid.com/characters/256061151319389031/models/2876490360462822712> | 不用署名；不许用于政治、诽谤 | 14.04 MB，`f5fbc48a52f2` |
+| 黑白连帽衫（`shinya`） | `hub_shinya/7817070836861794693.vrm` | モノクロ男性【シンヤ】（shinya1.00）/ 中森あか | <https://hub.vroid.com/characters/1318116850280961380/models/5973900355360991383> | 不用署名；不许用于犯罪；作者没放弃著作权 | 8.46 MB，`070b83881914` |
+| 棕发针织背心（`marron`） | `hub_marron/2693294445634964331.vrm` | マロン / ピカピカ | <https://hub.vroid.com/characters/7459200881471498968/models/4791607087327485063> | **性表现：不允许** | 11.82 MB，`6122d085da94` |
+
+同一批里另有两个条件也合适、他没选的：アジサイ（ピカピカ，不许性表现）、オリジナル眼鏡おじさん（ここは通，不许性表现）。

@@ -674,11 +674,42 @@ function ownNote(source: CharacterSource): string {
     t('文件只存在这台设备的浏览器里，不会写进配置文件。'),
   ]);
 }
+/**
+ * 好几个上半身时每个上半身用哪个角色（BodySpec.torsoCharacters）：一个上半身一个下拉框，
+ * 选「跟身子一样」就是不单独设
+ */
+const torsoCharPicks = new Map<TorsoSide, HTMLSelectElement>();
+for (const side of ['L', 'M', 'R'] as const) {
+  const label = el('label', 'torso-char');
+  const pick = el('select');
+  pick.setAttribute('aria-label', t('{side}边的上半身用哪个角色', { side: t(TORSO_EDIT_LABEL[side]) }));
+  pick.append(new Option(t('跟身子一样'), ''), ...ROSTER.map((entry) => new Option(entry.label, entry.id)));
+  pick.addEventListener('change', () => {
+    const next = { ...spec.torsoCharacters };
+    if (pick.value) next[side] = pick.value as CharacterId;
+    else delete next[side];
+    spec = { ...spec, torsoCharacters: next };
+    commit();
+  });
+  label.append(el('span', '', t(TORSO_EDIT_LABEL[side])), pick);
+  torsoCharPicks.set(side, pick);
+  $('torsoChars').append(label);
+}
+function syncTorsoCharacters() {
+  const sides = torsoSides(spec.counts.torsos);
+  $('torsoCharRow').hidden = spec.bodyStyle !== 'character' || sides.length < 2;
+  for (const [side, pick] of torsoCharPicks) {
+    pick.parentElement!.hidden = !sides.includes(side);
+    const id = spec.torsoCharacters?.[side];
+    pick.value = id && id !== spec.character ? id : '';
+  }
+}
 /** 上次存在这台设备上的那个 VRM：选到成品角色时才去读（文件不小） */
 let ownRestored = false;
 function syncCharacter() {
   const on = spec.bodyStyle === 'character';
   $('characterRow').hidden = $('characterNote').hidden = !on;
+  syncTorsoCharacters();
   if (on && !ownRestored) {
     ownRestored = true;
     void restoreOwnCharacter().then((source) => {
@@ -1539,7 +1570,18 @@ function ensureAnimeBody() {
 
 /** 成品角色的文件（每个十来 MB）也是选到哪个才取哪个，取回来之前先照白模人台显示 */
 const characterLoading = new Set<CharacterChoice>();
+/** 好几个上半身时换成了别的角色的那几个上半身用的角色（见 BodySpec.torsoCharacters），和身子的角色一样的不算 */
+function torsoCharacterIds(): CharacterId[] {
+  if (spec.bodyStyle !== 'character') return [];
+  const ids = torsoSides(spec.counts.torsos).map((side) => spec.torsoCharacters?.[side]);
+  return [...new Set(ids.filter((id): id is CharacterId => Boolean(id) && id !== spec.character))];
+}
+/** 拼这个成品角色用到的所有角色：身子的，加上换了角色的上半身的 */
+const usedCharacters = (): CharacterChoice[] => [spec.character, ...torsoCharacterIds()];
+/** 用到的角色里许可要求署名的那几句 */
+const usedCredits = () => usedCharacters().flatMap((id) => (id === OWN_CHARACTER ? [] : rosterEntry(id).credit ?? []));
 function ensureCharacter() {
+  for (const id of torsoCharacterIds()) ensureTorsoCharacter(id);
   const id = spec.character;
   if (characterLoading.has(id) || characterSource(id)) return;
   characterLoading.add(id);
@@ -1578,6 +1620,26 @@ function ensureCharacter() {
       characterLoading.delete(id);
     });
 }
+/** 某个上半身换成的角色：取回来之前那个上半身先照身子的角色拼 */
+function ensureTorsoCharacter(id: CharacterId) {
+  if (characterLoading.has(id) || characterSource(id)) return;
+  characterLoading.add(id);
+  const label = rosterEntry(id).label;
+  setStatus(t('正在载入角色「{label}」（十来 MB，稍等）…', { label }));
+  loadCharacter(id, import.meta.env.BASE_URL)
+    .then(() => {
+      if (!torsoCharacterIds().includes(id)) return;
+      setStatus(t('角色「{label}」已载入', { label }));
+      scheduleRebuild();
+    })
+    .catch((err: unknown) => {
+      retryOnReturn = err instanceof OfflineError;
+      setStatus(t('角色「{label}」没载入成功，那个上半身先照身子的角色拼：{err}', { label, err: errText(err) }), true);
+    })
+    .finally(() => {
+      characterLoading.delete(id);
+    });
+}
 
 /** 换发型用的头发（每副一两 MB）也是用到时才取，取回来之前先照原装的头发显示 */
 const hairLoading = new Set<HairStyle>();
@@ -1605,7 +1667,7 @@ function ensureHair() {
  * 一张图几百毫秒；做好之前先照老办法染着，做好了再换上
  */
 const lightening = new WeakSet<object>();
-const hairSources = () => [characterSource(spec.character), hairDonor(spec.hair.style)?.source ?? null];
+const hairSources = () => [characterSource(spec.character), hairDonor(spec.hair.style)?.source ?? null, ...torsoCharacterIds().map(characterSource)];
 function ensureHairLight() {
   if (!spec.hair.color && !spec.hair.heads.some((v) => v && v !== HAIR_UNDYED) && spec.hair.style === 'own') return;
   for (const source of hairSources()) {
@@ -1687,9 +1749,10 @@ function showCharacter(): boolean {
       spec.character,
       Boolean(donor),
       hairSources().map((s) => Boolean(s && hairLit(s))),
+      torsoCharacterIds().map((id) => Boolean(characterSource(id))),
     ]);
     if (characterBase?.key !== key || (characterBase.bust !== bust && sliding !== 'bust')) {
-      characterBase = { key, bust, build: assembleCharacter(source, spec, donor) };
+      characterBase = { key, bust, build: assembleCharacter(source, spec, donor, characterSource) };
     }
     const grow = bust / characterBase.bust;
     tweaked = tweakCharacter(characterBase.build, grow === 1 ? spec.characterOverrides : grownChests(characterBase.build, spec.characterOverrides, grow));
@@ -1728,6 +1791,7 @@ function bodyKeyOf(): string {
     mode,
     animeReady(),
     Boolean(characterSource(spec.character)),
+    torsoCharacterIds().map((id) => Boolean(characterSource(id))),
     Boolean(hairDonor(style)),
     spec.bodyStyle === 'character' && hairSources().map((source) => Boolean(source && hairLit(source))),
     style === 'own' || hairReady(style),
@@ -3560,8 +3624,8 @@ function exportCharacter(kind: ExportKind, rest: CharacterBuild, pose: ExportPos
   if (kind === 'glb' || kind === 'rig') {
     // 许可要求署名的角色：署名写进文件里，状态栏上也提一句。自己的 VRM：作者和许可照文件里写的记进去
     const own = spec.character === OWN_CHARACTER ? characterSource(OWN_CHARACTER) : null;
-    const credit = own ? undefined : rosterEntry(spec.character as CharacterId).credit;
-    const copyright = own ? [own.title, own.author, own.license].filter(Boolean).join(' / ') : credit;
+    const credit = usedCredits().join(t('；')) || undefined;
+    const copyright = own ? [[own.title, own.author, own.license].filter(Boolean).join(' / '), credit].filter(Boolean).join(t('；')) : credit;
     const glb = characterGlb(build, { rig: kind === 'rig', ...(copyright ? { copyright } : {}) });
     const what = kind === 'rig' ? t('带贴图的成品角色，{n} 根骨骼', { n: build.bones.length }) : t('带贴图的成品角色');
     return { blob: glbBlob(glb), what: credit ? t('{what}；发出去时请署名「{credit}」', { what, credit }) : what };
@@ -3703,8 +3767,7 @@ async function exportCharacterVrm(build: CharacterBuild) {
     setStatus(t('这个角色导不了 VRM：{err}', { err: errText(err) }), true);
     return;
   }
-  const own = spec.character === OWN_CHARACTER;
-  const credit = own ? undefined : rosterEntry(spec.character as CharacterId).credit;
+  const credit = usedCredits().join(t('；')) || undefined;
   const meta = await askVrmMeta(credit, { title: source.title, terms: describeLicense(license) });
   if (!meta) return;
   const buttons = [...Object.values(exportButtons), $<HTMLButtonElement>('btnVrm')];

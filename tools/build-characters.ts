@@ -1,5 +1,5 @@
 // 把 assets/source/ 里的角色原件加工成工坊运行时读的文件（public/character/<名字>.vrm）：
-//   node tools/run.mjs tools/build-characters.ts
+//   node tools/run.mjs tools/build-characters.ts [角色名 …]
 // 要哪些角色、原件在哪，照 src/character/roster.ts 的清单。
 //
 // 只做一件事：工坊只用每种材质的底色贴图，别的图（法线、阴影色、高光、缩略图 …）用不到，
@@ -17,10 +17,11 @@ const sum = (data: ArrayLike<number>) => {
 };
 const buffer = (file: Uint8Array) => file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength) as ArrayBuffer;
 
-export async function main(_args: string[], root: string) {
+export async function main(args: string[], root: string) {
   let before = 0;
   let after = 0;
-  for (const entry of ROSTER) {
+  // 后面给了角色名（vita fumiriya …）的只加工这几个
+  for (const entry of ROSTER.filter((e) => !args.length || args.includes(e.id))) {
     const file = readFileSync(join(root, 'assets/source', entry.source));
     const { out, dropped } = slim(file);
     // 核对：加工前后读出来的东西（网格、骨骼、底色贴图、表情）一模一样

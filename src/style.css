@@ -153,6 +153,10 @@ textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border
 .roster .card img{display:block;width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:5px;background:var(--panel)}
 .roster .card span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
 .roster .card.on{border-color:var(--accent);color:var(--ink);box-shadow:0 0 0 1px var(--accent)}
+/* 每个上半身的角色：一个上半身一个下拉框，横着排 */
+.torso-chars{display:flex;gap:6px}
+.torso-char{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--muted)}
+.torso-char[hidden]{display:none}
 .roster .card:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .sliders{display:flex;flex-direction:column;gap:8px}
 .slider{display:grid;grid-template-columns:5.2em 1fr 4em;align-items:center;gap:10px}

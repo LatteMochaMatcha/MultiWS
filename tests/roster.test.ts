@@ -91,7 +91,7 @@ describe('角色清单', () => {
     // 要求署名的两个带着署名的那一句
     expect(rosterEntry('alice').credit).toContain('CC BY-SA');
     expect(rosterEntry('kotori').credit).toContain('CC BY');
-    expect(ROSTER.filter((entry) => entry.credit).map((entry) => entry.id)).toEqual(['alice', 'kotori']);
+    expect(ROSTER.filter((entry) => entry.credit).map((entry) => entry.id)).toEqual(['alice', 'kotori', 'noble']);
   });
 
   it('设定里选了哪个角色会存下来；不认识的名字退回默认的', () => {
