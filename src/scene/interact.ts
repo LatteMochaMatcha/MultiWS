@@ -12,7 +12,10 @@ import { tk } from '../i18n';
 import { type V3, add, dot, len, madd, mul, norm, sub } from '../geometry/vec';
 import { type Place, absolutePlace } from '../model/scene';
 import { type Posing, emptyPosing } from '../pose/posing';
-import { type PoseState, type RigBone, forward, posedBones } from '../pose/rig';
+import { type PoseState, type RigBone, cloneState, forward, posedBones } from '../pose/rig';
+import { fitArms, followArms } from '../pose/fit';
+import { armOfBone, followPair } from '../pose/follow';
+import { POSE_LIBRARY } from '../pose/library';
 import { type Pin, capturePins, dragReach } from '../pose/solve';
 import { type Solver, makeSolver, posingOf, stateOf } from '../pose/solver';
 
@@ -232,6 +235,11 @@ export interface PairPreset {
   place: { x: number; z: number; yaw: number };
   /** 两人的底子姿势（现成姿势的名字，见 pose/library.ts；null 是自然垂手），再在上面伸手 */
   base: { A: string | null; B: string | null };
+  /**
+   * 多出来的几对手臂（不伸手的那几对）照哪个现成姿势摆；不写就照底子姿势。
+   * 底子是 null 时要写：不然它们照静止时那样张开着
+   */
+  extraArms?: string;
   contacts: Contact[];
 }
 
@@ -280,9 +288,12 @@ export const PAIR_PRESETS: readonly PairPreset[] = [
   {
     key: 'hug',
     name: tk('拥抱'),
-    // 往旁边错开一点：两个头不撞在一起。底子不套现成姿势（「自然站立」迈着一条腿，面对面会撞上）
-    place: { x: 0.5, z: 1.0, yaw: 180 },
+    // 往旁边错开一点：两个头不撞在一起。底子不套现成姿势（「自然站立」迈着一条腿、身子歪着，面对面会撞上），
+    // 多出来的几对手臂照「自然站立」垂下来
+    // 间距是两个头凑在一起、两对手臂的默认体型上试出来的（单个头的也不插）
+    place: { x: 0.4, z: 0.9, yaw: 180 },
     base: { A: null, B: null },
+    extraArms: '自然站立',
     // A 的手搂对方背上两侧，B 的手搂对方腰两侧：一上一下，两人的手臂不打架。
     // 都放在伸手够得着的地方（放到正后方的话够不着，IK 会让人弯腰往前凑，两个头撞在一起）
     contacts: [
@@ -322,15 +333,84 @@ const PALM = 0.025;
  * 摆一个双人动作：B 挪到 A 旁边的位置，两人各套底子姿势，再用 IK 让手去够接触点（脚钉着不动，手够不着时身子跟过去）。
  * 返回两人的新姿势和 B 的新位置；A 的位置不动
  */
+/** 双人动作最多试多久（毫秒） */
+const PAIR_BUDGET_MS = 1200;
+
 export function solvePair(preset: PairPreset, A: PairSide, B: PairSide): PairResult {
-  const unit = (unitOf(A.bones) + unitOf(B.bones)) / 2;
-  const placeB = absolutePlace(A.place, { x: preset.place.x * unit, z: preset.place.z * unit, yaw: preset.place.yaw });
-  const sides = { A: { ...A, place: A.place }, B: { ...B, place: placeB } };
+  // 照预设的间距摆；两人身子还是插在一起（多个头凑在一起、几对手臂，和预设量的体型不一样）就换着试：
+  // 左右、前后各挪近一点或拉开一点；多出来的几对手臂怎么放（见 Extra）；搭在别人身上的手往他身后挪一点。
+  // 挑够得着的不比原来少、插得最浅的那个；改动小的先试，不插了就停
+  const SPREADS = [1, 0.9, 1.1, 0.8, 1.2];
+  const BACKS = preset.contacts.some((c) => c.kind === 'on') ? [0, 0.05, 0.1] : [0];
+  const kit = pairKit(preset, A, B);
+  const many = (who: Who) => kit.solvers[who].limbs.some((l) => l.kind === 'arm' && l.pair > 0);
+  const modes = (who: Who): Extra[] => (!many(who) ? ['keep'] : preset.extraArms ? ['hang', 'follow', 'keep'] : ['keep', 'follow']);
+  const extras: [Extra, Extra][] = [];
+  for (const a of modes('A')) for (const b of modes('B')) extras.push([a, b]);
+  const tries: { sx: number; sz: number; extra: [Extra, Extra]; back: number; cost: number }[] = [];
+  for (const sx of SPREADS)
+    for (const sz of preset.place.z ? SPREADS : [1])
+      for (const back of BACKS)
+        extras.forEach((extra, k) => tries.push({ sx, sz, extra, back, cost: Math.abs(sx - 1) + Math.abs(sz - 1) + back + k * 0.001 }));
+  tries.sort((p, q) => p.cost - q.cost);
+  let best: { result: PairResult; depth: number } | null = null;
+  // 手臂多的身子一次要算好几毫秒：试满这么久还插着就不试了，留目前最好的（点了按钮别卡太久）
+  const until = performance.now() + PAIR_BUDGET_MS;
+  for (const t of tries) {
+    if (best && performance.now() > until) break;
+    const tried = solvePairAt(preset, A, B, kit, t.sx, t.sz, t.extra, t.back);
+    if (best && tried.result.missed > best.result.missed) continue;
+    if (!best || tried.result.missed < best.result.missed || tried.depth < best.depth - 1e-4) best = tried;
+    if (best.depth === 0) break;
+  }
+  return best!.result;
+}
+
+/**
+ * 多出来的几对手臂（不伸手的那几对）怎么放：照底子姿势（或 extraArms）垂着、照第一对一起伸手、
+ * 留在静止时那样（底子是 null 时张开着；拥抱时对方的手搂在腰上，垂着的会和它打架）
+ */
+type Extra = 'hang' | 'follow' | 'keep';
+
+/** 每次试都一样的那些：两人的骨架、套好的底子姿势、多出来的手臂垂着时的样子 */
+interface PairKit {
+  solvers: Record<Who, Solver>;
+  base: Record<Who, Posing | null>;
+  start: Record<Who, PoseState>;
+  hang: Record<Who, PoseState | null>;
+}
+
+function pairKit(preset: PairPreset, A: PairSide, B: PairSide): PairKit {
   const solvers: Record<Who, Solver> = { A: makeSolver(A.bones), B: makeSolver(B.bones) };
-  const states: Record<Who, PoseState> = {
-    A: stateOf(solvers.A, A.base ?? emptyPosing()),
-    B: stateOf(solvers.B, B.base ?? emptyPosing()),
+  // 底子姿势只写了第一对手臂：照界面上套现成姿势那样，让多出来的几对也跟着摆（见 pose/fit.ts）
+  const fitted = (who: Who, posing: Posing | null | undefined): Posing | null => (posing ? followArms(solvers[who], fitArms(solvers[who], posing)).posing : null);
+  const base = { A: fitted('A', A.base), B: fitted('B', B.base) };
+  const hangPosing = preset.extraArms ? POSE_LIBRARY.find((p) => p.name === preset.extraArms)?.posing : undefined;
+  const hangOf = (who: Who) => {
+    const p = fitted(who, hangPosing);
+    return p ? stateOf(solvers[who], p) : null;
   };
+  return {
+    solvers,
+    base,
+    start: { A: stateOf(solvers.A, base.A ?? emptyPosing()), B: stateOf(solvers.B, base.B ?? emptyPosing()) },
+    hang: { A: hangOf('A'), B: hangOf('B') },
+  };
+}
+
+/**
+ * 照预设摆一次：左右间距放大 sx 倍、前后 sz 倍；extra：A、B 多出来的几对手臂怎么放；
+ * back：搭在别人身上的手再往别人身后挪多少（单位同 offset）。
+ * depth：摆好以后两人插得最深的那处（米，不插是 0）
+ */
+function solvePairAt(preset: PairPreset, A: PairSide, B: PairSide, kit: PairKit, sx: number, sz: number, extra: [Extra, Extra], back = 0): { result: PairResult; depth: number } {
+  const unit = (unitOf(A.bones) + unitOf(B.bones)) / 2;
+  const placeB = absolutePlace(A.place, { x: preset.place.x * unit * sx, z: preset.place.z * unit * sz, yaw: preset.place.yaw });
+  const sides = { A: { ...A, place: A.place }, B: { ...B, place: placeB } };
+  const { solvers } = kit;
+  const baseA = kit.base.A;
+  const baseB = kit.base.B;
+  const states: Record<Who, PoseState> = { A: cloneState(kit.start.A), B: cloneState(kit.start.B) };
   const heights = { A: heightOf(A.bones), B: heightOf(B.bones) };
   /** 某人某根骨骼的起点现在在场景里的哪 */
   const boneAt = (who: Who, name: string): V3 | null => {
@@ -383,7 +463,7 @@ export function solvePair(preset: PairPreset, A: PairSide, B: PairSide): PairRes
         continue;
       }
       const f = forward(s.rig, states[other]);
-      const local = add(f.pos[j], mul(c.offset, unit));
+      const local = add(f.pos[j], mul([c.offset[0], c.offset[1], c.offset[2] - back], unit));
       let target = toScene(sides[other].place, local);
       // 落在对方身子里面：推到表面，留一个手掌厚
       const body = placeCapsules(capsulesOf(posedBones(s.rig, f), heights[other]), sides[other].place);
@@ -391,12 +471,28 @@ export function solvePair(preset: PairPreset, A: PairSide, B: PairSide): PairRes
       if (!reach(c.who, c.hand, target)) missed++;
     }
   }
+  // 多出来的几对手臂：照第一对摆（和「几对手臂 → 一起动」一样），或者照 extraArms 垂着（第一对还是伸手的样子）
+  (['A', 'B'] as const).forEach((who, k) => {
+    const s = solvers[who];
+    const want = kit.hang[who];
+    if (extra[k] === 'follow') states[who] = followPair(s, states[who], 0);
+    else if (extra[k] === 'hang' && want) {
+      const next = cloneState(states[who]);
+      for (let j = 0; j < s.rig.names.length; j++) if ((armOfBone(s, j)?.pair ?? 0) > 0) next.local[j] = want.local[j];
+      states[who] = next;
+    }
+  });
+  const posed = (who: Who) => placeCapsules(capsulesOf(posedBones(solvers[who].rig, forward(solvers[who].rig, states[who])), heights[who]), sides[who].place);
+  const clashes = findClashes(posed('A'), posed('B'));
   return {
-    placeB,
-    posing: {
-      A: posingOf(solvers.A, states.A, A.base ?? undefined),
-      B: posingOf(solvers.B, states.B, B.base ?? undefined),
+    result: {
+      placeB,
+      posing: {
+        A: posingOf(solvers.A, states.A, baseA ?? undefined),
+        B: posingOf(solvers.B, states.B, baseB ?? undefined),
+      },
+      missed,
     },
-    missed,
+    depth: clashes[0]?.depth ?? 0,
   };
 }

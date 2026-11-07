@@ -3,7 +3,7 @@ import { len, sub } from '../src/geometry/vec';
 import { buildFigure } from '../src/geometry/layout';
 import { defaultSpec } from '../src/model/spec';
 import { POSE_LIBRARY } from '../src/pose/library';
-import { forward } from '../src/pose/rig';
+import { forward, posedBones } from '../src/pose/rig';
 import { makeSolver, stateOf } from '../src/pose/solver';
 import { buildSkeleton } from '../src/rig/skeleton';
 import {
@@ -111,7 +111,7 @@ describe('双人动作', () => {
         const f = forward(s.rig, stateOf(s, r.posing[who]));
         return placeCapsules(
           capsulesOf(
-            s.rig.names.map((name, j) => ({ name, parent: s.rig.parent[j], head: f.pos[j], tail: f.pos[j] })),
+            posedBones(s.rig, f),
             heightOf(A.bones),
           ).filter((c) => c.part === 'torso'),
           who === 'A' ? A.place : r.placeB,
@@ -119,6 +119,25 @@ describe('双人动作', () => {
       };
       const torsoClash = findClashes(posed('A'), posed('B'), 0.05);
       expect(torsoClash, preset.key).toEqual([]);
+    }
+  });
+
+  it('刚打开时的体型（两个头、两对手臂）摆每个双人动作：拉开到整个人都不穿插，也都够得着', () => {
+    const wide = buildSkeleton(buildFigure({ ...defaultSpec(), counts: { ...defaultSpec().counts, heads: 2, armPairs: 2, chestPairs: 2 } })).bones;
+    const posedAll = (posing: Parameters<typeof stateOf>[1], place: { x: number; z: number; yaw: number }) => {
+      const s = makeSolver(wide);
+      const f = forward(s.rig, stateOf(s, posing));
+      return placeCapsules(
+        capsulesOf(posedBones(s.rig, f), heightOf(wide)),
+        place,
+      );
+    };
+    for (const preset of PAIR_PRESETS) {
+      const A = { bones: wide, place: { x: 0, z: 0, yaw: 0 }, base: preset.base.A ? base(preset.base.A) : null };
+      const B = { bones: wide, place: { x: 3, z: 0, yaw: 0 }, base: preset.base.B ? base(preset.base.B) : null };
+      const r = solvePair(preset, A, B);
+      expect(r.missed, preset.key).toBe(0);
+      expect(findClashes(posedAll(r.posing.A, A.place), posedAll(r.posing.B, r.placeB)), preset.key).toEqual([]);
     }
   });
 });
