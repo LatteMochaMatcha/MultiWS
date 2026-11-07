@@ -4,19 +4,21 @@
  * 部件都按一个 1.76 m 上下的标准人台来摆（沿用 v1 的骨架尺寸），Figure.scale 再把它缩放到设定身高。
  * 体型是动漫比例的成年女性：躯干有胸腔、腰、骨盆的起伏，四肢带一点肌肉的鼓起。
  */
-import { type BodySpec, type Gender, type HandStyle, type LegForm, type PartOverride, BUST_MAX_OTHER, countsOf, legPlan, torsosAlike } from '../model/spec';
+import { type BodySpec, type Gender, type HandStyle, type LegForm, type LimbEnd, type PartOverride, BUST_MAX_OTHER, countsOf, legPlan, limbOf, torsosAlike } from '../model/spec';
 import { animeReady } from '../anime/body';
 import { genitalReady } from '../anime/genital';
-import { FINGER_JOINTS, HAND_ELBOW, HAND_LENGTH, HAND_WRIST, handGraft } from '../anime/hand';
+import { HAND_ELBOW, HAND_LENGTH, HAND_WRIST, fingerJoints, handGraft } from '../anime/hand';
+import { BENT_TIP, LEG_FINGER, PALM_AHEAD, type Placement, bentHand, mirrorPlace, palmGraft, swapPlace } from '../anime/swap';
 import { layoutAnime } from './animeLayout';
 import { FACE_OUT, faceTurns, fanShift, gatherOut, headCluster, headShrink, headTurn, shoulderSpan } from './bodyPlan';
-import { type BoneHint, type Figure, type Graft, type Part, type Prim, type Ring, type Side, type Tube, nthName } from './figure';
+import { type BoneHint, type Figure, type Graft, type Part, type Prim, type Ring, type Side, type Tube, graftFrame, nthName, worldTransforms } from './figure';
 import { castRay, compileField, fieldAt } from '../sdf/field';
 import { type Mount, UNDER, genitalParts } from './genital';
 import { type HeadHair, CRANIUM, HEAD_HALF_HEIGHT, HEAD_HALF_WIDTH, SKULL, makeFace, makeHead } from './head';
 import { WING_OUTLINE, sampleTube } from './shapes';
 import { ringAt, smoothRings } from './torso';
 import { SLOT_SIDE, refork, splitTorsos, torsoSlots } from './torsos';
+import { conjoin } from './conjoined';
 import { applyOverrides } from './tweak';
 import { wigOf } from './wig';
 import {
@@ -32,6 +34,9 @@ import {
   madd,
   mul,
   norm,
+  mat3Apply,
+  quatBasis,
+  quatMat3,
   quatBetween,
   quatEuler,
   rotate,
@@ -254,33 +259,59 @@ const FINGERS = [
  * 手上的尺寸都写在手自己的坐标里：沿前臂的方向（也是手指的方向）、向拇指一侧、向手心一侧。
  * fore 是前臂的方向；拇指一侧朝前，手心朝向身体。
  */
-function handFrame(wrist: V3, fore: V3, side: LR) {
+function handFrame(wrist: V3, fore: V3, side: LR): HandFrame {
   const forward: V3 = [0, 0, 1];
   const flat = sub(forward, mul(fore, dot(forward, fore)));
   const thumbSide = len(flat) < 1e-6 ? UP : norm(flat);
   const palmSide = mul(cross(fore, thumbSide), side);
   /** 手上的一个点：沿手指方向 f，向拇指一侧 t，向手心一侧 n */
   const at = (f: number, t = 0, n = 0): V3 => add(add(madd(wrist, fore, f), mul(thumbSide, t)), mul(palmSide, n));
-  return { thumbSide, palmSide, at };
+  return { fore, thumbSide, palmSide, at, size: 1, palmDown: false };
+}
+
+/** 一只手的三个方向和取点的办法（见 handFrame）；size：手放大了几倍（圆棒的粗细跟着乘） */
+interface HandFrame {
+  fore: V3;
+  thumbSide: V3;
+  palmSide: V3;
+  at: (f: number, t?: number, n?: number) => V3;
+  size: number;
+  /** 手心朝下贴地（接在腿上的手）：四指、拇指都放平 */
+  palmDown: boolean;
+}
+
+/**
+ * 手脚互换时腿末端接的手（并指）：手腕在脚踝上，手心朝下贴地、手指朝前（往外撇开一点），拇指在里侧，放大 size 倍。
+ * 手掌往下挪 sink（米）：手腕那一头腿的圆头比手掌厚，手腕要高到圆头不戳进地里，手掌再落回地面
+ */
+function palmFrame(wrist: V3, side: Side, size: number, sink: number): HandFrame {
+  const m = side < 0 ? -1 : 1;
+  const fore: V3 = [m * PALM_AHEAD[0], PALM_AHEAD[1], PALM_AHEAD[2]];
+  const palmSide: V3 = [0, -1, 0];
+  const thumbSide = mul(cross(palmSide, fore), m);
+  const at = (f: number, t = 0, n = 0): V3 => add(add(madd(wrist, fore, f * size), mul(thumbSide, t * size)), mul(palmSide, n * size + sink));
+  return { fore, thumbSide, palmSide, at, size, palmDown: true };
 }
 
 /** 拇指那根圆棒的两头 */
-const thumbLine = (at: (f: number, t?: number, n?: number) => V3): [V3, V3] => [at(0.028, 0.03), at(0.072, 0.068, 0.01)];
+const thumbLine = ({ at, palmDown }: HandFrame): [V3, V3] =>
+  // 手心朝下贴地的（接在腿上）：拇指收拢、顺着四指往前（张开的话两只手的拇指在两腿中间碰上），也不往手心那边弯
+  palmDown ? [at(0.028, 0.03), at(0.088, 0.04)] : [at(0.028, 0.03), at(0.072, 0.068, 0.01)];
 
 /**
  * 四根手指各自从哪到哪（食指 → 小指）。分指时就是那四根圆棒；
  * 并指时四指是连成一片的，这里给的是那一片里并排的四条线（骨骼照它们排）。
  */
-function fingerLines(wrist: V3, fore: V3, side: LR, style: HandStyle): { name: string; a: V3; b: V3 }[] {
-  const { thumbSide, palmSide, at } = handFrame(wrist, fore, side);
+function fingerLines(frame: HandFrame, style: HandStyle): { name: string; a: V3; b: V3 }[] {
+  const { fore, thumbSide, palmSide, at, size } = frame;
   return FINGERS.map((f) => {
     if (style === 'mitten') {
       const edge = Math.abs(f.offset) / 0.027;
-      return { name: f.name, a: at(0.092, f.offset), b: at(0.166 - edge * 0.014, f.offset * 0.9, 0.01) };
+      return { name: f.name, a: at(0.092, f.offset), b: at(0.166 - edge * 0.014, f.offset * 0.9, frame.palmDown ? 0 : 0.01) };
     }
     const base = at(0.094, f.offset);
     const dir = norm(add(add(fore, mul(thumbSide, f.splay)), mul(palmSide, 0.12)));
-    return { name: f.name, a: base, b: madd(base, dir, f.length) };
+    return { name: f.name, a: base, b: madd(base, dir, f.length * size) };
   });
 }
 
@@ -309,22 +340,23 @@ function handPlace(wrist: V3, fore: V3, side: LR, r: number): Pick<Graft, 'matri
 }
 
 /** 手：手掌 + 拇指，再加一整片并拢的四指（手套形）或者四根分开的手指 */
-function handPrims(wrist: V3, fore: V3, side: LR, r: number, style: HandStyle): Prim[] {
-  const { at } = handFrame(wrist, fore, side);
+function handPrims(frame: HandFrame, given: number, style: HandStyle): Prim[] {
+  const { at, size } = frame;
+  const r = given * size;
   // 手掌是三根并排的圆棒拼成的一块厚板（边缘是圆的，不会薄到在体素网格上碎掉）
   const prims: Prim[] = [-1, 0, 1].map((k) =>
     cone(`Palm_${k + 2}`, at(0.014, k * 0.019), at(0.092, k * 0.024), 0.017 * r, 0.0145 * r),
   );
-  const [thumbA, thumbB] = thumbLine(at);
-  prims.push(cone('Thumb', thumbA, thumbB, 0.0135, 0.0105));
+  const [thumbA, thumbB] = thumbLine(frame);
+  prims.push(cone('Thumb', thumbA, thumbB, 0.0135 * size, 0.0105 * size));
   if (style === 'mitten') {
     // 并拢的四指：接着手掌往前伸的一片，略微朝手心弯。两侧的圆棒圆滑地融进中间那根，连成一整片
     for (const k of [0, -1, 1]) {
-      const finger = cone(`Fingers_${k + 2}`, at(0.092, k * 0.022), at(0.16 - Math.abs(k) * 0.012, k * 0.02, 0.01), 0.0135 * r, 0.0115 * r);
+      const finger = cone(`Fingers_${k + 2}`, at(0.092, k * 0.022), at(0.16 - Math.abs(k) * 0.012, k * 0.02, frame.palmDown ? 0 : 0.01), 0.0135 * r, 0.0115 * r);
       prims.push(k && finger.kind === 'cone' ? { ...finger, soft: 0.016 } : finger);
     }
   } else {
-    for (const f of fingerLines(wrist, fore, side, style)) prims.push(cone(f.name, f.a, f.b, 0.0088, 0.0072));
+    for (const f of fingerLines(frame, style)) prims.push(cone(f.name, f.a, f.b, 0.0088 * size, 0.0072 * size));
   }
   return prims;
 }
@@ -372,29 +404,64 @@ function armJoints(dir: V3, straight: boolean) {
   return { elbow, fore, wrist: madd(elbow, fore, 0.25) };
 }
 
-/** 一条手臂；r 是粗细倍率。分指的手不在这里：它是接上去的现成网格（armGrafts） */
-function armPrims(side: LR, dir: V3, r: number, hands: HandStyle, straight: boolean): Prim[] {
+/** 一条手臂；r 是粗细倍率。分指的手不在这里：它是接上去的现成网格（armGrafts）。end：末端接手还是脚（手脚互换） */
+function armPrims(side: LR, dir: V3, r: number, hands: HandStyle, straight: boolean, end: LimbEnd): Prim[] {
   const { elbow, fore, wrist } = armJoints(dir, straight);
   return [
     ball('Shoulder', 0.052 * r, O),
     cone('UpperArm', O, elbow, 0.044 * r, 0.036 * r),
     cone('Forearm', elbow, wrist, 0.036 * r, 0.025 * r),
-    ...(hands === 'fingers' ? [] : handPrims(wrist, fore, side, r, hands)),
+    ...(end === 'foot' ? armFootPrims(wrist, fore, r) : hands === 'fingers' ? [] : handPrims(handFrame(wrist, fore, side), r, hands)),
+  ];
+}
+
+/** 人腿的脚踝、手臂的手腕各多粗（体格 1）：脚接到手臂上、手接到腿上照它们的比缩放 */
+const ANKLE_R = 0.033;
+const WRIST_R = 0.025;
+/** 人腿上那块脚（脚掌、脚跟两个椭球）的中心离脚踝多远（左脚；往下 -Y、往前 +Z） */
+const FOOT_OFFSET = { foot: [0, -0.055, 0.07] as V3, heel: [0, -0.053, -0.012] as V3 };
+
+/**
+ * 手脚互换时手臂末端接的脚：人台自己那块脚（没有脚趾），照腿上那样摆——顺着前臂往外当作「往下」，
+ * 手臂垂下来时脚底朝下、脚趾朝前；缩到和手腕一样粗。脚是左右对称的，左右手臂用同一块
+ */
+function armFootPrims(wrist: V3, fore: V3, r: number): Prim[] {
+  const size = WRIST_R / ANKLE_R;
+  const forward: V3 = [0, 0, 1];
+  const flat = sub(forward, mul(fore, dot(forward, fore)));
+  const ahead = len(flat) < 1e-6 ? UP : norm(flat);
+  // 腿上的脚：往下是 -Y、往前是 +Z。这里往下换成顺着前臂往外、往前还是往前
+  const turn = quatBasis(cross(mul(fore, -1), ahead), mul(fore, -1), ahead);
+  const at = (p: V3) => add(wrist, mul(rotate(turn, p), size));
+  return [
+    blob('Foot', [0.04 * r * size, 0.03 * size, 0.115 * size], at(FOOT_OFFSET.foot), turn),
+    { kind: 'ellipsoid', name: 'Heel', center: at(FOOT_OFFSET.heel), radii: [0.03 * r * size, 0.03 * size, 0.032 * size], quat: turn, soft: 0.012 * size },
   ];
 }
 
 /** 分指时接在手腕上的那只现成的手 */
-function armGrafts(side: LR, dir: V3, r: number, straight: boolean, index: number): Graft[] {
+function armGrafts(side: LR, dir: V3, r: number, straight: boolean, index: number, fingers: number): Graft[] {
   const { fore, wrist } = armJoints(dir, straight);
   const name = (base: string) => nthName(`${base}_${tag(side)}`, index);
-  return [{ ...handGraft(name), ...handPlace(wrist, fore, side, r) }];
+  return [{ ...handGraft(name, fingers), ...handPlace(wrist, fore, side, r) }];
 }
 
 /**
  * 一条手臂的骨骼：锁骨（从脊柱旁边伸到肩关节）、上臂、前臂、手，再加五根手指各三节。
  * index 是第几对手臂（从 0 数）；inward 是肩关节离躯干中线多远；parent 是锁骨接在躯干的哪节骨骼上。
  */
-function armBones(side: LR, dir: V3, straight: boolean, index: number, inward: number, parent: string, hands: HandStyle, r: number): BoneHint[] {
+function armBones(
+  side: LR,
+  dir: V3,
+  straight: boolean,
+  index: number,
+  inward: number,
+  parent: string,
+  hands: HandStyle,
+  r: number,
+  fingers: number,
+  end: LimbEnd,
+): BoneHint[] {
   const { elbow, fore, wrist } = armJoints(dir, straight);
   const name = (base: string) => nthName(`${base}_${tag(side)}`, index);
   const arm = [
@@ -402,11 +469,14 @@ function armBones(side: LR, dir: V3, straight: boolean, index: number, inward: n
     bone(name('UpperArm'), O, elbow, name('Shoulder')),
     bone(name('LowerArm'), elbow, wrist, name('UpperArm')),
   ];
+  // 接的是脚：手这根骨骼照旧顺着前臂（脚跟着它），没有手指
+  if (end === 'foot') return [...arm, bone(name('Hand'), wrist, madd(wrist, fore, 0.095), name('LowerArm'))];
   if (hands !== 'fingers') {
+    const frame = handFrame(wrist, fore, side);
     return [
       ...arm,
       bone(name('Hand'), wrist, madd(wrist, fore, 0.095), name('LowerArm')),
-      ...fingerBones(fingerLines(wrist, fore, side, hands), thumbLine(handFrame(wrist, fore, side).at), name('Hand'), name),
+      ...fingerBones(fingerLines(frame, hands), thumbLine(frame), name('Hand'), name),
     ];
   }
   // 分指的手是现成的网格：手指的关节就用它自带的，摆到同一个位置上
@@ -420,7 +490,7 @@ function armBones(side: LR, dir: V3, straight: boolean, index: number, inward: n
     ...arm,
     // 手这根骨骼还是顺着前臂（和并指的一样）：平举、手心朝下就是它静止的样子，姿势的记法里手掌从这里算起
     bone(name('Hand'), wrist, madd(wrist, fore, 0.095), name('LowerArm')),
-    ...FINGER_JOINTS.flatMap(({ finger, joints }) =>
+    ...fingerJoints(fingers).flatMap(({ finger, joints }) =>
       [0, 1, 2].map((k) => ({
         ...bone(name(`${finger}${k + 1}`), at(joints[k]), at(joints[k + 1]), k ? name(`${finger}${k}`) : name('Hand')),
         strand: finger,
@@ -450,29 +520,111 @@ function humanLegJoints(side: Side, hx: number, out = 0) {
   return { knee, ankle };
 }
 
-/** 人腿的骨骼：大腿、小腿、脚（踝 → 脚掌）、脚趾 */
-function humanLegBones(side: Side, hx: number, index: number, parent: string, out = 0): BoneHint[] {
+/** 人腿的骨骼：大腿、小腿、脚（踝 → 脚掌）、脚趾；腿末端接的是手（palm）的话脚这根伸到中指根，后面跟着手指 */
+function humanLegBones(side: Side, hx: number, index: number, parent: string, out = 0, palm?: LegPalm): BoneHint[] {
   const { knee, ankle } = humanLegJoints(side, hx, out);
+  if (palm) return [...legBones(side, index, parent, [O, knee, ankle, palm.knuckle]), ...palm.bones(side, index)];
   const sole = 0.025 - HIP_Y;
   return legBones(side, index, parent, [O, knee, ankle, [ankle[0], sole, ankle[2] + 0.1], [ankle[0], sole, ankle[2] + 0.175]]);
 }
 
-/** 一条人腿，髋关节在局部原点；hx 是髋关节离中线的距离，out 是往外斜多少（见 humanLegJoints） */
-function humanLegPrims(side: Side, hx: number, r: number, out = 0): Prim[] {
+/** 脚踝多粗：腿再粗也不粗过脚踝离地的高度（不然会戳到地面以下） */
+const ankleOf = (r: number) => Math.min(ANKLE_R * r, ANKLE_MAX);
+
+/** 一条人腿，髋关节在局部原点；hx 是髋关节离中线的距离，out 是往外斜多少（见 humanLegJoints）；腿末端接的是手的话没有脚，手另外给（palm） */
+function humanLegPrims(side: Side, hx: number, r: number, out = 0, palm?: LegPalm): Prim[] {
   const { knee, ankle } = humanLegJoints(side, hx, out);
-  // 脚踝：腿再粗也不粗过脚踝离地的高度（不然会戳到地面以下）
-  const ankleR = Math.min(0.033 * r, ANKLE_MAX);
+  const ankleR = ankleOf(r);
   return [
     cone('Thigh', O, knee, 0.085 * r, 0.052 * r),
     cone('Shin', knee, ankle, 0.048 * r, ankleR),
     // 小腿肚：膝盖往下三分之一处，偏后
     mass('Calf', [0.046 * r, 0.1, 0.05 * r], add(lerp(knee, ankle, 0.3), [0, 0, -0.016]), 0.02),
-    blob('Foot', [0.04 * r, 0.03, 0.115], [ankle[0], 0.03 - HIP_Y, ankle[2] + 0.07]),
-    mass('Heel', [0.03 * r, 0.03, 0.032], [ankle[0], 0.032 - HIP_Y, ankle[2] - 0.012], 0.012),
-    // 腿很细时小腿的下端够不着脚背：接一小截下去
-    ...(ankleR < 0.03 ? [cone('Ankle', ankle, [ankle[0], 0.045 - HIP_Y, ankle[2]], ankleR, ankleR * 0.9)] : []),
+    ...(palm
+      ? palm.prims
+      : [
+          blob('Foot', [0.04 * r, 0.03, 0.115], [ankle[0], 0.03 - HIP_Y, ankle[2] + 0.07]),
+          mass('Heel', [0.03 * r, 0.03, 0.032], [ankle[0], 0.032 - HIP_Y, ankle[2] - 0.012], 0.012),
+          // 腿很细时小腿的下端够不着脚背：接一小截下去
+          ...(ankleR < 0.03 ? [cone('Ankle', ankle, [ankle[0], 0.045 - HIP_Y, ankle[2]], ankleR, ankleR * 0.9)] : []),
+        ]),
   ];
 }
+
+/** 一串圆台、椭球最低的那一点有多高（椭球照外接球量） */
+function lowest(prims: Prim[]): number {
+  let low = Infinity;
+  for (const p of prims) {
+    if (p.kind === 'cone') low = Math.min(low, p.a[1] - p.ra, p.b[1] - p.rb);
+    else if (p.kind === 'ellipsoid') low = Math.min(low, p.center[1] - Math.max(...p.radii));
+  }
+  return low;
+}
+
+/** 一条人腿末端接的手（手脚互换）：基本体（并指）或者现成的手（分指）、脚那根骨骼伸到哪、手指的骨骼 */
+interface LegPalm {
+  prims: Prim[];
+  /** 分指的：现成的手怎么摆（Graft 的 matrix、offset） */
+  place?: Placement;
+  knuckle: V3;
+  bones: (side: Side, index: number) => BoneHint[];
+}
+
+/** 腿末端接手时，手腕（就是脚踝那个关节）离地多高：整个人照它和脚踝本来的高度之差往下落 */
+function palmWristHeight(r: number, hands: HandStyle, fingers: number): number {
+  return hands === 'fingers' ? legHandSize(r) * bentHand(fingers).sole : ankleOf(r);
+}
+
+/** 接在腿上的现成的手放大多少：和手臂上的一样照粗细放大，再照脚踝比手腕粗多少放大 */
+const legHandSize = (r: number) => (HAND_REACH / HAND_LENGTH) * (1 + 0.3 * (r - 1)) * (ANKLE_R / WRIST_R);
+
+/**
+ * 手脚互换时腿末端接的手，手腕在脚踝上：手心朝下贴地、手指朝前（往外撇开一点），拇指在里侧。
+ * 并指的是人台自己的手（照脚踝比手腕粗多少放大，手掌落到地上）；分指的是现成的手，手腕往手背那边弯过去（见 anime/swap.ts）
+ */
+function legPalm(side: Side, hx: number, r: number, out: number, hands: HandStyle, fingers: number): LegPalm {
+  const { ankle } = humanLegJoints(side, hx, out);
+  const names = (index: number) => (base: string) => nthName(side ? `${base}_${tag(side)}` : base, index);
+  if (hands !== 'fingers') {
+    const size = ANKLE_R / WRIST_R;
+    // 手腕在脚踝那个圆头的高度上（圆头刚好贴地），手掌比它薄：先摆一遍量最低的那一点，再往下挪到贴地
+    const low = lowest(handPrims(palmFrame(ankle, side, size, 0), r, hands));
+    const frame = palmFrame(ankle, side, size, low - (ankle[1] - ankleOf(r)));
+    return {
+      prims: handPrims(frame, r, hands),
+      knuckle: frame.at(0.094),
+      bones: (_side, index) => {
+        const name = names(index);
+        return fingerBones(fingerLines(frame, hands), thumbLine(frame), name('Foot'), (base) => name(`${LEG_FINGER}${base}`));
+      },
+    };
+  }
+  // 现成的手：先照左腿摆（右腿把脚踝翻到左边算，摆好再翻回去）
+  const m = side < 0 ? -1 : 1;
+  const left: V3 = [m * ankle[0], ankle[1], ankle[2]];
+  const placed = swapPlace(BENT_TIP, { end: left, root: add(left, [0, 1, 0]), ahead: PALM_AHEAD }, legHandSize(r));
+  const place: Placement = m < 0 ? mirrorPlace(placed) : placed;
+  const at = (p: V3): V3 => add(mat3Apply(place.matrix, p), place.offset);
+  const bent = bentHand(fingers);
+  const middle = bent.fingers.find((f) => f.finger === 'Middle')!.joints[0];
+  return {
+    prims: [],
+    place,
+    knuckle: at(middle),
+    bones: (_side, index) => {
+      const name = names(index);
+      return bent.fingers.flatMap(({ finger, joints }) =>
+        [0, 1, 2].map((k) => ({
+          ...bone(name(`${LEG_FINGER}${finger}${k + 1}`), at(joints[k]), at(joints[k + 1]), name(k ? `${LEG_FINGER}${finger}${k}` : 'Foot')),
+          strand: `${LEG_FINGER}${finger}`,
+        })),
+      );
+    },
+  };
+}
+
+/** 第几对（中线上的是第几条）人腿这个部件叫什么：Leg_01_L …；中线上的腿不分左右：Leg_01、Leg_02 … */
+export const legPart = (side: Side, pair: number) => (side ? `Leg_${pad(pair + 1)}_${tag(side)}` : `Leg_${pad(pair + 1)}`);
 
 /** 人腿脚踝最粗多少（脚踝离地 8.5 厘米） */
 const ANKLE_MAX = 0.08;
@@ -611,7 +763,7 @@ export function beastLift(form: LegForm): V3 {
 export function buildFigure(spec: BodySpec): Figure {
   const figure = layoutFigure(spec);
   // 手动挪过、转过的上半身：从胯上分出去的那一段跟着改（见 torsos.ts）
-  const fitted = refork(applyOverrides(figure, limbLength(figure, spec)));
+  const fitted = refork(applyOverrides(figure, palmReach(figure, limbLength(figure, spec))));
   if (Math.abs(spec.shape.legLength - 1) < 1e-6) return fitted;
   // 腿拉长、缩短以后身高还是设定的那么高（和成品角色一样）：整个人照比例缩放，身体、头跟着变小、变大
   const plain = applyOverrides(figure, spec.overrides);
@@ -643,6 +795,70 @@ function limbLength(figure: Figure, spec: BodySpec): Record<string, PartOverride
   return out;
 }
 
+/** 腿上接的手（手脚互换）有手指骨骼：LegThumb1_L … */
+const LEG_FINGER_BONE = /^Leg(Thumb|Index|Middle|Ring|Little|Finger)/;
+
+/**
+ * 腿有的接手、有的接脚（单独设过的）时：整个人照脚踩在地上，接手的那几条够不着地（手比脚矮），
+ * 照腿长短的办法沿腿拉长一点，手心落到地面上（和别的微调叠在一起，大小相乘）
+ */
+function palmReach(figure: Figure, overrides: Record<string, PartOverride>): Record<string, PartOverride> {
+  const xfs = worldTransforms({ parts: figure.parts, scale: 1 });
+  let out = overrides;
+  for (const part of figure.parts) {
+    if (part.type !== 'leg' || !part.bones?.some((b) => LEG_FINGER_BONE.test(b.name))) continue;
+    const xf = xfs.get(part.name)!;
+    const turn = quatMat3(xf.quat);
+    const y = (p: V3) => xf.pos[1] + (turn[3] * p[0] + turn[4] * p[1] + turn[5] * p[2]) * xf.scale;
+    // 手心最低的那一点：现成的手照它的支点（手腕正下方的手心），人台自己的手照基本体量
+    let low = Infinity;
+    for (const graft of part.grafts ?? []) if (graft.mesh === 'palm') low = Math.min(low, y(graftFrame(part, graft).place(add(mat3Apply(graft.matrix, graft.pivot), graft.offset))));
+    if (low === Infinity) {
+      for (const p of part.prims) {
+        if (p.kind === 'cone') low = Math.min(low, y(p.a) - p.ra * xf.scale, y(p.b) - p.rb * xf.scale);
+        else if (p.kind === 'ellipsoid') low = Math.min(low, y(p.center) - Math.max(...p.radii) * xf.scale);
+      }
+    }
+    const hip = xf.pos[1];
+    if (!(low > 1e-4) || hip - low < 1e-3) continue;
+    const k = hip / (hip - low);
+    if (out === overrides) out = { ...overrides };
+    const own = out[part.name];
+    const [sx, sy, sz] = own?.scale ?? [1, 1, 1];
+    out[part.name] = { ...own, scale: [sx, sy * k, sz] };
+  }
+  return out;
+}
+
+/**
+ * 单独设过末端、手指数、脚趾数的手臂、腿（BodySpec.perLimb）：照那一条自己的设法当作统一的，整个再摆一遍，
+ * 只取那一条的形状、接上去的网格、骨骼换过来（位置不动）。几个上半身时手臂改过名，这样不用管它在摆的时候叫什么
+ */
+function ownLimbs(figure: Figure, spec: BodySpec): Figure {
+  if (spec.bodyStyle === 'character' || !Object.keys(spec.perLimb).length) return figure;
+  const again = new Map<string, Figure>();
+  let changed = false;
+  const parts = figure.parts.map((part) => {
+    if (!spec.perLimb[part.name] || (part.type !== 'arm' && part.type !== 'leg')) return part;
+    const own = limbOf(spec, part.name);
+    const arm = part.name.startsWith('Arm');
+    const key = `${arm ? 'arm' : 'leg'}|${own.end}|${own.fingers}|${own.toes}`;
+    let other = again.get(key);
+    if (!other) {
+      const alone: BodySpec = { ...spec, ...(arm ? { armEnd: own.end } : { legEnd: own.end }), fingers: own.fingers, toes: own.toes, perLimb: {} };
+      other = layoutEnds(alone);
+      again.set(key, other);
+    }
+    const twin = other.parts.find((p) => p.name === part.name);
+    if (!twin) return part;
+    changed = true;
+    const { prims, grafts, bones, posed } = twin;
+    const { grafts: _g, bones: _b, posed: _p, ...rest } = part;
+    return { ...rest, prims, ...(grafts ? { grafts } : {}), ...(bones ? { bones } : {}), ...(posed ? { posed } : {}) };
+  });
+  return changed ? { ...figure, parts } : figure;
+}
+
 /** 好几个上半身时胯再宽多少倍（二次元素体两个上半身直立并排的乘 UPRIGHT_HIPS；并成一个宽躯干的照一个上半身两个头摆、不乘） */
 export const MULTI_HIPS = 1.1;
 /**
@@ -653,8 +869,18 @@ export const UPRIGHT_HIPS = 1.25;
 /** 二次元素体三个上半身直立并排（分得开，见 torsos.ts 的 UPRIGHT_SPREAD_THREE）时胯再宽多少倍：托得住三个腰 */
 export const UPRIGHT_HIPS_THREE = 1.5;
 
-/** 只按部件数量、排布和体型自动摆位，不管手动微调 */
+/** 只按部件数量、排布和体型自动摆位，不管手动微调；单独设过末端、手指数的手臂、腿照它自己的设法 */
 export function layoutFigure(given: BodySpec): Figure {
+  return ownLimbs(layoutEnds(given), given);
+}
+
+/** 自动摆位，手臂、腿的末端都照统一的设法 */
+function layoutEnds(given: BodySpec): Figure {
+  // 连体：照一个上半身、一对人腿摆好，再改成两个上半身在腰上对接（见 conjoined.ts）
+  if (given.conjoined !== 'none') {
+    const counts = { ...given.counts, legs: 2, tails: 0, penises: 0, torsos: 1 };
+    return conjoin(layoutEnds({ ...given, conjoined: 'none', counts, legLayout: 'auto', legEnd: 'foot', torsoCounts: {} }), given.conjoined, given.conjoinPose);
+  }
   // 好几个上半身站在一副胯上：胯比一个人的宽一点（画里都是这样画的），在「胯宽」滑块的基础上再乘 MULTI_HIPS（直立并排的乘 UPRIGHT_HIPS）
   const plan = legPlan(given);
   const anime = given.bodyStyle === 'anime' && animeReady();
@@ -972,9 +1198,9 @@ function layoutMannequin(spec: BodySpec): Figure {
         // 手动调长短粗细时，「长」沿着手臂的方向
         axes: quatBetween(DOWN, dir),
         material: 'clay',
-        prims: armPrims(side, dir, armR, spec.hands, tPose),
-        ...(spec.hands === 'fingers' ? { grafts: armGrafts(side, dir, armR, tPose, i) } : {}),
-        bones: armBones(side, dir, tPose, i, joint[0], armParent, spec.hands, armR),
+        prims: armPrims(side, dir, armR, spec.hands, tPose, spec.armEnd),
+        ...(spec.hands === 'fingers' && spec.armEnd === 'hand' ? { grafts: armGrafts(side, dir, armR, tPose, i, spec.fingers) } : {}),
+        bones: armBones(side, dir, tPose, i, joint[0], armParent, spec.hands, armR, spec.fingers, spec.armEnd),
         ...(bindTo[i] ? { bind: quatBetween(dir, armDirection(side, bindTo[i]!.theta, bindTo[i]!.phi)) } : {}),
       });
     }
@@ -1011,6 +1237,8 @@ function layoutMannequin(spec: BodySpec): Figure {
   );
 
   /* ---- 下半身 ---- */
+  /** 人腿里末端接手的、接脚的各几条（单独设过的照它自己的算；兽腿、蛛腿照旧接蹄子、爪尖，不算） */
+  const ends = { hand: 0, foot: 0 };
   const lowerBody = lowerParts({
     form,
     stations: plan.stations,
@@ -1023,7 +1251,19 @@ function layoutMannequin(spec: BodySpec): Figure {
     pelvisY: 0.93,
     tailRoot: [0, 0.99, -0.11 * b],
     pubisY: PUBIS_Y,
-    humanLeg: (side, pair, parent, out) => ({ prims: humanLegPrims(side, hx, legR, out), bones: humanLegBones(side, hx, pair, parent, out) }),
+    humanLeg: (side, pair, parent, out) => {
+      ends[limbOf(spec, legPart(side, pair)).end]++;
+      if (spec.legEnd !== 'hand') return { prims: humanLegPrims(side, hx, legR, out), bones: humanLegBones(side, hx, pair, parent, out) };
+      // 手脚互换：腿末端接手
+      const palm = legPalm(side, hx, legR, out, spec.hands, spec.fingers);
+      const name = (base: string) => nthName(side ? `${base}_${tag(side)}` : base, pair);
+      const { place } = palm;
+      return {
+        prims: humanLegPrims(side, hx, legR, out, palm),
+        bones: humanLegBones(side, hx, pair, parent, out, palm),
+        ...(place ? { part: { grafts: [{ ...palmGraft(name, spec.fingers), ...place }] } } : {}),
+      };
+    },
   });
   parts.push(...lowerBody.parts);
 
@@ -1034,9 +1274,16 @@ function layoutMannequin(spec: BodySpec): Figure {
   // 阴囊的格子还没载入时先不长（数据到了以后界面会重新生成一遍）
   if (c.penises > 0 && genitalReady()) parts.push(...genitalsOn(parts, lowerBody.mounts, spec, PENIS_UNIT * sh.penisSize));
 
+  /*
+   * 腿末端接的是手：手腕（脚踝那个关节）离地比脚踝本来矮，整个人往下落这么多，手心贴地；
+   * 身高照旧是设定的那么高（和腿长短一样，整个人照比例放大一点）
+   */
+  const palmDrop = ends.hand && !ends.foot ? HIP_Y + humanLegJoints(1, hx).ankle[1] - palmWristHeight(legR, spec.hands, spec.fingers) : 0;
+  if (palmDrop) for (const part of parts) if (!part.parent) part.pos = [part.pos[0], part.pos[1] - palmDrop, part.pos[2]];
+
   /* ---- 缩放到设定身高 ---- */
-  const scale = sh.height / baseHeight;
-  const height = crown * scale;
+  const scale = sh.height / (baseHeight - palmDrop);
+  const height = (crown - palmDrop) * scale;
   const headHeight = 2 * HEAD_HALF_HEIGHT * hs * scale;
   return { parts, scale, metrics: { height, headHeight, headRatio: height / headHeight, legForm: form } };
 }
@@ -1200,8 +1447,7 @@ export function lowerParts(options: LowerOptions): { parts: Part[]; tailRoot: V3
   const hz = options.hipZ ?? 0;
   const leg = (pair: number, side: Side, pos: V3, prims: Prim[], bones: BoneHint[], extra?: Partial<Part>) => {
     parts.push({
-      // 中线上的腿不分左右：Leg_01、Leg_02 …
-      name: side ? `Leg_${pad(pair + 1)}_${tag(side)}` : `Leg_${pad(pair + 1)}`,
+      name: legPart(side, pair),
       type: 'leg',
       side,
       pos,

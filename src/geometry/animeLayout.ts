@@ -11,14 +11,15 @@
 import { ANIME_HEAD, ANIME_HEIGHT, animeBounds, animeGrid, animeJoint, animeOrigin } from '../anime/body';
 import { CHEST_FLAT, chestCenter, chestFrame, chestReach, surfacePoint } from '../anime/chest';
 import { FOOT_ANKLE, FOOT_CUFF, FOOT_SOLE, FOOT_STUMP, FOOT_TOE, FOOT_TOE_END, footGraft } from '../anime/foot';
-import { FINGER_JOINTS, HAND_STUMP, handGraft } from '../anime/hand';
-import { type BodySpec, legPlan } from '../model/spec';
+import { HAND_STUMP, fingerJoints, handGraft } from '../anime/hand';
+import { BENT_TIP, FOOT_TIP, HAND_TIP, LEG_FINGER, PALM_AHEAD, type Placement, ankleToWrist, bentHand, footOnArmGraft, palmGraft, palmHeight, swapPlace, thenPlace } from '../anime/swap';
+import { type BodySpec, legPlan, limbOf } from '../model/spec';
 import { genitalReady } from '../anime/genital';
 import { type CompiledField, castRay, compileField } from '../sdf/field';
 import { tileShift, wideFrame } from '../sdf/grids';
 import { BESIDE_DROP, BESIDE_YAW } from './torsos';
 import { type Stretch, restretch } from '../sdf/stretch';
-import { type Figure, type Graft, type GridShape, type Part, type Prim, type SpreadX, type Tile, type WidenBand, nthName } from './figure';
+import { type Figure, type Graft, type GridShape, type Part, type Prim, type Side, type SpreadX, type Tile, type WidenBand, nthName } from './figure';
 import { type CustomHead, type HeadHair, makeFace, makeHead } from './head';
 import {
   type HangBlock,
@@ -38,6 +39,7 @@ import {
   genitalsOn,
   hangAngles,
   legBones,
+  legPart,
   lowerParts,
   mass,
   pad,
@@ -226,6 +228,22 @@ function footPlace(side: number, out: number, turn: Quat = Q_ID): Pick<Graft, 'm
   const sole: V3 = add(offset, [m * FOOT_ANKLE[0], FOOT_SOLE, FOOT_ANKLE[2]]);
   const turned = mat3Mul(back, matrix);
   return { matrix: turned, offset: sub(sole, mat3Apply(back, sole)).map((v, k) => v + mat3Apply(back, offset)[k]) as V3 };
+}
+
+/**
+ * 手脚互换时腿末端接的手（手腕弯过去的那只，见 anime/swap.ts）摆到腿这个部件里：先在素体模型里摆到左脚踝上
+ * （手腕对上脚踝，前臂竖着朝下、手指朝前，放大到和脚踝一样粗），再和脚一样挪到以髋关节为原点、右脚翻过来、跟着往外斜；
+ * 单足转直了的话反着转回去，手心还平贴着地（绕手腕正下方的手心转）。
+ * 高度不另外挪：手腕就在脚踝上，手心比脚底高出来的那一截（palmDrop）最后整个人一起往下落
+ */
+function palmPlace(side: number, out: number, fingers: number, turn: Quat = Q_ID): Placement {
+  const m = side < 0 ? -1 : 1;
+  const model = swapPlace(BENT_TIP, { end: ANKLE, root: add(ANKLE, [0, 1, 0]), ahead: PALM_AHEAD }, ankleToWrist());
+  const placed = thenPlace({ matrix: [m, 0, 0, 0, 1, 0, 0, 0, 1], offset: [m * (out - HIP[0]), -HIP[1], -HIP[2]] }, model);
+  if (turn === Q_ID) return placed;
+  const back = quatMat3(quatConj(turn));
+  const sole: V3 = [m * (ANKLE[0] - HIP[0] + out), ANKLE[1] - HIP[1] - palmHeight(fingers, ankleToWrist()), ANKLE[2] - HIP[2]];
+  return thenPlace({ matrix: back, offset: sub(sole, mat3Apply(back, sole)) }, placed);
 }
 
 /** 腿上的骨骼名：name 把「Foot」换成这条腿上的全名（Foot_L.002 这样的；长在中线上的不分左右）。和 legBones 一个规矩 */
@@ -714,6 +732,16 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
   // 手臂放下来时手肘自然往前弯一点；平举（T-pose）时保持素体原样的直臂
   const bend = tPose ? 0 : ELBOW_BEND;
   const elbow = sub(ELBOW, SHOULDER);
+  /** 手脚互换：手臂末端接的是脚 */
+  const footArms = spec.armEnd === 'foot';
+  /**
+   * 手臂末端接的那块现成网格：手；手脚互换时是脚（照腿上那样摆：手臂垂下来时脚底朝下、脚趾朝前，
+   * 缩到和手腕一样粗），摆法都是先摆到素体模型里手的位置上，再和手一样跟着手肘弯过去
+   */
+  const armTip = (name: (base: string) => string, side: number): Graft =>
+    footArms
+      ? { ...footOnArmGraft(name, spec.toes), ...thenPlace(handPlace(side, bend, elbow, handSize), swapPlace(FOOT_TIP, HAND_TIP, 1 / ankleToWrist())) }
+      : { ...handGraft(name, spec.fingers), ...handPlace(side, bend, elbow, handSize) };
   for (let i = 0; i < c.armPairs; i++) {
     const mid = i - (c.armPairs - 1) / 2;
     let joint: V3;
@@ -810,20 +838,22 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
         // 不在本来的肩膀上的那些：把连着肩膀的那一圈切掉（上面的 clipX），不然会从后背顶出来
         prims: native ? [armShape] : [armShape, cap],
         ...(posed ? { posed: { prims: posed, home: [side * Math.cos(SHOULDER_HOME), -Math.sin(SHOULDER_HOME), 0] as V3, beyond: SHOULDER_SWAP } } : {}),
-        // 手：素体模型上现成的那只手，和上面 local() 一样摆（挪到肩关节为原点，跟着手肘弯过去，右手是翻过来的）
-        grafts: [{ ...handGraft(name), ...handPlace(side, bend, elbow, handSize) }],
+        // 手：素体模型上现成的那只手，和上面 local() 一样摆（挪到肩关节为原点，跟着手肘弯过去，右手是翻过来的）；手脚互换时是脚
+        grafts: [armTip(name, side)],
         bones: [
           bone(name('Shoulder'), collar, O, armParent),
           bone(name('UpperArm'), O, local(ELBOW), name('Shoulder')),
           bone(name('LowerArm'), local(ELBOW), local(WRIST), name('UpperArm')),
           bone(name('Hand'), local(WRIST), handLocal(KNUCKLE), name('LowerArm')),
-          // 手指：素体自带的关节位置，每根三节
-          ...FINGER_JOINTS.flatMap(({ finger, joints }) =>
-            [0, 1, 2].map((k) => ({
-              ...bone(name(`${finger}${k + 1}`), handLocal(joints[k]), handLocal(joints[k + 1]), k ? name(`${finger}${k}`) : name('Hand')),
-              strand: finger,
-            })),
-          ),
+          // 手指：素体自带的关节位置，每根三节（手臂上接的是脚的话没有）
+          ...(footArms
+            ? []
+            : fingerJoints(spec.fingers).flatMap(({ finger, joints }) =>
+                [0, 1, 2].map((k) => ({
+                  ...bone(name(`${finger}${k + 1}`), handLocal(joints[k]), handLocal(joints[k + 1]), k ? name(`${finger}${k}`) : name('Hand')),
+                  strand: finger,
+                })),
+              )),
         ],
         ...(native ? NATIVE : {}),
         ...(bindTo[i] ? { bind: quatBetween(dir, armDirection(side, bindTo[i]!.theta, bindTo[i]!.phi)) } : {}),
@@ -854,14 +884,14 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
       const turn = quatBetween([side, 0, 0], dir);
       const pos: V3 = [outer.pos[0] - 2 * side * twinD, outer.pos[1], outer.pos[2]];
       const collar = rotate(quatConj(turn), [-side * Math.max(Math.abs(pos[0] - own * twinD) - 0.025, 0.02), 0.012, 0]);
-      const rename = (b: string) => (/^(Shoulder|UpperArm|LowerArm|Hand|Thumb|Index|Middle|Ring|Little)/.test(b) ? name(b.replace(/_[LR](\.\d+)?$/, '')) : b);
+      const rename = (b: string) => (/^(Shoulder|UpperArm|LowerArm|Hand|Thumb|Index|Middle|Ring|Little|Finger[A-C])/.test(b) ? name(b.replace(/_[LR](\.\d+)?$/, '')) : b);
       const { fuseAs: _, ...rest } = outer;
       parts.push({
         ...rest,
         name: `Arm_${pad(k + 1)}_${tag(side)}`,
         pos,
         quat: turn,
-        grafts: [{ ...handGraft(name), ...handPlace(side, bend, elbow, handSize) }],
+        grafts: [armTip(name, side)],
         bones: outer.bones!.map((b, n) =>
           n === 0 ? { ...b, name: rename(b.name), head: collar } : { ...b, name: rename(b.name), parent: b.parent === undefined ? undefined : rename(b.parent) },
         ),
@@ -937,6 +967,41 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
       const q = mirror(sub(p, HIP), side);
       return [q[0] + (side || 1) * out * Math.min(1, -q[1] / legDepth), q[1], q[2]];
     });
+  /** 手脚互换：腿末端接的是手（只有人腿；兽腿、蛛腿照旧） */
+  const palmLegs = spec.legEnd === 'hand';
+  /** 人腿里末端接手的、接脚的各几条（单独设过的照它自己的算）：全是手才整个人往下落 */
+  const ends = { hand: 0, foot: 0 };
+  /** 接在腿上的手：素体模型里怎么摆（左腿；见 palmPlace） */
+  const palmModel = swapPlace(BENT_TIP, { end: ANKLE, root: add(ANKLE, [0, 1, 0]), ahead: PALM_AHEAD }, ankleToWrist());
+  /** 素体模型里的一点（左腿）挪到腿的坐标里，和 legJoints 一样 */
+  const legPoint = (side: number, out: number) => (p: V3): V3 => {
+    const q = mirror(sub(p, HIP), side);
+    return [q[0] + (side || 1) * out * Math.min(1, -q[1] / legDepth), q[1], q[2]];
+  };
+  /**
+   * 腿的骨骼：大腿、小腿、脚（接的是手的话脚这根从手腕伸到中指根，手指是腿上自己的 LegThumb1 … 每根三节）
+   */
+  const humanLegBones = (side: Side, pair: number, parent: string, out = 0) => {
+    if (!palmLegs) return legBones(side, pair, parent, legJoints(side, out));
+    const at = (p: V3) => legPoint(side, out)(mat3Apply(palmModel.matrix, p).map((v, k) => v + palmModel.offset[k]) as V3);
+    const { fingers } = bentHand(spec.fingers);
+    const middle = fingers.find((f) => f.finger === 'Middle')!.joints[0];
+    const name = legName(side, pair);
+    return [
+      ...legBones(side, pair, parent, [O, ...[KNEE, ANKLE].map(legPoint(side, out)), at(middle)]),
+      ...fingers.flatMap(({ finger, joints }) =>
+        [0, 1, 2].map((k) => ({
+          ...bone(name(`${LEG_FINGER}${finger}${k + 1}`), at(joints[k]), at(joints[k + 1]), name(k ? `${LEG_FINGER}${finger}${k}` : 'Foot')),
+          strand: `${LEG_FINGER}${finger}`,
+        })),
+      ),
+    ];
+  };
+  /** 腿末端接的那块现成网格：脚，手脚互换时是手 */
+  const legTip = (side: number, pair: number, out: number, turn?: Quat): Graft =>
+    palmLegs
+      ? { ...palmGraft(legName(side, pair), spec.fingers), ...palmPlace(side, out, spec.fingers, turn) }
+      : { ...footGraft(legName(side, pair), spec.toes), ...footPlace(side, out, turn) };
   /** 胯（躯干）上正好一对腿时，那一对就在素体原来的位置上 */
   const frontPair = plan.stations[0] === 2;
   /** 胯上只有一条腿（单足；人腿人马每副胯一条）：最前面那条 */
@@ -975,8 +1040,9 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
     // 胯照腿排开了：不另外垫胯（以前胯上三条以上腿时垫一副椭球的胯，把两个腿根的切口包住）
     ...(tile ? { tiled: true } : plan.stations[0] > 2 && (form === 'biped' || form === 'humantaur') ? { cover: frontCover(plan.stations[0]) } : {}),
     ...(hipsAt ? { hipsAt } : {}),
-    humanLeg: (side, pair, parent, out) =>
-      side
+    humanLeg: (side, pair, parent, out) => {
+      ends[limbOf(spec, legPart(side, pair)).end]++;
+      return side
         ? {
             // 还在素体原来位置上的那一对，腿根跟着胯一起拉宽；胯部聚拢时往外斜
             prims: [
@@ -988,22 +1054,23 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
                 clipBelow: LEG_CLIP,
               }),
             ],
-            bones: legBones(side, pair, parent, legJoints(side, out)),
+            bones: humanLegBones(side, pair, parent, out),
             // 还在素体原来位置上的腿：双足站立，或者人腿人马最前面那一对（那副胯上正好一对时）；胯照腿排开了的，那副胯上的都是
             native: nativeLegs(pair) || (!!tile && parent === 'Hips'),
-            part: { grafts: [{ ...footGraft(legName(side, pair)), ...footPlace(side, out) }] },
+            part: { grafts: [legTip(side, pair, out)] },
           }
         : {
             prims: [grid('Leg', 'leg', 1, { ...thick(sub(FOOT_RIM, HIP), SHAPE.leg), clipBelow: LEG_CLIP })],
-            bones: legBones(0, pair, parent, legJoints(1)),
+            bones: humanLegBones(0, pair, parent),
             native: !!tile && parent === 'Hips',
             // 胯上只有这一条（单足）：粗一圈，把两个腿根中间填满
             part: {
               quat: STRAIGHTEN,
               ...(single ? { stretch: SINGLE_LEG } : {}),
-              grafts: [{ ...footGraft(legName(0, pair)), ...footPlace(1, 0, STRAIGHTEN) }],
+              grafts: [legTip(0, pair, 0, STRAIGHTEN)],
             },
-          },
+          };
+    },
   });
   parts.push(...lowerBody.parts);
   // 胯上只有一条腿（单足；人腿人马每副胯一条）：素体原来的两条腿只留最上面一截（Hip_L、Hip_R），
@@ -1030,11 +1097,14 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
   // 要在下面挪到地面上之前：照这时候的身体表面摆
   if (c.penises > 0 && genitalReady()) parts.push(...genitalsOn(parts, lowerBody.mounts, spec, PENIS_UNIT * sh.penisSize));
 
-  // 人腿：脚底踩到地面上（兽腿本来就是按地面摆的）
-  const drop = form === 'taur' || form === 'spider' ? 0 : SOLE;
+  // 人腿：脚底踩到地面上（兽腿本来就是按地面摆的）。腿末端接的是手的：手心比脚底高出一截，再往下落这么多
+  const human = form !== 'taur' && form !== 'spider';
+  const palmDrop = human && ends.hand && !ends.foot ? ANKLE[1] - palmHeight(spec.fingers, ankleToWrist()) - SOLE : 0;
+  const drop = human ? SOLE + palmDrop : 0;
   if (drop) for (const part of parts) if (!part.parent) part.pos = [part.pos[0], part.pos[1] - drop, part.pos[2]];
 
-  const scale = sh.height / (baseHeight - SOLE);
+  // 身高照旧是设定的那么高（腿末端接手矮了一截的，整个人照比例放大一点，和腿长短一样）
+  const scale = sh.height / (baseHeight - SOLE - palmDrop);
   const height = (crown - drop) * scale;
   const headHeight = 2 * HEAD_H * hs * scale;
   return { parts, scale, metrics: { height, headHeight, headRatio: height / headHeight, legForm: form } };

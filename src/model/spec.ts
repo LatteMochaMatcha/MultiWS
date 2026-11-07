@@ -4,6 +4,7 @@
  *
  * 约定：单位米，Y 轴朝上，角色面朝 +Z；_L / _R 以角色自身的左右为准。
  */
+import { FINGER_COUNT, TOE_COUNT } from '../anime/digits';
 import { t } from '../i18n';
 import { cap } from './partLabel';
 import { type Posing, cleanPosing, emptyPosing } from '../pose/posing';
@@ -218,6 +219,39 @@ export const HAND_STYLES = ['mitten', 'fingers'] as const;
 export type HandStyle = (typeof HAND_STYLES)[number];
 
 /**
+ * 手臂、腿的末端接什么（手脚互换，见 anime/swap.ts）：手臂默认接手、腿默认接脚，
+ * 换过来就是手臂接脚（手臂垂下来时脚底朝下、脚趾朝前）、腿接手（手心朝下贴地、手指朝前）
+ */
+export const LIMB_ENDS = ['hand', 'foot'] as const;
+export type LimbEnd = (typeof LIMB_ENDS)[number];
+
+/** queen conjoined 连体：不连、同向（两个上半身都胸口朝下）、反向（一个仰面朝上），见 geometry/conjoined.ts */
+export const CONJOINS = ['none', 'same', 'opposite'] as const;
+export type ConjoinMode = (typeof CONJOINS)[number];
+/** 连体静止时的姿态：趴着（四只手撑地）、侧躺（胳膊肘撑着）、平躺（仰面躺平）、站着（下面那个倒立撑地） */
+export const CONJOIN_POSES = ['prone', 'lie', 'flat', 'stand'] as const;
+export type ConjoinPose = (typeof CONJOIN_POSES)[number];
+
+/** 一条手臂、腿单独的设法：末端接什么、手指几根、脚趾几个；不写的跟着 BodySpec 里统一的 */
+export interface LimbSetting {
+  end?: LimbEnd;
+  fingers?: number;
+  toes?: number;
+}
+/** 能单独设的部件：手臂 Arm_01_L、人腿 Leg_01_L（中线上的腿 Leg_01） */
+export const LIMB_PART = /^(Arm|Leg)_\d+(_[LR])?$/;
+
+/** 这一条手臂（Arm_…）、腿（Leg_…）实际用的设法：单独设过的照它，没设的跟着统一的 */
+export function limbOf(spec: Pick<BodySpec, 'armEnd' | 'legEnd' | 'fingers' | 'toes' | 'perLimb'>, name: string): Required<LimbSetting> {
+  const own = spec.perLimb[name] ?? {};
+  return {
+    end: own.end ?? (name.startsWith('Arm') ? spec.armEnd : spec.legEnd),
+    fingers: own.fingers ?? spec.fingers,
+    toes: own.toes ?? spec.toes,
+  };
+}
+
+/**
  * 身体的样式：
  * - mannequin：白模人台，自己捏的，体型滑块都管用；
  * - anime：二次元素体，现成的裸素体做成的白模，体型在她原来的样子上拉宽、压窄、变粗变细；
@@ -314,6 +348,12 @@ export function colorToLinear(hex: string): [number, number, number] {
 /** 人腿人马、前后串联每副胯上几条腿（并排着）：2 是一对，3 就是「前三后三」那种 */
 export const HIP_LEGS = { min: 1, max: 4, def: 2 } as const;
 
+/** 一只手几根手指（连拇指）。只管分指的手（白模人台、二次元素体），成品角色的手是角色自己的 */
+export const FINGERS = { min: FINGER_COUNT.min, max: FINGER_COUNT.max, def: FINGER_COUNT.base } as const;
+
+/** 一只脚几个脚趾。只管二次元素体的脚（白模人台的脚没有脚趾，成品角色的脚是角色自己的） */
+export const TOES = { min: TOE_COUNT.min, max: TOE_COUNT.max, def: TOE_COUNT.base } as const;
+
 /** 阴茎排成几乘几时每排几根（左右并排着）：根数不是它的整数倍时，最上面那排少几根 */
 export const PENIS_ROW = { min: 1, max: 4, def: 2 } as const;
 
@@ -388,6 +428,19 @@ export interface BodySpec {
   pose: Pose;
   earShape: EarShape;
   hands: HandStyle;
+  /** 一只手几根手指（连拇指），见 FINGERS 和 anime/digits.ts */
+  fingers: number;
+  /** 一只脚几个脚趾，见 TOES */
+  toes: number;
+  /** 手臂末端接手还是脚、腿末端接脚还是手（手脚互换）。成品角色不管这两项 */
+  armEnd: LimbEnd;
+  legEnd: LimbEnd;
+  /** 某一条手臂、腿单独的设法（部件名 → 末端、手指数、脚趾数），没写的那几项跟着上面统一的 */
+  perLimb: Record<string, LimbSetting>;
+  /** queen conjoined 连体：两个上半身在腰上对接、四条手臂撑地，没有胯和腿（腿、尾巴、阴茎、几个上半身都不管） */
+  conjoined: ConjoinMode;
+  /** 连体静止时是趴着、侧躺、平躺还是站着 */
+  conjoinPose: ConjoinPose;
   hair: HairSpec;
   meshMode: MeshMode;
   /** 融合圆角的半径，见 BLEND */
@@ -451,6 +504,13 @@ export function defaultSpec(): BodySpec {
     pose: 'A',
     earShape: 'cat',
     hands: 'fingers',
+    fingers: FINGERS.def,
+    toes: TOES.def,
+    armEnd: 'hand',
+    legEnd: 'foot',
+    perLimb: {},
+    conjoined: 'none',
+    conjoinPose: 'prone',
     hair: defaultHair(),
     meshMode: 'fused',
     blend: BLEND.def,
@@ -521,6 +581,32 @@ export function clampHair(hair: unknown): HairSpec {
     volume: number(src.volume, HAIR_VOLUME),
     heads: cleanHeadColors(src.heads),
   };
+}
+
+export function clampFingers(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return FINGERS.def;
+  return clamp(Math.round(value), FINGERS.min, FINGERS.max);
+}
+
+export function clampToes(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return TOES.def;
+  return clamp(Math.round(value), TOES.min, TOES.max);
+}
+
+/** 读存档里的 perLimb：只留手臂、人腿的名字和合法的值，空的去掉 */
+function cleanPerLimb(src: unknown): Record<string, LimbSetting> {
+  const out: Record<string, LimbSetting> = {};
+  if (!src || typeof src !== 'object') return out;
+  for (const [name, raw] of Object.entries(src as Record<string, unknown>)) {
+    if (!LIMB_PART.test(name) || !raw || typeof raw !== 'object') continue;
+    const r = raw as Record<string, unknown>;
+    const one: LimbSetting = {};
+    if (r.end === 'hand' || r.end === 'foot') one.end = r.end;
+    if (typeof r.fingers === 'number' && Number.isFinite(r.fingers)) one.fingers = clampFingers(r.fingers);
+    if (typeof r.toes === 'number' && Number.isFinite(r.toes)) one.toes = clampToes(r.toes);
+    if (Object.keys(one).length) out[name] = one;
+  }
+  return out;
 }
 
 export function clampHipLegs(value: unknown): number {
@@ -682,6 +768,13 @@ export function normalizeSpec(input: unknown): BodySpec {
     pose: pick(POSES, src.pose, 'A'),
     earShape: pick(EAR_SHAPES, src.earShape, 'cat'),
     hands: pick(HAND_STYLES, src.hands, 'fingers'),
+    fingers: clampFingers(src.fingers),
+    toes: clampToes(src.toes),
+    armEnd: pick(LIMB_ENDS, src.armEnd, 'hand'),
+    legEnd: pick(LIMB_ENDS, src.legEnd, 'foot'),
+    perLimb: cleanPerLimb(src.perLimb),
+    conjoined: pick(CONJOINS, src.conjoined, 'none'),
+    conjoinPose: pick(CONJOIN_POSES, src.conjoinPose, 'prone'),
     hair: clampHair(src.hair),
     meshMode: pick(MESH_MODES, src.meshMode, 'fused'),
     blend: clampBlend(src.blend),

@@ -84,11 +84,11 @@ function jobsOf(parts: Part[]): Job[] {
 /** 接上去的现成网格（手、脚）的顶点都在哪（Figure.scale 当作 1）：每一块的顶点接着排，顺序同部件、Part.grafts */
 export function graftPoints(parts: Part[]): Float32Array {
   const jobs = jobsOf(parts);
-  const counts = jobs.map((job) => graftMeshOf(job.graft.mesh).positions.length / 3);
+  const counts = jobs.map((job) => graftMeshOf(job.graft.mesh, job.graft.digits).positions.length / 3);
   const out = new Float32Array(counts.reduce((sum, n) => sum + n, 0) * 3);
   let first = 0;
   jobs.forEach(({ graft, linear, origin }, j) => {
-    const mesh = graftMeshOf(graft.mesh);
+    const mesh = graftMeshOf(graft.mesh, graft.digits);
     for (let i = 0; i < counts[j]; i++) {
       const x = mesh.positions[i * 3];
       const y = mesh.positions[i * 3 + 1];
@@ -155,7 +155,7 @@ function poseJobs(jobs: Job[], parts: Part[], pose: PoseMatrices): Job[] {
   const matrices = Float64Array.from(pose);
   return jobs.map((job) => {
     const { linear, origin, graft } = job;
-    const hand = graftMeshOf(graft.mesh);
+    const hand = graftMeshOf(graft.mesh, graft.digits);
     const count = hand.positions.length / 3;
     const bones = hand.bones.map((name) => index.get(graft.bones[name] ?? '') ?? -1);
     if (bones.some((b) => b < 0)) return job;
@@ -211,7 +211,7 @@ export interface WristRoom {
 export function wristRooms(parts: Part[], pose: PoseMatrices, voxel: number): WristRoom[] {
   const jobs = poseJobs(jobsOf(parts), parts, pose);
   return jobs.map(({ part, graft, linear, origin }) => {
-    const hand = graftMeshOf(graft.mesh);
+    const hand = graftMeshOf(graft.mesh, graft.digits);
     const fore: V3 = [hand.end[0] - hand.root[0], hand.end[1] - hand.root[1], hand.end[2] - hand.root[2]];
     const at = (v: number): V3 => {
       const x = hand.positions[v * 3];
@@ -258,7 +258,7 @@ export function graftMeshes(mesh: FusedMesh, parts: Part[], voxel: number, pose?
   if (!rest.length) return mesh;
   const jobs = pose ? poseJobs(rest, parts, pose) : rest;
   const t0 = now();
-  const meshes = jobs.map((job) => graftMeshOf(job.graft.mesh));
+  const meshes = jobs.map((job) => graftMeshOf(job.graft.mesh, job.graft.digits));
   const body = mesh.positions.length / 3;
   // 每只手多留一个顶点：缝不上时给切口封盖用。接过渡管子的那几圈顶点到时候再加（见 grow）
   const extra = meshes.reduce((sum, m) => sum + m.positions.length / 3 + 1, 0);

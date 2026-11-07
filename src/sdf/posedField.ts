@@ -218,6 +218,16 @@ function planOf(part: Part, bones: number[], skeleton: Skeleton): Plan {
     cut(up, n, at, 1);
     cut(b, n, at, -1);
   }
+  // 腿上越往下的一节，也只占上面每个关节往下的那一边：脚趾、腿末端接的手（手脚互换）的手指朝前伸，
+  // 只照自己根上那一刀切的话，大腿前面那一片也在它那一边，会跟着手指搬走，扯出一片片薄片
+  if (part.type === 'leg') {
+    for (const b of used) {
+      for (let a = all[b].parent; a >= 0 && inside.has(a); a = all[a].parent) {
+        const j = joints.find((x) => x.below === a);
+        if (j) cut(b, j.n, j.at, -1);
+      }
+    }
+  }
   // 并排的几股（手指）：每一股只占离自己最近的地方
   const strands = new Map<string, number[]>();
   for (const b of used) {

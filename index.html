@@ -164,6 +164,30 @@
               <span>手</span>
               <div class="seg" id="segHand" role="radiogroup" aria-label="手的样式"></div>
             </div>
+            <div class="field" title="queen conjoined：两个上半身在腰上对接，连成一条横着的身子，四条手臂撑在地上，没有胯和腿。同向是两个都胸口朝下；反向是另一个仰面朝上、手臂往身后撑地。选了以后腿、尾巴、阴茎、几个上半身都不管">
+              <span>连体</span>
+              <div class="seg" id="segConjoin" role="radiogroup" aria-label="两个上半身在腰上对接的连体形式"></div>
+            </div>
+            <div class="field" id="conjoinPoseField" hidden title="连体静止时的姿态：趴着是四只手撑地；侧躺是两个上半身各用一只胳膊肘撑着、在腰上往上翘；平躺是仰面躺平、手臂放在身子两边（反向的那个趴着）；站着是下面那个倒立、两只手撑地，上面那个照常站着">
+              <span>连体姿态</span>
+              <div class="seg" id="segConjoinPose" role="radiogroup" aria-label="连体静止时是趴着、侧躺、平躺还是站着"></div>
+            </div>
+            <div class="field" title="手脚互换：手臂末端接一只脚。手臂垂下来时脚底朝下、脚趾朝前，像腿上那样，缩到和手腕一样粗">
+              <span>手臂末端</span>
+              <div class="seg" id="segArmEnd" role="radiogroup" aria-label="手臂末端接手还是脚"></div>
+            </div>
+            <div class="field" title="手脚互换：腿末端接一只手。手心朝下贴地、手指朝前，像倒立时撑地的手，放大到和脚踝一样粗；手比脚矮，整个人往下落一点。人马、蛛形的兽腿不变">
+              <span>腿末端</span>
+              <div class="seg" id="segLegEnd" role="radiogroup" aria-label="腿末端接脚还是手"></div>
+            </div>
+            <div class="field" id="fingersField" hidden title="连拇指一共几根。多出来的是照无名指复制的，排在无名指和小指之间；少了先拿掉无名指，再拿掉中指">
+              <span>每只手几根手指</span>
+              <div class="stepper" id="fingers"></div>
+            </div>
+            <div class="field" id="toesField" hidden title="二次元素体的脚才有脚趾。多出来的是照第二趾复制的，排在第二趾后面；少了先拿掉第四趾，再拿掉第三趾、第二趾。脚跟、脚踝不变，只有前脚掌跟着变宽变窄">
+              <span>每只脚几个脚趾</span>
+              <div class="stepper" id="toes"></div>
+            </div>
             <p class="note">头选「一个头几张脸」：只有一个头、一根脖子，多出来的脸朝着两边和后面（阿修罗的三面）。腿选「自动」：4 条是人马下身，6 条以上是蛛形，单数是左右并排。人马、蛛形的腿只能成对，单数时多补一条。「人腿人马」就是 humantaur：像人马，但身后不是马身，是横着的一截人的腰，接着又一副人的胯和腿；人腿人马和前后串联每副胯上可以并排好几条（比如 6 条腿、每副 3 条就是「前三后三」），总数不够时最后那副少几条。「胯部聚拢」像手臂肩部聚拢：几副胯一副紧贴一副，每副一对腿，腿往下一对比一对往外散开，正面看像一把扇子，胯还是一个人那么宽。单数条人腿的，多出来的那条长在中线上：并排的在正中，前后排、聚拢的在最后那副胯的正中。分指的手在预览里会粘在一起，导出以后才分得开。</p>
           </div>
         </section>
@@ -238,6 +262,16 @@
               <div class="triples" id="tweakFields"></div>
               <label class="check"><input type="checkbox" id="tweakLock"> 大小锁定比例</label>
               <label class="check" id="tweakMirrorRow"><input type="checkbox" id="tweakMirror"> <span id="tweakMirrorText"></span></label>
+              <div id="limbTip" hidden>
+                <div class="field" title="只改这一条：末端接手还是脚。「跟着全部」就是照「造型 → 排布」里统一的那一项">
+                  <span>这一条的末端</span>
+                  <div class="seg" id="segLimbEnd" role="radiogroup" aria-label="这一条手臂或腿末端接什么"></div>
+                </div>
+                <div class="field" id="limbDigitsField">
+                  <span id="limbDigitsLabel"></span>
+                  <div class="stepper" id="limbDigits"></div>
+                </div>
+              </div>
               <div class="actions">
                 <button type="button" class="btn" id="btnTweakReset">还原这个部件</button>
                 <button type="button" class="btn" id="btnTweakDone">取消选择</button>

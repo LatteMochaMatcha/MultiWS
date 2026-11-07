@@ -22,8 +22,10 @@ import { type BodySpec, type CharacterId, PER_TORSO_KEYS, colorToLinear, countsO
 import { type BeastPiece, beastBody } from './beast';
 import { type ExtraHead, type ExtraKind, extraParts } from './extras';
 import type { HairDonor } from './hair';
-import { type BonePose, posedJoints, skinMatrices, skinVerticesInPlace } from './pose';
+import { type BonePose, posedJoints, skinMatrices, skinVerticesDualInPlace, skinVerticesInPlace } from './pose';
+import { conjoinCharacter, layDown } from './conjoin';
 import { type FaceInstance, fitFrame } from './face';
+import { reshapeLimbEnds } from './limbEnds';
 import type { CharacterSource, Chunk, FaceMorphs, SourceImage, SourceMaterial } from './source';
 
 export interface CharacterBone {
@@ -528,6 +530,11 @@ export function assembleCharacter(
   /** 别的角色（某个上半身换成了她们，见 BodySpec.torsoCharacters）：还没载入的给 null，那个上半身先照她自己的拼 */
   others: (id: CharacterId) => CharacterSource | null = () => null,
 ): CharacterBuild {
+  // 连体：照一个上半身、一对人腿拼，再在腰上切开、复制、趴下（见 conjoin.ts）
+  if (spec.conjoined !== 'none') {
+    const counts = { ...spec.counts, legs: 2, tails: 0, penises: 0, torsos: 1 };
+    spec = { ...spec, counts, legLayout: 'auto', legEnd: 'foot', torsoCounts: {}, torsoCharacters: {} };
+  }
   // 好几个上半身：先照她自己那个上半身（两个时左边，三个时正中）的数拼；别的上半身数量不一样的，照它自己的数另拼一份（见 TorsoDonor）
   const slots = torsoSlots(spec.counts.torsos);
   const own = torsoSpec(spec, slots[0]);
@@ -861,6 +868,13 @@ function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | nul
     }
   }
 
+  /* ---- 手指数、手脚互换（见 limbEnds.ts）：在复制手臂、腿之前改她自己的手和脚，多出来的照改过的复制 ---- */
+  {
+    const work = { names, parent, rest, origin, marker, chunks, original, skin: isSkin };
+    reshapeLimbEnds(work, spec, !['taur', 'spider'].includes(legPlan(spec).form));
+    original = work.original;
+  }
+
   /* ---- 这个样式顾不上的设定 ---- */
   const armPairs = Math.max(1, c.armPairs);
   if (c.armPairs === 0) ignored.push(t('去掉手臂'));
@@ -885,6 +899,9 @@ function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | nul
    */
   const legPairs = row ? Math.ceil(legs.total / 2) : stations.length;
   if (c.eyesPerHead !== 2) ignored.push(t('眼睛数量'));
+  // 她们都穿着鞋：脚趾数管不着；每条手臂、腿单独设的那一套（BodySpec.perLimb）也还没接上
+  if (spec.toes !== 5) ignored.push(t('脚趾数量'));
+  if (Object.keys(spec.perLimb ?? {}).length) ignored.push(t('每条手臂、腿单独设的末端和手指数'));
 
   /* ---- 头身比：滑块在默认位置（7.5）时就是角色本来的比例 ---- */
   let top = -Infinity;
@@ -2218,13 +2235,20 @@ function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | nul
     for (const [b, name] of renamed) names[b] = name;
   }
 
+  /* ---- 连体：腰往下不要，腰往上复制一份转过去，两个上半身的手臂撑地、头抬起来（见 conjoin.ts） ---- */
+  const conjoined = spec.conjoined !== 'none' ? conjoinCharacter({ names, parent, rest, origin, marker, chunks, pose }, spec.conjoined, spec.conjoinPose) : null;
+
   /* ---- 摆姿势，并把摆好的样子定成新的静止姿势 ---- */
   if (pose.size) {
     const matrices = skinMatrices({ parent, rest }, pose);
-    for (const chunk of chunks) skinVerticesInPlace(chunk.positions, chunk.normals, chunk.joints, chunk.weights, matrices);
+    // 连体的手腕要弯 90°：照对偶四元数混合，手腕不塌
+    const skin = conjoined ? skinVerticesDualInPlace : skinVerticesInPlace;
+    for (const chunk of chunks) skin(chunk.positions, chunk.normals, chunk.joints, chunk.weights, matrices);
     const moved = posedJoints({ parent, rest }, matrices);
     for (let b = 0; b < rest.length; b++) rest[b] = moved[b];
   }
+  // 连体：整个人绕腰往前趴下（脚踩到地面上那一步照最低点落地）
+  const palmFloor = conjoined ? layDown({ names, parent, rest, origin, marker, chunks, pose }, conjoined) : null;
 
   // 实际身高看的是头顶（所有头里最高的那个），不算蓬起来的头发，也不算后加的角和耳朵：趁它们还没加上先量好
   const headBones = new Set(heads.flatMap(subtree));
@@ -2741,6 +2765,8 @@ function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | nul
   /* ---- 脚踩到地面上，整体缩放到设定的身高 ---- */
   let low = Infinity;
   for (const chunk of chunks) for (let i = 1; i < chunk.positions.length; i += 3) if (chunk.positions[i] < low) low = chunk.positions[i];
+  // 连体照手心落地
+  if (palmFloor !== null) low = palmFloor;
   const scale = sh.height / standard;
   for (const chunk of chunks) {
     for (let i = 0; i < chunk.positions.length; i += 3) {

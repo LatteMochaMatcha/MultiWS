@@ -216,7 +216,7 @@ function gridGeo(p: GridShape, cuff: number, rough = false) {
 
 /** 接在部件上的现成网格（手、脚），摆到部件自己的坐标里（部件的拉伸已经算进去，见 graftFrame） */
 function graftGeo(part: Part, graft: Graft) {
-  const hand = graftMeshOf(graft.mesh);
+  const hand = graftMeshOf(graft.mesh, graft.digits);
   const { matrix: m, offset } = graftFrame(part, graft);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(hand.positions.slice(), 3));

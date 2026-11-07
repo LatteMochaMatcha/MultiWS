@@ -43,7 +43,7 @@ export interface Handle {
 /** 脊柱的几节；好几个上半身时，旁边那几个的脊柱带着它在哪一边（Spine_L、Chest_R.002，见 geometry/torsos.ts） */
 const SPINE = /^(Spine|Chest|UpperChest)(_[LR])?(\.\d+)?$/;
 /** 这些骨骼不算「一串一串挂着的」：手指（下面单独给指尖的点）、帮着拧的辅助骨骼、眼睛 */
-const SKIP = /^(Index|Middle|Ring|Little|Thumb)\d|Sec_[LR]|^FaceEyeSet|^Eye_/;
+const SKIP = /^(Leg)?(Index|Middle|Ring|Little|Thumb|Finger[A-C])\d|Sec_[LR]|^FaceEyeSet|^Eye_/;
 const nth = (name: string) => {
   const m = /\.(\d+)$/.exec(name);
   return m ? ` ${Number(m[1])}` : '';
@@ -159,8 +159,14 @@ export function buildHandles(solver: Solver): Handle[] {
 
   // 手指：每根在指尖一个点。拖它整根跟着弯，点一下转的是整根（绕指根）
   for (const hand of solver.hands) {
-    const which = ' ' + (hand.side > 0 ? t('左') : t('右')) + (hand.pair ? ` ${hand.pair + 1}` : '');
-    hand.fingers.forEach((chain, f) => {
+    // 腿上接的手（手脚互换）：写明是哪只脚上的
+    const which =
+      ' ' + (hand.limb === 'leg' ? (hand.side > 0 ? t('左脚') : t('右脚')) : hand.side > 0 ? t('左') : t('右')) + (hand.pair ? ` ${hand.pair + 1}` : '');
+    const chains = [
+      ...hand.fingers.map((chain, f) => ({ chain, thumb: f === 0, name: FINGER_LABEL[FINGER_NAMES[f]] })),
+      ...hand.extras.map((chain, k) => ({ chain, thumb: false, name: t('多出的手指 {n}', { n: k + 1 }) })),
+    ];
+    chains.forEach(({ chain, thumb, name }) => {
       if (!chain.length) return;
       const tip = chain[chain.length - 1];
       // 指根那一节可以朝任何方向摆；往后的每一节只绕自己的轴弯。
@@ -168,12 +174,12 @@ export function buildHandles(solver: Solver): Handle[] {
       const links = chain
         .map((bone, joint): AimLink => {
           if (joint === 0) return { bone, weight: 0.5 };
-          const axis = fingerHinge(solver.frames[bone], hand.side, f === 0);
+          const axis = fingerHinge(solver.frames[bone], hand.side, thumb);
           const last = joint === chain.length - 1 && chain.length > 2;
           return { bone, weight: last ? 0.3 : 0.55, hinge: { axis, ...FINGER_BEND[Math.min(joint, FINGER_BEND.length) - 1] } };
         })
         .sort((a, b) => b.weight - a.weight);
-      const label = `${FINGER_LABEL[FINGER_NAMES[f]]}${which}`;
+      const label = `${name}${which}`;
       handles.push(joint(chain[0], { id: `${rig.names[tip]}:tip`, kind: 'aim', group: 'finger', label, anchor: tip, rest: rig.tail[tip], links }));
     });
   }

@@ -5,6 +5,7 @@
  */
 import { t } from '../i18n';
 import type { V3 } from '../geometry/vec';
+import { TOE_COUNT, shapeFoot } from './digits';
 import { type GraftMesh, decodeGraftMesh } from './graftMesh';
 import meta from './footMesh.json';
 
@@ -12,11 +13,28 @@ import meta from './footMesh.json';
 export const FOOT_CREDIT = t('脚部网格 © Fox Jump（Kotori），CC BY');
 
 let cached: GraftMesh | null = null;
+const shaped = new Map<number, GraftMesh>();
 
-/** 脚的网格（写在素体模型自己的坐标里）。切口那一头的关节（end）是脚踝，往里一节（root）是膝盖 */
-export function footMesh(): GraftMesh {
+/**
+ * 五个脚趾（大脚趾 → 小脚趾）在模型里横着的位置（x，左脚）：照网格量的，脚趾尖往前伸得最远的那几处。
+ * 相邻两个之间找趾缝下刀（见 anime/digits.ts）
+ */
+const TOE_ROOTS = [0.032, 0.042, 0.051, 0.061, 0.07];
+
+/**
+ * 脚的网格（写在素体模型自己的坐标里）。切口那一头的关节（end）是脚踝，往里一节（root）是膝盖。
+ * count 是几个脚趾（TOE_COUNT 以内），不传就是现成的五个
+ */
+export function footMesh(count: number = TOE_COUNT.base): GraftMesh {
   cached ??= decodeGraftMesh(meta, meta.ankle as V3, meta.knee as V3);
-  return cached;
+  const n = Math.round(Math.min(TOE_COUNT.max, Math.max(TOE_COUNT.min, count)));
+  if (n === TOE_COUNT.base) return cached;
+  let foot = shaped.get(n);
+  if (!foot) {
+    foot = shapeFoot(cached, TOE_ROOTS, meta.toe[2], n);
+    shaped.set(n, foot);
+  }
+  return foot;
 }
 
 /** 脚踝、脚趾根、脚趾尖的关节在素体模型里的位置（左脚）：腿的骨骼照这只脚的来，脚趾才弯在脚趾根上 */
@@ -37,8 +55,9 @@ export const FOOT_STUMP = 0.03;
  * 接到一条腿上时，除了怎么摆以外的那几项（见 Graft）：骨骼的对应、跟着腿挪的那一点、哪些骨骼跟着脚。
  * name 把「Foot」换成这条腿上的全名（Foot_L.002 这样的）。小腿（LowerLeg）是腿自己的骨骼，不算脚的
  */
-export const footGraft = (name: (base: string) => string) => ({
+export const footGraft = (name: (base: string) => string, count: number = TOE_COUNT.base) => ({
   mesh: 'foot' as const,
+  ...(count !== TOE_COUNT.base ? { digits: count } : {}),
   bones: Object.fromEntries(meta.bones.map((bone) => [bone, name(bone)])),
   // 腿被拉伸（加粗、单足时的粗一圈）时脚跟着它变大变小：以脚踝正下方的脚底为中心，脚底还踩在地上
   pivot: [meta.ankle[0], meta.bounds.min[1], meta.ankle[2]] as V3,

@@ -157,9 +157,9 @@ function footLevel(parts: Part[]): number | null {
     }
     // 接上去的现成的脚：照它摆好的样子量最低的那一点（腿拉长、缩短时脚不跟着变形，只跟着脚踝挪）
     for (const graft of part.grafts ?? []) {
-      if (graft.mesh !== 'foot') continue;
+      if (graft.mesh !== 'foot' && graft.mesh !== 'palm') continue;
       const { matrix: g, offset } = graftFrame(part, graft);
-      const points = graftMeshOf('foot').positions;
+      const points = graftMeshOf(graft.mesh, graft.digits).positions;
       for (let i = 0; i < points.length; i += 3) {
         const q: V3 = [points[i], points[i + 1], points[i + 2]];
         const local = add(mat3Apply(g, q), offset);

@@ -330,8 +330,13 @@ export interface BoneHint {
  * 分部件模式下就是这个部件里多出来的一片网格。
  */
 export interface Graft {
-  /** 哪一块网格：手（anime/hand.ts）、脚（anime/foot.ts）或者阴茎（anime/genital.ts） */
-  mesh: 'hand' | 'foot' | 'penis';
+  /**
+   * 哪一块网格：手（anime/hand.ts）、脚（anime/foot.ts）、阴茎（anime/genital.ts），
+   * 或者接在腿上的手（palm：手腕往手背那边弯过去、手心贴地的，见 anime/swap.ts）
+   */
+  mesh: 'hand' | 'foot' | 'penis' | 'palm';
+  /** 手有几根手指（连拇指）、脚有几个脚趾，见 anime/digits.ts；不写就是现成的五根（五个） */
+  digits?: number;
   /** 摆放：网格自己坐标里的点 p 在部件的坐标里是 matrix · p + offset。带镜像的（右手）行列式是负的 */
   matrix: Mat3;
   offset: V3;

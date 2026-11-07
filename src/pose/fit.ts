@@ -22,7 +22,7 @@ import { forward } from './rig';
 import { type Solver, stateOf } from './solver';
 
 /** 一条手臂上的骨骼（锁骨、上臂、前臂、手、手指），第一对的名字 */
-const ARM_BONE = /^(?:Shoulder|UpperArm|LowerArm|Hand|(?:Thumb|Index|Middle|Ring|Little)\d)_([LR])$/;
+const ARM_BONE = /^(?:Shoulder|UpperArm|LowerArm|Hand|(?:Thumb|Index|Middle|Ring|Little|Finger[A-C])\d)_([LR])$/;
 /** 肩关节离第一对的肩关节不到上臂长的这么多倍，才算和它挤在同一个肩膀上 */
 const SAME_SHOULDER = 0.5;
 /** 姿势里的上臂、前臂和最接近的那条手臂静止时的方向都差不到这么多（弧度），几条手臂就一起摆 */
