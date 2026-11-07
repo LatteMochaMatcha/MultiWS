@@ -347,6 +347,49 @@ export function dragAim(
   return state;
 }
 
+/**
+ * 脚全部踩到地上（摆姿势里的「脚踩到地上」）：每只脚原地落到地面（前后左右不动，只往上下挪），脚掌放平
+ * （只留脚尖朝哪个方向转，前后翘、左右歪的都去掉，脚趾也放平），腿照这个重新弯；
+ * 有哪条腿伸直了也够不着地面（跳起来、踮着脚的姿势），整个人先往下落到每条都够得着、膝盖还留一点弯。
+ * 上半身不动。floor：地面多高（米）；脚踝离地多高照静止姿势（静止时站在 y = 0 上）。没有腿的原样返回
+ */
+export function plantFeet(solver: Solver, start: PoseState, floor = 0): PoseState {
+  const { rig, limbs } = solver;
+  const legs = limbs.filter((limb) => limb.kind === 'leg');
+  if (!legs.length) return start;
+  const f0 = forward(rig, start);
+  const state = cloneState(start);
+  const targets = legs.map((limb) => {
+    const at = f0.pos[limb.end];
+    // 脚掌放平：静止时脚是平的，所以只留绕竖直方向转的那一点（脚尖朝哪）
+    const way = sub(rig.tail[limb.end], rig.head[limb.end]);
+    const now = rotate(f0.rot[limb.end], way);
+    const a: V3 = [way[0], 0, way[2]];
+    const b: V3 = [now[0], 0, now[2]];
+    const rot: Quat = len(a) > 1e-6 && len(b) > 1e-6 && dot(norm(a), norm(b)) > -0.999 ? quatBetween(norm(a), norm(b)) : [0, 0, 0, 1];
+    return { limb, pos: [at[0], floor + Math.max(0, rig.head[limb.end][1]), at[2]] as V3, rot };
+  });
+  // 够不着地面的：整个人往下落，落到最够不着的那条也够得着、膝盖还弯着 PLANT_BEND
+  let drop = 0;
+  for (const { limb, pos } of targets) {
+    const s = f0.pos[limb.upper];
+    const reach = (limb.len1 + limb.len2) * PLANT_BEND;
+    const flat = Math.hypot(pos[0] - s[0], pos[2] - s[2]);
+    if (flat >= reach) continue;
+    drop = Math.max(drop, s[1] - pos[1] - Math.sqrt(reach * reach - flat * flat));
+  }
+  if (drop > 0) shiftRoot(rig, state, f0, [0, -drop, 0]);
+  const f = forward(rig, state);
+  for (const { limb, pos, rot } of targets) placeLimb(rig, state, f, limb, holdOf(limb, f0), pos, { endRot: rot });
+  // 脚趾放平
+  rig.names.forEach((name, j) => {
+    if (/^Toe/.test(name) && legs.some((limb) => rig.parent[j] === limb.end)) state.local[j] = [0, 0, 0, 1];
+  });
+  return state;
+}
+/** 脚踩到地上时腿最多伸到全长的这么多（留一点弯，看着是站着，不是绷直了吊着） */
+const PLANT_BEND = 0.97;
+
 /** 用旋转环转一根骨骼：让它在世界里朝 rot。它自己所在的那条肢体不再钉着，别的钉着的照旧 */
 export function turnBone(solver: Solver, start: PoseState, bone: number, rot: Quat, pins: readonly Pin[]): PoseState {
   const { rig } = solver;

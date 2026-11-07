@@ -54,6 +54,28 @@ describe('横排多胯里侧两条腿', () => {
   });
 });
 
+describe('前后串联、人腿人马后面那副胯的腿', () => {
+  it('后面那副胯的腿照前面同一边的腿摆（以前一直站着不动）；每副胯正中那条照左右两条的平均', () => {
+    const left: Quat = quatEuler(-40 * DEG, 0, 12 * DEG);
+    const right = mirrorQuat(left);
+    const posing = { version: 3 as const, bones: { UpperLeg_L: left, UpperLeg_R: right } };
+    for (const form of ['tandem', 'humantaur'] as const) {
+      const out = fitLegs(posing, form, 4, rig([['UpperLeg_R', -0.1], ['UpperLeg_L', 0.1], ['UpperLeg_R.002', -0.1], ['UpperLeg_L.002', 0.1]])).bones;
+      expect(out['UpperLeg_L.002'], form).toEqual(left);
+      expect(out['UpperLeg_R.002'], form).toEqual(right);
+    }
+    // 人腿人马每副胯三条：正中那两条照平均，只剩往前抬
+    const six = rig([['UpperLeg_R', -0.1], ['UpperLeg', 0], ['UpperLeg_L', 0.1], ['UpperLeg_R.002', -0.1], ['UpperLeg.002', 0], ['UpperLeg_L.002', 0.1]]);
+    const out = fitLegs(posing, 'humantaur', 6, six).bones;
+    for (const name of ['UpperLeg', 'UpperLeg.002']) {
+      expect(Math.abs(out[name][1]) + Math.abs(out[name][2]), name).toBeLessThan(1e-9);
+      expect(Math.abs(out[name][0]), name).toBeGreaterThan(0.2);
+    }
+    // 人马、蛛形照旧不套腿
+    expect(fitLegs(posing, 'taur', 4, six).bones.UpperLeg_L).toBeUndefined();
+  });
+});
+
 describe('横排多胯两副胯挨着的缝的蒙皮权重', () => {
   it('只有横排多胯才有这条缝：平常两条腿、左右并排、人马、蛛形都没有', () => {
     useAnimeBody();

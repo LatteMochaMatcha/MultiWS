@@ -1,5 +1,5 @@
 // 总览重测：三种身体样式 × 各种肢体组合 × 一串姿势，出图并记检查结果。
-//   node tools/run.mjs tools/overview.ts <输出目录> [--shard 0/6] [--only A01,M03] [--poses 0,3,5]
+//   node tools/run.mjs tools/overview.ts <输出目录> [--shard 0/6] [--only A01,M03] [--poses 0,3,5] [--view front]
 // 每种组合先出静止的正面全身，再逐个套姿势出斜前全身（和工坊里套现成姿势一样：多出来的腿、几个上半身的脊柱照着摆，
 // 手臂挑一条摆、别的跟着、再让开身体）。会照姿势重新融合的照姿势融合，别的照蒙皮权重把静止的网格弯过去。
 // 每张图一行记进 <输出目录>/shard-<k>.jsonl：网格几块、破口边、非流形边、耗时；蒙皮的另记边最多拉长几倍、拉长两倍以上的边占多少。
@@ -66,6 +66,8 @@ export const CASES: Case[] = [
   anime('A19', '三个上半身', { counts: { torsos: 3 } }),
   anime('A20', '两个上半身 · 左边两对手 · 右边两头两对胸', { counts: { torsos: 2 }, torsoCounts: { L: { armPairs: 2 }, R: { heads: 2, chestPairs: 2 } } }),
   anime('A21', '两个上半身 · 胸 2.2 腰 1.16 胯 1.28', { counts: { torsos: 2 }, shape: { bust: 2.2, waist: 1.16, hips: 1.28 } }),
+  anime('A22', '四条腿前后串联', { legLayout: 'tandem', counts: { legs: 4 } }),
+  anime('A23', '六条腿前后串联', { legLayout: 'tandem', counts: { legs: 6 } }),
   white('M01', '默认', {}),
   white('M02', '两对手臂上下排', { armLayout: 'stack', counts: { armPairs: 2 } }),
   white('M03', '两对手臂肩部聚拢', { armLayout: 'fan', counts: { armPairs: 2 } }),
@@ -204,7 +206,7 @@ function stretch(rest: Float32Array, posed: Float32Array, triangles: Uint32Array
 
 const VIEW_W = 320;
 const VIEW_H = 480;
-function shot(file: string, pos: Float32Array, triangles: Uint32Array, view: 'front' | 'three') {
+function shot(file: string, pos: Float32Array, triangles: Uint32Array, view: keyof typeof VIEWS) {
   const dir = VIEWS[view] as V3;
   const frame = frameFor(pos, [dir], VIEW_W, VIEW_H, 1.06);
   writeFileSync(file, png(VIEW_W, VIEW_H, render(pos, triangles, dir, frame, VIEW_W, VIEW_H)));
@@ -304,6 +306,8 @@ export async function main(args: string[], root: string) {
   const only = opt('--only')?.split(',');
   const poseFilter = opt('--poses')?.split(',').map(Number);
   const voxel = Number(opt('--voxel') ?? VOXEL.fine);
+  // 摆了姿势的从哪边看：缺省斜前（three），也可以 front、back、side、rear
+  const view = (opt('--view') ?? 'three') as keyof typeof VIEWS;
   mkdirSync(join(dir, 'img'), { recursive: true });
   const bytes = readFileSync(join(root, 'public/anime/body.bin'));
   installAnimeBody(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
@@ -341,7 +345,7 @@ export async function main(args: string[], root: string) {
         const row: Record<string, unknown> = { case: c.name, label: c.label, pose: p, name: poses[p].name, path: got.path, ms, components: parts.length, small: parts.slice(1, 6) };
         if (got.path === 'refuse') Object.assign(row, edgeCheck(got.triangles, got.vertices));
         if (got.rest) row.stretch = stretch(got.rest, got.pos, got.triangles);
-        shot(join(dir, 'img', `${c.name}_p${String(p).padStart(2, '0')}.png`), got.pos, got.triangles, 'three');
+        shot(join(dir, 'img', `${c.name}_p${String(p).padStart(2, '0')}.png`), got.pos, got.triangles, view);
         appendFileSync(out, `${JSON.stringify(row)}\n`);
         console.log(`${c.name} ${poses[p].name}: ${got.path} ${ms} ms，${parts.length} 块`);
       } catch (e) {

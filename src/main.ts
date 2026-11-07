@@ -128,7 +128,7 @@ import { armOfBone, armPairCount, followPair } from './pose/follow';
 import { POSE_LIBRARY } from './pose/library';
 import { type Posing, POSING_VERSION, cleanPosing, emptyPosing, flipPosing, isPosed, placedTwins } from './pose/posing';
 import { type Frame, type PoseRig, type PoseState, cloneState, forward, pointOn, poseMatrices, posedBones, shiftRoot, tailOf } from './pose/rig';
-import { type Pin, capturePins, dragAim, dragBend, dragBody, dragReach, turnBone } from './pose/solve';
+import { type Pin, capturePins, dragAim, dragBend, dragBody, dragReach, plantFeet, turnBone } from './pose/solve';
 import { type Solver, makeSolver, mirrorState, posingOf, stateOf } from './pose/solver';
 import { type Skeleton, buildSkeleton } from './rig/skeleton';
 import { bindPartGrafts, skinVertices } from './rig/skin';
@@ -2550,6 +2550,18 @@ function dropToGround(): boolean {
 }
 $('btnPoseGround').addEventListener('click', () => {
   if (dropToGround()) commitPose();
+});
+/** 脚全部踩到地上（见 pose/solve.ts 的 plantFeet）：腿重新弯、脚掌放平，够不着的整个人往下落 */
+$('btnPosePlant').addEventListener('click', () => {
+  if (!kit || !poseState) return;
+  if (!kit.solver.limbs.some((limb) => limb.kind === 'leg')) {
+    setStatus(t('这个身体没有腿。'));
+    return;
+  }
+  poseState = following(plantFeet(kit.solver, poseState));
+  showPose();
+  commitPose();
+  setStatus(t('脚都踩到地上了，脚掌放平；有腿够不着地面的话，整个人往下落一些。'));
 });
 
 /* ---- 自然下垂：头发、裙摆、衣摆、袖子（勾上的话还有尾巴）照重力垂下来 ---- */

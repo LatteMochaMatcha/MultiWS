@@ -10,10 +10,11 @@ import { fitArms, followArms } from '../src/pose/fit';
 import { POSE_LIBRARY } from '../src/pose/library';
 import { quatAngle } from '../src/pose/math';
 import type { Posing } from '../src/pose/posing';
-import { type Frame, forward } from '../src/pose/rig';
+import { type Frame, forward, poseMatrices } from '../src/pose/rig';
 import { type Solver, makeSolver, stateOf } from '../src/pose/solver';
 import { buildSkeleton } from '../src/rig/skeleton';
 import { compileField, fieldAt } from '../src/sdf/field';
+import { posedBodyDist } from '../src/sdf/posedBody';
 import { useAnimeBody } from './animeBody';
 
 const make = (counts: Partial<BodyCounts> = {}, rest: Partial<BodySpec> = {}): BodySpec => {
@@ -201,6 +202,32 @@ describe('手臂让开身体', () => {
         if (!atRest) expect(deepest(kit, after, [i]), `${name} ${limb.name}`).toBeLessThan(0.012 * kit.figure.scale);
       }
       if (name === '抱着胳膊') expect(followers.every((i) => quatAngle(state.local[solver.limbs[i].upper]) > 0.1), name).toBe(true);
+    }
+  });
+
+  it('两个上半身：站着、叉腰、弯腰、冲刺时里侧的手臂不再退回静止的样子（以前横在对方胸前不动，看着像姿势没套上），肘和手不举过肩', () => {
+    for (const style of ['anime', 'mannequin'] as const) {
+      const kit = kitOf(make({ torsos: 2 }, { bodyStyle: style }));
+      const { solver } = kit;
+      for (const name of ['自然站立', '叉腰', '弯腰拿东西', '冲刺']) {
+        const { posing, followers } = followArms(solver, fitArms(solver, torsos(preset(name))));
+        // 和工坊里一样：手腕外面那一截照摆好的姿势量
+        const posed = posedBodyDist(kit.figure, defaultSpec().blend, poseMatrices(solver.rig, forward(solver.rig, stateOf(solver, posing)), kit.figure.scale));
+        const after = clearArms(solver, posing, kit.body, kit.figure.scale, 1, followers, posed);
+        const state = stateOf(solver, after);
+        const frame = forward(solver.rig, state);
+        let moved = 0;
+        for (const i of followers) {
+          const limb = solver.limbs[i];
+          const label = `${style} ${name} ${limb.name}`;
+          // 叉腰时身子不怎么动：往后摆手肘就翘过肩的那条，留在静止的样子（手搭在对方胸前）也行
+          if (quatAngle(state.local[limb.upper]) > 0.1) moved++;
+          else if (name !== '叉腰') expect.fail(`${label} 退回了静止的样子`);
+          expect(deepest(kit, after, [i]), label).toBeLessThan(0.012 * kit.figure.scale);
+          expect(frame.pos[limb.lower][1], label).toBeLessThan(frame.pos[limb.upper][1] + 0.05 * kit.figure.scale);
+        }
+        expect(moved, `${style} ${name}`).toBeGreaterThan(0);
+      }
     }
   });
 

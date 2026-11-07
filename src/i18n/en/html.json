@@ -94,6 +94,8 @@
   "左右翻转": "Flip horizontally",
   "整个人上下挪一下，最低的地方正好贴着地面": "Move the whole figure up or down so its lowest point just touches the ground",
   "落到地面": "Drop to ground",
+  "每只脚原地落到地面、脚掌放平，腿跟着弯；有腿够不着地面时整个人往下落。上半身不动": "Each foot drops straight down to the ground with its sole flat, and the legs bend to match; if a leg can't reach the ground, the whole figure is lowered. The upper body doesn't move",
+  "脚踩到地上": "Plant feet",
   "头发、裙摆、衣摆、袖子照重力垂下来，碰到身体、地面就停在外面": "Hair, skirt hems, garment hems, and sleeves hang down under gravity, stopping at the body and the ground instead of passing through them",
   "自然下垂": "Drape",
   "尾巴本来是翘着的；勾上以后「自然下垂」也让尾巴往下垂一些": "Tails normally curl upward; when checked, \"Drape\" also lets tails hang down a little",

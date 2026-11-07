@@ -1,8 +1,9 @@
 /**
  * 现成的姿势是给两条腿的人摆的，套到多条腿的身体上时腿怎么摆（工坊点姿势按钮、验收台、总览重测都用这一份）：
  * - 人马、蛛形的腿和胯不照它摆（马腿照人腿的样子弯会很怪，马身也不该跟着躺下去）：只套腰以上，下半身保持静止的样子。
- * - 腿左右并排、胯部聚拢、横排多胯时，多出来的几对是同样的腿排在旁边、挤在后面：左边的都照左腿摆，右边的都照右腿摆
- *   （横排多胯是每副胯自己的左腿、右腿）。长在中线上的腿（单足、单数条并排的正中那条）不照它摆，保持站着。
+ * - 腿左右并排、胯部聚拢、横排多胯、前后串联、人腿人马时，多出来的几对是同样的腿排在旁边、挤在后面、跟在后面：
+ *   左边的都照左腿摆，右边的都照右腿摆（横排多胯是每副胯自己的左腿、右腿；前后串联、人腿人马后面那副胯的腿和前面同一边的迈同一步）。
+ *   长在中线上的腿（单数条并排的正中那条、人腿人马每副胯正中那条）照左右两条腿的平均摆。
  * - 横排多胯两副胯挨着的那两条里侧的腿（见 INNER）一起照左右两条腿的平均摆。
  *
  * 纯函数。
@@ -53,11 +54,21 @@ export function innerLegs(rig: Pick<PoseRig, 'names' | 'head'>): [string, string
  * rig：这副骨架（找横排多胯里侧的两条腿用，没有就不管它们）
  */
 export function fitLegs(posing: Posing, form: LegForm | undefined, legs: number, rig?: Pick<PoseRig, 'names' | 'head'> | null): Posing {
-  if (form === 'row' || form === 'gather' || form === 'abreast') {
+  if (form === 'row' || form === 'gather' || form === 'abreast' || form === 'tandem' || form === 'humantaur') {
     const bones = { ...posing.bones };
     for (const [name, turn] of Object.entries(posing.bones)) {
       if (!/^(UpperLeg|LowerLeg|Foot|Toes)_[LR]$/.test(name)) continue;
       for (let k = 1; k < Math.ceil(legs / 2); k++) bones[nthName(name, k)] = turn;
+    }
+    // 长在中线上的腿（单数条时正中那条；人腿人马每副胯单数条时每副胯正中那条）照左右两条腿的平均摆：
+    // 往前抬、弯膝盖跟着（蹲下、坐下时胯落下去，它要是还直直地站着，整个人就被它撑起来），往两边张开的抵消掉
+    if (rig) {
+      for (const name of rig.names) {
+        const m = /^(UpperLeg|LowerLeg|Foot|Toes)(\.\d+)?$/.exec(name);
+        if (!m || bones[name]) continue;
+        const from = [posing.bones[`${m[1]}_L`], posing.bones[`${m[1]}_R`]];
+        if (from[0] || from[1]) bones[name] = average(from[0], from[1]);
+      }
     }
     if (form === 'abreast' && rig) {
       for (const [left, right] of innerLegs(rig)) {

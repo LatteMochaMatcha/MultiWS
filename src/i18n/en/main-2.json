@@ -28,6 +28,8 @@
   "白模的头发没有骨骼（整个跟着头动），垂不下来；要尾巴垂下来，先勾上「尾巴也垂」。": "Base mesh hair has no bones (it moves with the head as one piece), so it can't hang down. To make the tails hang down, check \"Drape tails too\" first.",
   "白模的头发没有骨骼（整个跟着头动），垂不下来。": "Base mesh hair has no bones (it moves with the head as one piece), so it can't hang down.",
   "{kinds}照重力垂下来了；身体再动以后，再点一次「自然下垂」。": "Draped under gravity: {kinds}. After the body moves again, click \"Drape\" once more.",
+  "这个身体没有腿。": "This body has no legs.",
+  "脚都踩到地上了，脚掌放平；有腿够不着地面的话，整个人往下落一些。": "All feet are planted on the ground with flat soles; if a leg couldn't reach the ground, the whole figure was lowered a little.",
   "已保存姿势 {file}，{where}。": "Pose saved as {file} {where}.",
   "姿势没存成：{err}": "Couldn't save the pose: {err}",
   "已载入姿势 {name}。": "Loaded pose {name}.",
