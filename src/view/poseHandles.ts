@@ -9,6 +9,7 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import type { Quat, V3 } from '../geometry/vec';
 import type { Handle, HandleKind } from '../pose/handles';
 import type { Viewport } from './viewport';
+import { srgbTexture } from './oldEngine';
 
 /** 鼠标按下到松开挪了不超过这么多像素，才算「点了一下」 */
 const CLICK_SLOP = 4;
@@ -46,8 +47,7 @@ function drawLook(look: Look): THREE.Texture {
   g.fill();
   g.stroke();
   const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
+  return srgbTexture(texture);
 }
 
 interface Dot {

@@ -7,6 +7,7 @@ import type { CharacterBuild } from '../character/assemble';
 import { mergeByMaterial } from '../character/export';
 import type { Chunk, SourceImage, SourceMaterial } from '../character/source';
 import { CHARACTER_BLEND, type SkinSource } from './posedMeshes';
+import { srgbTexture } from './oldEngine';
 
 export interface CharacterStats {
   box: THREE.Box3;
@@ -65,7 +66,7 @@ export class CharacterModel {
       const made = new THREE.Texture();
       // glTF 的贴图坐标以左上角为原点，不用上下翻
       made.flipY = false;
-      made.colorSpace = THREE.SRGBColorSpace;
+      srgbTexture(made);
       made.wrapS = made.wrapT = THREE.RepeatWrapping;
       made.anisotropy = 4;
       const url = URL.createObjectURL(new Blob([image.bytes as Uint8Array<ArrayBuffer>], { type: image.mime }));

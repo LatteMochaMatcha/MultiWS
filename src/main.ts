@@ -1,3 +1,5 @@
+// 旧内核（安卓 WebView 83 之类）缺的函数先补上，必须在最前面
+import './polyfill';
 import './style.css';
 import { type Lang, LANG, LANGS, setLang, t, tk, translatePage, variants } from './i18n';
 import { type Box3, type Raycaster, Matrix4 } from 'three';

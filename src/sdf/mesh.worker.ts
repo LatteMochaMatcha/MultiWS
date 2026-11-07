@@ -3,6 +3,7 @@
  * 导出带骨骼的模型时，蒙皮权重也在这里算（几十万个顶点，放主线程会卡一下）。
  * 大活里最费时的一段分给几个帮手线程一起算（见 parallel.ts、eval.worker.ts）；算到一半作废了就停下。
  */
+import '../polyfill';
 import { installAnimeBody } from '../anime/body';
 import { installGenital } from '../anime/genital';
 import { type HairShape, installHairShape } from '../hair/shapes';

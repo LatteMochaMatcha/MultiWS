@@ -8,6 +8,7 @@
  */
 import { t } from '../i18n';
 import * as THREE from 'three';
+import { srgbTexture } from './oldEngine';
 
 export type RefSlot = 'front' | 'side';
 export const REF_SLOTS: readonly RefSlot[] = ['front', 'side'];
@@ -243,7 +244,7 @@ export class ReferenceImages {
     s.picture = picture;
     if (picture) {
       const texture = new THREE.CanvasTexture(picture.canvas);
-      texture.colorSpace = THREE.SRGBColorSpace;
+      srgbTexture(texture);
       s.mesh.material.map = texture;
     } else {
       s.mesh.material.map = null;
