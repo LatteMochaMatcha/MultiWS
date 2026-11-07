@@ -29,7 +29,7 @@ const TABS_KEY = 'oc-basemesh-tabs';
 const NOTES_KEY = 'oc-basemesh-notes';
 
 /** 手机上内容长的栏：点进去抽屉拉到六成高 */
-const TALL = new Set(['desc', 'layout', 'hair', 'shape', 'view', 'refs']);
+const TALL = new Set(['desc', 'layout', 'hair', 'shape', 'view', 'refs', 'scene']);
 
 /** 栏目名按钮上用短的（手机一排放得下更多、电脑竖排图标下面两个字），完整的名字放进 title */
 const SHORT: Record<string, string> = {
@@ -45,6 +45,7 @@ const SHORT: Record<string, string> = {
   hand: t('手势@@栏目'),
   face: t('表情@@栏目'),
   poses: t('现成@@栏目'),
+  scene: t('场景@@栏目'),
   view: t('镜头@@栏目'),
   refs: t('参考图@@栏目'),
   config: t('配置@@栏目'),
@@ -64,6 +65,7 @@ const ICON: Record<string, string> = {
   hand: '<path d="M8 13V6a1.5 1.5 0 0 1 3 0v5M11 11V4.5a1.5 1.5 0 0 1 3 0V11M14 11V6a1.5 1.5 0 0 1 3 0v7c0 4-2.5 7-6 7-2.5 0-4-1.5-5.5-4L4 13a1.5 1.5 0 0 1 2.5-1.5L8 13"/>',
   face: '<circle cx="12" cy="12" r="8.5"/><path d="M9 10h.01M15 10h.01M8.5 14.5c1 1.3 2.2 2 3.5 2s2.5-.7 3.5-2"/>',
   poses: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/>',
+  scene: '<circle cx="7" cy="6" r="2"/><circle cx="17" cy="6" r="2"/><path d="M7 8.5v6M17 8.5v6M4.5 11h5M14.5 11h5M5 20l2-5.5 2 5.5M15 20l2-5.5 2 5.5"/>',
   view: '<path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
   refs: '<rect x="4" y="5" width="16" height="14" rx="2"/><path d="m4 16 5-5 4 4 2-2 5 5"/><circle cx="15.5" cy="9.5" r="1.2"/>',
   config: '<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 14h8M8 17h8"/>',

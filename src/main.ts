@@ -2,7 +2,7 @@
 import './polyfill';
 import './style.css';
 import { type Lang, LANG, LANGS, setLang, t, tk, translatePage, variants } from './i18n';
-import { type Box3, type Raycaster, Matrix4 } from 'three';
+import { Box3, Group, Matrix4, Plane, Raycaster, Vector2, Vector3 } from 'three';
 import { TORSO_CREDIT, animeGrid, animeReady, loadAnimeBody } from './anime/body';
 import { FOOT_CREDIT } from './anime/foot';
 import { GENITAL_CREDIT, genitalReady, loadGenital } from './anime/genital';
@@ -11,7 +11,7 @@ import { type CharacterBuild, assembleCharacter } from './character/assemble';
 import { characterGlb, characterShape, characterSkeleton, poseBuild } from './character/export';
 import { characterVrm } from './character/vrm';
 import { type FaceInstance, type FaceWeights, type Gaze, applyFaces, faceLabel, gazeAt, gazeOf, gazeTurns, hasExpression } from './character/face';
-import { characterSource, hairDonor, hairLit, lightenHair, loadCharacter, loadHair, loadOwnCharacter, ownFileName, restoreOwnCharacter } from './character/load';
+import { characterSource, hairDonor, hairLit, keepCharacters, lightenHair, loadCharacter, loadHair, loadOwnCharacter, ownFileName, restoreOwnCharacter } from './character/load';
 import type { CharacterSource } from './character/source';
 import { ROSTER, rosterEntry } from './character/roster';
 import { skinInPlace } from './character/pose';
@@ -30,6 +30,32 @@ import { type VrmLicense, type VrmMeta, VRM_LICENSES, describeLicense, humanoidM
 import { tPosing, tailSprings } from './io/vrmRig';
 import { writeObj, writeStl } from './io/meshFiles';
 import { History } from './model/history';
+import {
+  type Place,
+  type Scene,
+  type SceneFigure,
+  PLACE_LIMITS,
+  absolutePlace,
+  addFigure,
+  besideAll,
+  cleanName,
+  currentOf,
+  figureOf,
+  indexOf,
+  isSceneData,
+  moveFigure,
+  normalizeScene,
+  relativePlace,
+  removeFigure,
+  restoreFigure,
+  serializeScene,
+  setCurrent,
+  singleScene,
+  updateFigure,
+} from './model/scene';
+import { type Baked, bakeFigure, bakedGlb, bakedView, charactersOf } from './scene/bake';
+import { mergeGlbs } from './io/mergeGlb';
+import { SceneFigures } from './view/sceneFigures';
 import { activeOverrides, clearAllOverrides, clearOverride, mirrorName, setOverride } from './model/overrides';
 import { partLabel } from './model/partLabel';
 import { PRESETS, applyPreset } from './model/presets';
@@ -162,6 +188,8 @@ installDiag();
 installDiagRow();
 
 const STORE_KEY = 'oc-basemesh-v2';
+/** 场景里的全部角色（见 model/scene.ts）。当前角色另外照旧存在 STORE_KEY 里：退回旧版本也还在 */
+const SCENE_KEY = 'oc-basemesh-scene';
 const THEME_KEY = 'oc-basemesh-theme';
 const START_TEXT = t('两个头，两对手，两对胸');
 
@@ -263,10 +291,10 @@ const adultShown = () => adultOn() && spec.bodyStyle !== 'character';
  * 存档、配置文件里的描述：没手改过的规范描述换成现在界面语言的写法（换了语言描述框跟着换），
  * 手写的原样留着（三种语言解析器都认）
  */
-function restoredText(saved: unknown): string {
-  if (typeof saved !== 'string') return describeSpec(spec);
+function restoredText(saved: unknown, s: BodySpec = spec): string {
+  if (typeof saved !== 'string') return describeSpec(s);
   if (variants('两个头，两对手，两对胸').includes(saved)) return START_TEXT;
-  return LANGS.some((l) => describeSpec(spec, l.key) === saved) ? describeSpec(spec) : saved;
+  return LANGS.some((l) => describeSpec(s, l.key) === saved) ? describeSpec(s) : saved;
 }
 
 function load() {
@@ -285,14 +313,33 @@ function load() {
 }
 
 function save() {
+  scene = updateFigure(scene, scene.current, { spec, text });
   try {
     localStorage.setItem(STORE_KEY, serializeSpec(spec, text));
+    localStorage.setItem(SCENE_KEY, serializeScene(scene, specData));
   } catch {
     // 无痕窗口等场景下存不了，不影响使用
   }
 }
 
+/** 存档、场景文件里一个角色的设定：和「保存配置」的文件一样的格式 */
+const specData = (s: BodySpec, tx: string): object => JSON.parse(serializeSpec(s, tx)) as object;
+/** 读场景里的一份设定（存档、场景文件）：整理好，描述照 restoredText 换成现在的语言 */
+function readFigureSpec(raw: unknown): { spec: BodySpec; text: string } {
+  const s = gate(normalizeSpec(raw));
+  return { spec: s, text: restoredText((raw as { text?: unknown } | null)?.text, s) };
+}
+
 load();
+/** 场景：当前角色就是上面读出来的那份（STORE_KEY 总是最新的），别的从 SCENE_KEY 读 */
+let scene: Scene = singleScene(spec, text);
+try {
+  const raw = localStorage.getItem(SCENE_KEY);
+  const stored = raw ? normalizeScene(JSON.parse(raw), readFigureSpec) : null;
+  if (stored) scene = updateFigure(stored, stored.current, { spec, text });
+} catch {
+  // 读不出来就只有这一个角色
+}
 
 /* ---------------- 撤销 / 重做 ---------------- */
 
@@ -300,12 +347,17 @@ load();
 interface Snapshot {
   spec: BodySpec;
   text: string;
+  /** 在场景里站在哪（好几个角色时，见 model/scene.ts） */
+  place: Place;
 }
 
-const history = new History<Snapshot>(
-  { spec, text },
-  { equals: (a, b) => a.text === b.text && JSON.stringify(a.spec) === JSON.stringify(b.spec) },
-);
+const samePlace = (a: Place, b: Place) => a.x === b.x && a.z === b.z && a.yaw === b.yaw;
+const HISTORY_OPTIONS = {
+  equals: (a: Snapshot, b: Snapshot) => a.text === b.text && samePlace(a.place, b.place) && JSON.stringify(a.spec) === JSON.stringify(b.spec),
+};
+/** 当前角色的撤销历史。场景里每个角色各有一份：切走时存在 histories 里，切回来接着用 */
+let history = new History<Snapshot>({ spec, text, place: currentOf(scene).place }, HISTORY_OPTIONS);
+const histories = new Map<string, History<Snapshot>>();
 
 /** 正拖着操纵杆（见 gizmo.onDrag）：每动一下只记撤销、重建模型，存档和刷新整个面板等松手再做 */
 let tweaking = false;
@@ -323,7 +375,7 @@ let slid = false;
  */
 function commit(key?: string) {
   spec = gate(spec);
-  history.push({ spec, text }, key);
+  history.push({ spec, text, place: currentOf(scene).place }, key);
   // 只认操纵杆自己的改动：万一没收到松手，别的改动（滑块、撤销）照常存档、刷新
   if (tweaking && key?.startsWith('gizmo:')) {
     // 拖操纵杆只改了微调：面板上别的都没变，微调那几格数字在重建以后跟着同步（见 syncTweak）
@@ -360,6 +412,7 @@ function restore(snapshot: Snapshot | null) {
   if (!snapshot) return;
   spec = gate(snapshot.spec);
   readText(snapshot.text);
+  if (!samePlace(snapshot.place, currentOf(scene).place)) movePlace(scene.current, snapshot.place);
   desc.value = text;
   save();
   render();
@@ -538,6 +591,8 @@ adultBox.addEventListener('change', () => {
   // 打开：照现在的描述重新认一遍（之前写了「两根阴茎」的，这时才长出来），再把关之前收起来的原样放回去——只是藏起来，不用重新捏
   if (!adultBox.checked) keepAdult(spec);
   setAdult(adultBox.checked);
+  // 场景里别的角色：照开关重算（设定里的原样留着）
+  void bakeOthers();
   if (!adultBox.checked) commit();
   else {
     const parsed = applyParse(spec, readText(desc.value));
@@ -1109,9 +1164,14 @@ let gizmo: Gizmo | null = null;
 const flatParts = new FlatParts();
 /** 摆姿势时关节上的圆点和旋转环 */
 let poseHandles: PoseHandles | null = null;
+/** 场景里别的角色（定住的网格）和每个角色脚下的底座圈，见 view/sceneFigures.ts */
+const sceneView = new SceneFigures();
+/** 当前角色的那几个模型放在一组里：场景里刚切过来、网格还没算出来时整组先藏着（见 holdLive） */
+const live = new Group();
+live.add(model.root, fused.root, characterModel.root, flatParts.root);
 try {
   viewport = new Viewport($('stage'));
-  viewport.scene.add(model.root, fused.root, characterModel.root, flatParts.root);
+  viewport.scene.add(live, sceneView.root);
   viewport.overlay.add(bones.root);
   gizmo = new Gizmo(viewport);
   poseHandles = new PoseHandles(viewport);
@@ -1503,8 +1563,14 @@ function scheduleClashCheck(target: Figure) {
   }, 400);
 }
 
+/** 当前角色自己的包围盒（场景里别的角色不算） */
+const ownBox = new Box3();
+/** 包围盒加上场景里别的角色：阴影、取景照整个场景 */
+const withScene = (box: Box3) => box.clone().union(sceneView.othersBox());
 function showBounds(box: Box3) {
-  viewport?.setBounds(box);
+  ownBox.copy(box);
+  sceneView.setActiveBox(box);
+  viewport?.setBounds(withScene(box));
   if (refitNext) viewport?.refit();
   refitNext = false;
 }
@@ -1521,6 +1587,7 @@ function showFused() {
 fused.onUpdate = (stats) => {
   fusedStats = stats;
   if (spec.meshMode !== 'fused' || character) return;
+  if (fused.caughtUp) releaseLive();
   showBounds(stats.box);
   showFused();
   // 摆姿势时：新的网格（和它的权重）到了，把姿势套上去
@@ -1548,13 +1615,35 @@ function retryLoading() {
 window.addEventListener('focus', retryLoading);
 document.addEventListener('visibilitychange', retryLoading);
 
+/**
+ * 素体、头发、阴囊的数据交给网格线程：只交一次（当前角色和后台算场景里别的角色的都会取，见 loadAssetsFor）
+ */
+let shapesGiven = false;
+const hairsGiven = new Set<HairShape>();
+let genitalGiven = false;
+function giveShapes(buffer: ArrayBuffer) {
+  if (shapesGiven) return;
+  shapesGiven = true;
+  provideShapes(buffer);
+}
+function giveHair(style: HairShape, buffer: ArrayBuffer) {
+  if (hairsGiven.has(style)) return;
+  hairsGiven.add(style);
+  provideHair(style, buffer);
+}
+function giveGenital(buffer: ArrayBuffer) {
+  if (genitalGiven) return;
+  genitalGiven = true;
+  provideGenital(buffer);
+}
+
 function ensureAnimeBody() {
   if (animeLoading || animeReady()) return;
   animeLoading = true;
   setStatus(t('正在载入二次元素体…'));
   loadAnimeBody(import.meta.env.BASE_URL)
     .then((buffer) => {
-      provideShapes(buffer);
+      giveShapes(buffer);
       setStatus(t('二次元素体已载入'));
       refitNext = true;
       scheduleRebuild();
@@ -1578,6 +1667,8 @@ function torsoCharacterIds(): CharacterId[] {
 }
 /** 拼这个成品角色用到的所有角色：身子的，加上换了角色的上半身的 */
 const usedCharacters = (): CharacterChoice[] => [spec.character, ...torsoCharacterIds()];
+// 读好的角色只留几个（见 character/load.ts）：后台算场景里别的角色时，当前角色用的那几个不放掉
+keepCharacters(usedCharacters);
 /** 用到的角色里许可要求署名的那几句 */
 const usedCredits = () => usedCharacters().flatMap((id) => (id === OWN_CHARACTER ? [] : rosterEntry(id).credit ?? []));
 function ensureCharacter() {
@@ -1692,7 +1783,7 @@ function ensureHairShape() {
   setStatus(t('正在载入发型「{name}」…', { name: HAIR_LABEL[style] }));
   loadHairShape(style, import.meta.env.BASE_URL)
     .then((buffer) => {
-      provideHair(style, buffer);
+      giveHair(style, buffer);
       setStatus(t('发型「{name}」已载入', { name: HAIR_LABEL[style] }));
       scheduleRebuild();
     })
@@ -1712,7 +1803,7 @@ function ensureGenital() {
   genitalLoading = true;
   loadGenital(import.meta.env.BASE_URL)
     .then((buffer) => {
-      provideGenital(buffer);
+      giveGenital(buffer);
       scheduleRebuild();
     })
     .catch((err: unknown) => {
@@ -1820,6 +1911,7 @@ function rebuildBody() {
     if (showCharacter()) {
       syncTweak();
       syncBones();
+      releaseLive();
       lastBuildMs = performance.now() - t0;
       return;
     }
@@ -1845,6 +1937,7 @@ function rebuildBody() {
     const stats = model.update(figure);
     showBounds(stats.box);
     showReadout(t('{n} 三角面', { n: count(stats.triangles) }));
+    releaseLive();
   }
   syncTweak();
   syncBones();
@@ -2429,7 +2522,10 @@ function syncPosing() {
   markHandles();
   if (ready && !poseHandles?.busy) {
     const box = posed!.bounds();
-    if (!box.isEmpty()) viewport?.setBounds(box);
+    if (!box.isEmpty()) {
+      ownBox.copy(box);
+      viewport?.setBounds(withScene(box));
+    }
   }
   renderPosePanel();
 }
@@ -2688,8 +2784,8 @@ const readTriple = (v: unknown): [number, number, number] | null =>
 /* ---- 保存配置、姿势时问文件名：上次用的名字记在这个浏览器里，下次照它填好 ---- */
 
 const SAVE_NAME_KEY = 'oc-basemesh-save-names';
-const SAVE_DEFAULT = { config: 'oc_config', pose: 'oc_pose' } as const;
-const SAVE_TITLE = { config: tk('保存配置'), pose: tk('保存姿势') } as const;
+const SAVE_DEFAULT = { config: 'oc_config', pose: 'oc_pose', scene: 'oc_scene' } as const;
+const SAVE_TITLE = { config: tk('保存配置'), pose: tk('保存姿势'), scene: tk('保存场景') } as const;
 const nameDialog = $<HTMLDialogElement>('nameDialog');
 const saveName = $<HTMLInputElement>('saveName');
 // 名字框里按回车就是「保存」（表单里第一个提交按钮是「取消」，不拦的话回车等于取消）
@@ -3640,6 +3736,8 @@ function exportCharacter(kind: ExportKind, rest: CharacterBuild, pose: ExportPos
 }
 
 async function exportModel(kind: ExportKind) {
+  // 场景里好几个角色、选了「整个场景」：每个角色各算一遍，写在一个文件里
+  if (exportWhat === 'scene' && scene.figures.length > 1) return exportScene(kind);
   // 参数刚改、还没来得及重建时，先同步一次，保证导出的是现在看到的设定
   if (pending || (!figure && !character)) rebuild();
   const target = figure;
@@ -3677,7 +3775,11 @@ for (const kind of Object.keys(exportButtons) as ExportKind[]) {
 $('btnPng').addEventListener('click', async () => {
   if (!viewport) return;
   try {
-    const where = await saveBlob('oc_basemesh.png', await viewport.snapshot());
+    // 场景里的底座圈不进截图（和地上那一圈参照线一样）
+    sceneView.showRings(false);
+    const shot = viewport.snapshot();
+    placeAll();
+    const where = await saveBlob('oc_basemesh.png', await shot);
     setStatus(t('已保存截图 oc_basemesh.png（透明背景），{where}。', { where }));
   } catch (err) {
     setStatus(t('截图失败：{err}', { err: errText(err) }), true);
@@ -3901,6 +4003,750 @@ fileJson.addEventListener('change', async () => {
     setStatus(t('这个文件不是有效的配置文件。'), true);
   }
 });
+
+/* ---------------- 场景：好几个角色（见 docs/scene-plan.md、model/scene.ts） ----------------
+ * 同一时间只改一个（当前角色）：spec、text、history 这些全局的都是它的。别的角色在屏幕上是定住的网格（sceneView），
+ * 照它们各自的设定在后台算好（scene/bake.ts）。当前角色永远站在原点，别人照相对它的位置摆；切换时镜头跟着挪，画面不跳。
+ */
+
+/** 角色在列表、文件里叫什么：起了名字就用名字，没起就是「角色 n」 */
+const figureLabel = (f: SceneFigure) => f.name || t('角色 {n}', { n: indexOf(scene, f.id) + 1 });
+
+/** 场景里别的角色是照哪份设定算的（屏幕上定住的那张）；没算过、算过以后又改了的要重算 */
+const bakedFor = new Map<string, string>();
+/** 算过、算失败了的：同一份设定不再试 */
+const bakeFailed = new Map<string, string>();
+/** 算别人用的设定：成人部件关着时照样藏起来（设定里留着，打开又回来，和当前角色一样） */
+const bakeSpec = (f: SceneFigure) => gate(f.spec);
+const bakeKey = (f: SceneFigure) => JSON.stringify([bakeSpec(f), adultOn()]);
+
+/** 把一份设定用到的素材（素体、头发、成品角色的文件）载入好；载不进来的不管（算的时候照退回去的样子算） */
+async function loadAssetsFor(s: BodySpec): Promise<void> {
+  const base = import.meta.env.BASE_URL;
+  const jobs: Promise<unknown>[] = [];
+  const style = s.hair.style;
+  if (s.bodyStyle !== 'mannequin' && !animeReady()) jobs.push(loadAnimeBody(base).then(giveShapes));
+  if (s.bodyStyle !== 'character' && style !== 'own' && !hairReady(style)) jobs.push(loadHairShape(style, base).then((b) => giveHair(style, b)));
+  if (s.counts.penises && !genitalReady()) jobs.push(loadGenital(base).then(giveGenital));
+  if (s.bodyStyle === 'character') {
+    for (const id of charactersOf(s)) {
+      if (characterSource(id)) continue;
+      jobs.push(id === OWN_CHARACTER ? restoreOwnCharacter() : loadCharacter(id, base));
+    }
+    if (style !== 'own' && !hairDonor(style)) jobs.push(loadHair(style, base));
+  }
+  await Promise.allSettled(jobs);
+  // 染了色的头发要浅色的贴图（见 ensureHairLight）
+  if (s.bodyStyle === 'character' && (s.hair.color || s.hair.heads.some((v) => v && v !== HAIR_UNDYED) || style !== 'own')) {
+    const sources = [...charactersOf(s).map(characterSource), hairDonor(style)?.source ?? null];
+    await Promise.allSettled(
+      sources.map((source) => {
+        if (!source || hairLit(source) || lightening.has(source)) return null;
+        lightening.add(source);
+        return lightenHair(source).finally(() => lightening.delete(source));
+      }),
+    );
+  }
+}
+
+/** 正在后台算别人 */
+let bakingOthers = false;
+/** 场景里还没算好（或者设定改过了）的别人，挨个在后台算；当前角色不算 */
+async function bakeOthers() {
+  if (bakingOthers) return;
+  bakingOthers = true;
+  try {
+    for (;;) {
+      const next = scene.figures.find((f) => f.id !== scene.current && bakedFor.get(f.id) !== bakeKey(f) && bakeFailed.get(f.id) !== bakeKey(f));
+      if (!next) break;
+      const key = bakeKey(next);
+      try {
+        await loadAssetsFor(bakeSpec(next));
+        const baked = await bakeFigure(bakeSpec(next));
+        const now = figureOf(scene, next.id);
+        // 算的时候删掉了、又改了：这一份不要（改了的下一圈重算）
+        if (!now || bakeKey(now) !== key) continue;
+        sceneView.setView(next.id, bakedView(baked), baked.box);
+        bakedFor.set(next.id, key);
+        bakeFailed.delete(next.id);
+        viewport?.setBounds(withScene(ownBox));
+        renderSceneBar();
+        renderFigureList();
+      } catch (err) {
+        bakeFailed.set(next.id, key);
+        setStatus(t('场景里的「{name}」没算出来：{err}', { name: figureLabel(next), err: errText(err) }), true);
+      }
+    }
+  } finally {
+    bakingOthers = false;
+  }
+}
+
+/** 摆放换成矩阵：先绕竖直轴转，再挪到地上那一点 */
+const placeMatrix = (p: Place) => new Matrix4().makeRotationY((p.yaw * Math.PI) / 180).setPosition(p.x, 0, p.z);
+
+/** 当前角色在场景里换了位置（或者换了当前角色）：镜头跟着挪，屏幕上别的东西看起来不动 */
+function shiftView(from: Place, to: Place) {
+  if (!viewport || samePlace(from, to)) return;
+  const m = placeMatrix(to).invert().multiply(placeMatrix(from));
+  viewport.camera.position.applyMatrix4(m);
+  viewport.controls.target.applyMatrix4(m);
+  viewport.controls.update();
+}
+
+/** 每个别人摆到相对当前角色的位置；底座圈跟着场景里有几个人显示 */
+function placeAll() {
+  const here = currentOf(scene).place;
+  for (const f of scene.figures) sceneView.place(f.id, relativePlace(here, f.place));
+  sceneView.setActive(scene.current);
+  sceneView.showRings(ringsOn && scene.figures.length > 1);
+  viewport?.setBounds(withScene(ownBox));
+}
+
+/**
+ * 挪一个角色（场景里的绝对位置）。挪的是当前角色：别人和镜头反着挪（屏幕上看是它自己走过去）。
+ * live：拖着的时候，只挪屏幕上的，不记撤销、不存档（当前角色松手时 commitPlace）
+ */
+function movePlace(id: string, place: Place, live = false) {
+  const f = figureOf(scene, id);
+  if (!f) return;
+  const was = f.place;
+  scene = updateFigure(scene, id, { place });
+  const now = figureOf(scene, id)!.place;
+  if (id === scene.current) shiftView(was, now);
+  placeAll();
+  syncPlaceDials();
+  if (live || id === scene.current) return;
+  // 别人：记进它自己的撤销历史（切到它时能撤回来），存档
+  const h = histories.get(id) ?? new History<Snapshot>({ spec: f.spec, text: f.text, place: was }, HISTORY_OPTIONS);
+  h.seal();
+  h.push({ spec: f.spec, text: f.text, place: now });
+  histories.set(id, h);
+  save();
+}
+
+/** 当前角色的摆放改完了：记一步撤销、存档 */
+function commitPlace(key?: string) {
+  if (!key) history.seal();
+  commit(key);
+}
+
+/** 屏幕上现在显示当前角色的那几个模型（复制成灰色的人影用） */
+const shownRoots = () => [model.root, fused.root, characterModel.root, flatParts.root];
+
+/** 切走前：当前角色变成定住的。设定和上次算的一样就直接用算好的那张，不一样就先摆灰色的人影，后台重算 */
+function freezeCurrent() {
+  const f = currentOf(scene);
+  if (bakedFor.get(f.id) !== bakeKey(f) || !sceneView.has(f.id)) sceneView.setGhost(f.id, shownRoots(), ownBox.clone());
+}
+
+/** 切走（新建、复制、切换、删掉前）：当前角色的设定、撤销存回场景，变成定住的 */
+function stashCurrent() {
+  if (pending) rebuild();
+  endSlide();
+  history.seal();
+  scene = updateFigure(scene, scene.current, { spec, text });
+  histories.set(scene.current, history);
+  freezeCurrent();
+}
+
+/** 换成另一个角色：存好当前的，读进那一个（和撤销恢复走同一条路），重建 */
+function switchFigure(id: string) {
+  if (id === scene.current || !figureOf(scene, id)) return;
+  if (poseHandles?.busy || placing) return;
+  stashCurrent();
+  loadFigure(id, true);
+  void bakeOthers();
+}
+
+/** 切过来的角色自己的网格还没算出来：屏幕上先接着显示它定住的那份（最多等这么久） */
+let holdTimer = 0;
+function holdLive() {
+  live.visible = false;
+  sceneView.holdActive(true);
+  window.clearTimeout(holdTimer);
+  holdTimer = window.setTimeout(releaseLive, 15_000);
+}
+function releaseLive() {
+  if (live.visible) return;
+  window.clearTimeout(holdTimer);
+  live.visible = true;
+  sceneView.holdActive(false);
+}
+
+/**
+ * 把场景里的这个角色读进界面，当成当前的（上一个已经存好了）。
+ * follow：镜头照「从上一个当前角色到它」挪（画面不跳）；不挪的话镜头停在原处（对着它自己的原点）
+ */
+function loadFigure(id: string, follow: boolean) {
+  const from = currentOf(scene).place;
+  scene = setCurrent(scene, id);
+  const to = currentOf(scene);
+  spec = gate(to.spec);
+  readText(to.text);
+  desc.value = text;
+  history = histories.get(id) ?? new History<Snapshot>({ spec, text, place: to.place }, HISTORY_OPTIONS);
+  // 只属于上一个角色的东西清掉：选中的部件和关节、摆姿势的骨架、钉住的手脚、刚套的现成姿势、染哪个头……
+  // （手机上取消选中会让镜头飞回选中前的地方：那是上一个角色的坐标，不飞）
+  viewBeforePick = null;
+  select(null);
+  selectJoint(null);
+  leavePose();
+  kit = null;
+  pinned.clear();
+  lastPreset = null;
+  presetPair = null;
+  dyeHead = null;
+  torsoEdit = 'all';
+  bodyKey = '';
+  if (follow) shiftView(from, to.place);
+  holdLive();
+  placeAll();
+  save();
+  render();
+  renderSceneBar();
+  syncScenePanel();
+}
+
+/** 新角色站在哪：场景里所有人的右手边 */
+function freeSpot(radius: number): Place {
+  return besideAll(
+    scene.figures.map((f) => ({ x: f.place.x, z: f.place.z, radius: sceneView.radiusOf(f.id) })),
+    radius,
+  );
+}
+
+/** 加一个角色并切过去 */
+function addAndSwitch(figure: Omit<SceneFigure, 'id'>, ghostFromScreen: boolean) {
+  const fromId = scene.current;
+  scene = setCurrent(addFigure(scene, figure), fromId);
+  const added = scene.figures[scene.figures.length - 1];
+  sceneView.setGhost(added.id, ghostFromScreen ? shownRoots() : [], ghostFromScreen ? ownBox.clone() : new Box3());
+  loadFigure(added.id, true);
+  refitAll();
+  return added;
+}
+
+/** 加一个角色并切过去。copy：复制当前的（连姿势；名字后面加「副本」）；不然是一个默认的白模 */
+function newFigure(copy: boolean) {
+  if (poseHandles?.busy || placing) return;
+  stashCurrent();
+  const me = currentOf(scene);
+  const fresh = defaultSpec();
+  if (copy) {
+    addAndSwitch({ name: me.name ? t('{name} 副本', { name: me.name }) : '', spec, text, place: { ...freeSpot(sceneView.radiusOf(me.id)), yaw: me.place.yaw } }, true);
+    setStatus(t('复制了一份「{name}」，站在右手边。', { name: figureLabel(me) }));
+  } else {
+    addAndSwitch({ name: '', spec: fresh, text: describeSpec(fresh), place: freeSpot(0.3) }, false);
+    setStatus(t('新加了一个角色，站在右手边。'));
+  }
+  void bakeOthers();
+}
+
+/** 刚删掉的那个：能「恢复刚删的」（只记最后一个） */
+let lastRemoved: { figure: SceneFigure; at: number; label: string; history: History<Snapshot> | undefined } | null = null;
+
+async function deleteFigure(id: string) {
+  const f = figureOf(scene, id);
+  if (!f || scene.figures.length <= 1) return;
+  if (!(await askConfirm(t('删掉「{name}」？', { name: figureLabel(f) }), t('删掉')))) return;
+  const wasCurrent = id === scene.current;
+  if (wasCurrent) {
+    if (pending) rebuild();
+    endSlide();
+    history.seal();
+    scene = updateFigure(scene, id, { spec, text });
+  }
+  const gone = figureOf(scene, id)!;
+  const label = figureLabel(gone);
+  lastRemoved = { figure: gone, at: indexOf(scene, id), label, history: wasCurrent ? history : histories.get(id) };
+  // 删的是当前的：镜头照「从它到接替它的那个」挪
+  const from = gone.place;
+  scene = removeFigure(scene, id);
+  histories.delete(id);
+  bakedFor.delete(id);
+  bakeFailed.delete(id);
+  sceneView.remove(id);
+  if (wasCurrent) {
+    shiftView(from, currentOf(scene).place);
+    loadFigure(scene.current, false);
+  } else {
+    placeAll();
+    save();
+    renderSceneBar();
+    syncScenePanel();
+  }
+  setStatus(t('删掉了「{name}」。点「恢复刚删的」能放回来。', { name: label }));
+  void bakeOthers();
+}
+
+function undoRemove() {
+  const gone = lastRemoved;
+  if (!gone || poseHandles?.busy || placing) return;
+  lastRemoved = null;
+  stashCurrent();
+  const fromId = scene.current;
+  scene = setCurrent(restoreFigure(scene, gone.figure, gone.at), fromId);
+  if (gone.history) histories.set(gone.figure.id, gone.history);
+  sceneView.setGhost(gone.figure.id, [], new Box3());
+  loadFigure(gone.figure.id, true);
+  setStatus(t('「{name}」放回来了。', { name: gone.label }));
+  void bakeOthers();
+}
+
+/** 镜头框住整个场景 */
+function refitAll() {
+  viewport?.setBounds(withScene(ownBox));
+  viewport?.refit();
+}
+/** 镜头只框住当前角色（别的角色照样显示） */
+function refitCurrent() {
+  if (!viewport || ownBox.isEmpty()) return;
+  viewport.setBounds(ownBox);
+  viewport.refit();
+  viewport.setBounds(withScene(ownBox));
+}
+
+/** 读进一整个场景（场景文件）：换掉现在的全部角色 */
+function useScene(next: Scene) {
+  if (pending) rebuild();
+  endSlide();
+  sceneView.clear();
+  histories.clear();
+  bakedFor.clear();
+  bakeFailed.clear();
+  lastRemoved = null;
+  scene = next;
+  for (const f of scene.figures) if (f.id !== scene.current) sceneView.setGhost(f.id, [], new Box3());
+  refitNext = true;
+  loadFigure(scene.current, false);
+  void bakeOthers();
+}
+
+/* ---- 小框：要不要删、要不要换掉整个场景 ---- */
+
+const askDialog = $<HTMLDialogElement>('askDialog');
+/** 上一个还没答的小框：再弹新的时当作取消 */
+let asking: ((ok: boolean) => void) | null = null;
+function askConfirm(message: string, ok: string): Promise<boolean> {
+  asking?.(false);
+  $('askText').textContent = message;
+  $('askOk').textContent = ok;
+  askDialog.returnValue = '';
+  if (!askDialog.open) askDialog.showModal();
+  return new Promise((resolve) => {
+    asking = (answer) => {
+      asking = null;
+      resolve(answer);
+    };
+  });
+}
+// 点了哪个按钮就当场作数（不等 close 事件：它跟着页面重绘走，页面藏着时不来）；按 Esc、点外面关掉是取消
+for (const btn of askDialog.querySelectorAll<HTMLButtonElement>('button')) {
+  btn.addEventListener('click', () => asking?.(btn.value === 'ok'));
+}
+askDialog.addEventListener('close', () => asking?.(askDialog.returnValue === 'ok'));
+
+/* ---- 3D 视图上：脚下的底座圈拖着挪、转；点别的角色切过去 ---- */
+
+const RINGS_KEY = 'oc-basemesh-rings';
+let ringsOn = true;
+try {
+  ringsOn = localStorage.getItem(RINGS_KEY) !== 'off';
+} catch {
+  // 读不到就显示
+}
+const ringsBox = $<HTMLInputElement>('sceneRings');
+ringsBox.checked = ringsOn;
+ringsBox.addEventListener('change', () => {
+  ringsOn = ringsBox.checked;
+  try {
+    localStorage.setItem(RINGS_KEY, ringsOn ? 'on' : 'off');
+  } catch {
+    // 记不住也照样用
+  }
+  placeAll();
+});
+
+/** 正在拖的底座圈：拖的是谁、拖圈还是小球、按下时它在哪、按下的那一点在地上的哪（场景的绝对坐标） */
+let placing: { id: string; part: 'ring' | 'knob'; start: Place; grabbed: Place; pointer: number } | null = null;
+const ground = new Plane(new Vector3(0, 1, 0), 0);
+
+function rayAt(e: PointerEvent): Raycaster | null {
+  if (!viewport) return null;
+  const rect = viewport.renderer.domElement.getBoundingClientRect();
+  const ndc = new Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+  const ray = new Raycaster();
+  ray.setFromCamera(ndc, viewport.camera);
+  return ray;
+}
+
+/** 光标指着地上的哪一点（场景的绝对坐标） */
+function groundAt(e: PointerEvent): Place | null {
+  const hit = rayAt(e)?.ray.intersectPlane(ground, new Vector3());
+  if (!hit) return null;
+  return absolutePlace(currentOf(scene).place, { x: hit.x, z: hit.z, yaw: 0 });
+}
+
+/** 网格自己和所有上级都显示着 */
+function isShownObject(o: { visible: boolean; parent: unknown }): boolean {
+  for (let p = o as { visible: boolean; parent: unknown } | null; p; p = p.parent as typeof p) if (!p.visible) return false;
+  return true;
+}
+
+if (viewport) {
+  const dom = viewport.renderer.domElement;
+  let down: { x: number; y: number; time: number } | null = null;
+  // 抢在操纵杆、摆姿势的圆点、转视角前面（捕获阶段）：按在底座圈上就是拖圈，别的不管
+  dom.addEventListener(
+    'pointerdown',
+    (e) => {
+      down = e.button === 0 ? { x: e.clientX, y: e.clientY, time: performance.now() } : null;
+      if (e.button !== 0 || scene.figures.length < 2) return;
+      const ray = rayAt(e);
+      const hit = ray && sceneView.hitRing(ray);
+      const at = hit && groundAt(e);
+      if (!hit || !at) return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      dom.setPointerCapture(e.pointerId);
+      viewport!.controls.enabled = false;
+      placing = { id: hit.id, part: hit.part, start: figureOf(scene, hit.id)!.place, grabbed: at, pointer: e.pointerId };
+      down = null;
+    },
+    { capture: true },
+  );
+  dom.addEventListener(
+    'pointermove',
+    (e) => {
+      if (!placing || e.pointerId !== placing.pointer) return;
+      e.stopImmediatePropagation();
+      const at = groundAt(e);
+      if (!at) return;
+      const { start, grabbed } = placing;
+      const next =
+        placing.part === 'ring'
+          ? { ...start, x: start.x + at.x - grabbed.x, z: start.z + at.z - grabbed.z }
+          : { ...start, yaw: (Math.atan2(at.x - start.x, at.z - start.z) * 180) / Math.PI };
+      // 转方向时按住 Shift：每 15° 一档
+      if (placing.part === 'knob' && e.shiftKey) next.yaw = Math.round(next.yaw / 15) * 15;
+      movePlace(placing.id, next, true);
+    },
+    { capture: true },
+  );
+  const release = (e: PointerEvent) => {
+    if (placing && e.pointerId === placing.pointer) {
+      e.stopImmediatePropagation();
+      const { id, start } = placing;
+      placing = null;
+      viewport!.controls.enabled = true;
+      const now = figureOf(scene, id)?.place;
+      if (!now || samePlace(now, start)) return;
+      if (id === scene.current) commitPlace();
+      else {
+        // 别人：拖着的时候屏幕上已经挪到了，这里照「从 start 挪到 now」记一步
+        scene = updateFigure(scene, id, { place: start });
+        movePlace(id, now);
+      }
+      return;
+    }
+    // 点一下（没怎么动）：点中的是别的角色就切过去
+    const d = down;
+    down = null;
+    if (e.type !== 'pointerup' || !d || scene.figures.length < 2) return;
+    if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6 || performance.now() - d.time > 600) return;
+    const ray = rayAt(e);
+    if (!ray) return;
+    const other = sceneView.hitFigure(ray);
+    if (!other) return;
+    const mine = ray.intersectObjects(shownRoots(), true).find((h) => isShownObject(h.object));
+    if (mine && mine.distance < other.distance) return;
+    switchFigure(other.id);
+  };
+  dom.addEventListener('pointerup', release, { capture: true });
+  dom.addEventListener('pointercancel', release, { capture: true });
+}
+
+/* ---- 面板：「场景」那一栏，3D 视图上的角色条 ---- */
+
+const figureList = $('figureList');
+const figureName = $<HTMLInputElement>('figureName');
+figureName.addEventListener('input', () => {
+  scene = updateFigure(scene, scene.current, { name: figureName.value });
+  save();
+  renderSceneBar();
+  renderFigureList();
+});
+figureName.addEventListener('change', () => syncScenePanel());
+
+/** 摆放的三个滑块：左右、前后（厘米）、朝向（度） */
+const PLACE_DIALS = [
+  { key: 'x', id: 's-placeX', scale: 100, text: (v: number) => (v ? `${v > 0 ? '→' : '←'}${Math.abs(v)} cm` : t('正中')) },
+  { key: 'z', id: 's-placeZ', scale: 100, text: (v: number) => (v ? (v > 0 ? t('往前 {n} cm', { n: v }) : t('往后 {n} cm', { n: -v })) : t('正中')) },
+  { key: 'yaw', id: 's-placeYaw', scale: 1, text: (v: number) => (v ? (v > 0 ? t('左转 {n}°', { n: Math.abs(v) }) : t('右转 {n}°', { n: Math.abs(v) })) : t('朝前')) },
+] as const;
+const placeDials = PLACE_DIALS.map((d) => {
+  const input = $<HTMLInputElement>(d.id);
+  const [lo, hi] = PLACE_LIMITS[d.key];
+  input.min = String(lo * d.scale);
+  input.max = String(hi * d.scale);
+  input.step = '1';
+  input.addEventListener('input', () => {
+    const p = currentOf(scene).place;
+    movePlace(scene.current, { ...p, [d.key]: Number(input.value) / d.scale }, true);
+  });
+  input.addEventListener('change', () => commitPlace());
+  return () => {
+    const v = Math.round(currentOf(scene).place[d.key] * d.scale);
+    if (Number(input.value) !== v) input.value = String(v);
+    $(`o-${d.id.slice(2)}`).textContent = d.text(v);
+  };
+});
+function syncPlaceDials() {
+  for (const sync of placeDials) sync();
+}
+$('btnPlaceReset').addEventListener('click', () => {
+  const p = currentOf(scene).place;
+  if (!p.yaw) return;
+  movePlace(scene.current, { ...p, yaw: 0 });
+  commitPlace();
+});
+
+function iconButton(label: string, title: string, onClick: () => void, disabled = false): HTMLButtonElement {
+  const btn = el('button', 'icon', label);
+  btn.type = 'button';
+  btn.title = title;
+  btn.setAttribute('aria-label', title);
+  btn.disabled = disabled;
+  btn.addEventListener('click', onClick);
+  return btn;
+}
+
+function renderFigureList() {
+  const rows = scene.figures.map((f, i) => {
+    const on = f.id === scene.current;
+    const row = el('div', on ? 'figure-row on' : 'figure-row');
+    const pick = el('button', 'figure-pick');
+    pick.type = 'button';
+    pick.title = on ? t('现在改的就是它') : t('切过去改它');
+    pick.setAttribute('aria-pressed', String(on));
+    pick.addEventListener('click', () => switchFigure(f.id));
+    const waiting = !on && sceneView.waiting(f.id);
+    pick.append(el('span', 'figure-name', figureLabel(f)), el('span', 'figure-style', waiting ? t('正在算…') : BODY_LABEL[f.spec.bodyStyle]));
+    const reorder = (step: -1 | 1) => () => {
+      scene = moveFigure(scene, f.id, step);
+      save();
+      renderSceneBar();
+      syncScenePanel();
+    };
+    row.append(
+      pick,
+      iconButton('↑', t('往前挪一格'), reorder(-1), i === 0),
+      iconButton('↓', t('往后挪一格'), reorder(1), i === scene.figures.length - 1),
+      iconButton('✕', t('删掉这个角色'), () => void deleteFigure(f.id), scene.figures.length <= 1),
+    );
+    return row;
+  });
+  figureList.replaceChildren(...rows);
+}
+
+/** 「场景」那一栏跟上现在的场景 */
+function syncScenePanel() {
+  renderFigureList();
+  const me = currentOf(scene);
+  if (document.activeElement !== figureName) figureName.value = me.name;
+  figureName.placeholder = t('角色 {n}', { n: indexOf(scene, me.id) + 1 });
+  syncPlaceDials();
+  const many = scene.figures.length > 1;
+  $('placeField').hidden = !many;
+  $('sceneViewRow').hidden = !many;
+  ringsBox.closest('label')!.hidden = !many;
+  const restore = $<HTMLButtonElement>('btnFigureRestore');
+  restore.hidden = !lastRemoved;
+  if (lastRemoved) restore.textContent = t('恢复刚删的「{name}」', { name: lastRemoved.label });
+  $('exportWhatField').hidden = !many;
+  if (!many) exportWhat = 'current';
+  syncExportWhat(exportWhat, many);
+}
+
+/** 3D 视图上方的角色条：好几个角色时才有，点一下切过去 */
+function renderSceneBar() {
+  const bar = $('sceneBar');
+  bar.hidden = scene.figures.length < 2;
+  if (bar.hidden) return;
+  const chips = scene.figures.map((f) => {
+    const on = f.id === scene.current;
+    const chip = el('button', 'scene-chip', figureLabel(f));
+    chip.type = 'button';
+    chip.setAttribute('aria-pressed', String(on));
+    if (!on && sceneView.waiting(f.id)) chip.classList.add('waiting');
+    chip.title = on ? t('现在改的就是它') : t('切过去改它');
+    chip.addEventListener('click', () => switchFigure(f.id));
+    return chip;
+  });
+  const more = el('button', 'scene-chip add', '+');
+  more.type = 'button';
+  more.title = t('加角色、摆位置');
+  more.setAttribute('aria-label', more.title);
+  more.addEventListener('click', () => phone.open('scene'));
+  bar.replaceChildren(...chips, more);
+}
+
+$('btnFigureNew').addEventListener('click', () => newFigure(false));
+$('btnFigureCopy').addEventListener('click', () => newFigure(true));
+$('btnFigureRestore').addEventListener('click', undoRemove);
+$('btnSceneAll').addEventListener('click', refitAll);
+$('btnSceneCurrent').addEventListener('click', refitCurrent);
+
+/** 导出的是当前角色还是整个场景（好几个角色时才问） */
+type ExportWhat = 'current' | 'scene';
+const EXPORT_WHATS = ['current', 'scene'] as const;
+let exportWhat: ExportWhat = 'current';
+const syncExportWhat = buildSeg(
+  $('segExportWhat'),
+  EXPORT_WHATS,
+  (v) => (v === 'current' ? t('当前角色') : t('整个场景')),
+  (v) => {
+    exportWhat = v;
+    syncExportWhat(v, true);
+  },
+);
+
+/* ---- 场景文件：保存、打开 ---- */
+
+async function saveSceneFile() {
+  const name = await askFileName('scene');
+  if (!name) return;
+  try {
+    save();
+    const where = await saveText(name, serializeScene(scene, specData, true));
+    setStatus(t('已保存场景 {file}（{n} 个角色），{where}。', { file: name, n: scene.figures.length, where }));
+  } catch (err) {
+    setStatus(t('场景没存成：{err}', { err: errText(err) }), true);
+  }
+}
+$('btnSceneSave').addEventListener('click', () => void saveSceneFile());
+
+/** 读到的文件是场景：问一声再换掉现在的全部角色。返回是不是场景文件 */
+async function openSceneData(data: unknown, fileName: string): Promise<boolean> {
+  if (!isSceneData(data)) return false;
+  const next = normalizeScene(data, readFigureSpec);
+  if (!next) throw new Error('bad scene');
+  const ask = t('换成「{name}」里的 {n} 个角色？现在场景里的 {m} 个会被换掉（想留着的话先「保存场景」）。', { name: fileName, n: next.figures.length, m: scene.figures.length });
+  if (scene.figures.length > 1 && !(await askConfirm(ask, t('换掉')))) return true;
+  useScene(next);
+  setStatus(t('已打开场景 {name}（{n} 个角色）。', { name: fileName, n: next.figures.length }));
+  return true;
+}
+
+/** 「打开场景…」：场景文件换掉整个场景；一个角色的配置文件加进场景，站在右手边 */
+const fileScene = $<HTMLInputElement>('fileScene');
+fileScene.addEventListener('change', async () => {
+  const file = fileScene.files?.[0];
+  fileScene.value = '';
+  if (!file) return;
+  try {
+    const data: unknown = JSON.parse(await file.text());
+    if (await openSceneData(data, file.name)) return;
+    if (typeof data !== 'object' || data === null || !('counts' in data)) throw new Error('not a scene');
+    if (poseHandles?.busy || placing) return;
+    const { spec: s, text: tx } = readFigureSpec(data);
+    stashCurrent();
+    addAndSwitch({ name: cleanName(file.name.replace(/\.json$/i, '')), spec: s, text: tx, place: freeSpot(0.35) }, false);
+    setStatus(t('把 {name} 加进了场景，站在右手边。', { name: file.name }));
+    void bakeOthers();
+  } catch {
+    setStatus(t('这个文件不是有效的场景或配置文件。'), true);
+  }
+});
+
+/* ---- 导出整个场景 ---- */
+
+const SCENE_FILE: Record<ExportKind, string> = { glb: 'oc_scene.glb', rig: 'oc_scene_rig.glb', obj: 'oc_scene.obj', stl: 'oc_scene.stl' };
+/** 文件里的物体名：字母、数字、汉字留着，别的换成下划线 */
+const objectName = (f: SceneFigure) => figureLabel(f).replace(/[^\p{L}\p{N}_-]+/gu, '_') || f.id;
+
+/** 一块形状照摆放搬到场景里（米） */
+function placedShape(positions: Float32Array, normals: Float32Array | undefined, place: Place) {
+  const a = (place.yaw * Math.PI) / 180;
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  const p = new Float32Array(positions.length);
+  const n = normals ? new Float32Array(normals.length) : undefined;
+  for (let i = 0; i < positions.length; i += 3) {
+    const x = positions[i];
+    const z = positions[i + 2];
+    p[i] = c * x + s * z + place.x;
+    p[i + 1] = positions[i + 1];
+    p[i + 2] = -s * x + c * z + place.z;
+    if (n && normals) {
+      const nx = normals[i];
+      const nz = normals[i + 2];
+      n[i] = c * nx + s * nz;
+      n[i + 1] = normals[i + 1];
+      n[i + 2] = -s * nx + c * nz;
+    }
+  }
+  return { positions: p, normals: n };
+}
+
+/**
+ * 导出整个场景：每个角色照它自己的设定按导出精度重算一遍（摆过姿势的是摆好的样子，不管现在在哪一页），
+ * 摆到场景里各自的位置。GLB 每个角色一个父节点；带骨骼的每个角色一副骨架；OBJ、STL 写在一起
+ */
+async function exportScene(kind: ExportKind) {
+  if (pending) rebuild();
+  save();
+  const figures = scene.figures;
+  for (const button of Object.values(exportButtons)) button.disabled = true;
+  try {
+    const done: { figure: SceneFigure; baked: Baked }[] = [];
+    for (const [i, f] of figures.entries()) {
+      setStatus(t('正在算场景里的第 {i} 个角色（共 {n} 个）…', { i: i + 1, n: figures.length }));
+      const s = f.id === scene.current ? spec : bakeSpec(f);
+      await loadAssetsFor(s);
+      done.push({ figure: f, baked: await bakeFigure(s, { rig: kind === 'rig', fine: true }) });
+    }
+    const credits = [...new Set(done.flatMap((d) => d.baked.credits))];
+    const credit = credits.length ? credits.join(t('；')) : undefined;
+    let blob: Blob;
+    if (kind === 'glb' || kind === 'rig') {
+      const glb = mergeGlbs(done.map(({ figure, baked }) => ({ glb: bakedGlb(baked, kind === 'rig', objectName(figure)), name: objectName(figure), ...figure.place })));
+      blob = glbBlob(glb);
+    } else {
+      const shapes = done.flatMap(({ figure, baked }) =>
+        baked.shapes.map((m) => ({ name: `${objectName(figure)}_${m.name}`, ...placedShape(m.positions, m.normals, figure.place), triangles: m.triangles })),
+      );
+      blob =
+        kind === 'obj'
+          ? new Blob([writeObj(shapes.map((m) => ({ name: m.name, positions: m.positions, normals: m.normals, faces: m.triangles, faceSize: 3 })), credit)], { type: 'text/plain' })
+          : new Blob([writeStl(shapes.map((m) => ({ positions: m.positions, triangles: m.triangles })))], { type: 'model/stl' });
+    }
+    const fileName = SCENE_FILE[kind];
+    const where = await saveBlob(fileName, blob);
+    const triangles = done.reduce((n, d) => n + d.baked.triangles, 0);
+    const what = [
+      t('整个场景 {n} 个角色', { n: figures.length }),
+      t('{n} 三角面', { n: count(triangles) }),
+      ...(kind === 'rig' ? [t('每个角色一副骨架')] : []),
+      ...(credit ? [t('发出去时请署名「{credit}」', { credit })] : []),
+    ].join(t('，'));
+    setStatus(t('已导出 {file}（{what}，{size}），{where}。', { file: fileName, what, size: sizeText(blob.size), where }));
+  } catch (err) {
+    setStatus(t('导出失败：{err}', { err: errText(err) }), true);
+  } finally {
+    for (const button of Object.values(exportButtons)) button.disabled = false;
+  }
+}
+
+/** 打开页面时：场景里别的角色先摆上人影，再在后台挨个算 */
+function startScene() {
+  for (const f of scene.figures) if (f.id !== scene.current) sceneView.setGhost(f.id, [], new Box3());
+  placeAll();
+  renderSceneBar();
+  syncScenePanel();
+  void bakeOthers();
+}
 
 /* ---------------- 渲染 ---------------- */
 
@@ -4131,6 +4977,15 @@ const tour = new Tour([
     before: () => phone.setPop(phone.on ? 'views' : null),
   },
   {
+    title: t('好几个角色'),
+    text: t('「场景」这一栏能加角色、复制现在这个，几个角色站在一起各摆各的姿势。同一时间只改一个，点场景里别的角色就切过去；拖脚下的圈挪位置。导出时可以把整个场景写进一个文件。'),
+    target: () => sections.get('scene') ?? null,
+    before: () => {
+      phone.setPop(null);
+      phone.open('scene');
+    },
+  },
+  {
     title: t('导出'),
     text: t('「导出白模」是一整块网格，拿去雕刻；「带骨骼 GLB」进了 Blender 能直接摆姿势；还有 OBJ、3D 打印用的 STL 和截图。Blender 里用「文件 → 导入 → glTF 2.0」。'),
     target: () => document.querySelector('.export'),
@@ -4171,6 +5026,7 @@ desc.value = text;
 applyTheme();
 render();
 rebuild();
+startScene();
 viewport?.frame('three');
 
 // 第一次打开：等模型出来再开始引导；刚在引导里换了语言的，接着往下看
@@ -4241,6 +5097,20 @@ if (import.meta.env.DEV) {
           if (keep) poseHandles.onRelease(handle, true);
           return true;
         },
+      },
+      // 场景：__oc.scene.add(true) 复制当前的、__oc.scene.go('f2') 切过去、__oc.scene.move('f2', { x: 1, z: 0, yaw: 90 })
+      scene: {
+        get: () => scene,
+        view: sceneView,
+        add: newFigure,
+        go: switchFigure,
+        remove: deleteFigure,
+        move: movePlace,
+        exportScene,
+        open: openSceneData,
+        file: () => serializeScene(scene, specData, true),
+        baking: () => bakingOthers,
+        waiting: () => scene.figures.filter((f) => f.id !== scene.current && sceneView.waiting(f.id)).map((f) => f.id),
       },
       model,
       fused,

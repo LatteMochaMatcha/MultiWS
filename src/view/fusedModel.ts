@@ -176,6 +176,11 @@ export class FusedModel {
     this.root.add(this.body, this.exact, this.eyes);
   }
 
+  /** 屏幕上的网格是不是照最新的这副身体算的（多粗都算；场景里切换角色时，等它跟上再把定住的那份换下来） */
+  get caughtUp() {
+    return this.shownKey === this.wantKey;
+  }
+
   /** 屏幕上的网格是不是已经跟上了最新的参数（预览精度） */
   get settled() {
     return this.shownKey === this.wantKey && this.shownVoxel <= VOXEL.preview;

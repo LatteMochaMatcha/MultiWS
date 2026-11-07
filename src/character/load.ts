@@ -23,6 +23,11 @@ const KEEP = 3;
 /** 读好的角色，最近用过的排在后面 */
 const loaded = new Map<CharacterId, CharacterSource>();
 const loading = new Map<CharacterId, Promise<CharacterSource>>();
+/** 正在用、不能放掉的角色（场景里好几个角色时：当前角色用的那几个，见 main.ts）。放掉的只从别的里挑 */
+let inUse: () => Iterable<CharacterChoice> = () => [];
+export function keepCharacters(used: () => Iterable<CharacterChoice>) {
+  inUse = used;
+}
 
 /** 已经读好的角色；还没读好（或者放掉了）就是 null */
 export function characterSource(id: CharacterChoice): CharacterSource | null {
@@ -162,7 +167,9 @@ export function loadCharacter(id: CharacterId, base = '/'): Promise<CharacterSou
         // 量不出头发的颜色不要紧：尾巴和兽耳退回去用材质的底色
         source.hairColor = await hairColor(source).catch(() => undefined);
         loaded.set(id, source);
-        for (const old of [...loaded.keys()].slice(0, Math.max(0, loaded.size - KEEP))) {
+        const keep = new Set<CharacterChoice>([...inUse(), id]);
+        const spare = [...loaded.keys()].filter((old) => !keep.has(old));
+        for (const old of spare.slice(0, Math.max(0, loaded.size - KEEP))) {
           loaded.delete(old);
           loading.delete(old);
         }

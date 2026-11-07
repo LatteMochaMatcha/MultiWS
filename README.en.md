@@ -21,6 +21,7 @@ The instructions are written for Blender beginners on Windows, with a menu path 
 - [Three body styles](#three-body-styles)
 - [Manual tweaks](#manual-tweaks)
 - [Pose](#pose)
+- [Several characters (scene)](#several-characters-scene)
 - [Export](#export)
 - [Import into Blender](#import-into-blender)
 - [Using it with Tripo](#using-it-with-tripo)
@@ -282,6 +283,18 @@ These only affect how things look on screen and in screenshots, not the exported
 
 - **Camera & lighting**: which side you look from, FOV (10°–80°), the direction and height of the main light, and the ground shadow.
 - **Reference images**: put your own front and side design sheets upright behind the model and adjust the body shape and pose against them. When you pick an image it is aligned automatically to the same height as the model, and a white paper background is cut out to transparency; you can adjust size, position and opacity, or lay it over the model to compare outlines. Images are stored only in this browser.
+
+## Several characters (scene)
+
+The "Scene" tab puts several characters in one scene, each with its own settings and pose:
+
+- **New character** adds a default base mesh; **Copy current** copies the current one, pose included. Both stand to the right. "Open scene…" with a single-character config file also adds it.
+- You edit one at a time: the panel, undo and posing only apply to the current one (each character has its own undo history). The others stay where they are, shown in their posed form; one you just changed shows as a gray silhouette until it's rebuilt in the background.
+- Click another character in the scene, or its name at the top left of the 3D view, to switch to it.
+- **Placing**: drag the ring under a character's feet to move it, and the small ball on the ring to turn it (hold Shift for 15° steps); or use the left/right, front/back and facing sliders in "Scene". "Show all" and "Show current" change what the camera frames.
+- **Save scene** saves every character and where it stands as one file; opening a scene file with "Open scene…" replaces all current characters (it asks first).
+- **Export**: with several characters, the export panel adds "Current / Whole scene". For the whole scene every character is rebuilt at export quality (posed ones as posed); the GLB has one group per character in its place, and the rigged GLB one rig per character; OBJ and STL are written together. VRM exports only the current one. Screenshots already show the whole view.
+- There is no limit on the number of characters; many of them will slow things down.
 
 ## Export
 

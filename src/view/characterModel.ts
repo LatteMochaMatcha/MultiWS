@@ -203,4 +203,19 @@ export class CharacterModel {
   chunks(): Chunk[] {
     return this.merged;
   }
+
+  /** 不再用了（场景里定住的角色换掉、删掉时）：网格、材质、贴图都放掉 */
+  dispose() {
+    for (const child of [...this.root.children]) {
+      (child as THREE.Mesh).geometry.dispose();
+      this.root.remove(child);
+    }
+    for (const made of this.materials.values()) made.dispose();
+    for (const texture of this.textures.values()) texture.dispose();
+    this.materials.clear();
+    this.textures.clear();
+    this.sources = [];
+    this.merged = [];
+    this.shown = null;
+  }
 }

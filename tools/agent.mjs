@@ -225,6 +225,8 @@ switch (command) {
         readout: s.readout,
         warnings: s.warnings,
         selected: s.selected,
+        // 场景里好几个角色时：每个是谁、站在哪、当前改的是哪个（replay 只摆当前那一个）
+        ...(s.scene ? { scene: s.scene } : {}),
         camera: s.camera,
         page: note.page?.url,
       });

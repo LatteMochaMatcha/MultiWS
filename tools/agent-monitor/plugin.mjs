@@ -409,6 +409,8 @@ function summary(snap) {
     selected: snap.selected,
     triangles: snap.mesh?.triangles,
     components: snap.mesh?.components,
+    // 场景里好几个角色时：几个、现在改的是哪个
+    scene: snap.scene ? `${snap.scene.figures.length} 个角色，当前 ${snap.scene.current}` : undefined,
   };
 }
 

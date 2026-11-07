@@ -37,6 +37,11 @@ interface OcHooks {
   } | null;
   selected(): string | null;
   rebuild(): void;
+  /** 场景里的好几个角色（见 model/scene.ts） */
+  scene?: {
+    get(): { current: string; figures: readonly { id: string; name: string; place: unknown; spec: { bodyStyle?: unknown } }[] };
+    waiting(): string[];
+  };
   viewport: Viewport | null;
   pose: {
     state(): { local: unknown[] } | null;
@@ -126,6 +131,16 @@ function start(hot: ViteHotContext) {
           }
         : null,
       pose: hooks.mode() === 'pose' ? { bones: pose?.local.length ?? 0, handles: hooks.pose.kit()?.handles.length ?? 0 } : null,
+      // 场景里好几个角色时：每个是谁、站在哪、哪个是现在改的、哪些还在后台算（只有一个角色时是 null）
+      scene: (() => {
+        const sc = hooks.scene?.get();
+        if (!sc || sc.figures.length < 2) return null;
+        const waiting = hooks.scene!.waiting();
+        return {
+          current: sc.current,
+          figures: sc.figures.map((f) => ({ id: f.id, name: f.name, bodyStyle: f.spec.bodyStyle, place: f.place, waiting: waiting.includes(f.id) })),
+        };
+      })(),
       camera: hooks.viewport?.cameraState() ?? null,
       canvas: canvas ? [canvas.width, canvas.height] : null,
       spec,

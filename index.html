@@ -25,6 +25,8 @@
     </div>
     <main class="stage" id="stage">
       <div class="stage-msg" id="stageMsg" hidden></div>
+      <!-- 场景里好几个角色时：点名字切过去改它，「+」打开「场景」那一栏 -->
+      <nav class="scene-bar" id="sceneBar" aria-label="场景里的角色" hidden></nav>
       <!-- 手机竖屏才出现：右边一竖排「视角」「导出」 -->
       <div class="side phone-only">
         <button type="button" class="round" id="btnViewMenu" data-pop-for="views" aria-expanded="false" aria-label="视角" title="正面、侧面、背面、斜侧，显示骨骼"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3"/><circle cx="12" cy="12" r="3.5"/></svg></button>
@@ -381,6 +383,53 @@
           </div>
         </section>
 
+        <section data-key="scene">
+          <h2><button type="button" class="fold">场景里的角色</button></h2>
+          <div class="body">
+            <div class="figure-list" id="figureList"></div>
+            <div class="actions">
+              <button type="button" class="btn" id="btnFigureNew" title="加一个默认的白模，站在右手边">新建角色</button>
+              <button type="button" class="btn" id="btnFigureCopy" title="把现在这个角色连姿势复制一份，站在右手边">复制当前的</button>
+            </div>
+            <div class="actions">
+              <button type="button" class="btn wide" id="btnFigureRestore" hidden></button>
+            </div>
+            <label class="field"><span>名字</span><input id="figureName" maxlength="40" autocomplete="off" spellcheck="false"></label>
+            <div class="tweak" id="placeField" hidden>
+              <div class="sliders">
+                <div class="slider">
+                  <label for="s-placeX">左右</label>
+                  <input type="range" id="s-placeX">
+                  <output id="o-placeX" for="s-placeX"></output>
+                </div>
+                <div class="slider">
+                  <label for="s-placeZ">前后</label>
+                  <input type="range" id="s-placeZ">
+                  <output id="o-placeZ" for="s-placeZ"></output>
+                </div>
+                <div class="slider">
+                  <label for="s-placeYaw">朝向</label>
+                  <input type="range" id="s-placeYaw">
+                  <output id="o-placeYaw" for="s-placeYaw"></output>
+                </div>
+              </div>
+              <div class="actions">
+                <button type="button" class="btn" id="btnPlaceReset">朝向回正</button>
+              </div>
+            </div>
+            <div class="actions" id="sceneViewRow" hidden>
+              <button type="button" class="btn" id="btnSceneAll" title="镜头框住场景里所有的角色">看全部</button>
+              <button type="button" class="btn" id="btnSceneCurrent" title="镜头只框住现在改的这个">看当前</button>
+            </div>
+            <label class="check"><input type="checkbox" id="sceneRings"> 显示脚下的底座圈</label>
+            <div class="actions">
+              <button type="button" class="btn" id="btnSceneSave" title="场景里所有的角色、各站在哪，存成一个文件">保存场景</button>
+              <label class="btn file" for="fileScene" title="场景文件换掉现在的全部角色；一个角色的配置文件加进场景">打开场景…<input type="file" id="fileScene" accept=".json,application/json" hidden></label>
+            </div>
+            <p class="note">一个场景里能放好几个角色，各有各的设定、各摆各的姿势。同一时间只改一个：面板、撤销、摆姿势都只管现在这个；别的角色定在原地，显示的是它摆好姿势的样子（刚改过的先是灰色的人影，后台算好就换上）。点场景里别的角色、或者上面的名字，就切过去改它。拖脚下的圈挪位置，拖圈前面的小球转方向（按住 Shift 每 15° 一档）。导出时可以选「整个场景」：每个角色照导出的精度重算一遍，摆在各自的位置上；VRM 只导现在这一个。</p>
+          </div>
+        </section>
+
         <section data-key="view">
           <h2><button type="button" class="fold">镜头和灯光</button></h2>
           <div class="body">
@@ -470,6 +519,10 @@
 
       <footer class="panel-foot">
         <h3 class="export-title">导出</h3>
+        <div class="field" id="exportWhatField" hidden>
+          <span>导出哪些</span>
+          <div class="seg" id="segExportWhat" role="radiogroup" aria-label="导出哪些"></div>
+        </div>
         <div class="export">
           <button type="button" class="btn primary" id="btnGlb" title="一整块网格，拿去雕刻">导出白模（GLB）</button>
           <button type="button" class="btn" id="btnRig" title="网格 + 骨架 + 权重">带骨骼 GLB</button>
@@ -504,6 +557,15 @@
       <div class="actions">
         <button type="submit" class="btn" value="cancel">取消</button>
         <button type="submit" class="btn primary" value="ok">保存</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog class="vrm-dialog" id="askDialog" aria-labelledby="askText">
+    <form method="dialog">
+      <p id="askText"></p>
+      <div class="actions">
+        <button type="submit" class="btn" value="cancel">取消</button>
+        <button type="submit" class="btn primary" value="ok" id="askOk">好</button>
       </div>
     </form>
   </dialog>
