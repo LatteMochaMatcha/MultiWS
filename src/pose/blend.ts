@@ -16,9 +16,9 @@ export type PoseRegion = (typeof POSE_REGIONS)[number];
 const REGIONS: [PoseRegion, RegExp][] = [
   ['head', /^(Neck|Head)(_[LR])?(\.\d+)?$/],
   ['torso', /^(Hips|Spine|Chest|UpperChest)(_[LR])?(\.\d+)?$/],
-  ['armL', /^(Shoulder|UpperArm|LowerArm|Hand|(Thumb|Index|Middle|Ring|Little)\d)_L(\.\d+)?$/],
-  ['armR', /^(Shoulder|UpperArm|LowerArm|Hand|(Thumb|Index|Middle|Ring|Little)\d)_R(\.\d+)?$/],
-  ['legs', /^(UpperLeg|LowerLeg|Foot|Toes)(_[LR])?(\.\d+)?$/],
+  ['armL', /^(Shoulder|UpperArm|LowerArm|Hand|(Thumb|Index|Middle|Ring|Little|Finger[A-C])\d)_L(\.\d+)?$/],
+  ['armR', /^(Shoulder|UpperArm|LowerArm|Hand|(Thumb|Index|Middle|Ring|Little|Finger[A-C])\d)_R(\.\d+)?$/],
+  ['legs', /^(UpperLeg|LowerLeg|Foot|Toes|Leg(Thumb|Index|Middle|Ring|Little|Finger[A-C])\d)(_[LR])?(\.\d+)?$/],
 ];
 
 /** 这根骨骼属于哪个部位；都不是（尾巴、翅膀、头发、眼睛、兽身……）就是 null */

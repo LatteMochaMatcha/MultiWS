@@ -68,6 +68,10 @@ export const CASES: Case[] = [
   anime('A21', '两个上半身 · 胸 2.2 腰 1.16 胯 1.28', { counts: { torsos: 2 }, shape: { bust: 2.2, waist: 1.16, hips: 1.28 } }),
   anime('A22', '四条腿前后串联', { legLayout: 'tandem', counts: { legs: 4 } }),
   anime('A23', '六条腿前后串联', { legLayout: 'tandem', counts: { legs: 6 } }),
+  anime('A24', '手脚互换（手臂接脚、腿接手）', { armEnd: 'foot', legEnd: 'hand' }),
+  anime('A25', '手脚互换 · 四条腿横排两副胯 · 6 根手指', { armEnd: 'foot', legEnd: 'hand', fingers: 6, legLayout: 'abreast', counts: { legs: 4 } }),
+  anime('A26', '每条单独设：左手接脚、右腿接手 6 根手指', { perLimb: { Arm_01_L: { end: 'foot' }, Leg_01_R: { end: 'hand', fingers: 6 } } }),
+  anime('A27', '连体 · 同向', { conjoined: 'same' }),
   white('M01', '默认', {}),
   white('M02', '两对手臂上下排', { armLayout: 'stack', counts: { armPairs: 2 } }),
   white('M03', '两对手臂肩部聚拢', { armLayout: 'fan', counts: { armPairs: 2 } }),
@@ -78,6 +82,10 @@ export const CASES: Case[] = [
   white('M08', '两个上半身', { counts: { torsos: 2 } }),
   white('M09', '三个上半身', { counts: { torsos: 3 } }),
   white('M10', '三条尾巴 · 一对翅膀', { counts: { tails: 3, wingPairs: 1 } }),
+  white('M11', '手脚互换（手臂接脚、腿接手）', { armEnd: 'foot', legEnd: 'hand' }),
+  white('M12', '手脚互换 · 并指 · 三条腿', { armEnd: 'foot', legEnd: 'hand', hands: 'mitten', counts: { legs: 3 } }),
+  white('M13', '每条单独设：左手接脚、右腿接手 6 根手指', { perLimb: { Arm_01_L: { end: 'foot' }, Leg_01_R: { end: 'hand', fingers: 6 } } }),
+  white('M14', '连体 · 反向', { conjoined: 'opposite' }),
   made('C01', '默认', {}),
   made('C02', '两对手臂', { counts: { armPairs: 2 } }),
   made('C03', '三个头', { counts: { heads: 3 } }),
@@ -86,6 +94,7 @@ export const CASES: Case[] = [
   made('C06', '四条腿横排两副胯', { legLayout: 'abreast', counts: { legs: 4 } }),
   made('C07', '两个上半身', { counts: { torsos: 2 } }),
   made('C08', '三个上半身', { counts: { torsos: 3 } }),
+  made('C09', '连体 · 同向', { conjoined: 'same' }),
 ];
 
 /** 套哪些现成姿势 */

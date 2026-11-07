@@ -9,7 +9,7 @@
  * 静止时手掌歪着一点、手指张着弯着的骨架，手心的朝向和手势照样对得上。
  */
 import { type Quat, type V3, Q_ID, mul, quatBasis, quatConj, quatMul } from '../geometry/vec';
-import { type Hand, findHands } from './fingers';
+import { type Hand, extraFingerTwin, findHands } from './fingers';
 import { type Limb, findLimbs, limbFrame } from './limbs';
 import { quatUnit } from './math';
 import { type Posing, POSING_VERSION, mirrorQuat, placedTwins, roundQuat, tidyQuat, tidyRoot, twinBone } from './posing';
@@ -90,7 +90,9 @@ export function stateOf(solver: Solver, posing: Posing): PoseState {
   rig.names.forEach((name, j) => {
     const p = rig.parent[j];
     const above = p >= 0 ? world[p] : Q_ID;
-    const told = posing.bones[name];
+    // 多出来的手指没记的：跟着它照着复制的那根（无名指）
+    const twin = extraFingerTwin(name);
+    const told = posing.bones[name] ?? (twin ? posing.bones[twin] : undefined);
     if (!told) {
       world.push(above);
       return;

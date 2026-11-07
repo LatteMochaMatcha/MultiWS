@@ -126,9 +126,9 @@ export function bindPartGrafts(
     const grafts = byName.get(mesh.name)?.grafts ?? [];
     if (grafts.length) {
       // 接的网格排在这个部件的网格最后，一块接一块（顺序同 grafts）
-      let start = first + count - grafts.reduce((sum, graft) => sum + graftMeshOf(graft.mesh).positions.length / 3, 0);
+      let start = first + count - grafts.reduce((sum, graft) => sum + graftMeshOf(graft.mesh, graft.digits).positions.length / 3, 0);
       for (const graft of grafts) {
-        const hand = graftMeshOf(graft.mesh);
+        const hand = graftMeshOf(graft.mesh, graft.digits);
         if (start >= first) {
           const bound = { start, bones: hand.bones.map((bone) => graft.bones[bone] ?? ''), joints: Uint16Array.from(hand.joints), weights: hand.weights };
           bindGrafts(skin, { bound }, skeleton);

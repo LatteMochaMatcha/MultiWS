@@ -355,7 +355,9 @@ export function dragAim(
  */
 export function plantFeet(solver: Solver, start: PoseState, floor = 0): PoseState {
   const { rig, limbs } = solver;
-  const legs = limbs.filter((limb) => limb.kind === 'leg');
+  // 没有腿、靠手撑在地上的（连体，静止时手就在地上）：踩的是手
+  const standing = limbs.filter((limb) => limb.kind === 'leg');
+  const legs = standing.length ? standing : limbs.filter((limb) => limb.kind === 'arm' && rig.head[limb.end][1] < PALM_REST);
   if (!legs.length) return start;
   const f0 = forward(rig, start);
   const state = cloneState(start);
@@ -381,12 +383,18 @@ export function plantFeet(solver: Solver, start: PoseState, floor = 0): PoseStat
   if (drop > 0) shiftRoot(rig, state, f0, [0, -drop, 0]);
   const f = forward(rig, state);
   for (const { limb, pos, rot } of targets) placeLimb(rig, state, f, limb, holdOf(limb, f0), pos, { endRot: rot });
-  // 脚趾放平
+  // 脚趾放平；腿末端接的是手的（手脚互换）、撑地的手（连体），手指也放平
+  const planted = (j: number) => {
+    for (let p = rig.parent[j]; p >= 0; p = rig.parent[p]) if (legs.some((limb) => limb.end === p)) return true;
+    return false;
+  };
   rig.names.forEach((name, j) => {
-    if (/^Toe/.test(name) && legs.some((limb) => rig.parent[j] === limb.end)) state.local[j] = [0, 0, 0, 1];
+    if (/^Leg(Thumb|Index|Middle|Ring|Little|Finger[A-C])\d/.test(name) || ((/^Toe/.test(name) || /^(Thumb|Index|Middle|Ring|Little|Finger[A-C])\d/.test(name)) && planted(j))) state.local[j] = [0, 0, 0, 1];
   });
   return state;
 }
+/** 没有腿时，静止姿势里手腕离地不到这么高（米）的手算是撑在地上的（连体） */
+const PALM_REST = 0.15;
 /** 脚踩到地上时腿最多伸到全长的这么多（留一点弯，看着是站着，不是绷直了吊着） */
 const PLANT_BEND = 0.97;
 

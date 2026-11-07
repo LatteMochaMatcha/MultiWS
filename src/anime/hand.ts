@@ -7,6 +7,7 @@
  */
 import type { V3 } from '../geometry/vec';
 import { animeJoint } from './body';
+import { FINGER_COUNT, type FingerJoints, type ShapedHand, shapeHand } from './digits';
 import { type GraftMesh, decodeGraftMesh } from './graftMesh';
 import meta from './handMesh.json';
 
@@ -15,11 +16,27 @@ import meta from './handMesh.json';
 export type HandMesh = GraftMesh;
 
 let cached: HandMesh | null = null;
+const shaped = new Map<number, ShapedHand>();
 
-export function handMesh(): HandMesh {
-  cached ??= decodeGraftMesh(meta, meta.wrist as V3, meta.elbow as V3);
-  return cached;
+/** 几根手指（连拇指）的那只手；不传就是现成的五根 */
+export function handMesh(count: number = FINGER_COUNT.base): HandMesh {
+  return handShape(count).mesh;
 }
+
+/** 照根数拼好的手和它每根手指的关节（见 anime/digits.ts），拼过的记着 */
+export function handShape(count: number = FINGER_COUNT.base): ShapedHand {
+  cached ??= decodeGraftMesh(meta, meta.wrist as V3, meta.elbow as V3);
+  const n = Math.round(Math.min(FINGER_COUNT.max, Math.max(FINGER_COUNT.min, count)));
+  let hand = shaped.get(n);
+  if (!hand) {
+    hand = shapeHand(cached, FINGER_JOINTS, n);
+    shaped.set(n, hand);
+  }
+  return hand;
+}
+
+/** 几根手指的手上，每根手指的四个关节（拇指在前） */
+export const fingerJoints = (count: number = FINGER_COUNT.base): FingerJoints[] => handShape(count).fingers;
 
 /** 手有多长：从手腕的关节到最远的指尖（沿手臂的方向量） */
 export const HAND_LENGTH = meta.bounds.max[0] - meta.wrist[0];
@@ -35,23 +52,26 @@ export const HAND_WRIST = meta.wrist as V3;
 export const HAND_ELBOW = meta.elbow as V3;
 
 /** 五根手指各自的四个关节（指根、两个指节、指尖）在模型里的位置（左手） */
-export const FINGER_JOINTS = (['Thumb', 'Index', 'Middle', 'Ring', 'Little'] as const).map((finger) => ({
+export const FINGER_JOINTS: FingerJoints[] = (['Thumb', 'Index', 'Middle', 'Ring', 'Little'] as const).map((finger) => ({
   finger,
   joints: [`L_${finger}1`, `L_${finger}2`, `L_${finger}3`, `L_${finger}3_end`].map(animeJoint),
 }));
 
 /** 网格里的骨骼名 → 这条手臂上的全名（name 把「Hand」换成 Hand_L.002 这样的） */
-export const handBones = (name: (base: string) => string): Record<string, string> =>
-  Object.fromEntries(meta.bones.map((bone) => [bone, name(bone)]));
+export const handBones = (name: (base: string) => string, count: number = FINGER_COUNT.base): Record<string, string> =>
+  Object.fromEntries(handMesh(count).bones.map((bone) => [bone, name(bone)]));
 
 /**
  * 接到一条手臂上时，除了怎么摆以外的那几项（见 Graft）：骨骼的对应、手腕在哪、哪些骨骼跟着手。
  * 前臂（LowerArm）是手臂自己的骨骼，手的网格只是有一圈袖口跟着它，它不算手的
  */
-export const handGraft = (name: (base: string) => string) => ({
+export const handGraft = (name: (base: string) => string, count: number = FINGER_COUNT.base) => ({
   mesh: 'hand' as const,
-  bones: handBones(name),
+  ...(count !== FINGER_COUNT.base ? { digits: count } : {}),
+  bones: handBones(name, count),
   pivot: meta.wrist as V3,
   reach: [meta.wrist[0] - meta.elbow[0], meta.wrist[1] - meta.elbow[1], meta.wrist[2] - meta.elbow[2]] as V3,
-  rigid: meta.bones.filter((bone) => bone !== 'LowerArm').map(name),
+  rigid: handMesh(count)
+    .bones.filter((bone) => bone !== 'LowerArm')
+    .map(name),
 });

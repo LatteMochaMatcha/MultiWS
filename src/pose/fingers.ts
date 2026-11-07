@@ -21,10 +21,26 @@ export type FingerName = (typeof FINGER_NAMES)[number];
 /** 给人看的名字 */
 export const FINGER_LABEL: Record<FingerName, string> = { Thumb: t('拇指'), Index: t('食指'), Middle: t('中指'), Ring: t('无名指'), Little: t('小指') };
 
-/** 骨骼名是不是手指的一节；是的话给出是哪根手指、第几节 */
-export function fingerOf(name: string): { finger: FingerName; joint: number } | null {
-  const m = /^(Thumb|Index|Middle|Ring|Little)(\d)_[LR](?:\.\d+)?$/.exec(name);
-  return m ? { finger: m[1] as FingerName, joint: Number(m[2]) } : null;
+/** 多出来的手指（anime/digits.ts 照无名指复制的，插在无名指和小指之间），从拇指那边数起 */
+export const EXTRA_FINGER_NAMES = ['FingerA', 'FingerB', 'FingerC'] as const;
+export type ExtraFingerName = (typeof EXTRA_FINGER_NAMES)[number];
+
+/**
+ * 骨骼名是不是手指的一节；是的话给出是哪根手指、第几节。
+ * 手脚互换时接在腿上的手，手指前面多一个「Leg」（LegThumb1_L；长在中线上的腿不分左右：LegThumb1）
+ */
+export function fingerOf(name: string): { finger: FingerName | ExtraFingerName; joint: number } | null {
+  const m = /^(?:Leg(Thumb|Index|Middle|Ring|Little|Finger[A-C])(\d)(?:_[LR])?|(Thumb|Index|Middle|Ring|Little|Finger[A-C])(\d)_[LR])(?:\.\d+)?$/.exec(name);
+  return m ? { finger: (m[1] ?? m[3]) as FingerName | ExtraFingerName, joint: Number(m[2] ?? m[4]) } : null;
+}
+
+/**
+ * 多出来的手指在姿势数据里没记的时候跟着哪根骨骼：它是照无名指复制的，就跟着无名指同一节
+ * （现成的姿势、手势都只记五根手指）。不是多出来的手指返回 null
+ */
+export function extraFingerTwin(name: string): string | null {
+  const m = /^(Leg)?Finger[A-C](\d(?:_[LR])?(?:\.\d+)?)$/.exec(name);
+  return m ? `${m[1] ?? ''}Ring${m[2]}` : null;
 }
 
 export interface Hand {
@@ -34,8 +50,12 @@ export interface Hand {
   /** 1 是角色的左手，-1 是右手；pair 是第几对手臂（从 0 数） */
   side: 1 | -1;
   pair: number;
+  /** 长在哪种肢体上：手臂，或者腿（手脚互换时腿末端接的手；长在中线上的腿上的当作左手） */
+  limb: 'arm' | 'leg';
   /** 五根手指（顺序见 FINGER_NAMES）各自的几节骨骼，从根到梢；这只手上没有的那根是空的 */
   fingers: number[][];
+  /** 多出来的手指（EXTRA_FINGER_NAMES 的顺序），各自的几节骨骼；手势里它们跟着无名指 */
+  extras: number[][];
   /** 手掌静止时相对「T-pose、手心朝下」转了多少 */
   frame: Quat;
 }
@@ -66,47 +86,53 @@ export function findHands(rig: PoseRig, limbs: readonly Limb[]): { hands: Hand[]
   const hands: Hand[] = [];
   const frames = new Map<number, Quat>();
   for (const limb of limbs) {
-    if (limb.kind !== 'arm') continue;
+    // 腿上也可能接着手（手脚互换）：手指照样找；中线上的腿当左边的算
+    const sign = limb.side || 1;
     const fingers: number[][] = FINGER_NAMES.map(() => []);
+    const extras: number[][] = EXTRA_FINGER_NAMES.map(() => []);
     const collect = (bone: number) => {
       for (const kid of kids[bone]) {
         const found = fingerOf(rig.names[kid]);
         if (!found) continue;
-        fingers[FINGER_NAMES.indexOf(found.finger)].push(kid);
+        const main = FINGER_NAMES.indexOf(found.finger as FingerName);
+        if (main >= 0) fingers[main].push(kid);
+        else extras[EXTRA_FINGER_NAMES.indexOf(found.finger as ExtraFingerName)].push(kid);
         collect(kid);
       }
     };
     collect(limb.end);
     if (fingers.every((chain) => chain.length === 0)) continue;
+    while (extras.length && !extras[extras.length - 1].length) extras.pop();
 
     const wrist = rig.head[limb.end];
     // 手心朝哪：手腕、食指根、小指根三点定出手掌的平面。四指不够两根的，照手肘的转轴估（T-pose 时手心朝下）
     const roots = fingers.slice(1).filter((chain) => chain.length).map((chain) => sub(rig.head[chain[0]], wrist));
-    let palm = mul(limb.hinge, limb.side);
+    let palm = mul(limb.hinge, sign);
     if (roots.length >= 2) {
       const n = cross(roots[roots.length - 1], roots[0]);
-      if (len(n) > 1e-12) palm = mul(norm(n), limb.side);
+      if (len(n) > 1e-12) palm = mul(norm(n), sign);
     }
     // 手掌朝前的方向：手腕到四个指根的正中（一根都没有就用手这根骨骼的方向），掰到手掌的平面里
     const ahead = roots.length ? roots.reduce((sum, root) => add(sum, root)) : sub(rig.tail[limb.end], wrist);
     const flat = reject(ahead, palm);
-    const along = mul(len(flat) > 1e-9 ? norm(flat) : anyPerp(palm), limb.side);
+    const along = mul(len(flat) > 1e-9 ? norm(flat) : anyPerp(palm), sign);
     hands.push({
       bone: limb.end,
       name: limb.name,
-      // 手都长在手臂上，手臂总是分左右的
-      side: limb.side > 0 ? 1 : -1,
+      side: sign > 0 ? 1 : -1,
       pair: limb.pair,
+      limb: limb.kind,
       fingers,
+      extras,
       frame: quatMul(limbFrame(along, cross(along, palm)), quatConj(FLAT)),
     });
 
-    fingers.forEach((chain, f) => {
+    [...fingers, ...extras].forEach((chain, f) => {
       let dir = along;
       chain.forEach((bone, k) => {
         const span = sub(k + 1 < chain.length ? rig.head[chain[k + 1]] : rig.tail[bone], rig.head[bone]);
         // 长度是零的一节（有的骨架末梢没有终点）：照上一节的方向
-        if (len(span) > 1e-9) dir = mul(norm(span), limb.side);
+        if (len(span) > 1e-9) dir = mul(norm(span), sign);
         // 拇指绕着手掌的法线弯（在手掌的平面里往四指那边收），四指绕着手掌平面里和自己垂直的那根轴弯
         frames.set(bone, f === 0 ? limbFrame(dir, mul(palm, -1)) : quatMul(limbFrame(dir, cross(dir, palm)), quatConj(FLAT)));
       });
@@ -215,15 +241,18 @@ export function shapeHand(solver: Solver, state: PoseState, hand: Hand, shape: H
   const frame = forward(rig, state);
   const palm = quatMul(frame.rot[hand.bone], hand.frame);
   const world = new Map<number, Quat>();
-  handTurns(shape, hand.side).forEach((chain, f) => {
-    hand.fingers[f].forEach((bone, k) => {
+  const turns = handTurns(shape, hand.side);
+  // 多出来的手指照无名指摆（它就是照无名指复制的）
+  const chains = [...hand.fingers.map((bones, f) => ({ bones, chain: turns[f] })), ...hand.extras.map((bones) => ({ bones, chain: turns[3] }))];
+  for (const { bones, chain } of chains) {
+    bones.forEach((bone, k) => {
       // 比三节多出来的（少见）：跟着第三节
       const turned = quatUnit(quatMul(quatMul(palm, chain[Math.min(k, chain.length - 1)]), quatConj(frames[bone])));
       world.set(bone, turned);
       const p = rig.parent[bone];
       out.local[bone] = quatUnit(quatMul(quatConj(world.get(p) ?? frame.rot[p]), turned));
     });
-  });
+  }
   return out;
 }
 

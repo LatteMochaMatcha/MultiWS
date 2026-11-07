@@ -62,6 +62,10 @@ import {
   COUNT_DEFS,
   COUNT_HINTS,
   HIP_LEGS,
+  FINGERS,
+  clampFingers,
+  TOES,
+  clampToes,
   PENIS_ROW,
   EAR_SHAPES,
   GENDERS,
@@ -69,6 +73,16 @@ import {
   HAIR_STYLES,
   HAIR_VOLUME,
   HAND_STYLES,
+  CONJOINS,
+  CONJOIN_POSES,
+  type ConjoinMode,
+  type ConjoinPose,
+  LIMB_ENDS,
+  LIMB_PART,
+  type LimbEnd,
+  type LimbSetting,
+  limbOf as limbSettingOf,
+  legPlan,
   HEAD_LAYOUTS,
   LEG_LAYOUTS,
   PENIS_LAYOUTS,
@@ -603,6 +617,57 @@ const syncHipLegs = (() => {
     plus.disabled = spec.hipLegs >= HIP_LEGS.max;
   };
 })();
+/** 每只手几根手指（连拇指）：分指的手才有（白模人台选了分指、二次元素体），成品角色照她自己的手指复制、拿掉 */
+const syncFingers = (() => {
+  const minus = el('button', '', '−');
+  const plus = el('button', '', '+');
+  const out = el('output');
+  minus.type = plus.type = 'button';
+  minus.setAttribute('aria-label', t('每只手少一根手指'));
+  plus.setAttribute('aria-label', t('每只手多一根手指'));
+  const step = (delta: number) => () => {
+    spec = { ...spec, fingers: clampFingers(spec.fingers + delta) };
+    commit();
+  };
+  minus.addEventListener('click', step(-1));
+  plus.addEventListener('click', step(1));
+  $('fingers').append(minus, out, plus);
+  return () => {
+    // 分指的手（二次元素体、白模选了分指）和成品角色自己的手
+    const split = spec.bodyStyle !== 'mannequin' || spec.hands === 'fingers';
+    // 手长在手臂末端，手脚互换时也可能长在腿末端
+    const own = Object.values(spec.perLimb);
+    const hands = (spec.counts.armPairs > 0 && spec.armEnd === 'hand') || (humanLegs() && spec.legEnd === 'hand') || own.some((l) => l.end === 'hand');
+    $('fingersField').hidden = !split || !hands;
+    out.textContent = String(spec.fingers);
+    minus.disabled = spec.fingers <= FINGERS.min;
+    plus.disabled = spec.fingers >= FINGERS.max;
+  };
+})();
+/** 每只脚几个脚趾：只有二次元素体的脚有脚趾（白模人台的脚是一整块，成品角色的脚是角色自己的） */
+const syncToes = (() => {
+  const minus = el('button', '', '−');
+  const plus = el('button', '', '+');
+  const out = el('output');
+  minus.type = plus.type = 'button';
+  minus.setAttribute('aria-label', t('每只脚少一个脚趾'));
+  plus.setAttribute('aria-label', t('每只脚多一个脚趾'));
+  const step = (delta: number) => () => {
+    spec = { ...spec, toes: clampToes(spec.toes + delta) };
+    commit();
+  };
+  minus.addEventListener('click', step(-1));
+  plus.addEventListener('click', step(1));
+  $('toes').append(minus, out, plus);
+  return () => {
+    // 脚长在腿末端，手脚互换时也可能长在手臂末端
+    const feet = (humanLegs() && spec.legEnd === 'foot') || (spec.counts.armPairs > 0 && spec.armEnd === 'foot') || Object.values(spec.perLimb).some((l) => l.end === 'foot');
+    $('toesField').hidden = spec.bodyStyle !== 'anime' || !feet;
+    out.textContent = String(spec.toes);
+    minus.disabled = spec.toes <= TOES.min;
+    plus.disabled = spec.toes >= TOES.max;
+  };
+})();
 const syncEar = buildSeg($('segEar'), EAR_SHAPES, (v) => EAR_NAME[v], (earShape) =>
   fromParams({ ...spec, earShape }),
 );
@@ -764,6 +829,32 @@ const syncHand = buildSeg($('segHand'), HAND_STYLES, (v) => HAND_LABEL[v], (hand
   spec = { ...spec, hands };
   commit();
 });
+
+/** queen conjoined 连体：不连 / 同向 / 反向（见 geometry/conjoined.ts） */
+const CONJOIN_LABEL: Record<ConjoinMode, string> = { none: t('不连'), same: t('同向'), opposite: t('反向') };
+const syncConjoin = buildSeg($('segConjoin'), CONJOINS, (v) => CONJOIN_LABEL[v], (conjoined) => {
+  spec = { ...spec, conjoined };
+  commit();
+});
+
+const CONJOIN_POSE_LABEL: Record<ConjoinPose, string> = { prone: t('趴着'), lie: t('侧躺'), flat: t('平躺'), stand: t('站着') };
+const syncConjoinPose = buildSeg($('segConjoinPose'), CONJOIN_POSES, (v) => CONJOIN_POSE_LABEL[v], (conjoinPose) => {
+  spec = { ...spec, conjoinPose };
+  commit();
+});
+
+/** 手脚互换：手臂末端接手还是脚、腿末端接脚还是手（腿的那一栏脚排在前面） */
+const LIMB_END_LABEL: Record<LimbEnd, string> = { hand: t('手'), foot: t('脚') };
+const syncArmEnd = buildSeg($('segArmEnd'), LIMB_ENDS, (v) => LIMB_END_LABEL[v], (armEnd) => {
+  spec = { ...spec, armEnd };
+  commit();
+});
+const syncLegEnd = buildSeg($('segLegEnd'), ['foot', 'hand'] as const, (v) => LIMB_END_LABEL[v], (legEnd) => {
+  spec = { ...spec, legEnd };
+  commit();
+});
+/** 有没有人腿（人马、蛛形的兽腿不接手） */
+const humanLegs = () => spec.conjoined === 'none' && spec.counts.legs > 0 && !['taur', 'spider'].includes(legPlan(spec).form);
 
 /* ---- 头发：发型、发色、长度、蓬松（只有成品角色用得上） ---- */
 
@@ -2027,6 +2118,73 @@ btnTweakReset.addEventListener('click', () => {
 });
 $('btnTweakDone').addEventListener('click', () => select(null));
 
+/* ---- 选中一条手臂、人腿：这一条单独设末端接手还是脚、几根手指、几个脚趾（BodySpec.perLimb） ---- */
+
+/** 改选中的那一条（勾着「同时调整对侧」时对侧一起改）。值是 undefined 的那一项回到跟着统一的 */
+function setLimb(patch: LimbSetting) {
+  if (!selected) return;
+  const perLimb = { ...spec.perLimb };
+  for (const name of [selected, ...(mirror && mirrorName(selected) ? [mirrorName(selected)!] : [])]) {
+    const next: LimbSetting = { ...perLimb[name], ...patch };
+    for (const key of Object.keys(next) as (keyof LimbSetting)[]) if (next[key] === undefined) delete next[key];
+    if (Object.keys(next).length) perLimb[name] = next;
+    else delete perLimb[name];
+  }
+  spec = { ...spec, perLimb };
+  commit();
+  // 面板马上跟上（模型要重建一会儿，不等它）：换了末端，下面那一行就从手指换成脚趾
+  syncLimbTip(tweakable().find((p) => p.name === selected));
+}
+
+const LIMB_END_PICKS = ['all', 'hand', 'foot'] as const;
+const syncLimbEnd = buildSeg($('segLimbEnd'), LIMB_END_PICKS, (v) => (v === 'all' ? t('跟着全部') : LIMB_END_LABEL[v]), (v) =>
+  setLimb({ end: v === 'all' ? undefined : v }),
+);
+/** 这一条的手指 / 脚趾数：− 数 +，单独设过的后面多一个「跟着全部」 */
+const syncLimbDigits = (() => {
+  const minus = el('button', '', '−');
+  const plus = el('button', '', '+');
+  const out = el('output');
+  const reset = el('button', 'btn ghost', t('跟着全部'));
+  minus.type = plus.type = reset.type = 'button';
+  minus.setAttribute('aria-label', t('少一个'));
+  plus.setAttribute('aria-label', t('多一个'));
+  /** 现在调的是手指还是脚趾 */
+  let key: 'fingers' | 'toes' = 'fingers';
+  const step = (delta: number) => () => {
+    if (!selected) return;
+    const now = limbSettingOf(spec, selected)[key];
+    setLimb({ [key]: key === 'fingers' ? clampFingers(now + delta) : clampToes(now + delta) });
+  };
+  minus.addEventListener('click', step(-1));
+  plus.addEventListener('click', step(1));
+  reset.addEventListener('click', () => setLimb({ [key]: undefined }));
+  $('limbDigits').append(minus, out, plus, reset);
+  return (name: string, end: LimbEnd) => {
+    key = end === 'hand' ? 'fingers' : 'toes';
+    // 手指：分指的手才有（二次元素体、白模选了分指）；脚趾：只有二次元素体的脚有
+    const shown = end === 'hand' ? spec.bodyStyle === 'anime' || spec.hands === 'fingers' : spec.bodyStyle === 'anime';
+    $('limbDigitsField').hidden = !shown;
+    $('limbDigitsLabel').textContent = end === 'hand' ? t('这一条的手指') : t('这一条的脚趾');
+    const value = limbSettingOf(spec, name)[key];
+    const limits = key === 'fingers' ? FINGERS : TOES;
+    out.textContent = String(value);
+    minus.disabled = value <= limits.min;
+    plus.disabled = value >= limits.max;
+    reset.hidden = spec.perLimb[name]?.[key] === undefined;
+  };
+})();
+
+/** 选中的部件是手臂、人腿（不是成品角色）时显示这一块 */
+function syncLimbTip(part: { name: string; type: PartType } | undefined) {
+  const limb = !!part && !character && LIMB_PART.test(part.name) && (part.type === 'arm' || (part.type === 'leg' && humanLegs()));
+  $('limbTip').hidden = !limb;
+  if (!limb) return;
+  const own = spec.perLimb[part!.name];
+  syncLimbEnd(own?.end ?? 'all', true);
+  syncLimbDigits(part!.name, limbSettingOf(spec, part!.name).end);
+}
+
 /** 部件列表上一次画出来时的内容，没变就不重画（重画会打断正在展开的下拉框） */
 let partListKey = '';
 
@@ -2060,6 +2218,7 @@ function renderTweak() {
     $('tweakMirrorRow').hidden = !twin;
     if (twin) $('tweakMirrorText').textContent = t('同时调整对侧（{name}）', { name: partLabel(twin) });
     btnTweakReset.disabled = !activeOverrides(spec)[part.name];
+    syncLimbTip(part);
     const frame = part.type === 'eye' || part.type === 'horn' || part.type === 'ear' ? t('这个头的') : t('角色的');
     $('tweakNote').textContent = joinSentences([
       t('X 是{frame}左手边，Y 朝上，Z 朝前；角度绕这三根轴转，以关节为中心。', { frame }),
@@ -2794,8 +2953,11 @@ type HandPair = (typeof HAND_PAIRS)[number];
 let handSide: HandSide = 'both';
 let handPair: HandPair = 'all';
 
+/** 手势这一栏管的手：手臂上的（手脚互换时腿上接的手不算，它的手指拖指尖的圆点摆） */
+const armHands = (): Hand[] => (kit?.solver.hands ?? []).filter((hand) => hand.limb === 'arm');
+
 const pickedHands = (): Hand[] =>
-  (kit?.solver.hands ?? []).filter(
+  armHands().filter(
     (hand) => (handSide === 'both' || (handSide === 'L') === hand.side > 0) && (handPair === 'all' || hand.pair === Number(handPair) - 1),
   );
 
@@ -2871,6 +3033,7 @@ const handDials = [...FINGER_NAMES.map((name, finger) => ({ label: FINGER_LABEL[
 
 const HAND_NOTE = {
   none: t('这个身体上没有带手指的手。'),
+  legs: t('手臂末端接的是脚，没有手；腿末端接的手不归这一栏管：在「姿势」栏的「显示哪些圆点」里打开「手指」，拖指尖摆。'),
   mitten:
     t('并指的手，四根手指是连成一片的：握拳、张开这类整只手一起动的手势像样，「剪刀手」「指」这种一根根分开的摆不出来。要分开摆，到「造型 → 排布 → 手」里换成「分指」。'),
   usual:
@@ -2878,7 +3041,7 @@ const HAND_NOTE = {
 };
 
 function renderHand() {
-  const all = kit?.solver.hands ?? [];
+  const all = armHands();
   const pairs = all.reduce((n, hand) => Math.max(n, hand.pair + 1), 0);
   // 选着的那一对没有了（手臂减掉了）：回到全部
   if (handPair !== 'all' && Number(handPair) > pairs) handPair = 'all';
@@ -2892,7 +3055,8 @@ function renderHand() {
   for (const sync of handDials) sync(dials);
   for (const btn of gestureButtons) btn.disabled = !hands.length;
   const mitten = spec.bodyStyle === 'mannequin' && spec.hands === 'mitten';
-  $('handNote').textContent = all.length === 0 ? HAND_NOTE.none : mitten ? HAND_NOTE.mitten : HAND_NOTE.usual;
+  const onLegs = (kit?.solver.hands ?? []).some((hand) => hand.limb === 'leg');
+  $('handNote').textContent = all.length === 0 ? (onLegs ? HAND_NOTE.legs : HAND_NOTE.none) : mitten ? HAND_NOTE.mitten : HAND_NOTE.usual;
 }
 
 /* ---- 表情和视线：只有成品角色有 ---- */
@@ -3958,6 +4122,13 @@ function render() {
   const ready = spec.bodyStyle !== 'mannequin';
   const finished = spec.bodyStyle === 'character';
   syncHand(spec.hands, spec.counts.armPairs > 0 && !ready);
+  syncConjoin(spec.conjoined, true);
+  $('conjoinPoseField').hidden = spec.conjoined === 'none';
+  syncConjoinPose(spec.conjoinPose, spec.conjoined !== 'none');
+  syncArmEnd(spec.armEnd, spec.counts.armPairs > 0);
+  syncLegEnd(spec.legEnd, humanLegs());
+  syncFingers();
+  syncToes();
   syncHair();
   syncBody(spec.bodyStyle, true);
   syncCharacter();
