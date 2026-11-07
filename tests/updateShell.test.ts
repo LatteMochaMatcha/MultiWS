@@ -102,6 +102,20 @@ describe('卡片显示什么', () => {
   });
 });
 
+describe('更新入口在旧内核上也能用', () => {
+  it('src/update 里不用 Chrome 80 没有的东西（2.7.3 在 WebView 83 上卡在 replaceChildren，「检查更新」点了没反应）', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs');
+    // vitest 在项目根目录跑
+    const dir = 'src/update/';
+    const tooNew = /\.replaceChildren\(|\.replaceAll\(|\.at\(-?\d|Object\.hasOwn|\.findLast\(|structuredClone|\.toSorted\(|:has\(/;
+    for (const name of readdirSync(dir).filter((n) => /\.(ts|css)$/.test(n))) {
+      const lines = readFileSync(`${dir}${name}`, 'utf8').split('\n');
+      const bad = lines.map((line, i) => [i + 1, line] as const).filter(([, line]) => tooNew.test(line) && !line.trim().startsWith('*') && !line.trim().startsWith('//'));
+      expect(bad, name).toEqual([]);
+    }
+  });
+});
+
 describe('页面打开时要不要让外壳查', () => {
   const now = Date.parse('2026-11-07T08:00:00Z');
   it('没查过、或者上次查是 10 分钟以前：查', () => {
