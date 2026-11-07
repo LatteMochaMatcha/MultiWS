@@ -1567,10 +1567,18 @@ function scheduleClashCheck(target: Figure) {
 const ownBox = new Box3();
 /** 包围盒加上场景里别的角色：阴影、取景照整个场景 */
 const withScene = (box: Box3) => box.clone().union(sceneView.othersBox());
+/**
+ * 阴影、取景的范围换成「当前角色加上场景里别人」。都还没有网格（刚打开、融合网格还在算）时不换：
+ * 空的包围盒会让取景算出 NaN，镜头就再也框不回来了
+ */
+function sceneBounds(box: Box3 = ownBox) {
+  const all = withScene(box);
+  if (!all.isEmpty()) viewport?.setBounds(all);
+}
 function showBounds(box: Box3) {
   ownBox.copy(box);
   sceneView.setActiveBox(box);
-  viewport?.setBounds(withScene(box));
+  sceneBounds(box);
   if (refitNext) viewport?.refit();
   refitNext = false;
 }
@@ -2524,7 +2532,7 @@ function syncPosing() {
     const box = posed!.bounds();
     if (!box.isEmpty()) {
       ownBox.copy(box);
-      viewport?.setBounds(withScene(box));
+      sceneBounds(box);
     }
   }
   renderPosePanel();
@@ -4069,7 +4077,7 @@ async function bakeOthers() {
         sceneView.setView(next.id, bakedView(baked), baked.box);
         bakedFor.set(next.id, key);
         bakeFailed.delete(next.id);
-        viewport?.setBounds(withScene(ownBox));
+        sceneBounds();
         renderSceneBar();
         renderFigureList();
       } catch (err) {
@@ -4100,7 +4108,7 @@ function placeAll() {
   for (const f of scene.figures) sceneView.place(f.id, relativePlace(here, f.place));
   sceneView.setActive(scene.current);
   sceneView.showRings(ringsOn && scene.figures.length > 1);
-  viewport?.setBounds(withScene(ownBox));
+  sceneBounds();
 }
 
 /**
@@ -4296,7 +4304,8 @@ function undoRemove() {
 
 /** 镜头框住整个场景 */
 function refitAll() {
-  viewport?.setBounds(withScene(ownBox));
+  if (withScene(ownBox).isEmpty()) return;
+  sceneBounds();
   viewport?.refit();
 }
 /** 镜头只框住当前角色（别的角色照样显示） */
@@ -4304,7 +4313,7 @@ function refitCurrent() {
   if (!viewport || ownBox.isEmpty()) return;
   viewport.setBounds(ownBox);
   viewport.refit();
-  viewport.setBounds(withScene(ownBox));
+  sceneBounds();
 }
 
 /** 读进一整个场景（场景文件）：换掉现在的全部角色 */
@@ -4409,7 +4418,11 @@ if (viewport) {
       if (!hit || !at) return;
       e.stopImmediatePropagation();
       e.preventDefault();
-      dom.setPointerCapture(e.pointerId);
+      try {
+        dom.setPointerCapture(e.pointerId);
+      } catch {
+        // 指针已经没了（极少见）：不抓也照样能拖，只是拖出画布外就收不到
+      }
       viewport!.controls.enabled = false;
       placing = { id: hit.id, part: hit.part, start: figureOf(scene, hit.id)!.place, grabbed: at, pointer: e.pointerId };
       down = null;
@@ -4694,43 +4707,48 @@ function placedShape(positions: Float32Array, normals: Float32Array | undefined,
  * 导出整个场景：每个角色照它自己的设定按导出精度重算一遍（摆过姿势的是摆好的样子，不管现在在哪一页），
  * 摆到场景里各自的位置。GLB 每个角色一个父节点；带骨骼的每个角色一副骨架；OBJ、STL 写在一起
  */
-async function exportScene(kind: ExportKind) {
+/** 整个场景写成一个文件：文件名、内容、给状态栏的说明（不存，见 exportScene） */
+async function sceneFile(kind: ExportKind): Promise<{ fileName: string; blob: Blob; what: string }> {
   if (pending) rebuild();
   save();
   const figures = scene.figures;
+  const done: { figure: SceneFigure; baked: Baked }[] = [];
+  for (const [i, f] of figures.entries()) {
+    setStatus(t('正在算场景里的第 {i} 个角色（共 {n} 个）…', { i: i + 1, n: figures.length }));
+    const s = f.id === scene.current ? spec : bakeSpec(f);
+    await loadAssetsFor(s);
+    done.push({ figure: f, baked: await bakeFigure(s, { rig: kind === 'rig', fine: true }) });
+  }
+  const credits = [...new Set(done.flatMap((d) => d.baked.credits))];
+  const credit = credits.length ? credits.join(t('；')) : undefined;
+  let blob: Blob;
+  if (kind === 'glb' || kind === 'rig') {
+    const glb = mergeGlbs(done.map(({ figure, baked }) => ({ glb: bakedGlb(baked, kind === 'rig', objectName(figure)), name: objectName(figure), ...figure.place })));
+    blob = glbBlob(glb);
+  } else {
+    const shapes = done.flatMap(({ figure, baked }) =>
+      baked.shapes.map((m) => ({ name: `${objectName(figure)}_${m.name}`, ...placedShape(m.positions, m.normals, figure.place), triangles: m.triangles })),
+    );
+    blob =
+      kind === 'obj'
+        ? new Blob([writeObj(shapes.map((m) => ({ name: m.name, positions: m.positions, normals: m.normals, faces: m.triangles, faceSize: 3 })), credit)], { type: 'text/plain' })
+        : new Blob([writeStl(shapes.map((m) => ({ positions: m.positions, triangles: m.triangles })))], { type: 'model/stl' });
+  }
+  const triangles = done.reduce((n, d) => n + d.baked.triangles, 0);
+  const what = [
+    t('整个场景 {n} 个角色', { n: figures.length }),
+    t('{n} 三角面', { n: count(triangles) }),
+    ...(kind === 'rig' ? [t('每个角色一副骨架')] : []),
+    ...(credit ? [t('发出去时请署名「{credit}」', { credit })] : []),
+  ].join(t('，'));
+  return { fileName: SCENE_FILE[kind], blob, what };
+}
+
+async function exportScene(kind: ExportKind) {
   for (const button of Object.values(exportButtons)) button.disabled = true;
   try {
-    const done: { figure: SceneFigure; baked: Baked }[] = [];
-    for (const [i, f] of figures.entries()) {
-      setStatus(t('正在算场景里的第 {i} 个角色（共 {n} 个）…', { i: i + 1, n: figures.length }));
-      const s = f.id === scene.current ? spec : bakeSpec(f);
-      await loadAssetsFor(s);
-      done.push({ figure: f, baked: await bakeFigure(s, { rig: kind === 'rig', fine: true }) });
-    }
-    const credits = [...new Set(done.flatMap((d) => d.baked.credits))];
-    const credit = credits.length ? credits.join(t('；')) : undefined;
-    let blob: Blob;
-    if (kind === 'glb' || kind === 'rig') {
-      const glb = mergeGlbs(done.map(({ figure, baked }) => ({ glb: bakedGlb(baked, kind === 'rig', objectName(figure)), name: objectName(figure), ...figure.place })));
-      blob = glbBlob(glb);
-    } else {
-      const shapes = done.flatMap(({ figure, baked }) =>
-        baked.shapes.map((m) => ({ name: `${objectName(figure)}_${m.name}`, ...placedShape(m.positions, m.normals, figure.place), triangles: m.triangles })),
-      );
-      blob =
-        kind === 'obj'
-          ? new Blob([writeObj(shapes.map((m) => ({ name: m.name, positions: m.positions, normals: m.normals, faces: m.triangles, faceSize: 3 })), credit)], { type: 'text/plain' })
-          : new Blob([writeStl(shapes.map((m) => ({ positions: m.positions, triangles: m.triangles })))], { type: 'model/stl' });
-    }
-    const fileName = SCENE_FILE[kind];
+    const { fileName, blob, what } = await sceneFile(kind);
     const where = await saveBlob(fileName, blob);
-    const triangles = done.reduce((n, d) => n + d.baked.triangles, 0);
-    const what = [
-      t('整个场景 {n} 个角色', { n: figures.length }),
-      t('{n} 三角面', { n: count(triangles) }),
-      ...(kind === 'rig' ? [t('每个角色一副骨架')] : []),
-      ...(credit ? [t('发出去时请署名「{credit}」', { credit })] : []),
-    ].join(t('，'));
     setStatus(t('已导出 {file}（{what}，{size}），{where}。', { file: fileName, what, size: sizeText(blob.size), where }));
   } catch (err) {
     setStatus(t('导出失败：{err}', { err: errText(err) }), true);
@@ -5107,6 +5125,8 @@ if (import.meta.env.DEV) {
         remove: deleteFigure,
         move: movePlace,
         exportScene,
+        // 只生成整个场景的文件、不存（试导出用）：__oc.scene.sceneFile('glb')
+        sceneFile,
         open: openSceneData,
         file: () => serializeScene(scene, specData, true),
         baking: () => bakingOthers,
