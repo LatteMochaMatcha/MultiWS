@@ -24,7 +24,8 @@ import { buildFigure } from '../geometry/layout';
 import { type GlbMesh, writeGlb } from '../io/glb';
 import { type BodySpec, type CharacterChoice, OWN_CHARACTER, torsoSides } from '../model/spec';
 import { isPosed } from '../pose/posing';
-import { type Frame, type PoseRig, forward, poseMatrices, posedBones } from '../pose/rig';
+import { type Frame, type PoseRig, type RigBone, forward, poseMatrices, posedBones } from '../pose/rig';
+import { heightOf } from './interact';
 import { makeSolver, stateOf } from '../pose/solver';
 import { type Skeleton, buildSkeleton } from '../rig/skeleton';
 import { bindPartGrafts, skinVertices } from '../rig/skin';
@@ -57,6 +58,10 @@ export interface Baked {
   triangles: number;
   /** 包围盒，角色自己的坐标（米） */
   box: THREE.Box3;
+  /** 摆好以后的骨架（角色自己的坐标，米）：查角色之间穿插、手碰到别人用（见 interact.ts） */
+  bones: RigBone[];
+  /** 静止时多高（米） */
+  height: number;
   /** 融合的白模的眼睛标记：只在屏幕上显示，不导出（和当前角色一样） */
   eyes?: { geometry: THREE.BufferGeometry; matrix: THREE.Matrix4 }[];
 }
@@ -133,7 +138,10 @@ function bakeCharacter(spec: BodySpec): Baked | null {
     return credit ? [credit] : [];
   });
   const shape = characterShape(build);
+  const restBones = characterSkeleton(rest).bones;
   return {
+    bones: pose ? posedBones(pose.rig, pose.frame) : restBones,
+    height: heightOf(restBones),
     character: build,
     shapes: [{ name: 'OC_Character', positions: shape.positions, normals: shape.normals, triangles: shape.triangles }],
     credits,
@@ -201,6 +209,8 @@ async function bakeFused(spec: BodySpec, target: Figure, options: BakeOptions): 
     ...(options.rig && skin ? { joints: skin.joints, weights: skin.weights } : {}),
   };
   return {
+    bones: pose ? posedBones(pose.rig, pose.frame) : rest.bones,
+    height: heightOf(rest.bones),
     meshes: [glb],
     ...(options.rig ? { skeleton: pose ? posedSkeleton(pose, rest) : rest } : {}),
     shapes: [{ name: 'OC_BaseMesh', positions, normals, triangles: mesh.triangles }],
@@ -256,6 +266,8 @@ function bakeParts(spec: BodySpec, target: Figure, options: BakeOptions): Baked 
     };
   });
   return {
+    bones: pose ? posedBones(pose.rig, pose.frame) : rest.bones,
+    height: heightOf(rest.bones),
     meshes: glb,
     ...(options.rig ? { skeleton: pose ? posedSkeleton(pose, rest) : rest } : {}),
     shapes: meshes.map((m) => ({ name: m.name, positions: m.positions, normals: m.normals, triangles: m.indices })),
@@ -263,6 +275,18 @@ function bakeParts(spec: BodySpec, target: Figure, options: BakeOptions): Baked 
     triangles,
     box,
   };
+}
+
+/**
+ * 这份设定的静止骨架（米，角色自己的坐标；套了手动微调）：双人动作照它算 IK。
+ * 成品角色的文件要先载入好，没载入就照白模人台的骨架（和屏幕上一样退回去）
+ */
+export function skeletonFor(spec: BodySpec): RigBone[] {
+  if (spec.bodyStyle === 'character') {
+    const source = characterSource(spec.character);
+    if (source) return characterSkeleton(tweakCharacter(assembleCharacter(source, spec, hairDonor(spec.hair.style), characterSource), spec.characterOverrides).build).bones;
+  }
+  return buildSkeleton(buildFigure(spec)).bones;
 }
 
 /**

@@ -53,7 +53,8 @@ import {
   singleScene,
   updateFigure,
 } from './model/scene';
-import { type Baked, bakeFigure, bakedGlb, bakedView, charactersOf } from './scene/bake';
+import { type Baked, bakeFigure, bakedGlb, bakedView, charactersOf, skeletonFor } from './scene/bake';
+import { type Capsule, type Clash as FigureClash, type PairPreset, PAIR_PRESETS, PART_LABEL, capsulesOf, findClashes as figureClashes, heightOf, placeCapsules, pushOut, solvePair } from './scene/interact';
 import { mergeGlbs } from './io/mergeGlb';
 import { SceneFigures } from './view/sceneFigures';
 import { activeOverrides, clearAllOverrides, clearOverride, mirrorName, setOverride } from './model/overrides';
@@ -153,7 +154,7 @@ import { fitLegs } from './pose/fitLegs';
 import { armOfBone, armPairCount, followPair } from './pose/follow';
 import { POSE_LIBRARY } from './pose/library';
 import { type Posing, POSING_VERSION, cleanPosing, emptyPosing, flipPosing, isPosed, placedTwins } from './pose/posing';
-import { type Frame, type PoseRig, type PoseState, cloneState, forward, pointOn, poseMatrices, posedBones, shiftRoot, tailOf } from './pose/rig';
+import { type Frame, type PoseRig, type PoseState, type RigBone, cloneState, forward, pointOn, poseMatrices, posedBones, shiftRoot, tailOf } from './pose/rig';
 import { type Pin, capturePins, dragAim, dragBend, dragBody, dragReach, plantFeet, turnBone } from './pose/solve';
 import { type Solver, makeSolver, mirrorState, posingOf, stateOf } from './pose/solver';
 import { type Skeleton, buildSkeleton } from './rig/skeleton';
@@ -1514,6 +1515,8 @@ const count = (n: number) => Math.round(n).toLocaleString('zh-CN');
 let readout = { triangles: '', warning: '' };
 /** 开发模式下穿模检查的结果 */
 let clashNote = '';
+/** 场景里和别的角色穿插（见 checkSceneClash） */
+let sceneClashNote = '';
 /** 帧率（地址里带 ?fps 时才有） */
 let fpsNote = '';
 
@@ -1525,7 +1528,7 @@ function drawReadout() {
     el('span', '', readout.triangles),
   ];
   if (fpsNote) items.push(el('span', '', fpsNote));
-  for (const warning of [readout.warning, clashNote]) if (warning) items.push(el('span', 'warn', warning));
+  for (const warning of [readout.warning, clashNote, sceneClashNote]) if (warning) items.push(el('span', 'warn', warning));
   $('readout').replaceChildren(...items);
 }
 
@@ -1578,6 +1581,7 @@ function sceneBounds(box: Box3 = ownBox) {
 function showBounds(box: Box3) {
   ownBox.copy(box);
   sceneView.setActiveBox(box);
+  if (scene.figures.length > 1) scheduleSceneClash();
   sceneBounds(box);
   if (refitNext) viewport?.refit();
   refitNext = false;
@@ -2466,6 +2470,7 @@ function showPose() {
   );
   placeRing();
   if (showBones) bones.update({ bones: posedBones(rig, frame).map((b) => ({ ...b, part: '' })) });
+  if (scene.figures.length > 1) scheduleSceneClash();
 }
 
 /** 旋转环摆到选中的关节上：绿色那一圈正好绕着骨头自己转 */
@@ -2658,11 +2663,13 @@ if (poseHandles) {
   poseHandles.onGrab = (handle) => {
     takeLead(handle);
     beginGrab();
+    grabTouch();
   };
   poseHandles.onDrag = (handle, target) => {
     if (!kit || !grab) return;
     const { solver } = kit;
-    if (handle.kind === 'reach') poseState = dragReach(solver, grab.start, handle.limb, target, grab.pins);
+    // 手脚碰到场景里别的角色：停在表面（见 touchTarget）
+    if (handle.kind === 'reach') poseState = dragReach(solver, grab.start, handle.limb, touchTarget(target), grab.pins);
     else if (handle.kind === 'bend') poseState = dragBend(solver, grab.start, handle.limb, target);
     else if (handle.kind === 'body') poseState = dragBody(solver, grab.start, target, grab.pins);
     else if (handle.links.length) poseState = dragAim(solver, grab.start, handle.links, { bone: handle.anchor, rest: handle.rest }, target, grab.pins);
@@ -4075,6 +4082,8 @@ async function bakeOthers() {
         // 算的时候删掉了、又改了：这一份不要（改了的下一圈重算）
         if (!now || bakeKey(now) !== key) continue;
         sceneView.setView(next.id, bakedView(baked), baked.box);
+        othersBones.set(next.id, { bones: baked.bones, height: baked.height });
+        scheduleSceneClash();
         bakedFor.set(next.id, key);
         bakeFailed.delete(next.id);
         sceneBounds();
@@ -4109,6 +4118,7 @@ function placeAll() {
   sceneView.setActive(scene.current);
   sceneView.showRings(ringsOn && scene.figures.length > 1);
   sceneBounds();
+  scheduleSceneClash();
 }
 
 /**
@@ -4275,6 +4285,7 @@ async function deleteFigure(id: string) {
   bakedFor.delete(id);
   bakeFailed.delete(id);
   sceneView.remove(id);
+  othersBones.delete(id);
   if (wasCurrent) {
     shiftView(from, currentOf(scene).place);
     loadFigure(scene.current, false);
@@ -4577,6 +4588,7 @@ function syncScenePanel() {
   const restore = $<HTMLButtonElement>('btnFigureRestore');
   restore.hidden = !lastRemoved;
   if (lastRemoved) restore.textContent = t('恢复刚删的「{name}」', { name: lastRemoved.label });
+  syncPairPanel();
   $('exportWhatField').hidden = !many;
   if (!many) exportWhat = 'current';
   syncExportWhat(exportWhat, many);
@@ -4755,6 +4767,194 @@ async function exportScene(kind: ExportKind) {
   } finally {
     for (const button of Object.values(exportButtons)) button.disabled = false;
   }
+}
+
+/* ---- 角色之间的肢体互动（见 scene/interact.ts）：穿插提示、手脚碰到别人停在表面、双人动作 ---- */
+
+/** 别人摆好以后的骨架（照它们屏幕上定住的那张算的），和静止时的身高 */
+const othersBones = new Map<string, { bones: RigBone[]; height: number }>();
+
+/** 当前角色屏幕上的骨架：摆姿势时是摆好的，造型时是静止的（和屏幕上一样） */
+let restBonesFor: { body: unknown; bones: RigBone[] } | null = null;
+function currentBones(): { bones: RigBone[]; height: number } | null {
+  const body = character ?? figure;
+  if (!body) return null;
+  if (restBonesFor?.body !== body) restBonesFor = { body, bones: character ? characterSkeleton(character).bones : buildSkeleton(figure!).bones };
+  const rest = restBonesFor.bones;
+  const height = heightOf(rest);
+  if (mode === 'pose' && kit && poseFrame) return { bones: posedBones(kit.solver.rig, poseFrame), height };
+  return { bones: rest, height };
+}
+
+/** 别人的胶囊体，摆到当前角色的坐标里（当前角色站在原点） */
+function othersCapsules(except?: string): { id: string; caps: Capsule[] }[] {
+  const here = currentOf(scene).place;
+  const out: { id: string; caps: Capsule[] }[] = [];
+  for (const f of scene.figures) {
+    if (f.id === scene.current || f.id === except) continue;
+    const got = othersBones.get(f.id);
+    if (got) out.push({ id: f.id, caps: placeCapsules(capsulesOf(got.bones, got.height), relativePlace(here, f.place)) });
+  }
+  return out;
+}
+
+/** 现在和谁穿插：插得最深的那个人和那几处 */
+let sceneClash: { id: string; clashes: FigureClash[] } | null = null;
+let sceneClashTimer = 0;
+/** 姿势、位置、谁是当前的变了：停一下再查一遍穿插（拖着的时候不每帧查） */
+function scheduleSceneClash() {
+  window.clearTimeout(sceneClashTimer);
+  sceneClashTimer = window.setTimeout(checkSceneClash, 250);
+}
+function checkSceneClash() {
+  let worst: { id: string; clashes: FigureClash[] } | null = null;
+  const me = scene.figures.length > 1 ? currentBones() : null;
+  if (me) {
+    const mine = capsulesOf(me.bones, me.height);
+    for (const { id, caps } of othersCapsules()) {
+      const clashes = figureClashes(mine, caps);
+      if (clashes.length && (!worst || clashes[0].depth > worst.clashes[0].depth)) worst = { id, clashes };
+    }
+  }
+  sceneClash = worst;
+  const note = $('sceneClash');
+  const row = $('sceneClashRow');
+  row.hidden = !worst;
+  if (worst) {
+    const other = figureOf(scene, worst.id);
+    const where = worst.clashes
+      .slice(0, 3)
+      .map((c) => t('{mine} × {theirs}', { mine: t(PART_LABEL[c.mine]), theirs: t(PART_LABEL[c.theirs]) }))
+      .join(t('、'));
+    note.textContent = t('和「{name}」穿插：{where}（最深 {cm} 厘米）', { name: other ? figureLabel(other) : '', where, cm: Math.round(worst.clashes[0].depth * 100) });
+  }
+  const text = worst ? note.textContent ?? '' : '';
+  if (text !== sceneClashNote) {
+    sceneClashNote = text;
+    drawReadout();
+  }
+}
+
+/** 挪开到不穿插：当前角色顺着「从那个人到自己」的方向一点点往外挪，挪到和他不穿插为止（最多 3 米） */
+function stepAway() {
+  const clash = sceneClash;
+  const me = currentBones();
+  const other = clash && figureOf(scene, clash.id);
+  if (!clash || !me || !other) return;
+  const here = currentOf(scene).place;
+  const rel = relativePlace(here, other.place);
+  // 当前角色的坐标里：从那个人指向自己（原点）的水平方向；站在同一点上就往自己的右手边（-X）挪
+  let dir: [number, number] = [-rel.x, -rel.z];
+  const d = Math.hypot(dir[0], dir[1]);
+  dir = d > 1e-3 ? [dir[0] / d, dir[1] / d] : [-1, 0];
+  const mine = capsulesOf(me.bones, me.height);
+  const theirs = othersCapsules().find((o) => o.id === clash.id)?.caps ?? [];
+  let step = 0;
+  for (; step < 150; step++) {
+    const shift = (step + 1) * 0.02;
+    const moved = mine.map((c) => ({ ...c, a: [c.a[0] + dir[0] * shift, c.a[1], c.a[2] + dir[1] * shift] as V3, b: [c.b[0] + dir[0] * shift, c.b[1], c.b[2] + dir[1] * shift] as V3 }));
+    if (!figureClashes(moved, theirs).length) break;
+  }
+  const shift = (step + 1) * 0.02;
+  const to = absolutePlace(here, { x: dir[0] * shift, z: dir[1] * shift, yaw: 0 });
+  movePlace(scene.current, { ...here, x: to.x, z: to.z });
+  commitPlace();
+  setStatus(t('挪开了 {cm} 厘米。', { cm: Math.round(shift * 100) }));
+  scheduleSceneClash();
+}
+$('btnStepAway').addEventListener('click', stepAway);
+
+/** 摆姿势时手脚碰到别人就停在表面（这台设备记着） */
+const TOUCH_KEY = 'oc-basemesh-touch';
+let touchStop = true;
+try {
+  touchStop = localStorage.getItem(TOUCH_KEY) !== 'off';
+} catch {
+  // 读不到就开着
+}
+const touchBox = $<HTMLInputElement>('sceneTouch');
+touchBox.checked = touchStop;
+touchBox.addEventListener('change', () => {
+  touchStop = touchBox.checked;
+  try {
+    localStorage.setItem(TOUCH_KEY, touchStop ? 'on' : 'off');
+  } catch {
+    // 记不住也照样用
+  }
+});
+/** 这一次拖动里，别人的身体（按下时取一次） */
+let touchCaps: Capsule[] | null = null;
+function grabTouch() {
+  touchCaps = touchStop && scene.figures.length > 1 ? othersCapsules().flatMap((o) => o.caps) : null;
+}
+/** 拖手脚的目标点：在别人身体里面就推到表面上（留一个手掌厚） */
+function touchTarget(target: V3): V3 {
+  if (!touchCaps?.length) return target;
+  const me = currentBones();
+  return pushOut(target, touchCaps, 0.03 * ((me?.height ?? 1.7) / 1.7));
+}
+
+/* ---- 双人动作 ---- */
+
+/** 和谁一起摆（场景里别的角色的 id）；不在了就换成第一个别人 */
+let pairPartner = '';
+const pairSelect = $<HTMLSelectElement>('pairPartner');
+pairSelect.addEventListener('change', () => {
+  pairPartner = pairSelect.value;
+});
+function syncPairPanel() {
+  const others = scene.figures.filter((f) => f.id !== scene.current);
+  $('pairField').hidden = !others.length;
+  if (!others.some((f) => f.id === pairPartner)) pairPartner = others[0]?.id ?? '';
+  pairSelect.replaceChildren(...others.map((f) => new Option(figureLabel(f), f.id, false, f.id === pairPartner)));
+}
+for (const preset of PAIR_PRESETS) {
+  const btn = el('button', 'btn', t(preset.name));
+  btn.type = 'button';
+  btn.addEventListener('click', () => void applyPair(preset));
+  $('pairPresets').append(btn);
+}
+
+const libraryPosing = (name: string | null): Posing | null => (name ? POSE_LIBRARY.find((p) => p.name === name)?.posing ?? null : null);
+/** 套上新姿势时表情照原来的留着（底子姿势里没有表情） */
+const keepFaces = (next: Posing, was: Posing): Posing => (next.faces || !was.faces ? next : { ...next, faces: was.faces });
+
+/** 摆一个双人动作：现在这个角色（A）和选的那个人（B）。B 挪到 A 旁边，两人都换姿势；各记一步撤销 */
+async function applyPair(preset: PairPreset) {
+  const partner = figureOf(scene, pairPartner);
+  if (!partner || partner.id === scene.current || poseHandles?.busy || placing) return;
+  if (pending) rebuild();
+  endSlide();
+  if (!figure && !character) return;
+  setStatus(t('正在摆「{name}」…', { name: t(preset.name) }));
+  await loadAssetsFor(bakeSpec(partner));
+  const restA = character ? characterSkeleton(character).bones : buildSkeleton(figure!).bones;
+  const restB = skeletonFor(bakeSpec(partner));
+  const here = currentOf(scene);
+  const result = solvePair(
+    preset,
+    { bones: restA, place: here.place, base: libraryPosing(preset.base.A) },
+    { bones: restB, place: partner.place, base: libraryPosing(preset.base.B) },
+  );
+  // B：设定、位置一起改，记进它自己的撤销历史
+  const now = figureOf(scene, partner.id)!;
+  const nextB = { ...now.spec, posing: keepFaces(result.posing.B, now.spec.posing) };
+  const h = histories.get(now.id) ?? new History<Snapshot>({ spec: now.spec, text: now.text, place: now.place }, HISTORY_OPTIONS);
+  h.seal();
+  h.push({ spec: nextB, text: now.text, place: result.placeB });
+  histories.set(now.id, h);
+  scene = updateFigure(scene, now.id, { spec: nextB, place: result.placeB });
+  placeAll();
+  // A：换上新姿势，切到「摆姿势」看
+  history.seal();
+  spec = { ...spec, posing: keepFaces(result.posing.A, spec.posing) };
+  commit();
+  if (mode !== 'pose') setMode('pose');
+  refitAll();
+  const missed = result.missed ? t('有 {n} 处够不着，照够得着的摆了。', { n: result.missed }) : '';
+  setStatus(t('「{a}」和「{b}」摆好了「{name}」。', { a: figureLabel(here), b: figureLabel(now), name: t(preset.name) }) + missed, Boolean(result.missed));
+  void bakeOthers();
+  scheduleSceneClash();
 }
 
 /** 打开页面时：场景里别的角色先摆上人影，再在后台挨个算 */
@@ -5128,6 +5328,10 @@ if (import.meta.env.DEV) {
         // 只生成整个场景的文件、不存（试导出用）：__oc.scene.sceneFile('glb')
         sceneFile,
         open: openSceneData,
+        // 角色之间：别人的胶囊体（当前角色的坐标）、拖手脚的目标推到表面以后在哪、现在的穿插
+        others: () => othersCapsules(),
+        touch: (p: V3) => { grabTouch(); return touchTarget(p); },
+        clash: () => { checkSceneClash(); return sceneClash; },
         file: () => serializeScene(scene, specData, true),
         baking: () => bakingOthers,
         waiting: () => scene.figures.filter((f) => f.id !== scene.current && sceneView.waiting(f.id)).map((f) => f.id),

@@ -422,6 +422,17 @@
               <button type="button" class="btn" id="btnSceneCurrent" title="镜头只框住现在改的这个">看当前</button>
             </div>
             <label class="check"><input type="checkbox" id="sceneRings"> 显示脚下的底座圈</label>
+            <div class="clash-row" id="sceneClashRow" hidden>
+              <p class="clash-note" id="sceneClash"></p>
+              <button type="button" class="btn" id="btnStepAway" title="现在这个角色往外挪，挪到和那个人不穿插为止">挪开到不穿插</button>
+            </div>
+            <div class="field" id="pairField" hidden>
+              <span>双人动作</span>
+              <label class="pair-with">和谁一起 <select id="pairPartner" aria-label="和谁一起摆"></select></label>
+              <div class="presets pair-presets" id="pairPresets"></div>
+              <p class="note">现在这个角色站着不动，选的那个人走到旁边，两人一起换姿势，手会伸过去碰到对方。两人各能撤销一步。</p>
+            </div>
+            <label class="check" title="这台设备自己记着"><input type="checkbox" id="sceneTouch"> 摆姿势时手脚碰到别人就停在表面</label>
             <div class="actions">
               <button type="button" class="btn" id="btnSceneSave" title="场景里所有的角色、各站在哪，存成一个文件">保存场景</button>
               <label class="btn file" for="fileScene" title="场景文件换掉现在的全部角色；一个角色的配置文件加进场景">打开场景…<input type="file" id="fileScene" accept=".json,application/json" hidden></label>

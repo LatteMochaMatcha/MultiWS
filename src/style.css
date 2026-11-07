@@ -629,3 +629,9 @@ button,label,summary,select,input{touch-action:manipulation}
   .app[data-pop="export"] .panel-foot #exportWhatField:not([hidden]){display:flex}
   .figure-row .icon{width:40px}
 }
+/* 场景：和别的角色穿插的提示、双人动作 */
+.clash-row{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:9px;border:1px solid var(--warn);background:var(--bg)}
+.clash-note{margin:0;font-size:12.5px;line-height:1.5;color:var(--warn)}
+.pair-with{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.pair-with select{flex:1;min-width:0;font:inherit;font-size:13px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:5px 8px}
+.pair-presets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}

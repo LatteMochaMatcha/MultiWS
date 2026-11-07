@@ -295,6 +295,8 @@ The "Scene" tab puts several characters in one scene, each with its own settings
 - **Save scene** saves every character and where it stands as one file; opening a scene file with "Open scene…" replaces all current characters (it asks first).
 - **Export**: with several characters, the export panel adds "Current / Whole scene". For the whole scene every character is rebuilt at export quality (posed ones as posed); the GLB has one group per character in its place, and the rigged GLB one rig per character; OBJ and STL are written together. VRM exports only the current one. Screenshots already show the whole view.
 - There is no limit on the number of characters; many of them will slow things down.
+- **Characters never fuse together**: however close they stand, each is its own mesh and they just overlap. When they overlap, the readout says with whom and where; "Move apart" in "Scene" steps away. While posing, hands and feet stop at other characters' surface (can be turned off in "Scene").
+- **Two-person poses**: in "Scene", pick who to pose "With", then click Hold hands, Arm on shoulder, Back to back, High five, Hold both hands or Hug. The current character stays put, the other one moves next to it, both change pose and their hands reach over to touch; each of them can undo it as one step. Extra arms keep their pose; the first pair of arms is used.
 
 ## Export
 
