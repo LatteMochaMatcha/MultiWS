@@ -1,7 +1,7 @@
 {
   "name": "oc-basemesh-workshop",
   "private": true,
-  "version": "2.7.4",
+  "version": "2.7.5",
   "description": "OC 白模工坊 v2 —— 多肢体角色白模生成器",
   "type": "module",
   "scripts": {
