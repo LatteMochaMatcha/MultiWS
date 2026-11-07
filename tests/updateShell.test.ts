@@ -1,6 +1,6 @@
 // 网页这边读外壳的更新状态、决定更新卡片显示什么
 import { describe, expect, it } from 'vitest';
-import { cardFor, formatBytes, pickNotes, readStatus, type ShellStatus } from '../src/update/shell';
+import { cardFor, formatBytes, pickNotes, readStatus, type ShellStatus, shouldCheckOnOpen } from '../src/update/shell';
 
 function status(over: Partial<ShellStatus> = {}): ShellStatus {
   return {
@@ -99,6 +99,22 @@ describe('卡片显示什么', () => {
   });
   it('下载出错：提示重试', () => {
     expect(cardFor(status({ status: 'error', latest }), none, '2.7.2').kind).toBe('failed');
+  });
+});
+
+describe('页面打开时要不要让外壳查', () => {
+  const now = Date.parse('2026-11-07T08:00:00Z');
+  it('没查过、或者上次查是 10 分钟以前：查', () => {
+    expect(shouldCheckOnOpen(status({ lastCheck: null }), now)).toBe(true);
+    expect(shouldCheckOnOpen(status({ lastCheck: '2026-11-07T04:43:04Z' }), now)).toBe(true);
+    expect(shouldCheckOnOpen(status({ lastCheck: '2026-11-07T07:50:00Z' }), now)).toBe(true);
+  });
+  it('刚查过、正在查、已经查到结果、关了自动检查：不查', () => {
+    expect(shouldCheckOnOpen(status({ lastCheck: '2026-11-07T07:55:00Z' }), now)).toBe(false);
+    expect(shouldCheckOnOpen(status({ status: 'checking' }), now)).toBe(false);
+    expect(shouldCheckOnOpen(status({ status: 'available', latest }), now)).toBe(false);
+    expect(shouldCheckOnOpen(status({ autoCheck: false }), now)).toBe(false);
+    expect(shouldCheckOnOpen(status({ enabled: false }), now)).toBe(false);
   });
 });
 

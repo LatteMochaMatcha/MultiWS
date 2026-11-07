@@ -52,7 +52,8 @@ final class Updater {
     private static final String PREVIOUS = "previous.json";
     private static final String DOWNLOADING = "downloading.json";
     private static final int MAX_UNCONFIRMED = 2;
-    private static final long CHECK_EVERY_MS = 20L * 3600 * 1000;
+    /** 打开时自动检查的间隔。原来是 20 小时，提示过的新版没点、别的版本刚查过时就看不到提示了，改成 10 分钟（清单只有几 KB） */
+    private static final long CHECK_EVERY_MS = 10L * 60 * 1000;
 
     // ---------- 清单 ----------
 

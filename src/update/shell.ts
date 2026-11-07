@@ -157,6 +157,20 @@ export async function detectShell(): Promise<{ api: ShellApi; status: ShellStatu
   }
 }
 
+/** 页面打开时，外壳上次检查要是比这更早，就让它再查一次 */
+export const RECHECK_AFTER_MS = 10 * 60 * 1000;
+
+/**
+ * 页面打开时要不要让外壳查一次。2.7.3、2.7.4 的外壳自己 20 小时才查一次，而且不记得上次查到的新版：
+ * 别的程序（试跑的另一个版本）刚查过一次，或者上次提示了没点，再打开就看不到提示了。由网页来补这一下，旧外壳也管用
+ */
+export function shouldCheckOnOpen(status: ShellStatus, now: number): boolean {
+  if (!status.enabled || !status.autoCheck || status.status !== 'idle') return false;
+  if (!status.lastCheck) return true;
+  const last = Date.parse(status.lastCheck);
+  return Number.isNaN(last) || now - last >= RECHECK_AFTER_MS;
+}
+
 /** 更新说明：先用当前语言，没有就依次用中文、英文、日文 */
 export function pickNotes(notes: Partial<Record<NoteLanguage, string>> | undefined, lang: NoteLanguage): string {
   if (!notes) return '';

@@ -147,8 +147,9 @@ static class Updater
     const string DownloadingName = "downloading.json";
     // 连着这么多次打开新版都没收到「启动成功」，就退回
     const int MaxUnconfirmed = 2;
-    // 打开时自动检查，两次之间至少隔这么久
-    static readonly TimeSpan CheckEvery = TimeSpan.FromHours(20);
+    // 打开时自动检查，两次之间至少隔这么久。2.7.3、2.7.4 的外壳是 20 小时：别的版本刚查过一次、或者上次查到新版没点，
+    // 再打开就不提示了。清单只有几 KB，改成 10 分钟（网页那边也会在打开时补查，见 src/update/shell.ts 的 shouldCheckOnOpen）
+    static readonly TimeSpan CheckEvery = TimeSpan.FromMinutes(10);
 
     sealed class Source
     {

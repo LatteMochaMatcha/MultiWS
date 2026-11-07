@@ -4,7 +4,7 @@
 // 页面载入时调一次 installUpdateUi()，后面的事它自己管。
 import './update.css';
 import { LANG, t } from '../i18n';
-import { type CardView, cardFor, detectShell, formatBytes, pickNotes, type ShellApi, type ShellStatus } from './shell';
+import { type CardView, cardFor, detectShell, formatBytes, pickNotes, type ShellApi, type ShellStatus, shouldCheckOnOpen } from './shell';
 
 const RELEASES = 'https://github.com/LatteMochaMatcha/MutliWS/releases';
 
@@ -74,8 +74,12 @@ class UpdateUi {
     if (repo) repo.after(row);
     else if (header) header.append(row);
 
+    // 用户点过「跳过这一版」的那版不弹（让外壳查的时候它不管跳过的版本，这里管）
+    if (status.skip) this.dismissed.add(status.skip);
     this.render();
-    this.follow();
+    // 外壳一阵子没查过就让它现在查（结果只弹卡片，设置那一行不写字）
+    if (shouldCheckOnOpen(status, Date.now())) this.kick(() => this.api.check());
+    else this.follow();
     // 新手引导开着的时候不弹卡片：引导是页面载入后过一会儿才挂到 body 上的，开、关都重新看一次
     new MutationObserver(() => this.render()).observe(document.body, { childList: true });
   }
