@@ -19,6 +19,7 @@ import { graftPoints } from '../sdf/graft';
 import { getGrid } from '../sdf/grids';
 import type { BoneHint, Figure, Graft, Part, Prim } from './figure';
 import { nthName, shapeMatrix, worldTransforms } from './figure';
+import { lineUpTurns, uprightFix } from './lieLine';
 import { ringAt } from './torso';
 import { type Mat3, type Quat, type V3, add, cross, dot, len, mat3Apply, mat3Mul, mul, norm, quatBetween, quatEuler, quatMat3, quatMul, rotate, sub } from './vec';
 
@@ -340,7 +341,7 @@ export function conjoin(figure: Figure, kind: Conjoin, posture: ConjoinPosture =
     return finish([...lay(parts, root), ...copySecond(second, flip)], root);
   }
 
-  /* ---- 躺着：侧躺，两个上半身各用一只胳膊肘撑着（前臂贴地），在腰上往上翘 ---- */
+  /* ---- 躺着：侧躺，两个上半身对成同一条轴，靠地那只手臂前臂朝前贴地、上面那只手撑在胸前 ---- */
   if (posture === 'lie') {
     // 两个上半身各往上翘，腰上两个切口之间底下张开一道楔形的缝：垫一个圆团（和腰一样粗）填上
     const half = narrow;
@@ -486,9 +487,6 @@ const LEAN_MAX = 90 * (Math.PI / 180);
 const LIE_BLEND = 0.02;
 /** 量的那一条前后多宽（躯干的厚度以内） */
 const LIE_UNDER = 0.16;
-/** 头往正上方回正几成、最多回正多少（全回正的话脖子折成一个角） */
-const HEAD_UPRIGHT = 0.6;
-const HEAD_MAX = 30 * (Math.PI / 180);
 /**
  * 上面那只手撑在胸前的地上，往头那边或腰那边偏多少（正切）：第一对往自己头那边，第二对起往腰那边、越往后的越偏。
  * 不偏开的话几对的手落在同一处叠着融合，多出一小块碎片；偏得太多两个上半身的手在腰那儿碰上
@@ -500,7 +498,7 @@ const FREE_FORE_AHEAD = 0.5;
 const DIP_MAX = 60 * (Math.PI / 180);
 
 /**
- * 躺着：整个人侧过来（绕前后的轴转，第一个上半身的头朝 -X），两个上半身在腰上各往上翘；
+ * 侧躺：整个人侧过来（绕前后的轴转 90°，第一个上半身的头朝 -X），两个上半身对成同一条轴（见 geometry/lieLine.ts）；
  * 靠地那一侧的手臂胳膊肘撑着、前臂朝自己前面贴地；上面那只手伸直撑在胸前的地上；头往正上方回正一些
  */
 function lieDown(
@@ -511,16 +509,13 @@ function lieDown(
   finish: (list: Part[], q: Quat) => Figure,
 ): Figure {
   const pairOf = (p: Part) => Number(/^Arm_(\d+)/.exec(p.name)?.[1] ?? 1) - 1;
-  // 腰到脖子那条线（躯干的坐标里）：脖子长在腰那条线前面一点，同向时两个上半身都往前偏，从上往下看成个浅 V。
-  // 各在地面上转一下（侧过来以后绕左右的轴转就是在地面上转），两条线对成一条直线
+  // 腰到脖子那条线（躯干的坐标里）：两个上半身照它对成一条直线
   const necks = parts.filter((p) => p.type === 'neck' && p.parent === 'Torso');
   const axis = necks.length ? norm(sub(necks.reduce((sum, p) => add(sum, mul(p.pos, 1 / necks.length)), [0, 0, 0] as V3), pivot)) : ([0, 1, 0] as V3);
-  const angleOf = (v: V3) => Math.atan2(v[2], v[1]);
-  const lineUp = quatEuler(-angleOf(axis), 0, 0);
-  const lineUpB = quatEuler(angleOf(mul(axis, -1)) - angleOf(rotate(flip, axis)), 0, 0);
-  const build = (tilt: number, lean: number, drops: Map<string, number>) => {
-    const rootQ = quatMul(quatEuler(0, 0, Math.PI / 2 - tilt), lineUp);
-    const localB = quatMul(quatMul(quatEuler(0, 0, 2 * tilt), lineUpB), flip);
+  const { first: lineUp, second: lineUpB } = lineUpTurns(axis, flip);
+  const rootQ = quatMul(quatEuler(0, 0, Math.PI / 2), lineUp);
+  const localB = quatMul(lineUpB, flip);
+  const build = (lean: number, drops: Map<string, number>) => {
     /** 胳膊肘撑着的、手撑在胸前的（部件名，第二个上半身的是复制以前的名字） */
     const props: [Set<string>, Set<string>] = [new Set(), new Set()];
     const frees: [Set<string>, Set<string>] = [new Set(), new Set()];
@@ -560,9 +555,7 @@ function lieDown(
         return plantArm(bent, rotate(bent.quat, sub(jb.wrist, jb.shoulder)), local(fwd), local([0, -1, 0]));
       });
       // 头往正上方回正：只回正左右歪的那一份，回正一部分、有上限
-      const up = local([0, 1, 0]);
-      const lean2 = Math.atan2(-up[0], up[1]);
-      const fix = Math.sign(lean2) * Math.min(Math.abs(lean2) * HEAD_UPRIGHT, HEAD_MAX);
+      const fix = uprightFix(local([0, 1, 0]));
       return turnHeads(list, () => quatEuler(0, 0, fix));
     };
     const first = pose(rootQ, 0);
@@ -572,7 +565,7 @@ function lieDown(
     const renamed = (set: Set<string>) => new Set(before.flatMap((p, i) => (set.has(p.name) ? [second[i].name] : [])));
     const list = [...first, ...second];
     const placed = list.map((p) => (p.name === 'Torso' ? { ...p, pos: add(pivot, rotate(rootQ, sub(p.pos, pivot))), quat: quatMul(rootQ, p.quat) } : p));
-    return { list, placed, rootQ, propped: new Set([...props[0], ...renamed(props[1])]), free: [[...frees[0]].map((n): [string, string] => [n, n]), before.flatMap((p, i): [string, string][] => (frees[1].has(p.name) ? [[p.name, second[i].name]] : []))] };
+    return { list, placed, propped: new Set([...props[0], ...renamed(props[1])]), free: [[...frees[0]].map((n): [string, string] => [n, n]), before.flatMap((p, i): [string, string][] => (frees[1].has(p.name) ? [[p.name, second[i].name]] : []))] };
   };
   /** 两分：f 从 lo 到 hi 由负变正（或反过来），找过零的那一点 */
   const solve = (f: (x: number) => number, lo: number, hi: number, rising: boolean) => {
@@ -584,30 +577,28 @@ function lieDown(
     return (lo + hi) / 2;
   };
   const drops = new Map<string, number>();
-  // 两个上半身在同一条轴上（不翘）
-  const tilt = 0;
   // 躯干最低到哪
-  const floor = underside(build(tilt, 0, drops).placed.filter((p) => p.type === 'torso'));
+  const floor = underside(build(0, drops).placed.filter((p) => p.type === 'torso'));
   // 撑着的前臂比躯干还高多少：上臂越往前抬，胳膊肘越高
   const gap = (lean: number) => {
-    const b = build(tilt, lean, drops);
+    const b = build(lean, drops);
     return lowest(b.placed, b.propped) - floor;
   };
   const lean = gap(0) > 0 ? 0 : gap(LEAN_MAX) < 0 ? LEAN_MAX : solve(gap, 0, LEAN_MAX, true);
   // 上面那只手：一只一只找往下斜多少，手心刚好贴到地（地 = 撑着的前臂、躯干里低的那个）
-  const base = build(tilt, lean, drops);
+  const base = build(lean, drops);
   const ground = Math.min(floor, lowest(base.placed, base.propped));
   for (const [which, names] of base.free.entries()) {
     for (const [own, final] of names) {
       const key = `${which}:${own}`;
       const handLow = (drop: number) => {
         drops.set(key, drop);
-        return lowest(build(tilt, lean, drops).placed, new Set([final])) - ground;
+        return lowest(build(lean, drops).placed, new Set([final])) - ground;
       };
       // 上臂越往下斜手越低：上臂竖直往下都够不着就竖直，水平都扎进地里就水平
       drops.set(key, handLow(DIP_MAX) > 0 ? DIP_MAX : handLow(0) < 0 ? 0 : solve(handLow, 0, DIP_MAX, false));
     }
   }
-  const { list, rootQ } = build(tilt, lean, drops);
+  const { list } = build(lean, drops);
   return finish(list, rootQ);
 }

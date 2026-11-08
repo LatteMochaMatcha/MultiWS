@@ -1162,6 +1162,9 @@ btnRedo.addEventListener('click', redo);
  */
 $<HTMLButtonElement>('btnReset').addEventListener('click', async () => {
   if (!(await askConfirm(t('把这个角色的设定全部恢复成刚打开时的样子？点「撤销」能改回来。'), t('初始化')))) return;
+  // 正拖着姿势时不动；描述框里还没解析的输入作废（不然 300 毫秒以后又照它改回去）
+  if (poseHandles?.busy) return;
+  clearTimeout(timer);
   select(null);
   selectJoint(null);
   torsoEdit = 'all';

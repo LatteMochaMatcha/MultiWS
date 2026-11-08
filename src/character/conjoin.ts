@@ -9,6 +9,7 @@
  * 纯函数（改的是传进来的工作副本），在 Web Worker 和单元测试里都能跑。
  */
 import { nthName } from '../geometry/figure';
+import { lineUpTurns, uprightFix } from '../geometry/lieLine';
 import { type Quat, type V3, add, cross, dot, mul, norm, quatBetween, quatConj, quatEuler, quatMul, rotate, sub } from '../geometry/vec';
 import type { BoneOrigin } from './assemble';
 import type { BonePose } from './pose';
@@ -52,11 +53,9 @@ const ARM_FAN = 0.35;
 /**
  * 侧躺：两个上半身照他定的排在同一条轴上（不翘成 V，脊柱也不往上弯），整个人侧着平躺在地上；
  * 靠地那只手臂朝自己前面平伸着贴地（PROP_UPPER：世界里上臂朝哪，几乎水平朝前）；
- * 头往正上方回正几成，最多回正 HEAD_MAX（脖子、头分着转）
+ * 头往正上方回正多少和白模、素体一样（geometry/lieLine.ts 的 uprightFix），脖子、头分着转
  */
 const PROP_UPPER = norm([0, -0.12, 1]);
-const HEAD_UPRIGHT = 0.6;
-const HEAD_MAX = 30 * (Math.PI / 180);
 const NECK_SHARE = 0.55;
 /**
  * 上面那只手撑在胸前的地上：胳膊肘那一圈多粗，手腕到手掌中间多远，往头那边偏多少；
@@ -284,9 +283,7 @@ export function conjoinCharacter(w: ConjoinWork, kind: CharacterConjoin, posture
       }
     }
     // 头往正上方回正：只回正左右歪的那部分，回正一部分、有上限，脖子和头分着转（全压在脖子上，下巴就挤进领子里）
-    const up = local([0, 1, 0]);
-    const lean = Math.atan2(-up[0], up[1]);
-    const fix = Math.sign(lean) * Math.min(Math.abs(lean) * HEAD_UPRIGHT, HEAD_MAX);
+    const fix = uprightFix(local([0, 1, 0]));
     names.forEach((name, b) => {
       if (b >= total0) return;
       const share = /^Neck(\.\d+)?$/.test(name) ? NECK_SHARE : /^Head(\.\d+)?$/.test(name) ? 1 - NECK_SHARE : 0;
@@ -296,14 +293,9 @@ export function conjoinCharacter(w: ConjoinWork, kind: CharacterConjoin, posture
   };
   const total0 = names.length;
   const flip0 = kind === 'same' ? quatEuler(0, 0, Math.PI) : quatEuler(Math.PI, 0, 0);
-  // 侧躺：腰到脖子那条线（脖子长在腰那条线前面一点，同向时两个上半身都往前偏，从上往下看成个浅 V）。
-  // 各在地面上转一下（侧过来以后绕左右的轴转就是在地面上转），两条线对成一条直线
-  const axis = norm(sub(rest[find('Neck')], pivot));
-  const angleOf = (v: V3) => Math.atan2(v[2], v[1]);
-  const lineUp = quatEuler(-angleOf(axis), 0, 0);
-  const lineUpB = quatEuler(angleOf(mul(axis, -1)) - angleOf(rotate(flip0, axis)), 0, 0);
+  // 侧躺：两个上半身照腰到脖子那条线对成一条直线（见 geometry/lieLine.ts）
+  const { first: lineUp, second: lineUpB } = lineUpTurns(norm(sub(rest[find('Neck')], pivot)), flip0);
   const rootLie = quatMul(quatEuler(0, 0, Math.PI / 2), lineUp);
-  const firstLie = rootLie;
   const secondLie = quatMul(rootLie, quatMul(lineUpB, flip0));
   /** 平躺：手臂顺着身子两边放在地上（world：这个上半身 → 世界的旋转），肘伸直 */
   const flatRoot = quatEuler(-Math.PI / 2, 0, 0);
@@ -325,7 +317,7 @@ export function conjoinCharacter(w: ConjoinWork, kind: CharacterConjoin, posture
     for (const upper of upperArms) for (const [b, q] of armPose(upper, [splayOf(upper), 0, 1], [0, 1, 0])) front1.set(b, q);
     for (const [b, q] of liftPose()) front1.set(b, q);
   } else if (posture === 'lie') {
-    for (const [b, q] of liePose(firstLie)) front1.set(b, q);
+    for (const [b, q] of liePose(rootLie)) front1.set(b, q);
   } else if (posture === 'flat') {
     for (const [b, q] of flatPose(flatRoot)) front1.set(b, q);
   }
