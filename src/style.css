@@ -549,6 +549,9 @@ button,label,summary,select,input{touch-action:manipulation}
   .app[data-card="joint"] #poseJoint .actions{display:contents}
   .app[data-card="joint"] #poseJoint .actions .btn{grid-row:1;min-height:36px;padding:6px 10px;font-size:13px;white-space:nowrap}
   .app[data-card="joint"] #posePinRow{grid-column:1/-1;grid-row:2;min-height:32px;font-size:12.5px;color:var(--muted)}
+  .app[data-card="joint"] #poseJoint #poseToolRow{grid-column:1/-1;grid-row:3;align-items:center;min-height:36px}
+  .app[data-card="joint"] #segPoseTool{grid-auto-columns:76px}
+  .app[data-card="joint"] #segPoseTool label{padding:7px 2px}
 
   /* ---------- 弹出层：「更多」菜单、导出面板 ---------- */
   .scrim{position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.3)}

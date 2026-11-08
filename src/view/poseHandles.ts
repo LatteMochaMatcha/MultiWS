@@ -1,5 +1,5 @@
 /**
- * 摆姿势在 3D 视图里的那一半：关节上的圆点、拖圆点、点一下出现的旋转环。
+ * 摆姿势在 3D 视图里的那一半：关节上的圆点、拖圆点、点一下出现的旋转环或移动箭头。
  * 这里只负责把鼠标（手指）换算成「这个点要去哪」「这根骨骼多转了多少」，怎么解、怎么存交给外面。
  *
  * 圆点在屏幕上一样大（离得远也点得中），隔着身体也看得见；放在 overlay 里，截图不会拍进去。
@@ -69,11 +69,21 @@ export class PoseHandles {
   onTurnStart: () => void = () => {};
   onTurn: (delta: Quat) => void = () => {};
   onTurnEnd: () => void = () => {};
+  /** 移动箭头：开始挪、挪到了（选中的点应该去哪，世界坐标）、松手。moved：真的挪过没有 */
+  onMoveStart: () => void = () => {};
+  onMove: (target: V3) => void = () => {};
+  onMoveEnd: (moved: boolean) => void = () => {};
 
   private readonly root = new THREE.Group();
   private readonly turner: TransformControls;
   /** 旋转环抓着的是这个看不见的物体 */
   private readonly grip = new THREE.Object3D();
+  /** 移动箭头（沿身体的前后、左右、上下挪），抓着的是 hold */
+  private readonly mover: TransformControls;
+  private readonly hold = new THREE.Object3D();
+  /** 移动箭头开始挪的时候在哪；挪过没有 */
+  private moveFrom: THREE.Vector3 | null = null;
+  private moveMoved = false;
   private readonly materials: Record<Look, THREE.SpriteMaterial>;
   private dots: Dot[] = [];
   private on = false;
@@ -99,7 +109,12 @@ export class PoseHandles {
     this.turner.setSpace('local');
     this.turner.setSize(this.coarse ? 0.95 : 0.6);
     this.turner.enabled = false;
-    viewport.overlay.add(this.root, this.grip, this.turner.getHelper());
+    this.mover = new TransformControls(viewport.camera, dom);
+    this.mover.setMode('translate');
+    this.mover.setSpace('local');
+    this.mover.setSize(this.coarse ? 0.95 : 0.6);
+    this.mover.enabled = false;
+    viewport.overlay.add(this.root, this.grip, this.hold, this.turner.getHelper(), this.mover.getHelper());
 
     this.turner.addEventListener('dragging-changed', (event) => {
       const active = event.value === true;
@@ -118,7 +133,26 @@ export class PoseHandles {
       this.onTurn([d.x, d.y, d.z, d.w]);
     });
 
-    // 这几个监听排在旋转环自己的监听后面：按下时它已经知道鼠标是不是落在环上
+    this.mover.addEventListener('dragging-changed', (event) => {
+      const active = event.value === true;
+      viewport.controls.enabled = !active;
+      if (active) {
+        this.moveFrom = this.hold.position.clone();
+        this.moveMoved = false;
+        this.onMoveStart();
+      } else {
+        this.moveFrom = null;
+        this.onMoveEnd(this.moveMoved);
+      }
+    });
+    this.mover.addEventListener('objectChange', () => {
+      if (!this.moveFrom) return;
+      this.moveMoved ||= this.hold.position.distanceToSquared(this.moveFrom) > 1e-12;
+      const p = this.hold.position;
+      this.onMove([p.x, p.y, p.z]);
+    });
+
+    // 这几个监听排在旋转环、移动箭头自己的监听后面：按下时它已经知道鼠标是不是落在环上
     dom.addEventListener('pointerdown', (e) => {
       if (!this.on || e.button !== 0) return;
       if (e.isPrimary) {
@@ -132,7 +166,7 @@ export class PoseHandles {
         this.letGo();
         return;
       }
-      const busy = this.turner.dragging || this.turner.axis !== null;
+      const busy = this.turner.dragging || this.turner.axis !== null || this.mover.dragging || this.mover.axis !== null;
       const dot = busy ? null : this.dotAt(e);
       const plane = new THREE.Plane();
       const offset = new THREE.Vector3();
@@ -233,13 +267,14 @@ export class PoseHandles {
     if (!on) {
       this.letGo();
       this.ring(null);
+      this.arrows(null);
       this.viewport.renderer.domElement.style.cursor = '';
     }
   }
 
-  /** 正拖着圆点，或者正转着旋转环 */
+  /** 正拖着圆点，或者正转着旋转环、挪着移动箭头 */
   get busy(): boolean {
-    return Boolean(this.down?.dot) || this.turner.dragging;
+    return Boolean(this.down?.dot) || this.turner.dragging || this.mover.dragging;
   }
 
   /** 换一批圆点 */
@@ -295,5 +330,20 @@ export class PoseHandles {
     this.grip.updateMatrixWorld(true);
     this.turner.enabled = true;
     if (this.turner.object !== this.grip) this.turner.attach(this.grip);
+  }
+
+  /** 移动箭头放在哪、三根箭头朝哪（跟着身体朝向）；null 是收起来。正挪着的时候不去动它 */
+  arrows(at: { pos: V3; quat: Quat } | null) {
+    if (this.mover.dragging) return;
+    if (!at || !this.on) {
+      if (this.mover.object) this.mover.detach();
+      this.mover.enabled = false;
+      return;
+    }
+    this.hold.position.set(at.pos[0], at.pos[1], at.pos[2]);
+    this.hold.quaternion.set(at.quat[0], at.quat[1], at.quat[2], at.quat[3]);
+    this.hold.updateMatrixWorld(true);
+    this.mover.enabled = true;
+    if (this.mover.object !== this.hold) this.mover.attach(this.hold);
   }
 }

@@ -20,7 +20,7 @@ import { describeClashes, findClashes } from './geometry/clash';
 import { type Figure, type FigureMetrics, type PartType, nthName } from './geometry/figure';
 import { buildFigure } from './geometry/layout';
 import { partFrame } from './geometry/tweak';
-import { type V3, Q_ID, UP, len, norm, quatBetween, quatMul, sub } from './geometry/vec';
+import { type V3, Q_ID, UP, len, norm, quatBetween, quatMul, rotate, sub } from './geometry/vec';
 import { cleanFileName, inAndroidShell, saveBlob, saveText } from './io/download';
 import { exportGlb } from './io/exportGlb';
 import { OfflineError } from './io/fetchFile';
@@ -2450,6 +2450,18 @@ window.addEventListener('keydown', (e) => {
     if (selected) select(null);
     else if (joint) selectJoint(null);
   }
+  // W 移动、E 旋转（R 缩放，只有造型时有）：和 Blender、Unity 的习惯一样
+  if (typing || e.altKey || e.shiftKey || e.repeat) return;
+  const k = e.key.toLowerCase();
+  if (mode === 'pose' && (k === 'w' || k === 'e')) {
+    if (poseHandles?.busy) return;
+    setPoseTool(k === 'w' ? 'move' : 'turn');
+  } else if (mode === 'shape' && selected && gizmo && (k === 'w' || k === 'e' || k === 'r')) {
+    const next: GizmoMode = k === 'w' ? 'translate' : k === 'e' ? 'rotate' : 'scale';
+    gizmoMode = next;
+    gizmo.setMode(next);
+    syncGizmoMode(next, true);
+  }
 });
 
 /* ---------------- 摆姿势 ---------------- */
@@ -2633,14 +2645,29 @@ function showPose() {
   if (scene.figures.length > 1) scheduleSceneClash();
 }
 
-/** 旋转环摆到选中的关节上：绿色那一圈正好绕着骨头自己转 */
+/** 选中的点能不能用移动箭头挪：手、脚、胯（它们拖到哪都行；肘、膝、尾巴梢挪一挪其实是在转骨头） */
+const movable = (handle: Handle | undefined): handle is Handle => handle?.kind === 'reach' || handle?.kind === 'body';
+/** 选中的点上出的是旋转环还是移动箭头（能挪的点才有箭头） */
+const showsArrows = (handle: Handle | undefined): boolean => poseTool === 'move' && movable(handle);
+
+/** 旋转环（或移动箭头）摆到选中的关节上：绿色那一圈正好绕着骨头自己转；箭头照身体的前后、左右、上下 */
 function placeRing() {
   const handle = pickedHandle();
   if (!handle || !kit || !poseFrame) {
     poseHandles?.ring(null);
+    poseHandles?.arrows(null);
     return;
   }
   const { rig } = kit.solver;
+  if (showsArrows(handle)) {
+    poseHandles?.ring(null);
+    // 只取胯朝哪边（水平转了多少），不跟着弯腰、侧倾歪
+    const ahead = rotate(poseFrame.rot[rig.hips], [0, 0, 1]);
+    const half = Math.hypot(ahead[0], ahead[2]) > 1e-6 ? Math.atan2(ahead[0], ahead[2]) / 2 : 0;
+    poseHandles?.arrows({ pos: pointOn(rig, poseFrame, handle.anchor, handle.rest), quat: [0, Math.sin(half), 0, Math.cos(half)] });
+    return;
+  }
+  poseHandles?.arrows(null);
   // 腰、胸：环沿着这串脊柱摆（从最下面那节的起点到最上面那节的末端），拖它就是绕脊柱扭（见 pose/solve.ts 的 turnSpine）；
   // 沿胸那节自己摆的话，它往后斜着二十几度，扭的时候还带着往前后倒
   const chain = handle.twist;
@@ -2822,6 +2849,30 @@ const syncFollow = buildSeg($('segPoseFollow'), FOLLOW_CHOICES, (v) => (v === 'o
   } else renderPosePanel();
 });
 
+/* ---- 点中手、脚、胯以后出旋转环还是移动箭头：只是界面上的偏好，记在这台设备上，不进撤销、不存档 ---- */
+
+type PoseTool = 'move' | 'turn';
+const POSE_TOOLS = ['move', 'turn'] as const;
+const POSE_TOOL_KEY = 'oc-basemesh-pose-tool';
+let poseTool: PoseTool = 'turn';
+try {
+  if (localStorage.getItem(POSE_TOOL_KEY) === 'move') poseTool = 'move';
+} catch {
+  // 读不到就用旋转环
+}
+function setPoseTool(next: PoseTool) {
+  if (next === poseTool) return;
+  poseTool = next;
+  try {
+    localStorage.setItem(POSE_TOOL_KEY, next);
+  } catch {
+    // 记不住就这一次
+  }
+  placeRing();
+  renderPosePanel();
+}
+const syncPoseTool = buildSeg($('segPoseTool'), POSE_TOOLS, (v) => (v === 'move' ? t('移动') : t('旋转')), setPoseTool);
+
 if (poseHandles) {
   poseHandles.onGrab = (handle) => {
     takeLead(handle);
@@ -2861,6 +2912,21 @@ if (poseHandles) {
   poseHandles.onTurnEnd = () => {
     grab = null;
     commitPose();
+  };
+  // 移动箭头：和拖圆点一样解，只是位置是沿箭头挪出来的
+  poseHandles.onMoveStart = () => {
+    const handle = pickedHandle();
+    takeLead(handle);
+    beginGrab();
+    if (handle) grabTouch();
+  };
+  poseHandles.onMove = (target) => {
+    const handle = pickedHandle();
+    if (handle) poseHandles?.onDrag(handle, target);
+  };
+  poseHandles.onMoveEnd = (moved) => {
+    grab = null;
+    if (moved) commitPose();
   };
 }
 
@@ -3696,6 +3762,8 @@ function renderPosePanel() {
   // 只有手、脚那个点能钉
   $('posePinRow').hidden = !(handle?.kind === 'reach' && limb);
   posePin.checked = Boolean(limb && pinned.has(limb.name));
+  $('poseToolRow').hidden = !movable(handle);
+  syncPoseTool(poseTool, true);
   posePinFeet.checked = pinFeet;
   posePinHands.checked = pinHands;
   for (const { group, input, wrap } of groupChecks) {

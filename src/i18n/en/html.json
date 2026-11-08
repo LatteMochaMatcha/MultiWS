@@ -194,5 +194,7 @@
   "queen conjoined：两个上半身在腰上对接，连成一条横着的身子，四条手臂撑在地上，没有胯和腿。同向是两个都胸口朝下；反向是另一个仰面朝上、手臂往身后撑地。选了以后腿、尾巴、阴茎、几个上半身都不管": "Queen conjoined: two upper bodies joined at the waist into one horizontal body standing on four arms, with no hips or legs. \"Same direction\" has both chests facing down; \"opposite\" has the other one lying face-up with its arms reaching back to the ground. When chosen, legs, tails, penises and multiple upper bodies are ignored.",
   "连体姿态": "Conjoined posture",
   "连体静止时的姿态：趴着是四只手撑地；侧躺是两个上半身各用一只胳膊肘撑着、在腰上往上翘；平躺是仰面躺平、手臂放在身子两边（反向的那个趴着）；站着是下面那个倒立、两只手撑地，上面那个照常站着": "Resting posture of the conjoined body. Prone: standing on all four hands. On side: each upper body propped on one elbow and raised at the waist. Flat: lying flat on the back with the arms resting at the sides (in \"opposite\", the other one lies face-down). Standing: the lower one does a handstand on both hands while the upper one stands normally.",
-  "连体静止时是趴着、侧躺、平躺还是站着": "Whether the conjoined body rests prone, on its side, flat or standing"
+  "连体静止时是趴着、侧躺、平躺还是站着": "Whether the conjoined body rests prone, on its side, flat or standing",
+  "操纵杆": "Gizmo",
+  "点中手、脚、胯以后，出来的是沿前后、左右、上下挪的箭头，还是旋转环。电脑上按 W、E 也能换": "After you pick a hand, foot or hip, show arrows that move it forward/back, left/right and up/down, or the rotation ring. On a computer, W and E switch too."
 }

@@ -242,7 +242,7 @@ Click "Pose" on the left of the toolbar and a set of handles lights up on the jo
 
 ![Posing](docs/pose-overview.png)
 
-**Handles**: drag one and the handle follows the mouse; click it and a rotation ring appears, which turns the segment from that joint outward.
+**Handles**: drag one and the handle follows the mouse; click it and a rotation ring appears, which turns the segment from that joint outward. For a hand, foot or hip you can swap the ring for move arrows ("Gizmo" in the panel, or W to move and E to rotate on a computer) to shift it along one direction at a time: forward/back, left/right or up/down relative to the body. Your choice is remembered.
 
 | Handle | Where | What dragging it does |
 | --- | --- | --- |

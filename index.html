@@ -305,6 +305,10 @@
                 <strong id="poseJointName"></strong>
               </div>
               <label class="check" id="posePinRow"><input type="checkbox" id="posePin"> 拖别处的时候，这里留在原地</label>
+              <div class="field" id="poseToolRow" hidden title="点中手、脚、胯以后，出来的是沿前后、左右、上下挪的箭头，还是旋转环。电脑上按 W、E 也能换">
+                <span>操纵杆</span>
+                <div class="seg" id="segPoseTool" role="radiogroup" aria-label="操纵杆的模式"></div>
+              </div>
               <div class="actions">
                 <button type="button" class="btn" id="btnPoseJointReset">还原这个关节</button>
                 <button type="button" class="btn" id="btnPoseJointDone">取消选择</button>
