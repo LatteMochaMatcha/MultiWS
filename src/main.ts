@@ -166,6 +166,7 @@ import { type DrapeKind, BodySurface, boneRadius, drape, drapeBones } from './po
 import { fitArms, followArms } from './pose/fit';
 import { fitLegs } from './pose/fitLegs';
 import { armOfBone, armPairCount, followPair } from './pose/follow';
+import { fitConjoined } from './pose/conjoined';
 import { POSE_LIBRARY } from './pose/library';
 import { type Posing, POSING_VERSION, cleanPosing, emptyPosing, flipPosing, isPosed, placedTwins } from './pose/posing';
 import { type Frame, type PoseRig, type PoseState, type RigBone, cloneState, forward, pointOn, poseMatrices, posedBones, shiftRoot, tailOf } from './pose/rig';
@@ -3486,8 +3487,10 @@ if (POSE_LIBRARY.length) {
   };
   // 同一个肩膀上挤着几条手臂时，挑最接近的那一条正好摆成这个姿势，别的跟着转或者不动；
   // 别的多出来的手臂跟着原来的那条动（见 pose/fit.ts）。然后手臂让开身体、让开别的手臂（见 pose/clear.ts）
+  /** 连体：姿势换到每个上半身自己的朝向里去套，胯不动，撑着身子的手留在原处（见 pose/conjoined.ts） */
+  const fittedConjoined = (posing: Posing): Posing => (spec.conjoined !== 'none' && kit ? fitConjoined(kit.solver, posing, spec.conjoinPose) : posing);
   const fitted = (posing: Posing): Posing => {
-    const own = fittedTorsos(fittedLegs(posing));
+    const own = fittedConjoined(fittedTorsos(fittedLegs(posing)));
     if (!kit) return own;
     const { posing: next, followers } = followArms(kit.solver, fitArms(kit.solver, own));
     const body = bodyDist();
@@ -3501,6 +3504,8 @@ if (POSE_LIBRARY.length) {
 
   /** 只把姿势里的手臂套给第 pair 对：姿势里第一对的手臂骨骼换成那一对的名字（别的手臂不动，见 presetPick） */
   const pairPosing = (posing: Posing, pair: number): Posing => {
+    // 连体：每一对手臂都照第一对换好了，只摆哪一对由 presetPick 挑
+    if (spec.conjoined !== 'none') return fittedConjoined(posing);
     const own = fittedTorsos(fittedLegs(posing));
     const bones = { ...own.bones };
     for (const [name, turn] of Object.entries(posing.bones)) if (armPairOf(name) === 0) bones[nthName(name, pair)] = turn;

@@ -260,7 +260,9 @@ export class FusedModel {
         // 要求一模一样的话一张都换不上）；比屏幕上那张旧的、摆姿势时的就不要了。
         // 参数没变，但屏幕上已经是同一形状更细的一版：也不要（除非它带来了屏幕上那张没有的权重）
         const fresh = key === this.wantKey;
-        const brings = Boolean(skin) && !this.skin && voxel <= this.shownVoxel;
+        // 要权重时（摆姿势）带着权重的那张总要换上，哪怕比屏幕上的粗：屏幕上那张是造型时算的更细的、没权重的，
+        // 不换的话一直等不到权重（连体的身体没有「先张开再融合」，要不要权重是同一个 key，就会这样），随后再细一档
+        const brings = Boolean(skin) && !this.skin && (this.wantSkin || voxel <= this.shownVoxel);
         if (fresh ? key === this.shownKey && voxel >= this.shownVoxel && !brings : serial < this.shownSent || this.wantSkin) return;
         // 屏幕上原来那张现在的样子（整块挪过的、过渡到一半的都算）：新网格从贴着它开始过渡。要权重的（摆姿势）不过渡
         const before = this.info && !skin && !this.wantSkin ? (this.body.geometry.getAttribute('position')?.array as Float32Array | undefined) : undefined;

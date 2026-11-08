@@ -18,6 +18,7 @@ import { buildFigure } from '../src/geometry/layout';
 import { quatEuler } from '../src/geometry/vec';
 import { type BodySpec, type BodyStyle, defaultSpec, legPlan, normalizeSpec } from '../src/model/spec';
 import { clearArms } from '../src/pose/clear';
+import { fitConjoined } from '../src/pose/conjoined';
 import { fitArms, followArms } from '../src/pose/fit';
 import { fitLegs } from '../src/pose/fitLegs';
 import { POSE_LIBRARY } from '../src/pose/library';
@@ -72,6 +73,7 @@ export const CASES: Case[] = [
   anime('A25', '手脚互换 · 四条腿横排两副胯 · 6 根手指', { armEnd: 'foot', legEnd: 'hand', fingers: 6, legLayout: 'abreast', counts: { legs: 4 } }),
   anime('A26', '每条单独设：左手接脚、右腿接手 6 根手指', { perLimb: { Arm_01_L: { end: 'foot' }, Leg_01_R: { end: 'hand', fingers: 6 } } }),
   anime('A27', '连体 · 同向', { conjoined: 'same' }),
+  anime('A28', '连体 · 反向侧躺', { conjoined: 'opposite', conjoinPose: 'lie' }),
   white('M01', '默认', {}),
   white('M02', '两对手臂上下排', { armLayout: 'stack', counts: { armPairs: 2 } }),
   white('M03', '两对手臂肩部聚拢', { armLayout: 'fan', counts: { armPairs: 2 } }),
@@ -86,6 +88,7 @@ export const CASES: Case[] = [
   white('M12', '手脚互换 · 并指 · 三条腿', { armEnd: 'foot', legEnd: 'hand', hands: 'mitten', counts: { legs: 3 } }),
   white('M13', '每条单独设：左手接脚、右腿接手 6 根手指', { perLimb: { Arm_01_L: { end: 'foot' }, Leg_01_R: { end: 'hand', fingers: 6 } } }),
   white('M14', '连体 · 反向', { conjoined: 'opposite' }),
+  white('M15', '连体 · 同向侧躺 · 两头两对手', { conjoined: 'same', conjoinPose: 'lie', counts: { heads: 2, armPairs: 2 } }),
   made('C01', '默认', {}),
   made('C02', '两对手臂', { counts: { armPairs: 2 } }),
   made('C03', '三个头', { counts: { heads: 3 } }),
@@ -95,6 +98,7 @@ export const CASES: Case[] = [
   made('C07', '两个上半身', { counts: { torsos: 2 } }),
   made('C08', '三个上半身', { counts: { torsos: 3 } }),
   made('C09', '连体 · 同向', { conjoined: 'same' }),
+  made('C10', '连体 · 同向侧躺', { conjoined: 'same', conjoinPose: 'lie' }),
 ];
 
 /** 套哪些现成姿势 */
@@ -126,7 +130,9 @@ export function fittedPosing(
       if (m) for (const side of ['_L', '_R', '_M']) bones[`${m[1]}${side}${m[2] ?? ''}`] = turn;
     }
   }
-  const { posing: next, followers } = followArms(solver, fitArms(solver, { ...posing, bones }));
+  // 连体：姿势换到每个上半身自己的朝向里套（和工坊里一样，见 pose/conjoined.ts）
+  const own = spec.conjoined !== 'none' ? fitConjoined(solver, { ...posing, bones }, spec.conjoinPose) : { ...posing, bones };
+  const { posing: next, followers } = followArms(solver, fitArms(solver, own));
   if (!clear) return next;
   // 手腕外面那一截照摆好的姿势量（见 sdf/posedBody.ts）
   const posed = figure ? posedBodyDist(figure, spec.blend, poseMatrices(solver.rig, forward(solver.rig, stateOf(solver, next)), figure.scale)) : null;

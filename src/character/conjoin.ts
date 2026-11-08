@@ -9,7 +9,7 @@
  * 纯函数（改的是传进来的工作副本），在 Web Worker 和单元测试里都能跑。
  */
 import { nthName } from '../geometry/figure';
-import { type Quat, type V3, add, cross, norm, quatBetween, quatConj, quatEuler, quatMul, rotate, sub } from '../geometry/vec';
+import { type Quat, type V3, add, cross, dot, mul, norm, quatBetween, quatConj, quatEuler, quatMul, rotate, sub } from '../geometry/vec';
 import type { BoneOrigin } from './assemble';
 import type { BonePose } from './pose';
 import type { Chunk } from './source';
@@ -49,10 +49,23 @@ const OVERLAP = 0.01;
 /** 手臂撑地时往外撇多少、几对手臂之间再撇开多少（正切） */
 const ARM_SPLAY = 0.18;
 const ARM_FAN = 0.35;
-/** 躺着时两个上半身各往上翘多少（弧度）；胳膊肘撑着时上臂朝哪（世界里，往下、往前斜）；头往正上方回正几成 */
-const LIE_TILT = 22 * (Math.PI / 180);
-const PROP_UPPER = norm([0, -1, 1.1]);
+/**
+ * 侧躺：两个上半身照他定的排在同一条轴上（不翘成 V，脊柱也不往上弯），整个人侧着平躺在地上；
+ * 靠地那只手臂朝自己前面平伸着贴地（PROP_UPPER：世界里上臂朝哪，几乎水平朝前）；
+ * 头往正上方回正几成，最多回正 HEAD_MAX（脖子、头分着转）
+ */
+const PROP_UPPER = norm([0, -0.12, 1]);
 const HEAD_UPRIGHT = 0.6;
+const HEAD_MAX = 30 * (Math.PI / 180);
+const NECK_SHARE = 0.55;
+/**
+ * 上面那只手撑在胸前的地上：胳膊肘那一圈多粗，手腕到手掌中间多远，往头那边偏多少；
+ * HAND_SINK：照 T-pose 估的肩高比烤完的高（衣服、肩膀那一圈跟着转），手臂多斜这么多手心才贴到地
+ */
+const ELBOW_R = 0.035;
+const HAND_SINK = 0.028;
+const PALM_REACH = 0.05;
+const FREE_TOWARD_HEAD = 0.25;
 /** 倒立时手臂往外撇多少（正切）：差不多竖直、和肩同宽 */
 const HANDSTAND_SPLAY = 0.05;
 /** 倒立时头往胸口收多少（弧度） */
@@ -69,6 +82,7 @@ const axisAngle = (axis: V3, angle: number): Quat => {
   const s = Math.sin(angle / 2);
   return [axis[0] * s, axis[1] * s, axis[2] * s, Math.cos(angle / 2)];
 };
+const dist = (a: V3, b: V3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const ordinal = (name: string): [string, number] => {
   const m = /^(.*?)(?:\.(\d{3}))?$/.exec(name)!;
   return [m[1], m[2] ? Number(m[2]) - 1 : 0];
@@ -197,8 +211,8 @@ export function conjoinCharacter(w: ConjoinWork, kind: CharacterConjoin, posture
     return out;
   };
   /**
-   * 躺着：整个人侧过来（绕前后的轴转 90° − LIE_TILT，第一个上半身的头朝 -X），第二个上半身在腰上再往上翘 2·LIE_TILT。
-   * world：这个上半身（第一个上半身的坐标）→ 世界的旋转。靠地那一侧的手臂上臂往下往前斜、肘弯过来前臂朝前贴地，另一只顺着身子侧面搭着，
+   * 躺着：整个人侧过来（绕前后的轴转 90°，第一个上半身的头朝 -X），两个上半身在同一条轴上。
+   * world：这个上半身（第一个上半身的坐标）→ 世界的旋转。靠地那一侧的手臂朝前平伸着贴地，上面那只撑在胸前的地上，
    * 脖子往正上方回正一些
    */
   const liePose = (world: Quat): Map<number, Quat> => {
@@ -206,34 +220,91 @@ export function conjoinCharacter(w: ConjoinWork, kind: CharacterConjoin, posture
     const back: Quat = [-world[0], -world[1], -world[2], world[3]];
     const local = (d: V3) => rotate(back, d);
     const heightOf = (b: number) => rotate(world, sub(rest[b], pivot))[1];
+    // 这个上半身自己的「前面」（世界里、水平）：反向的那一个朝 -Z
+    const facing = rotate(world, [0, 0, 1]);
+    const fwd = norm([facing[0], 0, facing[2]]);
+    const propDir = norm(add(mul([0, -1, 0], -PROP_UPPER[1]), mul(fwd, PROP_UPPER[2])));
+    const props: number[] = [];
+    const free: number[] = [];
     for (const upper of upperArms) {
       const lower = childOf(upper, 'LowerArm');
       if (lower < 0) continue;
       const twin = names.indexOf(names[upper].replace(/_([LR])/, (_m, s: string) => (s === 'L' ? '_R' : '_L')));
       const low = twin < 0 || heightOf(upper) <= heightOf(twin);
       if (low) {
-        const turn = quatBetween(norm(sub(rest[lower], rest[upper])), local(PROP_UPPER));
+        props.push(upper);
+        const turn = quatBetween(norm(sub(rest[lower], rest[upper])), local(propDir));
         const hand = childOf(lower, 'Hand');
         const fore = norm(sub(hand >= 0 ? rest[hand] : rest[lower], rest[lower]));
         out.set(upper, turn);
-        // 前臂：烤之前是伸直的（跟着上臂转过去），再转到水平朝前
-        out.set(lower, quatMul(quatConj(turn), quatBetween(fore, local([0, 0, 1]))));
-      } else {
-        out.set(upper, quatBetween(norm(sub(rest[lower], rest[upper])), norm([sideOf(upper) * 0.3, -1, 0.05])));
-        out.set(lower, [0, 0, 0, 1]);
+        // 前臂：烤之前是伸直的（跟着上臂转过去），再转到水平朝前，绕前臂拧到手心朝地（T-pose 手心朝下）——
+        // 只转过去的话，反向的那一个手是侧着立在地上的，大拇指戳到地底下
+        const ahead = local(fwd);
+        const swing = quatBetween(fore, ahead);
+        const flat = (d: V3) => {
+          const k = d[0] * ahead[0] + d[1] * ahead[1] + d[2] * ahead[2];
+          return norm(sub(d, [ahead[0] * k, ahead[1] * k, ahead[2] * k]));
+        };
+        const palm = flat(rotate(swing, [0, -1, 0]));
+        const ground = flat(local([0, -1, 0]));
+        const twist = Math.atan2(cross(palm, ground).reduce((sum, c, i) => sum + c * ahead[i], 0), palm[0] * ground[0] + palm[1] * ground[1] + palm[2] * ground[2]);
+        out.set(lower, quatMul(quatConj(turn), quatMul(axisAngle(ahead, twist), swing)));
+      } else free.push(upper);
+    }
+    // 上面那只手（照侧躺参考：手掌撑在胸前的地上）：手臂伸直往下、往前斜，斜到手心刚好够到地，手腕弯过来手心贴地。
+    // 地面在撑着的胳膊肘底下（胳膊肘那一圈粗约 ELBOW_R）
+    const elbowY = props.length ? Math.min(...props.map((u) => rotate(world, sub(rest[u], pivot))[1] + PROP_UPPER[1] * dist(rest[childOf(u, 'LowerArm')], rest[u]))) : 0;
+    for (const upper of free) {
+      const lower = childOf(upper, 'LowerArm');
+      const hand = childOf(lower, 'Hand');
+      const reach = dist(rest[lower], rest[upper]) + (hand >= 0 ? dist(rest[hand], rest[lower]) + PALM_REACH : 0.25);
+      const height = rotate(world, sub(rest[upper], pivot))[1] - (elbowY - ELBOW_R) + HAND_SINK;
+      const drop = Math.min(1, Math.max(0.2, height / reach));
+      const head = rotate(world, [0, 1, 0]);
+      const along = norm([head[0], 0, head[2]]);
+      // 好几对手臂的：越往下的那对越往自己头那边偏，不和另一个上半身的手在腰那儿交叉
+      const d = norm(add(add([0, -drop, 0], mul(fwd, Math.sqrt(1 - drop * drop))), mul(along, FREE_TOWARD_HEAD + ARM_FAN * 2 * ordinal(names[upper])[1])));
+      const target = local(d);
+      const swing = quatBetween(norm(sub(rest[lower], rest[upper])), target);
+      // 绕手臂拧到手心朝地，再弯手腕让手掌平贴地面、指尖朝前
+      const perp = (v: V3, axis: V3) => {
+        const k = dot(v, axis);
+        return norm(sub(v, mul(axis, k)));
+      };
+      const palm = perp(rotate(swing, [0, -1, 0]), target);
+      const ground = perp(local([0, -1, 0]), target);
+      const twist = Math.atan2(dot(cross(palm, ground), target), dot(palm, ground));
+      const turn = quatMul(axisAngle(target, twist), swing);
+      out.set(upper, turn);
+      out.set(lower, [0, 0, 0, 1]);
+      if (hand >= 0) {
+        const level = local(norm([d[0], 0, d[2]]));
+        const bend = quatBetween(target, level);
+        out.set(hand, quatMul(quatConj(turn), quatMul(bend, turn)));
       }
     }
+    // 头往正上方回正：只回正左右歪的那部分，回正一部分、有上限，脖子和头分着转（全压在脖子上，下巴就挤进领子里）
     const up = local([0, 1, 0]);
-    const toward = norm([up[0] * HEAD_UPRIGHT, 1 - HEAD_UPRIGHT + up[1] * HEAD_UPRIGHT, 0]);
+    const lean = Math.atan2(-up[0], up[1]);
+    const fix = Math.sign(lean) * Math.min(Math.abs(lean) * HEAD_UPRIGHT, HEAD_MAX);
     names.forEach((name, b) => {
-      if (/^Neck(\.\d+)?$/.test(name) && b < total0) out.set(b, quatMul(quatBetween([0, 1, 0], toward), pose.get(b)?.rotation ?? [0, 0, 0, 1]));
+      if (b >= total0) return;
+      const share = /^Neck(\.\d+)?$/.test(name) ? NECK_SHARE : /^Head(\.\d+)?$/.test(name) ? 1 - NECK_SHARE : 0;
+      if (share) out.set(b, quatMul(quatEuler(0, 0, fix * share), pose.get(b)?.rotation ?? [0, 0, 0, 1]));
     });
     return out;
   };
   const total0 = names.length;
   const flip0 = kind === 'same' ? quatEuler(0, 0, Math.PI) : quatEuler(Math.PI, 0, 0);
-  const rootLie = quatEuler(0, 0, Math.PI / 2 - LIE_TILT);
-  const secondLie = quatMul(rootLie, quatMul(quatEuler(0, 0, 2 * LIE_TILT), flip0));
+  // 侧躺：腰到脖子那条线（脖子长在腰那条线前面一点，同向时两个上半身都往前偏，从上往下看成个浅 V）。
+  // 各在地面上转一下（侧过来以后绕左右的轴转就是在地面上转），两条线对成一条直线
+  const axis = norm(sub(rest[find('Neck')], pivot));
+  const angleOf = (v: V3) => Math.atan2(v[2], v[1]);
+  const lineUp = quatEuler(-angleOf(axis), 0, 0);
+  const lineUpB = quatEuler(angleOf(mul(axis, -1)) - angleOf(rotate(flip0, axis)), 0, 0);
+  const rootLie = quatMul(quatEuler(0, 0, Math.PI / 2), lineUp);
+  const firstLie = rootLie;
+  const secondLie = quatMul(rootLie, quatMul(lineUpB, flip0));
   /** 平躺：手臂顺着身子两边放在地上（world：这个上半身 → 世界的旋转），肘伸直 */
   const flatRoot = quatEuler(-Math.PI / 2, 0, 0);
   const flatPose = (world: Quat): Map<number, Quat> => {
@@ -254,7 +325,7 @@ export function conjoinCharacter(w: ConjoinWork, kind: CharacterConjoin, posture
     for (const upper of upperArms) for (const [b, q] of armPose(upper, [splayOf(upper), 0, 1], [0, 1, 0])) front1.set(b, q);
     for (const [b, q] of liftPose()) front1.set(b, q);
   } else if (posture === 'lie') {
-    for (const [b, q] of liePose(rootLie)) front1.set(b, q);
+    for (const [b, q] of liePose(firstLie)) front1.set(b, q);
   } else if (posture === 'flat') {
     for (const [b, q] of flatPose(flatRoot)) front1.set(b, q);
   }
@@ -339,13 +410,12 @@ export function conjoinCharacter(w: ConjoinWork, kind: CharacterConjoin, posture
   for (const [b, q] of own) second.set(copyOf.get(b)!, q);
   for (const [b, q] of front1) pose.set(b, { ...pose.get(b), rotation: q });
   for (const [c, q] of second) pose.set(c, { ...pose.get(c), rotation: quatMul(flip, quatMul(q, quatConj(flip))) });
-  // 躺着：第二个上半身在腰上往上翘 2·LIE_TILT（绕腰那一点转：脊柱第一节的起点不在那一点上，跟着挪一点）
+  // 侧躺：第二个上半身绕腰那一点转过去对齐（脊柱第一节的起点不在那一点上，跟着挪一点）
   const spineB = copyOf.get(spine);
   if (posture === 'lie' && spineB !== undefined) {
-    const tilt = quatEuler(0, 0, 2 * LIE_TILT);
     const at = rest[spineB];
-    const moved = add(pivot, rotate(tilt, sub(at, pivot)));
-    pose.set(spineB, { ...pose.get(spineB), rotation: quatMul(tilt, pose.get(spineB)?.rotation ?? [0, 0, 0, 1]), move: sub(moved, at) });
+    const moved = add(pivot, rotate(lineUpB, sub(at, pivot)));
+    pose.set(spineB, { ...pose.get(spineB), rotation: quatMul(lineUpB, pose.get(spineB)?.rotation ?? [0, 0, 0, 1]), move: sub(moved, at) });
   }
   const handsOf = (map: (b: number) => number) => names.slice(0, total).flatMap((name, b) => (/^Hand_[LR](\.\d+)?$/.test(name) && !marker[b] ? [map(b)] : []));
   return { pivot, hands: [handsOf((b) => b), handsOf((b) => copyOf.get(b)!)], turn: posture === 'prone' ? quatEuler(Math.PI / 2, 0, 0) : posture === 'lie' ? rootLie : posture === 'flat' ? flatRoot : null, level: posture === 'prone' && kind === 'opposite', palms: posture === 'prone' || posture === 'stand' };
