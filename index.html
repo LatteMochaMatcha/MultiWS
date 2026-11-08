@@ -17,6 +17,7 @@
       <div class="views history" role="group" aria-label="撤销和重做">
         <button type="button" id="btnUndo" title="撤销（Ctrl+Z）"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><span class="lbl">撤销</span></button>
         <button type="button" id="btnRedo" title="重做（Ctrl+Y）"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg><span class="lbl">重做</span></button>
+        <button type="button" id="btnReset" title="一键初始化：这个角色的设定全部恢复成刚打开时的样子（能撤销）"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/></svg><span class="lbl">初始化</span></button>
       </div>
       <div class="readout" id="readout" aria-live="polite"></div>
       <button type="button" class="btn primary top-export desk-only" id="btnExportTop" data-pop-for="export" aria-haspopup="dialog" aria-expanded="false" title="导出白模、带骨骼 GLB、VRM、OBJ、STL、截图"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>导出</span><svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>

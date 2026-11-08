@@ -178,5 +178,6 @@
   "反向": "Opposite",
   "趴着": "Prone",
   "侧躺": "On side",
-  "平躺": "Flat"
+  "平躺": "Flat",
+  "把这个角色的设定全部恢复成刚打开时的样子？点「撤销」能改回来。": "Put all of this figure's settings back the way they were when the workshop first opened? You can press Undo to get them back."
 }

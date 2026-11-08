@@ -1156,6 +1156,21 @@ const btnRedo = $<HTMLButtonElement>('btnRedo');
 btnUndo.addEventListener('click', undo);
 btnRedo.addEventListener('click', redo);
 
+/**
+ * 一键初始化：当前角色的设定（部件数量、体型、样式、微调、姿势……）和描述全部回到刚打开工坊时的样子（同 load() 没存档时），
+ * 记成一步撤销，点「撤销」能改回来。场景里别的角色、站的位置、视角、语言主题这些不动
+ */
+$<HTMLButtonElement>('btnReset').addEventListener('click', async () => {
+  if (!(await askConfirm(t('把这个角色的设定全部恢复成刚打开时的样子？点「撤销」能改回来。'), t('初始化')))) return;
+  select(null);
+  selectJoint(null);
+  torsoEdit = 'all';
+  spec = applyParse(defaultSpec(), readText(START_TEXT));
+  desc.value = text;
+  refitNext = true;
+  commit();
+});
+
 // 还没有现成的姿势可选：那一栏就不出现
 if (!POSE_LIBRARY.length) document.querySelector('section[data-key="poses"]')?.remove();
 
