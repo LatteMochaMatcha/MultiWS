@@ -410,3 +410,44 @@ export function turnBone(solver: Solver, start: PoseState, bone: number, rot: Qu
   keepPins(solver, state, f0, others);
   return state;
 }
+
+/** 扭身子时最下面那节脊柱（连着胯的腰椎）分到的份数，别的一节一份（见 turnSpine）：人的腰椎本来就转得少，胸椎转得多 */
+const LOW_TWIST = 0.2;
+
+/**
+ * 用旋转环转躯干（腰、胸）：delta 是旋转环在世界里转了多少。只转点中的那一节的话，扭身子时整个扭转挤在一个关节上，
+ * 扭到后面像要断了、像橡皮人（胸口拧成一截，或者腰那一圈拧过去）。人扭身子是一节一节的脊椎各转一点：
+ * 所以绕脊柱拧的那一部分（绕这串脊柱的方向）分给 chain（这个上半身的整串脊柱，从胯往上）的每一节（最下面那节分得少，
+ * 见 LOW_TWIST），越往上转得越多，最上面那节转满；往前后左右倒的那一部分照旧从点中的那一节起转。
+ * 最上面那节（连着脖子、手臂的）最后转的和只转点中那一节时一样
+ */
+export function turnSpine(solver: Solver, start: PoseState, bone: number, chain: readonly number[], delta: Quat, pins: readonly Pin[]): PoseState {
+  const { rig } = solver;
+  const at = chain.indexOf(bone);
+  const f0 = forward(rig, start);
+  if (at < 0 || chain.length < 2) return turnBone(solver, start, bone, quatMul(delta, f0.rot[bone]), pins);
+  // 拧：delta 里绕这串脊柱（从最下面那节的起点到最上面那节的末端，世界里）转的那一部分；倒：剩下的（delta = 倒 · 拧）。
+  // 不照点中那一节自己的长轴：胸那节往后斜着二十几度，照它拆的话往旁边倒也被拆出一截「拧」
+  const last = chain[chain.length - 1];
+  const axis = norm(sub(pointOn(rig, f0, last, rig.tail[last]), f0.pos[chain[0]]));
+  const along = dot([delta[0], delta[1], delta[2]], axis);
+  const angle = 2 * Math.atan2(along, delta[3]);
+  const twist = (k: number): Quat => {
+    const s = Math.sin((angle * k) / 2);
+    return [axis[0] * s, axis[1] * s, axis[2] * s, Math.cos((angle * k) / 2)];
+  };
+  const swing = quatMul(delta, quatConj(twist(1)));
+  // 每一节分多少：最下面那节（连着胯的腰椎）只分 LOW_TWIST 份，别的一节一份。分多了屁股、大腿根也跟着拧过去
+  const shares = chain.map((_, i) => (i === 0 ? LOW_TWIST : 1));
+  const total = shares.reduce((a, b) => a + b, 0);
+  let done = 0;
+  const state = cloneState(start);
+  chain.forEach((link, i) => {
+    done += shares[i];
+    const turn = twist(done / total);
+    setWorldRot(rig, state, forward(rig, state), link, quatMul(i >= at ? quatMul(swing, turn) : turn, f0.rot[link]));
+  });
+  settleRoot(solver, state, pins);
+  keepPins(solver, state, f0, pins);
+  return state;
+}

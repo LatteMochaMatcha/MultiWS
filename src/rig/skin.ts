@@ -67,6 +67,13 @@ const APART: [near: number, far: number] = [0.005, 0.02];
  */
 const SEAM = { wide: [0.5, 1] as [full: number, none: number], below: [0, 0.05] as [from: number, full: number] };
 /**
+ * 骨盆不跟着脊柱拧：躯干里按离哪节骨骼近分权重，胯那节骨骼又短又在正中，屁股、大腿根离腰、胸那几节也不远，
+ * 会分到一两成腰、胸的份额。扭身子（腰、胸绕脊柱拧，见 pose/solve.ts 的 turnSpine）时那里跟着转几度，
+ * 大腿又不在转轴上，大腿根就错开一截。所以髋关节往下，脊柱（腰、胸）的份额都交给胯；
+ * 往上 ramp（按标准人台的尺寸）以内逐渐过渡回原样
+ */
+const PELVIS = { ramp: 0.06 };
+/**
  * 阴茎、阴囊和别的部件之间的过渡带只有平常的几成：它们小，又贴着大腿、挨着别的那几根，
  * 照平常那么宽的过渡带，每根各带一个的小阴囊大半跟着大腿走，转它的骨骼时被扯成一根根尖刺
  */
@@ -204,6 +211,8 @@ export interface SkinPlan {
   boneDist2: (i: number, x: number, y: number, z: number) => number;
   /** 横排多胯两副胯挨着的缝（见 SEAM）：缝在哪（x）、两条里侧的髋关节离它多远、多高，两条腿接在哪根骨骼上 */
   seams: { x: number; half: number; hip: number; parent: number }[];
+  /** 骨盆（见 PELVIS）：髋关节多高、胯是哪根骨骼、哪些是脊柱（1 是）。腿不直接接在胯上的（人马、蛛形）、不是站着的没有 */
+  pelvis: { hip: number; hips: number; spine: Uint8Array } | null;
 }
 
 export function planSkin(
@@ -379,6 +388,20 @@ export function planSkin(
       if (a.side === 'L' && b.side === 'R' && a.parent === b.parent && b.x > a.x) seams.push({ x: (a.x + b.x) / 2, half: (b.x - a.x) / 2, hip: Math.min(a.y, b.y), parent: a.parent });
     }
   }
+  // 骨盆（见 PELVIS）：直接接在胯上的那几条腿的髋关节
+  let pelvis: SkinPlan['pelvis'] = null;
+  {
+    const hips = skeleton.bones.findIndex((bone) => bone.name === 'Hips');
+    const hipJoints = skeleton.bones.filter((bone) => bone.parent === hips && /^UpperLeg/.test(bone.name));
+    const spine = Uint8Array.from(skeleton.bones, (bone) => (/^(Spine|Chest|UpperChest)(_[LR])?(\.\d+)?$/.test(bone.name) ? 1 : 0));
+    // 只管站着的身体（脊柱加起来朝上）：躺着、反着连在一起的（见 character/conjoin.ts），「髋关节往下」就不是骨盆了
+    const way = [0, 0, 0];
+    skeleton.bones.forEach((bone, i) => {
+      if (spine[i]) for (let k = 0; k < 3; k++) way[k] += bone.tail[k] - bone.head[k];
+    });
+    const upright = way[1] > 0.8 * Math.hypot(way[0], way[1], way[2]);
+    if (hips >= 0 && hipJoints.length && upright) pelvis = { hip: hipJoints.reduce((sum, bone) => sum + bone.head[1], 0) / hipJoints.length, hips, spine };
+  }
   return {
     count,
     positions,
@@ -403,6 +426,7 @@ export function planSkin(
     mostStrands,
     boneDist2,
     seams,
+    pelvis,
   };
 }
 
@@ -536,8 +560,9 @@ export function weighVertices(
   joints: Uint16Array,
   weights: Float32Array,
 ) {
-  const { positions, entries, rep, band, soft, groups, parentBone, kind, sample, home, socket, lead, groupOf, body, torso, seams } = plan;
+  const { positions, entries, rep, band, soft, groups, parentBone, kind, sample, home, socket, lead, groupOf, body, torso, seams, pelvis } = plan;
   const seamBelow = SEAM.below.map((v) => v * (band / BAND));
+  const pelvisRamp = PELVIS.ramp * (band / BAND);
   const apartNear = APART[0] * (band / BAND);
   const apartFar = APART[1] * (band / BAND);
   const several = body.some((b) => b >= 0);
@@ -669,6 +694,18 @@ export function weighVertices(
       }
     }
     for (const group of here) groupShare[group] = 0;
+
+    // 髋关节往下，脊柱的份额交给胯（见 PELVIS）
+    if (pelvis && y < pelvis.hip + pelvisRamp) {
+      const k = y <= pelvis.hip ? 1 : 1 - smooth((y - pelvis.hip) / pelvisRamp);
+      for (let i = 0, n = touched.length; i < n; i++) {
+        const b = touched[i];
+        if (!pelvis.spine[b] || !total[b]) continue;
+        if (total[pelvis.hips] === 0) touched.push(pelvis.hips);
+        total[pelvis.hips] += total[b] * k;
+        total[b] *= 1 - k;
+      }
+    }
 
     // 4) 留下最重的 4 根，归一。所有的都先减去一个门槛：排第 5 的那根有多重，和最重那根的 2%，取大的。
     //    这样一根骨骼是慢慢减到零再退出去的，不会在某两个顶点之间突然少一截（那里一摆姿势就裂）；

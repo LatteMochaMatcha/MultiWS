@@ -169,7 +169,7 @@ import { armOfBone, armPairCount, followPair } from './pose/follow';
 import { POSE_LIBRARY } from './pose/library';
 import { type Posing, POSING_VERSION, cleanPosing, emptyPosing, flipPosing, isPosed, placedTwins } from './pose/posing';
 import { type Frame, type PoseRig, type PoseState, type RigBone, cloneState, forward, pointOn, poseMatrices, posedBones, shiftRoot, tailOf } from './pose/rig';
-import { type Pin, capturePins, dragAim, dragBend, dragBody, dragReach, plantFeet, turnBone } from './pose/solve';
+import { type Pin, capturePins, dragAim, dragBend, dragBody, dragReach, plantFeet, turnBone, turnSpine } from './pose/solve';
 import { type Solver, makeSolver, mirrorState, posingOf, stateOf } from './pose/solver';
 import { type Skeleton, buildSkeleton } from './rig/skeleton';
 import { bindPartGrafts, skinVertices } from './rig/skin';
@@ -2640,7 +2640,10 @@ function placeRing() {
     return;
   }
   const { rig } = kit.solver;
-  const along = sub(rig.tail[handle.turn], rig.head[handle.turn]);
+  // 腰、胸：环沿着这串脊柱摆（从最下面那节的起点到最上面那节的末端），拖它就是绕脊柱扭（见 pose/solve.ts 的 turnSpine）；
+  // 沿胸那节自己摆的话，它往后斜着二十几度，扭的时候还带着往前后倒
+  const chain = handle.twist;
+  const along = chain.length > 1 ? sub(rig.tail[chain[chain.length - 1]], rig.head[chain[0]]) : sub(rig.tail[handle.turn], rig.head[handle.turn]);
   const base = len(along) > 1e-9 ? quatBetween(UP, norm(along)) : Q_ID;
   poseHandles?.ring({ pos: poseFrame.pos[handle.turn], quat: quatMul(poseFrame.rot[handle.turn], base) });
 }
@@ -2847,7 +2850,11 @@ if (poseHandles) {
   poseHandles.onTurn = (delta) => {
     const handle = pickedHandle();
     if (!kit || !grab || !handle) return;
-    poseState = following(turnBone(kit.solver, grab.start, handle.turn, quatMul(delta, grab.frame.rot[handle.turn]), grab.pins));
+    // 腰、胸：绕脊柱拧的那一部分分给整串脊柱，不挤在一个关节上（见 pose/solve.ts 的 turnSpine）
+    const turned = handle.twist.length > 1
+      ? turnSpine(kit.solver, grab.start, handle.turn, handle.twist, delta, grab.pins)
+      : turnBone(kit.solver, grab.start, handle.turn, quatMul(delta, grab.frame.rot[handle.turn]), grab.pins);
+    poseState = following(turned);
     showPose();
   };
   poseHandles.onTurnEnd = () => {

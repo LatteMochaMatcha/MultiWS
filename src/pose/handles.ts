@@ -4,7 +4,7 @@
  *
  * 两条规矩，身上的点都一样：
  * - 拖：这个点跟着手指走（手、脚是 IK，肘、膝是换一边弯，其余的是带着它的那节骨头转过去）；
- * - 点一下：出现旋转环，转的是「从这个关节往外的那一段」。
+ * - 点一下：出现旋转环，转的是「从这个关节往外的那一段」。腰、胸绕脊柱拧的那一部分分给整串脊柱（见 Handle.twist）。
  * 尾巴、翅膀、头发、裙摆这些一串一串的，只在末梢有一个点：拖它整串跟着弯，点一下转的是整串（绕根部）。
  * 手指也是这样，每根在指尖有一个点；后两节只朝手心那一个方向弯，不会被拖得往旁边、往手背折。
  */
@@ -38,6 +38,11 @@ export interface Handle {
   limb: number;
   /** aim：拖的时候转哪几节（近的在前） */
   links: AimLink[];
+  /**
+   * 躯干（腰、胸）：旋转环绕脊柱拧的时候分给哪几节（这个上半身的整串脊柱，从胯往上，见 solve.ts 的 turnSpine）；
+   * 别的是空的，旋转环只转 turn 那一节
+   */
+  twist: number[];
 }
 
 /** 脊柱的几节；好几个上半身时，旁边那几个的脊柱带着它在哪一边（Spine_L、Chest_R.002，见 geometry/torsos.ts） */
@@ -92,6 +97,7 @@ export function buildHandles(solver: Solver): Handle[] {
     turn: bone,
     limb: -1,
     links: [],
+    twist: [],
     ...extra,
   });
 
@@ -106,15 +112,15 @@ export function buildHandles(solver: Solver): Handle[] {
     const where = sideWord(rig.names[root]);
     if (roots.length === 1) {
       // 腰：拖它是整个上身从胯那里倾过去
-      handles.push(joint(spine[0], { kind: 'aim', group: 'torso', label: cap(t('腰')), links: [{ bone: hips, weight: 1 }] }));
+      handles.push(joint(spine[0], { kind: 'aim', group: 'torso', label: cap(t('腰')), links: [{ bone: hips, weight: 1 }], twist: spine }));
     } else if (spine.length > 2) {
       // 好几个上半身：胯不动，只有这一个从腰那里倾过去
-      handles.push(joint(spine[1], { id: `${rig.names[root]}:waist`, kind: 'aim', group: 'torso', label: cap(t('腰')) + where, links: [{ bone: spine[0], weight: 1 }] }));
+      handles.push(joint(spine[1], { id: `${rig.names[root]}:waist`, kind: 'aim', group: 'torso', label: cap(t('腰')) + where, links: [{ bone: spine[0], weight: 1 }], twist: spine }));
     }
     // 胸：拖它是弯腰，下面几节脊柱一起弯
     if (spine.length > 1) {
       const below = spine.slice(0, -1).reverse();
-      handles.push(joint(spine[spine.length - 1], { kind: 'aim', group: 'torso', label: t('胸{side}', { side: where }), links: below.map((bone) => ({ bone, weight: 0.6 })) }));
+      handles.push(joint(spine[spine.length - 1], { kind: 'aim', group: 'torso', label: t('胸{side}', { side: where }), links: below.map((bone) => ({ bone, weight: 0.6 })), twist: spine }));
     }
   }
   /** 从这根骨骼往上（往胯那边）的几节脊柱，近的在前 */
