@@ -3,9 +3,9 @@
   "minShell": 1,
   "sources": [
     { "base": "https://pub-d985d51f23684c13b3c981336d18882a.r2.dev/", "objects": "objects/" },
-    { "base": "https://github.com/LatteMochaMatcha/MutliWS/releases/download/update-store/", "objects": "" }
+    { "base": "https://github.com/LatteMochaMatcha/MultiWS/releases/download/update-store/", "objects": "" }
   ],
   "r2Bucket": "oc-workshop-update",
-  "githubRepo": "LatteMochaMatcha/MutliWS",
+  "githubRepo": "LatteMochaMatcha/MultiWS",
   "githubTag": "update-store"
 }

@@ -11,7 +11,9 @@
 - **第 2 期**：README 三语补齐（英日各补五段，三语都补「检查更新」「初始化」、造型 W / E / R；英日「撤销在左下」的旧说法改成顶栏）；AGENTS.md 进度段改掉、加 docs/ 索引表；十四份方案文档各加「现状（2026-11-09）」并把误导句子加注或改掉（第四节逐条）；bust-reference 加作废说明；accept/README 加 overview-1105。
 - **第 3 期**：`.gitattributes` 加 `* text=auto eol=lf`，工作区 152 个 CRLF / 混用文件改成 LF（索引本来就是 LF，git 看不出差别）；`git fetch --tags` 补上本地 v2.7.6；本地 `main` 快进到 5dff981；`snapshot/2026-11-01-before-rework` 分支转成同名 tag 后删掉；五个已合并分支删掉；三个 worktree 先拆 node_modules 联接再 `git worktree remove`；`oc-basemesh-v1.html` 移到 `docs/`；`x/` 删；根目录那个 VRM 和 `assets/source/hub_fritz/` 里的 sha256 一样，删了副本。
 - **第 1 期 b**：版本号 2.7.7、CHANGELOG；exe / apk 重打（exe 用 `--no-browser --port 5299 --state 临时目录` 试跑，内置清单 2.7.7、47 个文件，首页 200）；自动更新、GitHub Release、加密 zip 见文末「发版记录」。
-- **没做**：第 5 期两条规矩（对比图不进仓库 / LFS；`release/` 本地只留最近两版）；第四节末尾七条功能待办；CHANGELOG 没补 2.7.2 以前。
+- **第 5 期**（2.7.7 发完以后，他说「接着做」）：两条规矩写进 AGENTS.md「仓库和本地文件的规矩」（对比图放 `.harness-tmp/`、进 docs 的图要被引用且 ≤ 300 KB；`release/` 只留最近两版）；`release/` 里 2.7.5 及以前的 18 个安装包和加密 zip（1.3 GB）移到了回收站，留 2.7.6、2.7.7、`update/`、`test/` 和三份说明。没用 LFS：历史里的 170 MB 图不会因此变小，只管以后。
+- **仓库名**：`tools/update/config.json`、`src/update/ui.ts` 的 Release 链接、`index.html` 页脚链接都改成 MultiWS。外壳里烤着的旧地址要等下次带 `-Installers` 发版才换，旧名一直会跳转，不单独为它发版。
+- **没做**：第四节末尾七条功能待办；CHANGELOG 没补 2.7.2 以前。
 - **子代理核对后纠正本文的**：胸上限不是「三个数」——`spec.ts` 素体滑块 2.3、人台/成品 `BUST_MAX_OTHER` 2.2，accept/README 的 2.3 和代码一致，只有 rework-plan 表格的「→ 3」过时；feature/*、ui/* 分支在审计时还在，现在已删。
 
 ## 现状快照

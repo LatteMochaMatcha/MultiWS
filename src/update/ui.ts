@@ -6,7 +6,7 @@ import './update.css';
 import { LANG, t } from '../i18n';
 import { type CardView, cardFor, detectShell, formatBytes, pickNotes, type ShellApi, type ShellStatus, shouldCheckOnOpen } from './shell';
 
-const RELEASES = 'https://github.com/LatteMochaMatcha/MutliWS/releases';
+const RELEASES = 'https://github.com/LatteMochaMatcha/MultiWS/releases';
 
 export function installUpdateUi(): void {
   void start();
