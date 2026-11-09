@@ -248,7 +248,7 @@ Click "Pose" on the left of the toolbar and a set of handles lights up on the jo
 
 ![Posing](docs/pose-overview.png)
 
-**Handles**: drag one and the handle follows the mouse; click it and a rotation ring appears, which turns the segment from that joint outward. For a hand, foot or hip you can swap the ring for move arrows ("Gizmo" in the panel, or W to move and E to rotate on a computer) to shift it along one direction at a time: forward/back, left/right or up/down relative to the body. Your choice is remembered.
+**Handles**: drag one and the handle follows the mouse; click it and a rotation ring appears, which turns the segment from that joint outward. For any handle except elbows and knees (the small white ones on fingertips and toes too, for fine control of where they point) you can swap the ring for move arrows ("Gizmo" in the panel, or W to move and E to rotate on a computer) to shift it along one direction at a time: forward/back, left/right or up/down relative to the body. Your choice is remembered.
 
 | Handle | Where | What dragging it does |
 | --- | --- | --- |
@@ -269,7 +269,7 @@ Click "Pose" on the left of the toolbar and a set of handles lights up on the jo
 
 **Hand gestures**: the two hands, the left hand, the right hand, or one particular pair of arms; 16 ready-made gestures (Fist, Peace, OK, Thumbs up…), one slider for each of the five fingers; turn on the "Fingers" handles to drag the fingertips directly.
 
-**Expression & gaze** (Ready-made characters only): seven expressions, closing one eye, mouth shapes and fangs; gaze sliders and "Look at camera". Several heads can each have their own expression.
+**Expression & gaze** (Ready-made characters only): seven expressions, closing one eye, mouth shapes and fangs; gaze sliders and "Look at camera". Several heads can each have their own expression, and so can the two upper bodies of a conjoined body.
 
 **Pose library**: 60 poses (8 soft standing poses, plus standing, walking, running, jumping, crouching, sitting, lying down, punching, sword swinging…). Click one to apply it and drop the figure to the ground; "Random pose" picks one at random. Before you click you can choose:
 

@@ -2663,8 +2663,13 @@ function showPose() {
   if (scene.figures.length > 1) scheduleSceneClash();
 }
 
-/** 选中的点能不能用移动箭头挪：手、脚、胯（它们拖到哪都行；肘、膝、尾巴梢挪一挪其实是在转骨头） */
-const movable = (handle: Handle | undefined): handle is Handle => handle?.kind === 'reach' || handle?.kind === 'body';
+/**
+ * 选中的点能不能用移动箭头挪：手、脚、胯（拖到哪都行），还有白色的小圆点（指尖、脚尖、头顶、尾巴梢 …）——
+ * 它们挪一挪其实是带着它的骨头转过去，沿一根箭头挪就是只往一个方向偏，手指、脚尖朝哪能一点点调。
+ * 肘、膝没有（拖它是换一边弯，不是挪到哪）
+ */
+const movable = (handle: Handle | undefined): handle is Handle =>
+  handle?.kind === 'reach' || handle?.kind === 'body' || (handle?.kind === 'aim' && handle.links.length > 0);
 /** 选中的点上出的是旋转环还是移动箭头（能挪的点才有箭头） */
 const showsArrows = (handle: Handle | undefined): boolean => poseTool === 'move' && movable(handle);
 
@@ -2867,7 +2872,7 @@ const syncFollow = buildSeg($('segPoseFollow'), FOLLOW_CHOICES, (v) => (v === 'o
   } else renderPosePanel();
 });
 
-/* ---- 点中手、脚、胯以后出旋转环还是移动箭头：只是界面上的偏好，记在这台设备上，不进撤销、不存档 ---- */
+/* ---- 点中圆点以后出旋转环还是移动箭头（肘、膝只有旋转环）：只是界面上的偏好，记在这台设备上，不进撤销、不存档 ---- */
 
 type PoseTool = 'move' | 'turn';
 const POSE_TOOLS = ['move', 'turn'] as const;

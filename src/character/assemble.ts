@@ -2236,7 +2236,7 @@ function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | nul
   }
 
   /* ---- 连体：腰往下不要，腰往上复制一份转过去，两个上半身的手臂撑地、头抬起来（见 conjoin.ts） ---- */
-  const conjoined = spec.conjoined !== 'none' ? conjoinCharacter({ names, parent, rest, origin, marker, chunks, pose }, spec.conjoined, spec.conjoinPose) : null;
+  const conjoined = spec.conjoined !== 'none' ? conjoinCharacter({ names, parent, rest, origin, marker, chunks, pose, faces: copyOf }, spec.conjoined, spec.conjoinPose) : null;
 
   /* ---- 摆姿势，并把摆好的样子定成新的静止姿势 ---- */
   if (pose.size) {

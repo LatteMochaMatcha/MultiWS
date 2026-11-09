@@ -33,13 +33,13 @@ export interface FaceInstance {
   quat: Quat;
 }
 
-/** 给人看的名字：头 1、头 2、脸 2 … */
+/** 给人看的名字：头 1、头 2、脸 2 …；别的头上多出来的脸是「头 2 脸 2」（连体、好几个上半身时才有） */
 export function faceLabel(key: string): string {
-  const copy = /^Head\.(\d+)$/.exec(key);
-  if (copy) return t('头 {n}', { n: Number(copy[1]) });
-  const extra = /^Head\/(\d+)$/.exec(key);
-  if (extra) return t('脸 {n}', { n: Number(extra[1]) });
-  return t('头 {n}', { n: 1 });
+  const m = /^Head(?:\.(\d+))?(?:\/(\d+))?$/.exec(key);
+  const head = t('头 {n}', { n: m?.[1] ? Number(m[1]) : 1 });
+  if (!m?.[2]) return head;
+  const face = t('脸 {n}', { n: Number(m[2]) });
+  return m[1] ? `${head} ${face}` : face;
 }
 
 /* ---------------- 「原始的脸 → 现在这张脸」 ---------------- */

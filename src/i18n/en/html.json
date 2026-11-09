@@ -194,7 +194,7 @@
   "连体静止时的姿态：趴着是四只手撑地；侧躺是两个上半身侧着躺在同一条轴上，靠地那只手臂朝前贴地、上面那只手撑在胸前；平躺是仰面躺平、手臂放在身子两边（反向的那个趴着）；站着是下面那个倒立、两只手撑地，上面那个照常站着": "Resting posture of the conjoined body. Prone: standing on all four hands. On side: both upper bodies lie on their sides along one line, the lower arm reaching forward along the ground and the upper hand propped in front of the chest. Flat: lying flat on the back with the arms resting at the sides (in \"opposite\", the other one lies face-down). Standing: the lower one does a handstand on both hands while the upper one stands normally.",
   "连体静止时是趴着、侧躺、平躺还是站着": "Whether the conjoined body rests prone, on its side, flat or standing",
   "操纵杆": "Gizmo",
-  "点中手、脚、胯以后，出来的是沿前后、左右、上下挪的箭头，还是旋转环。电脑上按 W、E 也能换": "After you pick a hand, foot or hip, show arrows that move it forward/back, left/right and up/down, or the rotation ring. On a computer, W and E switch too.",
+  "点中圆点以后，出来的是沿前后、左右、上下挪的箭头，还是旋转环（肘、膝只有旋转环）。电脑上按 W、E 也能换": "After you pick a handle, show arrows that move it forward/back, left/right and up/down, or the rotation ring (elbows and knees only have the ring). On a computer, W and E switch too.",
   "一键初始化：这个角色的设定全部恢复成刚打开时的样子（能撤销）": "Reset: put this figure's settings back the way they were when the workshop first opened (can be undone)",
   "初始化": "Reset"
 }

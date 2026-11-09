@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { assembleCharacter } from '../src/character/assemble';
 import { characterSkeleton } from '../src/character/export';
+import { applyFaces, faceLabel } from '../src/character/face';
 import { CHARACTER } from '../src/character/load';
 import { type CharacterSource, readCharacter } from '../src/character/source';
 import { buildFigure } from '../src/geometry/layout';
@@ -147,6 +148,44 @@ describe('连体：成品角色', () => {
       expect(low).toBeGreaterThan(-0.05);
       expect(makeSolver(characterSkeleton(build).bones).limbs.filter((l) => l.kind === 'arm').length).toBe(4);
     }
+  });
+
+  it('两个上半身的脸各是一张，表情各摆各的；第二个上半身的头接着往下数，眼睛骨骼也有', () => {
+    for (const kind of ['same', 'opposite'] as const) {
+      const build = assembleCharacter(source(), { ...defaultSpec(), bodyStyle: 'character', conjoined: kind });
+      expect(build.faces.map((f) => f.key)).toEqual(['Head', 'Head.002']);
+      expect(build.faces[1].bone).toBe('Head.002');
+      expect(build.faces[1].eyes).toEqual(['Eye_L.002', 'Eye_R.002']);
+      for (const name of build.faces[1].eyes!) expect(build.bones.some((b) => b.name === name), name).toBe(true);
+      // 只给第二个上半身的脸套表情：动的只有它那张脸上的点，而且每个点挪的距离和第一张脸套同一个表情时一样（只是转了个方向）
+      const moved = (key: string) => {
+        const out = [0, 0];
+        let far = 0;
+        for (const m of build.meshes) {
+          const p = m.positions.slice();
+          if (!applyFaces(build, m, { [key]: { joy: 1 } }, p, m.normals.slice())) continue;
+          for (let v = 0; v < m.faceOf!.length; v++) {
+            const d = Math.hypot(p[v * 3] - m.positions[v * 3], p[v * 3 + 1] - m.positions[v * 3 + 1], p[v * 3 + 2] - m.positions[v * 3 + 2]);
+            if (d > 1e-6) out[m.faceOf![v]]++;
+            far += d;
+          }
+        }
+        return { out, far };
+      };
+      const first = moved('Head');
+      const second = moved('Head.002');
+      expect(first.out[0]).toBeGreaterThan(500);
+      expect(first.out[1]).toBe(0);
+      expect(second.out).toEqual([0, first.out[0]]);
+      expect(second.far).toBeCloseTo(first.far, 2);
+    }
+    // 两个头的连体：第二个上半身的两个头是头 3、头 4；一个头两张脸的，第二个上半身多出来的那张是「头 2 脸 2」
+    const two = assembleCharacter(source(), { ...defaultSpec(), bodyStyle: 'character', conjoined: 'same', counts: { ...defaultSpec().counts, heads: 2 } });
+    expect(two.faces.map((f) => f.key).sort()).toEqual(['Head', 'Head.002', 'Head.003', 'Head.004']);
+    for (const f of two.faces) for (const name of f.eyes!) expect(two.bones.some((b) => b.name === name), name).toBe(true);
+    const sided = assembleCharacter(source(), { ...defaultSpec(), bodyStyle: 'character', conjoined: 'same', headLayout: 'faces', counts: { ...defaultSpec().counts, heads: 2 } });
+    expect(sided.faces.map((f) => f.key).sort()).toEqual(['Head', 'Head.002', 'Head.002/2', 'Head/2']);
+    expect(sided.faces.map((f) => faceLabel(f.key)).sort()).toEqual(['头 1', '头 2', '头 2 脸 2', '脸 2']);
   });
 
   for (const kind of ['same', 'opposite'] as const) {

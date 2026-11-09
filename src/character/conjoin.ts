@@ -40,6 +40,11 @@ export interface ConjoinWork {
   marker: boolean[];
   chunks: Chunk[];
   pose: Map<number, BonePose>;
+  /**
+   * 脸上的网格各是哪一张脸（assemble.ts 的 copyOf：没记的是她自己的头，Head_02 是第 2 个头，Face_02 是同一个头上的第 2 张脸）。
+   * 给了它，第二个上半身的脸也记上（接着往下数的那几个头），表情才能各摆各的；不给就只有第一个上半身的脸有表情
+   */
+  faces?: Map<Chunk, string>;
 }
 
 /** 量腰最细的地方：脊柱第一节的起点往下、往上各多远 */
@@ -162,7 +167,14 @@ export function conjoinCharacter(w: ConjoinWork, kind: CharacterConjoin, posture
       const tri = [chunk.indices[t], chunk.indices[t + 1], chunk.indices[t + 2]];
       if (tri.some((v) => chunk.positions[v * 3 + 1] >= keepFrom)) keep.push(...tri);
     }
-    if (keep.length !== chunk.indices.length) chunks[n] = compact(chunk, keep);
+    if (keep.length === chunk.indices.length) continue;
+    chunks[n] = compact(chunk, keep);
+    // 换了一份：是哪张脸照原来的记
+    const label = w.faces?.get(chunk);
+    if (label !== undefined) {
+      w.faces!.delete(chunk);
+      w.faces!.set(chunks[n], label);
+    }
   }
   // 腰下面的骨骼（腿、裙摆）：没有网格了的最后清掉
   // 脊柱那一串（胯到脖子）的不算：脊柱第一节的起点就在腰下面一点
@@ -360,7 +372,17 @@ export function conjoinCharacter(w: ConjoinWork, kind: CharacterConjoin, posture
       weights: new Float32Array(m * 4),
       indices: Uint32Array.from(from.indices, (v) => used.get(v)!),
     };
+    // 脸：第二个上半身的头接着往下数（骨骼也是这么编号的），同一个头上的第几张脸照原来的
+    if (from.faceVertex && w.faces) {
+      const was = /^(?:Head_(\d+))?\/?(?:Face_(\d+))?$/.exec(w.faces.get(from) ?? '');
+      if (was) {
+        made.faceVertex = new Int32Array(m);
+        const head = (count.get('Head') ?? 1) + (was[1] ? Number(was[1]) : 1);
+        w.faces.set(made, `Head_${String(head).padStart(2, '0')}${was[2] ? `/Face_${was[2]}` : ''}`);
+      }
+    }
     for (const [v, id] of used) {
+      if (made.faceVertex) made.faceVertex[id] = from.faceVertex![v];
       made.positions.set(turnPoint([from.positions[v * 3], from.positions[v * 3 + 1], from.positions[v * 3 + 2]]), id * 3);
       made.normals.set(rotate(flip, [from.normals[v * 3], from.normals[v * 3 + 1], from.normals[v * 3 + 2]]), id * 3);
       made.uvs.set(from.uvs.subarray(v * 2, v * 2 + 2), id * 2);
