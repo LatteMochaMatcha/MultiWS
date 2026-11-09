@@ -149,3 +149,12 @@ en、ja 各缺五段（2.7.4、2.7.5 的功能：手指脚趾数、手脚互换�
 | 5 规矩 | 对比图不进仓库（或 LFS）；`release/` 本地只留最近两版；写进 AGENTS.md | 两条规矩要不要立 |
 
 每期都能单独做、单独提交；第 1 期最急，第 3 期的 renormalize 会碰到几乎所有文件，要在别的会话没有未提交改动时做。第四节末尾「真正的待办」七条不在这五期里，是功能，另排。
+
+## 发版记录（2026-11-09 晚，2.7.7）
+
+- 提交：f6a0595（修复）、152a549（第 4 期）、fdef7b9（换行、v1 网页）、1494f05（文档）、f7a7327（版本号 2.7.7）；本地 `main` 快进到同处，推上 GitHub main。全套测试 1839 个通过。
+- 安装包：`npm run pack`、`npm run apk` 打在 `release/`（OC白模工坊.exe / .apk / -v2.zip）；exe 用 `--no-browser --port 5299 --state 临时目录` 试跑，内置清单 2.7.7、47 个文件，首页 200。apk 没在模拟器上试（和 2.7.5、2.7.6 一样）。
+- 自动更新：`tools/release.ps1 -SkipBuild`（外壳没改，不带 `-Installers`），R2 和 GitHub `update-store` 两边 `latest.json` 都是 2.7.7、同一份（sha256 比过）。
+- GitHub Release v2.7.7（Latest，标签指 f7a7327，三个英文名文件，GitHub 记的 sha256 和本地一样）。
+- 加密 zip：`多x白模工坊2.7.7 密码：exe.zip`、`多x白模工坊 V2.7.7 密码：apk.zip`（AES-256，pyzipper 做的，解开核对过）。
+- 顺带发现：GitHub 仓库已改名 `LatteMochaMatcha/MultiWS`（旧名 MutliWS 自动跳转）。本地 `origin` 改成了新地址；`tools/update/config.json` 的 `githubRepo` 和更新源地址、README 里的仓库链接还是旧名，靠跳转在用——改它要重打外壳，另排。
