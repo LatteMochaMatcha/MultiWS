@@ -132,3 +132,22 @@ describe('摆姿势时只重算动了的顶点', () => {
     expect(positions(live)).toEqual(positions(check));
   });
 });
+
+/** 顶点全拿掉了的网格（连体没有腿时，裤子、鞋只剩 0 个顶点） */
+function emptySource(): SkinSource {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3));
+  geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(0), 3));
+  return { geometry, joints: new Uint16Array(0), weights: new Float32Array(0), unit: 1, blend: 'linear' };
+}
+
+describe('包围盒', () => {
+  it('0 个顶点的网格不把整个包围盒撑成无穷大（阴影、镜头会算成 NaN）', () => {
+    const full = source('linear', 3);
+    const posed = new PosedMeshes([full, emptySource()]);
+    posed.apply(pose(1));
+    const box = posed.bounds();
+    expect([box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z].every(Number.isFinite)).toBe(true);
+    expect(box.equals(full.geometry.boundingBox!)).toBe(true);
+  });
+});

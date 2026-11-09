@@ -228,7 +228,8 @@ export class PosedMeshes {
     const box = new THREE.Box3();
     for (const { source } of this.items) {
       const one = source.geometry.boundingBox;
-      if (!one) continue;
+      // 拿掉了的部件（连体没有腿：裤子、鞋只剩 0 个顶点）包围盒是空的（+∞…−∞），并进来整个盒子就成了 −∞…+∞
+      if (!one || one.isEmpty()) continue;
       box.expandByPoint(one.min.clone().multiplyScalar(source.unit));
       box.expandByPoint(one.max.clone().multiplyScalar(source.unit));
     }

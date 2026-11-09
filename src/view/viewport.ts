@@ -190,6 +190,9 @@ export class Viewport {
 
   /** 模型换了大小：跟着调整阴影范围。镜头不动，免得拖滑块时画面乱跳 */
   setBounds(box: THREE.Box3) {
+    // 空的、无穷大的盒子不收：阴影相机会算成 NaN（影子没了），镜头一改尺寸也会算成 NaN（整个画面空掉）
+    const finite = [box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z].every(Number.isFinite);
+    if (!finite || box.isEmpty()) return;
     this.box.copy(box);
     this.fitShadow();
   }
