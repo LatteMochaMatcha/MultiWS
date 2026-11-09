@@ -1,2 +1,13 @@
-# 二进制数据（body.bin 等）：不当文本，不转换换行符
+# 文本文件一律 LF 进仓库、LF 出到工作区：这台机器全局 core.autocrlf=true，不同会话、不同工具写出来的换行不一样，
+# 以前 145 个文件工作区是 CRLF、索引是 LF，每次 diff 都报 warning。2026-11-09 统一成 LF。
+* text=auto eol=lf
+
+# 二进制数据（body.bin、模型、图、安装包）：不当文本，不转换换行符
 *.bin binary
+*.vrm binary
+*.glb binary
+*.png binary
+*.jpg binary
+*.apk binary
+*.exe binary
+*.zip binary
