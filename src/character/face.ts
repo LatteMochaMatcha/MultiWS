@@ -132,9 +132,6 @@ export function fitFrame(from: Float32Array, to: readonly { positions: Float32Ar
 
 /* ---------------- 表情 ---------------- */
 
-/** 这个角色认得的表情名字（文件里定好的那几种） */
-export const expressionKeys = (morphs: FaceMorphs | undefined): string[] => morphs?.expressions.map((e) => e.key) ?? [];
-
 /** 这个名字（表情或者变形）这个角色有没有 */
 export const hasExpression = (morphs: FaceMorphs | undefined, key: string): boolean =>
   Boolean(morphs && (morphs.expressions.some((e) => e.key === key) || morphs.names.includes(key)));

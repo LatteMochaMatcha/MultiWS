@@ -508,5 +508,3 @@ function arrange(o: GenitalOptions, droop: Quat, ps: number): { parts: Part[]; s
   return { parts, settled };
 }
 
-/** 一副胯用掉几个编号（阴茎、阴囊）：下一副胯从这之后接着编 */
-export const genitalCount = (count: number, scrotum: ScrotumMode) => ({ penises: count, scrotums: count ? (scrotum === 'each' ? count : 1) : 0 });

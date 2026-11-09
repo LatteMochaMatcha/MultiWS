@@ -56,10 +56,6 @@ export const animeBounds = (piece: AnimePiece): { min: V3; max: V3 } => ({
   max: PIECES[piece].bounds.max as V3,
 });
 
-/** 某一块的切口（封口的盖子）中心在哪、有多大，写在这一块自己的坐标里 */
-export const animeCaps = (piece: AnimePiece): { center: V3; radius: number }[] =>
-  PIECES[piece].caps.map((cap) => ({ center: cap.center as V3, radius: cap.radius }));
-
 /** 关节在模型里的位置。名字是 VRoid 的骨骼名去掉前缀，例如 L_UpperArm、C_Hips */
 export function animeJoint(name: string): V3 {
   const joints = meta.joints as Record<string, number[]>;

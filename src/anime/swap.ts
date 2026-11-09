@@ -9,7 +9,7 @@
 import { skinVerticesDualInPlace } from '../character/pose';
 import { type Mat3, type V3, add, cross, dot, len, madd, mat3Apply, mat3Mul, mul, norm, sub } from '../geometry/vec';
 import { FINGER_COUNT, type FingerJoints, TOE_COUNT } from './digits';
-import { FOOT_ANKLE, FOOT_SOLE, footMesh } from './foot';
+import { FOOT_ANKLE, footMesh } from './foot';
 import type { GraftMesh } from './graftMesh';
 import { HAND_ELBOW, HAND_WRIST, handMesh, handShape } from './hand';
 
@@ -189,8 +189,6 @@ export const PALM_AHEAD: V3 = [Math.sin(PALM_OUT), 0, Math.cos(PALM_OUT)];
 export const HAND_TIP: LimbTip = { end: HAND_WRIST, root: HAND_ELBOW, ahead: [0, 0, 1] };
 /** 现成的脚：脚趾朝前（膝盖的关节取在脚踝正上方，网格里的那个有点歪，照它摆脚会歪着） */
 export const FOOT_TIP: LimbTip = { end: FOOT_ANKLE, root: add(FOOT_ANKLE, [0, 1, 0]), ahead: [0, 0, 1] };
-/** 现成的脚上，脚踝离脚底多高 */
-export const ANKLE_HEIGHT = FOOT_ANKLE[1] - FOOT_SOLE;
 
 /** 手接在腿上时手腕离地多高（放大了 scale 倍）：比脚踝矮，整个人要往下落这么多的差 */
 export const palmHeight = (count: number, scale: number) => bentHand(count).sole * scale;

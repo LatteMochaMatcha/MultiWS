@@ -3,7 +3,7 @@ import type { ParseResult } from './parse';
 
 export { cnNum, zhCount } from './numerals';
 export { type ParseMatch, type ParseResult, type MatchTier, normalizeText, parseDescription } from './parse';
-export { type Chip, type Describable, EAR_NAME, describeSpec, summarize } from './describe';
+export { type Describable, EAR_NAME, describeSpec, summarize } from './describe';
 
 /**
  * 把解析结果写进 BodySpec：部件数量和排布（连人腿人马每副胯几条腿、每个上半身单独设的数量）整体替换（没提到的回到默认，与 v1 一致），

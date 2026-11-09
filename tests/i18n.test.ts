@@ -15,6 +15,11 @@ describe('界面文字的译文', () => {
     expect(r.missing.ja.slice(0, 30)).toEqual([]);
   });
 
+  it('译文里没有源码已经不用的键', () => {
+    expect(r.unused.en).toEqual([]);
+    expect(r.unused.ja).toEqual([]);
+  });
+
   it('译文的占位符和原文一样', () => {
     expect(r.badVars).toEqual([]);
   });

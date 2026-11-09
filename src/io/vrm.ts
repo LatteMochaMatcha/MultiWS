@@ -359,7 +359,7 @@ export function metaFromV1(meta: Record<string, unknown>): Record<string, unknow
     version: text(meta.version),
     author: texts(meta.authors).join('、'),
     contactInformation: text(meta.contactInformation),
-    reference: [...texts(meta.references), extra.length ? `原文件（VRM 1.0）的条件：${extra.join('，')}` : ''].filter(Boolean).join('；'),
+    reference: [...texts(meta.references), extra.length ? t('原文件（VRM 1.0）的条件：{terms}', { terms: extra.join('，') }) : ''].filter(Boolean).join('；'),
     allowedUserName: allowed[text(meta.avatarPermission)] ?? 'OnlyAuthor',
     violentUssageName: meta.allowExcessivelyViolentUsage === true ? 'Allow' : 'Disallow',
     sexualUssageName: meta.allowExcessivelySexualUsage === true ? 'Allow' : 'Disallow',

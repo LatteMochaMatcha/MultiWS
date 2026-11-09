@@ -47,9 +47,6 @@ const COMPONENT: Record<number, [bytes: number, read: (view: DataView, at: numbe
   5126: [4, (v, at) => v.getFloat32(at, true), 1],
 };
 
-/** 一个 accessor 里每个元素有几个分量 */
-export const accessorSize = (doc: GlbDoc, index: number): number => SIZE[doc.json.accessors[index].type];
-
 /**
  * 把一个 accessor 读成一串数（标了「归一化」的整数换算成 0…1 / -1…1）。
  * 稀疏的（sparse：只记改了的那几个元素，VRM 1.0 的表情常这么存）也读：没记的是 0（或者 bufferView 里的值）

@@ -31,9 +31,8 @@ export const PENIS_BASE = penis.base as V3;
 /** 切口的中心、那里中心线的方向（朝龟头；切口那一刀垂直于它） */
 export const PENIS_CUT = penis.cut as V3;
 export const PENIS_CUT_DIR = penis.cutDir as V3;
-/** 阴茎的平均半径、从根部到龟头沿中心线多长 */
+/** 阴茎的平均半径 */
 export const PENIS_RADIUS = penis.radius;
-export const PENIS_LENGTH = penis.length;
 /** 三节骨骼的关节：根部、两个中间、龟头；中心线（从根部到龟头） */
 export const PENIS_JOINTS = penis.jointsAt as V3[];
 export const PENIS_LINE = penis.line as V3[];

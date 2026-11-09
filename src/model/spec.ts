@@ -88,13 +88,6 @@ export function torsosAlike(spec: Pick<BodySpec, 'counts' | 'torsoCounts'>): boo
   return torsoSides(spec.counts.torsos).every((side) => PER_TORSO_KEYS.every((key) => countsOf(spec, side)[key] === spec.counts[key]));
 }
 
-/** 一共几个头（好几个上半身时每个上半身的加起来；一个头几张脸的算一个） */
-export function totalHeads(spec: Pick<BodySpec, 'counts' | 'torsoCounts' | 'headLayout'>): number {
-  const per = (c: BodyCounts) => (spec.headLayout === 'faces' ? 1 : c.heads);
-  const sides = torsoSides(spec.counts.torsos);
-  return sides.length ? sides.reduce((sum, side) => sum + per(countsOf(spec, side)), 0) : per(spec.counts);
-}
-
 /** 以「对」计数的部件：文字里给个数时取 ceil(n / 2)。其余按个数计，给「对」时乘 2。腿按条数计（可以是单数） */
 export const PAIRED_KEYS: ReadonlySet<CountKey> = new Set<CountKey>([
   'armPairs',
@@ -155,8 +148,6 @@ export const SHAPE_DEFS: readonly ShapeDef[] = [
   { key: 'tailLength', label: t('尾巴长度'), min: 0.3, max: 3, step: 0.01, def: 1, safe: [0.5, 2] },
   { key: 'penisSize', label: t('阴茎大小'), min: 0.5, max: 1.6, step: 0.01, def: 1 },
 ];
-
-export const SHAPE_KEYS: readonly ShapeKey[] = SHAPE_DEFS.map((d) => d.key);
 
 export const SHAPE_DEF_BY_KEY = Object.fromEntries(SHAPE_DEFS.map((d) => [d.key, d])) as Record<
   ShapeKey,

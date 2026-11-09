@@ -55,6 +55,7 @@
   "VRM 要一副完整的人形骨骼，这个身体缺：{parts}（VRM 只认一个头、一对手臂、一对腿的那一套）": "VRM needs a complete humanoid skeleton. This body is missing: {parts} (VRM only accepts one head, one pair of arms and one pair of legs)",
   "、": ", ",
   "不许用于政治、宗教": "No political or religious use",
+  "原文件（VRM 1.0）的条件：{terms}": "Terms of the original file (VRM 1.0): {terms}",
   "不许用于反社会、仇恨": "No antisocial or hateful use",
   "要署名": "Credit required",
   "不许再分发": "No redistribution",

@@ -7,6 +7,7 @@
 import type { BackStretch, ChestShape, Fork, GridShape, SpreadX, Thicken, Tile, Twin, WidenBand } from '../geometry/figure';
 import { type V3, sub } from '../geometry/vec';
 import { type ChestFrame, chestFrame, chestRegion, chestSkin, chestVersion } from '../anime/chest';
+import { t } from '../i18n';
 import type { Dist } from './field';
 import { forkWarp } from './fork';
 import { type Stretch, unstretch } from './stretch';
@@ -30,7 +31,7 @@ const grids = new Map<string, Grid>();
 
 export function registerGrid(name: string, grid: Grid) {
   if (grid.data.length !== grid.dims[0] * grid.dims[1] * grid.dims[2]) {
-    throw new Error(`格子 ${name} 的数据长度和尺寸对不上`);
+    throw new Error(t('格子 {name} 的数据长度和尺寸对不上', { name }));
   }
   grids.set(name, grid);
 }
@@ -39,7 +40,7 @@ export const hasGrid = (name: string) => grids.has(name);
 
 export function getGrid(name: string): Grid {
   const grid = grids.get(name);
-  if (!grid) throw new Error(`格子 ${name} 还没有载入`);
+  if (!grid) throw new Error(t('格子 {name} 还没有载入', { name }));
   return grid;
 }
 
@@ -470,7 +471,7 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
   const mix = use.morph?.[1] ?? 0;
   const other = mix ? getGrid(use.morph![0]) : null;
   if (other && (other.dims.some((n, k) => n !== dims[k]) || other.cell !== cell || other.min.some((v, k) => v !== grid.min[k]))) {
-    throw new Error(`格子 ${use.morph![0]} 和要混合的那一块尺寸不一样`);
+    throw new Error(t('格子 {grid} 和要混合的那一块尺寸不一样', { grid: use.morph![0] }));
   }
   // 整个换成另一块（平胸的躯干）：只读那一块
   const data2 = mix === 1 ? undefined : other?.data;
