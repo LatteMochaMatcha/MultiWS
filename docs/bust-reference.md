@@ -1,5 +1,7 @@
 # 原素材胸型对照（2026-11-01）
 
+> **已作废（2026-11-09）**：这里讲的 `bustReference`、`bustLarge`（和更早的 `bust`）三块胸的格子，在胸换做法的第 3 期（2026-11-01）从 `body.bin` 里删了——`tools/build-chest.ts` 写文件时跳过这三块（见该文件末尾注释「以前的三块胸 bust、bustLarge、bustReference 不要了」），`tools/build-bust.ts`、`bustSag.ts` 也拆了。现在的胸是「躯干表面附近的一层形状」，做法见 [rework-plan.md](rework-plan.md)。本文只留作当时怎么做的记录，图也是那时的。
+
 参照用户提供的 DJP 文件调整二次元素体胸部，原文件不修改。
 
 - 默认胸：DJP Anime Base Sculpt.obj；DJP Anime Sculpt BaseMesh 01.blend 的对象为 DJP Anime Sculpt Base，属于同一 Sculpt 素体版本。

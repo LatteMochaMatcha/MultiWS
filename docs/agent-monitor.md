@@ -52,6 +52,7 @@ curl -o shot.png "http://localhost:5173/__agent/screenshot?view=side"
 - `figure`：摆位结果——缩放、身高和头身比、各类部件几个、全部部件名
 - `character`：成品角色——骨骼、网格、材质、脸各几个，这个样式顾不上的设定
 - `pose`：摆姿势时骨骼、圆点各几个；`selected`：选中的部件；`camera`：镜头；`buildMs`：上次重建在主线程上花了多久
+- `scene`（2026-11-07 加）：场景里好几个角色时才有，只有一个角色时是 `null`——`current` 当前角色的 id；`figures` 每个角色的 `id`、`name`、`bodyStyle`、`place`（站在哪、朝哪）、`waiting`（还在后台算）。见 `src/dev/agentBridge.ts`
 - `spec`：完整的设定
 - `pageInfo`：这是哪个页面（id、地址、在不在前台、大小、浏览器）
 
@@ -95,11 +96,11 @@ agent 这边：
 ```bash
 npm run agent -- notes                          # 列出问题单，新的在前（直接读 notes/，服务器关着也行）
 npm run agent -- notes latest                   # 最新一张：那句话、两张图在哪、模式、读数、镜头（--full 整份 note.json）
-npm run agent -- notes replay --page <自己的页面>   # 把最新一张的设定、姿势、模式、镜头摆到页面上，复现用
+npm run agent -- notes replay --page <自己的页面>   # 把最新一张的设定、姿势、模式、镜头摆到页面上，复现用（场景里好几个角色时只摆当前那一个）
 curl http://localhost:5173/__agent/notes        # 同样的列表，从服务器拿
 ```
 
-看图直接打开 `screen.png`。`replay` 会改页面上的设定，所以一定要 `--page` 指定自己开的标签页（缺省会选到用户正在用的那个，它拒绝跑）；摆好以后 `shot` 一张和 `clean.png` 对比。
+看图直接打开 `screen.png`。`replay` 会改页面上的设定，所以一定要 `--page` 指定自己开的标签页（缺省会选到用户正在用的那个，它拒绝跑）；摆好以后 `shot` 一张和 `clean.png` 对比。场景里好几个角色时 `replay` 只摆当前那一个，别人只在快照的 `scene` 里记着是谁、站在哪，不复现（scene-plan.md）。
 
 「标注」只在开发服务器上有（和别的监控接口一样由插件塞进页面），exe、apk、放到网上的网页里没有。
 

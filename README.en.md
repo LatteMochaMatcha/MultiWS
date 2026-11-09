@@ -64,6 +64,8 @@ After that you only need steps 2 and 4 each time.
 - Just trying it at home: put the phone and the computer on the same Wi-Fi, run `npx vite preview --host` on the computer, and open the `http://192.168.….…:4173/` address it prints in the phone's browser.
 - Repackage after you change the workshop.
 
+**Checking for updates**: the exe and the Android package can update themselves from inside the workshop. "Check for updates" is in the "⋯" menu at the top right, and when the workshop is opened it also checks by itself if it hasn't checked in the last 10 minutes. When a new version is available a card pops up: "Update now" downloads only the files that changed, and once it's done, "Reload" switches to the new version with all your settings kept; when the installer itself (exe, apk) has a new version, it can be updated from inside the workshop as well. If a new version fails to start, it falls back to the previous one by itself. On older Android phones with a WebView below 86, 2.7.3 doesn't receive automatic updates; install the new version by hand once.
+
 ## Interface
 
 ![How it looks on a phone in portrait](docs/mobile.png)
@@ -130,7 +132,10 @@ Type the body description into the "Body description" box; the model updates by 
 
   ![Setting heads, arms and breasts per upper body](docs/per-torso.png)
 - **Multiple tails** fan out to both sides from the tail root.
-- **Hands**: "Separate fingers" (default) is a ready-made hand with each finger separate; "Joined fingers (mitten)" is a single palm plus a thumb, only suitable as a rough starting point.
+- **Hands**: "Separate fingers" (default) is a ready-made hand with each finger separate; "Joined fingers (mitten)" is a single palm plus a thumb, only suitable as a rough starting point. Separate-finger hands (on the Anime body too) can have 3–8 fingers, thumb included, under "Fingers per hand": extra fingers are copies of the ring finger, placed between the ring finger and the little finger; with fewer, the ring finger goes first, then the middle finger. The Anime body's feet can have 2–8 toes under "Toes per foot": extra toes are copies of the second toe; with fewer, the fourth toe goes first, then the third and the second; the heel and ankle don't change, only the forefoot gets wider or narrower.
+- **Hand–foot swap**: set "Arm ends in" to "Feet" and each arm ends in a foot (with the arm hanging down, the sole faces down and the toes point forward, scaled to the thickness of the wrist); set "Leg ends in" to "Hands" and each leg ends in a hand (palm flat on the ground, fingers forward, like a hand in a handstand, scaled up to the thickness of the ankle, thumb tucked in). A hand is shorter than a foot, so the whole figure sits a little lower; the height stays the same. The fingers on the legs can be posed by dragging the fingertips too, and "Plant feet" plants the palms; the Hand gestures section only covers the hands on the arms. The animal legs of centaurs and arachnes don't change. Ready-made characters can swap too: the arms get her own shoe (scaled to the wrist, the cuff stays) and the legs get her own hand; the finger count copies or removes her own ring finger (a removed finger shrinks back into its base). They all wear shoes, so the toe count and per-limb settings have no effect on Ready-made characters.
+- **Conjoined** (queen conjoined): under "Shape → Layout", set "Conjoined" to "Same direction" or "Opposite" and two upper bodies are joined at the waist into one horizontal body standing on four arms, with no pelvis or legs (the settings for legs, tails, penises and the number of upper bodies are ignored). "Same direction" has both chests facing down; "Opposite" has the other one face-up with its arms reaching back to the ground. "Conjoined posture" can be Prone (standing on all four hands), On side (both upper bodies lie on their sides along one axis, the lower arm reaching forward along the ground and the upper hand propped in front of the chest), Flat (lying flat on the back with the arms out at the sides; in "Opposite" the other one lies face-down with its head raised a little) or Standing (the lower one does a handstand on both hands while the upper one stands normally). All three body styles can do it. When a ready-made pose is applied, it follows each upper body's own orientation: the hands on the ground and the spine of the upper body they support stay put, and only the heads, necks and the hands that aren't on the ground take the pose. VRM needs a humanoid skeleton with legs, so a conjoined body can't be exported as VRM (GLB works).
+- **Per-arm and per-leg settings**: click an arm or a human leg on the model (the "Manual tweaks" section) and below you'll find "This one ends in" (Same as all / Hands / Feet) and "Fingers on this one" or "Toes on this one", which change only that limb; with "Also adjust the opposite side" ticked, the opposite side changes along with it. When some legs end in hands and others in feet, the figure stands on the feet, and the legs that end in hands are lengthened a little along the leg so the palms reach the ground.
 
 ![Several upper bodies: Mannequin and Anime body](docs/torsos.png)
 
@@ -158,7 +163,8 @@ All three body styles can wear four ready-made hairstyles: long straight, side p
 
 ### Undo and saving
 
-- Undo / Redo: the buttons at the bottom left, or `Ctrl + Z` / `Ctrl + Y`. The undo history is cleared when you refresh the page; the settings themselves stay.
+- Undo / Redo: the buttons on the toolbar at the top, or `Ctrl + Z` / `Ctrl + Y`. The undo history is cleared when you refresh the page; the settings themselves stay.
+- **Reset**: the button next to Undo / Redo in the toolbar; it puts the current character's settings back the way they were when the workshop first opened. It can be undone, and the other characters in the scene are left alone.
 - All settings (including manual tweaks and the pose you set) are saved automatically in this browser.
 - "Save config" in the "Config" section first asks for a file name (`oc_config` by default, then whatever you used last) and saves it as `.json`; "Load config…" reads it back.
 
@@ -227,7 +233,7 @@ The "Show adult parts" switch under "Part counts" is off by default and is remem
 When the automatic placement isn't what you want, you can adjust a single part: a particular arm, a head, a tail, a horn…
 
 1. **Select a part**: click it on the model (or choose it in the drop-down list in the "Manual tweaks" section). It gets a cyan overlay and a gizmo appears at the joint.
-2. **Adjust**: drag the gizmo on the model (switch between Move / Rotate / Scale in the panel), or type an offset (cm), angle (degrees) or size (multiplier) in the panel.
+2. **Adjust**: drag the gizmo on the model (switch between Move / Rotate / Scale in the panel, or press W / E / R on a computer), or type an offset (cm), angle (degrees) or size (multiplier) in the panel.
 3. Click empty space or press `Esc` to finish adjusting.
 
 - Directions: X is the character's own left, Y is up, Z is forward. Rotation and scaling are around the joint (an arm around the shoulder, a leg around the hip).
@@ -257,6 +263,7 @@ Click "Pose" on the left of the toolbar and a set of handles lights up on the jo
 - **Keep in place**: by default the feet stay planted on the ground and the hands follow the body; select a hand or foot to pin or release it on its own ("Keep this in place when dragging elsewhere").
 - **"Arm pairs"**: with two or more arm pairs, pick "Together" and whichever pair you drag, the other pairs copy it (left and right separately; arms on the same torso stay staggered); pick "Separate" to pose them one by one.
 - **"Left → Right" / "Right → Left", "Flip horizontally", "Drop to ground"**.
+- **Plant feet**: each foot drops straight down to the ground where it is, with the sole flat, and the leg bends to match; if a leg can't reach the ground (jumping, on tiptoe), the whole figure comes down. The upper body doesn't move, and on a multi-legged body every leg is planted.
 - **Drape**: after lying down, bending over or sitting, click it and a Ready-made character's hair, skirt and sleeves fall under gravity and stop outside the body and the ground when they touch them. Tick "Drape tails too" to let the tail hang as well.
 - **"Save pose" / "Load pose…"**: asks for a file name (`oc_pose` by default) and saves the pose as `.json`, which can be applied to other characters and other body styles (matched by bone name).
 

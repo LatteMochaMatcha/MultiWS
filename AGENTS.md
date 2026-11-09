@@ -26,5 +26,25 @@ OC 白模工坊 v2：多肢体角色白模生成器（Vite + TypeScript + three.
 
 ## 背景文档
 
-- `docs/rework-plan.md`：胸、多上半身、多胯换做法的计划和每期做了什么（现在在第 3 期之后）。
 - `README.md`：给用户看的精简说明；各项做法的细节看 `docs/` 里的计划和代码注释。
+- `docs/` 里的方案文档：正文是写文档那天的叙述，分期、「待做」「等你定」都可能过时；每份开头的「现状（2026-11-09）」一段写的是实际进度，先看它。分支 `rework/torso-bust` 从 11-02 起一直当主线用，推上 GitHub main，版本到 2.7.6（2026-11-08）。索引：
+
+| 文档 | 讲什么 | 状态（2026-11-09） |
+|---|---|---|
+| `docs/rework-plan.md` | 胸、多上半身、多胯换做法（二次元素体）：七期计划，每期做成什么，之后修的 | 七期 11-02 做完（fde1a56），之后修修补补到 11-08（扭躯干 1076cbb） |
+| `docs/accept/README.md` | 验收图怎么出；`docs/accept/` 各目录是哪一期 | 在用 |
+| `docs/bust-reference.md` | 11-01 用 DJP 素材换胸型的旧做法 | 已作废（rework 第 3 期删了那套格子） |
+| `docs/anime-quality.md` | 二次元素体网格表面校正（`sdf/surfaceQuality.ts`） | 做完，在用 |
+| `docs/fusion-optimization.md` | 11-01 融合提速（分叉缓存、Surface Nets 查表） | 做完，在用 |
+| `docs/perf-plan.md` | 拖动卡顿优化：量法、分期、每期结果 | 第 0–4 期做完（d058630）；只剩 3c 显卡蒙皮、撤销不再整份比较两条 |
+| `docs/genital-plan.md` | 多阴茎（成人部件，默认关） | 五期做完并合入主线（8cccbaa）；疲软形态、关掉只藏不删后来也做了 |
+| `docs/per-torso-plan.md` | 每个上半身单独设数量；每个上半身换成别的角色（男女连体） | 做完（d8cc35f、73476c8、d37ed65），成品角色也做了 |
+| `docs/vrm-plan.md` | 导出 VRM 0.x 四期；成品角色许可表 | 四期做完（a2a68a0…74ce48f）；VRM 1.0 导出没做 |
+| `docs/i18n.md` | 中英日三语：包字符串和翻译的规矩、术语表 | 做完并合入（e4c527d）；加界面文字时照它 |
+| `docs/agent-monitor.md` | 开发服务器 `/__agent/` 监控接口、问题单（画红圈） | 在用 |
+| `docs/mobile-ui-plan.md` | 手机竖屏界面重做（抽屉、一次一栏） | 做完（ae718cc）；长按连加、摆姿势竖屏按身高取景没做 |
+| `docs/pc-ui-plan.md` | 电脑端界面重做（顶栏 + 栏目条） | 做完并合入（0b5a7e4、fa5df23） |
+| `docs/update-plan.md` | 软件内自动更新（R2 + GitHub，签名清单，exe/apk 外壳） | 第 0–5 期做完，2.7.3 起带自动更新；10 分钟检查的新外壳还没随 `-Installers` 发出 |
+| `docs/scene-plan.md` | 一个场景里放好几个角色；肢体互动、双人动作 | 做完，随 2.7.5 发布（3cc91d2）；三人以上的双人动作、replay 整个场景没做 |
+| `docs/digits-plan.md` | 手指、脚趾数量，手脚互换，queen 连体 | 六期做完（aab6517）；连体侧躺后来又改（efb795d、c942f57）；连体两个上半身各设头数没做 |
+| `docs/audit-plan.md` | 11-09 全项目只读审计：冲突、缺失、文档核对、分期建议 | 审计结果，照它收拾中 |

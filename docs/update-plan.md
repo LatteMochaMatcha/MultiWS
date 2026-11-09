@@ -1,6 +1,15 @@
 # 软件内自动更新：方案
 
-2026-11-06 写。还没开工。
+2026-11-06 写（写时还没开工；实际进度见下面「现状」，正文的「现状（照代码看的）」是 11-06 那天的）。
+
+## 现状（2026-11-09）
+
+- 第 0–5 期 11-06 到 11-07 全做完：第 1 期 0bb144b（版本号统一、清单、签名、发版命令）、第 2 期 exe 外壳 07fa229、第 3 期 apk 外壳 0720540、第 4 期网页提示 4fd4c0b、第 5 期外壳自更新 b5fa251，都推上 GitHub main。
+- 发出去的版本：2.7.3（d0fb91b，第一个带自动更新的安装包）、2.7.4（86ebe13）、2.7.5（3cc91d2）、2.7.6（5dff981）。每版都发到 R2 和 GitHub `update-store`，GitHub Release 也有安装包；2.7.2 的清单和文件也传过。
+- 发出去以后修的两处（见文末「发出去以后修的」）：2.7.3 不提示 2.7.4（8799b8a，网页打开时 10 分钟没查就让外壳查）；apk 2.7.3 在 WebView 83 上「检查更新」没反应（b6a399e，`src/update/` 不用 `replaceChildren`）。两处在 2.7.4 发版之后提交，随 2.7.5 发出。
+- 正文里过时的几处已加括注：内置清单叫 `update-manifest.json`（「原来的计划」里写的 `builtin.json` 没用这个名）；检查间隔「一天一次」「20 小时」已改 10 分钟（`Updater.cs:152` 的 `CheckEvery`、`Updater.java:56` 的 `CHECK_EVERY_MS`）；外壳版本从 `tools/update/config.json` 的 `shell` 读，不写在代码里；R2 桶里早已不止测速文件；第 4 期的 apk 那边第 3 期同日就接上了。
+- 还没做：外壳改成 10 分钟检查的那版（`config.json` 的 `shell` 还是 1）没随 `-Installers` 发过新安装包，已装的外壳靠网页那条规则补上；exe 换安装包时黑窗口闪一下（第 5 期「没做的」）；没有自己的域名，还用 `r2.dev`。
+- 试跑打包好的 exe 一律加 `--port <别的端口> --state <临时目录>`，别碰本机真的状态目录（见文末）。
 
 ## 目标
 
@@ -9,7 +18,7 @@
 - 更新完刷新一下页面就能用，不用重装，也不用重启。设定、保存的角色（localStorage）都保留。
 - 更新下坏了、被人换了包，或者新版打不开，都自动退回能用的那一版。
 
-## 现状（照代码看的）
+## 写方案时的现状（2026-11-06 照代码看的，已过时）
 
 - **exe**（`tools/launcher/Launcher.cs`）：把嵌在 exe 里的 `app.zip` 读进内存，在 `localhost:5210` 开一个小网站，再用默认浏览器打开。文件开头写着「不联网，不往硬盘上写东西」。
 - **apk**（`tools/android/src/.../MainActivity.java`）：WebView 打开 `https://appassets.androidplatform.net/index.html`，网页要的每个文件都在 `shouldInterceptRequest` 里从 `assets/www` 取。`AndroidManifest.xml` 里没有申请任何权限，也没有联网权限。
@@ -91,7 +100,7 @@
 ### 6. 网页这边
 
 - `src/update/` 统一管更新，下面分 exe、apk 两套接法。开发服务器上没有外壳，就不显示任何更新入口。
-- 检查时机：每次打开查一次，一天最多一次。
+- 检查时机：每次打开查一次，一天最多一次。（做出来是 20 小时，11-07 又改成 10 分钟，见「2.7.3 不提示更新到 2.7.4」。）
 - 有新版时显示一张卡片：「有新版本 2.8（约 3 MB）」，下面是更新说明、「现在更新」「以后再说」「跳过这一版」。下载时显示进度，下完后点「刷新」就用上了。
 - 设置里加两项：「自动检查更新」开关，和一个「现在检查」按钮。
 - 新加的界面文字都包 `t()`，补上英文、日文译文。
@@ -122,7 +131,7 @@
 
 ### 第 0 期：先定的事、开通 R2
 
-- R2 已开通、测过速，定为先试的地址（11-06）。存储桶里现在只有 `speedtest-10mb.bin`（随机数据），以后可以删。
+- R2 已开通、测过速，定为先试的地址（11-06）。存储桶里现在只有 `speedtest-10mb.bin`（随机数据），以后可以删。（已过时：11-06 晚起 2.7.2 到 2.7.6 各版的清单和文件都在桶里。）
 - 四件事都定了（见「已定的事」）。第 0 期完成。
 - 第 1 期上传要用到的两样东西，到时候你来弄：
   - `npx wrangler login`：在浏览器里登录 Cloudflare 授权；
@@ -161,7 +170,7 @@
 - `package.json` 的版本号作为唯一来源，改成 `2.7.2`。`pack.ps1` 照它生成 Launcher.cs 里的 AssemblyVersion；apk 已经从这里读了。
 - 新命令 `npm run release`（`tools/release.ps1`）：
   1. 打包；
-  2. 算哈希，写 `builtin.json` 和 `latest.json`；
+  2. 算哈希，写 `builtin.json`（做出来叫 `update-manifest.json`，见上面「做好的」）和 `latest.json`；
   3. 签名；
   4. 只上传两边都还没有的文件：R2 用 `wrangler r2 object put`，GitHub 用 `gh release upload update-store`，凭据照现在推送的办法，临时用 gh 的；
   5. 最后才上传 `latest.json` 和签名，免得别人先读到新清单，文件却还没传完。
@@ -172,14 +181,14 @@
 
 做好的：
 
-- 更新的代码在 `tools/launcher/Updater.cs`，Launcher.cs 只接了几行。`pack.ps1` 生成 `Build.cs`（`BuildInfo`：版本号、公钥、下载站，照 `tools/update/` 写），和两个 .cs 一起编，多引用一个 `System.Web.Extensions.dll`（读写 JSON）。外壳自己的版本 `Updater.ShellVersion = 1`。
+- 更新的代码在 `tools/launcher/Updater.cs`，Launcher.cs 只接了几行。`pack.ps1` 生成 `Build.cs`（`BuildInfo`：版本号、公钥、下载站，照 `tools/update/` 写），和两个 .cs 一起编，多引用一个 `System.Web.Extensions.dll`（读写 JSON）。外壳自己的版本 `Updater.ShellVersion = 1`（第 5 期起改成从 `tools/update/config.json` 的 `shell` 读，打包时写进 `BuildInfo.Shell`，代码里不再写死）。
 - `config.json` 的下载站改成 `{ base, objects }`：R2 的文件在 `objects/` 下，GitHub 的直接放在 Release 里。
 - 本机文件在 `%LOCALAPPDATA%\OC白模工坊\update\`：
   - `objects/<sha256>`：下好的文件；
   - `current.json(.sig)`：现在用的版本；`previous.json(.sig)`：上一版；
   - `downloading.json(.sig)`：下到一半的那版，重开时接着提示、不会被清理掉；
   - `state.json`：自动检查开关、跳过的版本、上次检查时间、待确认的版本和次数、打不开的版本。
-- 打开时：挑「签名对、外壳用得了、文件都在、没被标成打不开」的版本里最新的；比外壳自带的旧就用自带的。只要两次检查之间隔满 20 小时、没关自动检查，就在后台查一次。
+- 打开时：挑「签名对、外壳用得了、文件都在、没被标成打不开」的版本里最新的；比外壳自带的旧就用自带的。只要两次检查之间隔满 20 小时（11-07 改成 10 分钟，`Updater.cs:152`；见「2.7.3 不提示更新到 2.7.4」）、没关自动检查，就在后台查一次。
 - 检查：依次读每个下载站的清单和签名，签名对不上就试下一个，这也顺带处理了 GitHub 缓存的问题。
 - 下载：只下本机没有的文件，一个下不了也接着下别的；边下边算 sha256，大小或内容不对就丢掉。全部下好才换 `current.json`，网页刷新就是新版。
 - 启动成功的回报：外壳往 `index.html` 的 `<head>` 里插一小段脚本。页面加载完 3 秒内没有脚本错误，就 POST `/__shell/booted`。新版连着 2 次打开都没收到回报，第 3 次打开就退回上一版（没有上一版就用自带的），并把这版记成打不开，以后不再提示它。
@@ -192,7 +201,7 @@
 | 地址 | 做什么 |
 |---|---|
 | `GET /__shell/status` | 返回 JSON：`shell`、`enabled`、`version`（现在用的）、`builtin`、`usingBuiltin`、`autoCheck`、`skip`、`lastCheck`、`status`、`error`、`needsNewShell`、`latest`（`version`、`notes`、`bytes`）、`progress`（`done`、`total`） |
-| `POST /__shell/check` | 马上查一次（不管 20 小时，也不管跳过的版本） |
+| `POST /__shell/check` | 马上查一次（不管 20 小时——现在是 10 分钟，也不管跳过的版本） |
 | `POST /__shell/download` | 下载 `latest`（`status` 是 `available` 或下载出错时） |
 | `POST /__shell/settings` | 请求体 `{"autoCheck": true/false, "skip": "版本号" 或 null}` |
 | `POST /__shell/booted` | 启动成功（插进去的脚本会发，网页不用管） |
@@ -259,7 +268,7 @@
 - 和 exe 做同样几件事，接口走 JS 桥。
 - 在模拟器上把第 2 期那几种情况再测一遍。模拟器你自己也在用，往里点之前先看前台是不是我的应用。
 
-### 第 4 期：网页提示和设置（11-07 做完，exe 这边；apk 等第 3 期接上）
+### 第 4 期：网页提示和设置（11-07 做完，exe 这边；apk 第 3 期同日接上）
 
 做好的：
 

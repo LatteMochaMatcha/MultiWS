@@ -18,6 +18,7 @@ uv run --with pillow python tools/accept-sheet.py docs/accept/<期> --title <期
 - `summary.json`：部件数、网格几块、破口边、非流形边、部件穿插、融合耗时。`--against` 会把比上一次变差的列出来（部件少了、网格碎了、破口多了、穿插多了、慢了一半以上）。
 - `tools/accept-sheet.py`：拼成每组一张的总图 `sheet-<组>.png`；和 `refs/` 里参考图并排的对照图放在 `refs/compare/`（参考图是别人的画，不进仓库）。
 - 单张图不进仓库（`.gitignore`），仓库里只有总图和 `summary.json`。
+- `tools/overview.ts` + `tools/overview-sheet.py`（11-05 加的「总览重测」，不走上面的固定组合）：三种身体样式 39 种肢体组合各套 10 个现成姿势（好几个上半身的再加两个脊柱各转各的），出图并记网格几块、破口、蒙皮拉长多少；`node tools/run.mjs tools/overview.ts <输出目录> [--shard 0/6] [--only A01,M03]`，再 `uv run --with pillow python -I tools/overview-sheet.py <输出目录>` 拼成每种组合一张总图、写 `summary.md` 列标红的。
 
 | 目录 | 是什么 |
 |---|---|
@@ -29,3 +30,4 @@ uv run --with pillow python tools/accept-sheet.py docs/accept/<期> --title <期
 | `7-final` | 第 7 期：收尾（烤胸提速以后，最后一套） |
 | `9-three` | 二次元素体三个上半身改成直立并排、从胯上面分开（E 组加了横排两副胯的两种），B、C 同时重出 |
 | `8-fixes` | 试用后修的几处：D 改成一个人的身子、胸能挪过正中线、两个上半身的胸各跟各的；B、C、E3 后来又按「好几个上半身松手后重新融合」重出（自然站立走重新融合）。融合耗时是机器忙时量的，不准 |
+| `overview-1105` | 11-05 总览重测（`overview.ts` 出的，不是 `accept.ts`）：39 种组合、410 张姿势图，拼成 `A01…A21`（二次元素体）、`M01…M10`（白模人台）、`C01…C08`（成品角色）每种一张 `_sheet.png`，`problems_overview.png` 看名字是标红那几处的汇总图（不是 `overview-sheet.py` 出的，待确认），`summary.md` 列标红的和最慢的，`shard-*.jsonl` 是每张图的检查结果。找到的四处怎么修的见 [rework-plan.md](../rework-plan.md)「总览重测和横排两副胯（11-05）」「套姿势时手掉成单独一块（11-05）」。之后手指脚趾那边又往 `overview.ts` 加了 A26、A27、M13、M14、C09 等组合，图没重出 |
