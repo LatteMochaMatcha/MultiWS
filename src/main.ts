@@ -494,7 +494,8 @@ const steppers = COUNT_DEFS.map((d) => {
   const label = el('label');
   label.append(d.label, el('small', '', d.unit));
   const hint = COUNT_HINTS[d.key];
-  if (hint) label.title = hint;
+  // 两列小格子里单位（对、条、只 / 每个头）放不下、不显示：鼠标停上去能看到
+  label.title = hint ?? `${d.label} · ${d.unit}`;
   const minus = el('button', '', '−');
   const plus = el('button', '', '+');
   const out = el('output');

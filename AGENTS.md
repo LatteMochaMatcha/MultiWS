@@ -48,8 +48,8 @@ OC 白模工坊 v2：多肢体角色白模生成器（Vite + TypeScript + three.
 | `docs/vrm-plan.md` | 导出 VRM 0.x 四期；成品角色许可表 | 四期做完（a2a68a0…74ce48f）；VRM 1.0 导出没做 |
 | `docs/i18n.md` | 中英日三语：包字符串和翻译的规矩、术语表 | 做完并合入（e4c527d）；加界面文字时照它 |
 | `docs/agent-monitor.md` | 开发服务器 `/__agent/` 监控接口、问题单（画红圈） | 在用 |
-| `docs/mobile-ui-plan.md` | 手机竖屏界面重做（抽屉、一次一栏） | 做完（ae718cc）；长按连加、摆姿势竖屏按身高取景没做 |
-| `docs/pc-ui-plan.md` | 电脑端界面重做（顶栏 + 栏目条） | 做完并合入（0b5a7e4、fa5df23） |
+| `docs/mobile-ui-plan.md` | 手机竖屏界面重做（抽屉、一次一栏） | 做完（ae718cc）；11-10 抽屉改成照内容定高；长按连加、摆姿势竖屏按身高取景没做 |
+| `docs/pc-ui-plan.md` | 电脑端界面重做（顶栏 + 栏目条） | 做完并合入（0b5a7e4、fa5df23）；11-10 栏目并成 6 组、配置进「⋯」菜单 |
 | `docs/update-plan.md` | 软件内自动更新（R2 + GitHub，签名清单，exe/apk 外壳） | 第 0–5 期做完，2.7.3 起带自动更新；10 分钟检查的新外壳还没随 `-Installers` 发出 |
 | `docs/scene-plan.md` | 一个场景里放好几个角色；肢体互动、双人动作 | 做完，随 2.7.5 发布（3cc91d2）；三人以上的双人动作、replay 整个场景没做 |
 | `docs/digits-plan.md` | 手指、脚趾数量，手脚互换，queen 连体 | 六期做完（aab6517）；连体侧躺后来又改（efb795d、c942f57）；连体两个上半身各设头数没做 |

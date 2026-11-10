@@ -72,10 +72,13 @@ After that you only need steps 2 and 4 each time.
 
 - **The toolbar along the top**: on the left, the "Shape / Pose" switch chooses what you are doing, next to Undo / Redo; on the right are the readouts for height, heads tall and triangle count (orange text after them is a warning), the "Export" button, and the "⋯" menu (language, theme, tour, source code link).
 - **The left side is the 3D view**. Left-drag to rotate, scroll to zoom, right-drag to pan, click a part to select it. At the bottom left are the view buttons (Front / Side / Back / 3/4) and "Bones" to show the skeleton.
-- **The right side is the settings panel**, with a column of section icons on its left: Body description, Presets, Part counts, Layout, Hair, Body shape, Manual tweaks, Mesh (in Pose mode these become Pose, Hands, Face and Pose library), then Camera & lighting, Reference images and Config, which both modes share. Click one and the panel shows only that section; selecting a part switches to "Manual tweaks", and deselecting goes back. The longer notes in each section stay hidden until you click "Notes" at the top right of the panel.
+- **The right side is the settings panel**, with a column of icons on its left: Body (Body description, Presets, Part counts), Layout, Look (Body shape, Hair) and Tweak (Manual tweaks, Mesh); in Pose mode these become Pose, Hands, Face and Pose library. Below them are Scene and View (Camera & lighting, Reference images), which both modes share. Click one and the panel shows that group; selecting a part switches to "Tweak", and deselecting goes back. The longer notes in each section stay hidden until you click "Notes" at the top right of the panel. Saving and loading a config file is in the "…" menu at the top right.
 - **Language**: the interface is available in Chinese, English and Japanese. Use the language drop-down at the top right (to the left of the theme button). The first time you open it, it follows the browser's language; adding `?lang=en` (or `zh`, `ja`) to the address also works.
 - **Tour**: it appears automatically the first time you open the workshop. It starts by asking for a language, then walks you through a few areas; in the steps on the 3D view, adjusting individual limbs, and posing, you can try things out on the model right away. It can be skipped; to see it again, click "Tour" under the title.
-- **Phone in portrait**: the 3D view is the top half and the settings the bottom half, and the whole page scrolls together. Drag with one finger to rotate; pinch with two fingers to zoom and drag with two fingers to pan.
+- **Phone in portrait**: the 3D view fills the screen. Drag with one finger to rotate; pinch with two fingers to zoom and drag with two fingers to pan.
+  - In Shape mode the settings sit in a drawer at the bottom, one section at a time; tap a section name along the top of the drawer to switch (swipe sideways for more). The drawer is as tall as that section needs, so short sections leave more room for the model. Drag the handle (or tap it) to change the height; drag it all the way down to see the model full-screen. Tapping a part moves the camera in and switches the drawer to "Tweak"; tap ✕ to deselect and the camera flies back.
+  - In Pose mode there is a row of icons at the bottom (Pose, Hands, Face, Library, Scene, Camera, Refs). Tap one to pop up that section and tap the model to close it; tapping a joint pops up a small card.
+  - Two round buttons on the right: views (Front / Side / Back / 3/4, Bones) and export. At the top right are undo, redo, reset and "…" (language, theme, tour, save and load config, source link). The longer notes stay hidden until you tap "? Notes" at the top right of the drawer.
 
 ## Shape
 
@@ -166,7 +169,7 @@ All three body styles can wear four ready-made hairstyles: long straight, side p
 - Undo / Redo: the buttons on the toolbar at the top, or `Ctrl + Z` / `Ctrl + Y`. The undo history is cleared when you refresh the page; the settings themselves stay.
 - **Reset**: the button next to Undo / Redo in the toolbar; it puts the current character's settings back the way they were when the workshop first opened. It can be undone, and the other characters in the scene are left alone.
 - All settings (including manual tweaks and the pose you set) are saved automatically in this browser.
-- "Save config" in the "Config" section first asks for a file name (`oc_config` by default, then whatever you used last) and saves it as `.json`; "Load config…" reads it back.
+- "Save config" in the "…" menu at the top right first asks for a file name (`oc_config` by default, then whatever you used last) and saves it as `.json`; "Load config…" reads it back.
 
 ## Three body styles
 

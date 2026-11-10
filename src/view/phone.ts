@@ -2,13 +2,15 @@
  * 面板的版面：一次只看一栏，栏目名按钮换栏；「更多」菜单、导出面板是弹出层；状态消息从顶上冒一下。
  * 电脑和手机竖屏是两套样子，这里管两边共用的记号（名字沿用最早只管手机时的 Phone）。
  *
- * 手机竖屏（PHONE_QUERY）：3D 视图铺满，设定放在底下的抽屉里。
- * - 造型：抽屉有四档高低（只露栏目名 / 三分之一 / 六成 / 几乎整屏）。点栏目名换栏，内容长的几栏自动拉到六成高；
- *   点中部件时切到「微调」、抽屉落到三分之一（镜头凑过去由 main.ts 做）。
+ * 手机竖屏（PHONE_QUERY）：3D 视图铺满，设定放在底下的抽屉里，一次只看一栏。
+ * - 造型：抽屉三档（只露栏目名 / 照这一栏的内容定高、最高六成屏 / 几乎整屏）。点栏目名换栏，抽屉跟着内容变高变矮；
+ *   点中部件时切到「微调」（镜头凑过去由 main.ts 做）。
  * - 摆姿势：没有抽屉，底下一条图标；点哪个图标弹出哪一栏的卡片，碰一下模型收起。点中关节时只弹一张两行的小卡片。
  * - 弹出层三个：「更多」、导出面板、视角小浮层。
  *
- * 电脑（其余所有尺寸，含手机横屏）：顶上一条工具栏，面板左边一竖排栏目图标，面板里只显示选中的那一栏。
+ * 电脑（其余所有尺寸，含手机横屏）：顶上一条工具栏，面板左边一竖排栏目图标，面板里显示选中的那一组。
+ * - 内容少的几栏并成一组（GROUPS：身体 = 描述 + 预设 + 数量，外观 = 体型 + 头发，微调 = 微调 + 网格，视图 = 镜头 + 参考图），
+ *   一个图标、一次都显示，各栏的标题当小标题。
  * - 造型、摆姿势各记各的上次停在哪一栏（存在浏览器里）。
  * - 点中部件切到「微调」，点中关节切到「姿势」；取消选择回到原来那一栏。
  * - 弹出层两个：「更多」、导出面板（顶栏右边的按钮下面），点别处关掉。
@@ -20,7 +22,8 @@ import { t } from '../i18n';
 /** 和 style.css 里手机竖屏那一段的条件一样（电脑那一段是它的反面） */
 export const PHONE_QUERY = '(max-width: 600px), (max-width: 820px) and (orientation: portrait)';
 
-export type Sheet = 'peek' | 'low' | 'tall' | 'full';
+/** 手机抽屉的三档：只露栏目名 / 照这一栏的内容定高（最高六成屏）/ 几乎整屏 */
+export type Sheet = 'peek' | 'fit' | 'full';
 type Mode = 'shape' | 'pose';
 type Pop = 'menu' | 'export' | 'views';
 
@@ -28,8 +31,17 @@ type Pop = 'menu' | 'export' | 'views';
 const TABS_KEY = 'oc-basemesh-tabs';
 const NOTES_KEY = 'oc-basemesh-notes';
 
-/** 手机上内容长的栏：点进去抽屉拉到六成高 */
-const TALL = new Set(['desc', 'layout', 'hair', 'shape', 'view', 'refs', 'scene']);
+/**
+ * 电脑上内容少的几栏并成一组，一个图标、一次都显示出来（手机竖屏还是一次一栏）。
+ * 组里第一栏是领头的：图标、组名写在它的按钮上，别的几栏的按钮在电脑上不出现。没写进来的栏自己一组
+ */
+const GROUPS: readonly { keys: readonly string[]; label: string; icon?: string }[] = [
+  { keys: ['desc', 'presets', 'counts'], label: t('身体@@栏目'), icon: '<circle cx="12" cy="7" r="3.5"/><path d="M5 20.5c0-4 3-6.5 7-6.5s7 2.5 7 6.5"/>' },
+  { keys: ['shape', 'hair'], label: t('外观@@栏目') },
+  { keys: ['tweak', 'mesh'], label: t('微调@@栏目') },
+  { keys: ['view', 'refs'], label: t('视图@@栏目') },
+];
+const groupOf = (key: string) => GROUPS.find((g) => g.keys.includes(key));
 
 /** 栏目名按钮上用短的（手机一排放得下更多、电脑竖排图标下面两个字），完整的名字放进 title */
 const SHORT: Record<string, string> = {
@@ -48,7 +60,6 @@ const SHORT: Record<string, string> = {
   scene: t('场景@@栏目'),
   view: t('镜头@@栏目'),
   refs: t('参考图@@栏目'),
-  config: t('配置@@栏目'),
 };
 
 /** 栏目图标（24×24，描边）：电脑的竖排、手机摆姿势时底下那条 */
@@ -68,17 +79,31 @@ const ICON: Record<string, string> = {
   scene: '<circle cx="7" cy="6" r="2"/><circle cx="17" cy="6" r="2"/><path d="M7 8.5v6M17 8.5v6M4.5 11h5M14.5 11h5M5 20l2-5.5 2 5.5M15 20l2-5.5 2 5.5"/>',
   view: '<path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
   refs: '<rect x="4" y="5" width="16" height="14" rx="2"/><path d="m4 16 5-5 4 4 2-2 5 5"/><circle cx="15.5" cy="9.5" r="1.2"/>',
-  config: '<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 14h8M8 17h8"/>',
 };
 
-/** 栏目名按钮里的内容：图标 + 短名字 */
+/**
+ * 栏目名按钮里的内容：图标 + 短名字。
+ * 并了组的栏：领头的那个另带一个组名（.g，电脑上显示它、不显示 .s），别的记成 follower（电脑上不出现）
+ */
 export function jumpLabel(button: HTMLButtonElement, key: string, full: string) {
+  const group = groupOf(key);
   button.dataset.key = key;
   button.title = full;
   button.setAttribute('aria-label', full);
-  const icon = ICON[key] ? `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[key]}</svg>` : '';
-  button.innerHTML = `${icon}<span></span>`;
-  button.querySelector('span')!.textContent = SHORT[key] ?? full;
+  const path = (group && group.keys[0] === key ? group.icon : undefined) ?? ICON[key];
+  const icon = path ? `<svg viewBox="0 0 24 24" aria-hidden="true">${path}</svg>` : '';
+  button.innerHTML = `${icon}<span class="s"></span>`;
+  button.querySelector('.s')!.textContent = SHORT[key] ?? full;
+  if (!group) return;
+  if (group.keys[0] !== key) {
+    button.classList.add('follower');
+    return;
+  }
+  button.dataset.group = group.label;
+  const name = document.createElement('span');
+  name.className = 'g';
+  name.textContent = group.label;
+  button.append(name);
 }
 
 /** 状态消息冒出来多久（毫秒） */
@@ -100,8 +125,10 @@ export class Phone {
   constructor(private readonly sections: Map<string, HTMLElement>) {
     this.app = document.querySelector<HTMLElement>('.app')!;
     this.mode = this.app.dataset.mode === 'pose' ? 'pose' : 'shape';
-    this.app.dataset.sheet = 'low';
+    this.app.dataset.sheet = 'fit';
     this.loadTabs();
+    // 电脑上并在一组里的栏：各自的标题留着当小标题
+    for (const group of GROUPS) for (const key of group.keys) sections.get(key)?.classList.add('grouped');
     // 长说明（没有 id、写死在页面里的那几段）平时收起来，点「说明」才出来
     for (const note of document.querySelectorAll<HTMLElement>('.panel-scroll .note:not([id])')) {
       if ((note.textContent ?? '').trim().length > 60) note.classList.add('long');
@@ -110,6 +137,8 @@ export class Phone {
     this.wirePops();
     this.wireToast();
     this.wireNotes();
+    this.wireFit();
+    this.wireTabsFade();
     // 碰一下模型：视角小浮层收起来，摆姿势的卡片也收起来（点中关节的小卡片除外，它跟着选中走）
     document.getElementById('stage')!.addEventListener('pointerdown', (e) => {
       if (!(e.target instanceof HTMLCanvasElement)) return;
@@ -144,7 +173,7 @@ export class Phone {
     if (!section) return;
     this.setPop(null);
     if (this.on && this.mode === 'pose') {
-      if (this.app.dataset.card === 'open' && this.current() === key) return this.closeCard();
+      if (this.app.dataset.card === 'open' && this.shown === key) return this.closeCard();
       this.app.dataset.card = 'open';
       this.show(key);
       return;
@@ -155,11 +184,12 @@ export class Phone {
     if (key !== 'tweak') this.beforePick = null;
     if (key !== 'pose') this.beforeJoint = null;
     this.show(key);
-    if (this.on) {
-      const now = this.app.dataset.sheet as Sheet;
-      this.app.dataset.sheet = sheet ?? (now === 'full' ? 'full' : TALL.has(key) ? 'tall' : 'low');
-    }
-    this.panelScroll().scrollTop = 0;
+    // 手机：抽屉照这一栏的内容定高（已经拉到整屏的就留着）
+    if (this.on) this.app.dataset.sheet = sheet ?? (this.app.dataset.sheet === 'full' ? 'full' : 'fit');
+    // 电脑上并在一组里、不是领头的那一栏（程序替人换过去的：新手引导、点中部件）：滚到它那里
+    const follows = !this.on && groupOf(key)?.keys[0] !== key && groupOf(key) !== undefined;
+    if (follows) section.scrollIntoView({ block: 'start' });
+    else this.panelScroll().scrollTop = 0;
   }
 
   /** 换模式：回到这个模式上次看的那一栏（手机摆姿势先不弹卡片） */
@@ -204,7 +234,7 @@ export class Phone {
       if (this.tabs.shape !== 'tweak') this.beforePick ??= this.tabs.shape;
       this.remember('tweak');
       this.show('tweak');
-      if (this.on && this.app.dataset.sheet !== 'full') this.app.dataset.sheet = 'low';
+      if (this.on && this.app.dataset.sheet !== 'full') this.app.dataset.sheet = 'fit';
     } else if (this.beforePick && this.tabs.shape === 'tweak') {
       this.remember(this.beforePick);
       this.beforePick = null;
@@ -223,9 +253,8 @@ export class Phone {
       this.closeCard();
       return true;
     }
-    const sheet = this.app.dataset.sheet;
-    if (this.mode === 'shape' && (sheet === 'tall' || sheet === 'full')) {
-      this.app.dataset.sheet = 'low';
+    if (this.mode === 'shape' && this.app.dataset.sheet === 'full') {
+      this.app.dataset.sheet = 'fit';
       return true;
     }
     return false;
@@ -251,11 +280,6 @@ export class Phone {
   private closeCard() {
     delete this.app.dataset.card;
     this.show(null);
-  }
-
-  private current(): string | null {
-    for (const [key, s] of this.sections) if (s.classList.contains('tab-on')) return key;
-    return null;
   }
 
   /** 记下某个模式（缺省是现在这个）停在哪一栏 */
@@ -284,19 +308,31 @@ export class Phone {
     }
   }
 
-  /** 只亮出这一栏（null：一栏都不亮，手机摆姿势收起卡片时） */
+  /**
+   * 只亮出这一栏（null：一栏都不亮，手机摆姿势收起卡片时）。
+   * 电脑上这一栏要是并在一组里，整组都亮出来，按钮亮的是领头的那个
+   */
   private show(key: string | null) {
-    for (const [k, s] of this.sections) s.classList.toggle('tab-on', k === key);
+    const group = key && !this.on ? groupOf(key) : undefined;
+    const keys = group ? group.keys : key ? [key] : [];
+    const lead = keys[0] ?? null;
+    for (const [k, s] of this.sections) s.classList.toggle('tab-on', keys.includes(k));
     for (const b of document.querySelectorAll<HTMLButtonElement>('#jump button')) {
-      const on = b.dataset.key === key;
+      const on = b.dataset.key === lead;
       b.setAttribute('aria-current', String(on));
       if (on && this.on) b.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     }
-    // 电脑上面板顶上写这一栏的全名
-    const title = key ? this.sections.get(key)?.querySelector('.fold')?.textContent : '';
+    // 电脑上面板顶上写这一栏（这一组）的名字
+    const title = group ? group.label : key ? this.sections.get(key)?.querySelector('.fold')?.textContent : '';
     document.getElementById('panelTitle')!.textContent = title ?? '';
+    this.shown = key;
+    this.fit();
+    this.fadeTabs();
     this.onChange();
   }
+
+  /** 现在亮着的是哪一栏（并了组的是点的那一栏） */
+  private shown: string | null = null;
 
   private panelScroll() {
     return document.getElementById('panelScroll')!;
@@ -332,22 +368,62 @@ export class Phone {
     }
   }
 
-  /** 拖把手换高低：跟着手指走，松手停在最近的一档；点一下就升一档（到顶回三分之一） */
+  /** 样式里写的一个长度（--sheet-peek 这类，px 或者占屏高的百分比）是多少像素 */
+  private cssPx(name: string): number {
+    const value = getComputedStyle(this.app).getPropertyValue(name).trim();
+    if (value.endsWith('%')) return (parseFloat(value) / 100) * window.innerHeight;
+    return parseFloat(value);
+  }
+
+  /**
+   * 手机造型：量现在这一栏的内容有多高，抽屉就开多高（样式里再夹在最矮、最高之间）。
+   * 内容少的栏（描述、预设、参考图）抽屉矮，模型大；内容多的（排布、体型）到六成屏为止，里面滚
+   */
+  private fit() {
+    if (!this.on || this.mode !== 'shape') return;
+    const section = this.shown ? this.sections.get(this.shown) : undefined;
+    if (!section || !section.offsetParent) return;
+    const scroll = this.panelScroll();
+    const pad = getComputedStyle(scroll);
+    const chrome = document.getElementById('grip')!.offsetHeight + document.getElementById('jump')!.offsetHeight;
+    const height = Math.ceil(chrome + section.offsetHeight + parseFloat(pad.paddingTop) + parseFloat(pad.paddingBottom)) + 1;
+    this.app.style.setProperty('--sheet-fit', `${height}px`);
+  }
+
+  /** 这一栏的内容变高变矮了（选中了部件、开了「说明」、多出几行）、屏幕转了：抽屉跟着重新定高 */
+  private wireFit() {
+    if (typeof ResizeObserver !== 'undefined') {
+      const watch = new ResizeObserver(() => this.fit());
+      for (const section of this.sections.values()) watch.observe(section);
+    }
+    window.addEventListener('resize', () => this.fit());
+  }
+
+  /** 手机上栏目名一排放不下：右边还有的时候那一头淡出去，提示能横着滑 */
+  private fadeTabs() {
+    const jump = document.getElementById('jump')!;
+    jump.classList.toggle('more', jump.scrollLeft + jump.clientWidth < jump.scrollWidth - 6);
+  }
+
+  private wireTabsFade() {
+    const jump = document.getElementById('jump')!;
+    jump.addEventListener('scroll', () => this.fadeTabs(), { passive: true });
+    window.addEventListener('resize', () => this.fadeTabs());
+  }
+
+  /** 拖把手换高低：跟着手指走，松手停在最近的一档；点一下就升一档（到顶回照内容定高那一档） */
   private wireGrip() {
     const grip = document.getElementById('grip')!;
-    const order: Sheet[] = ['peek', 'low', 'tall', 'full'];
+    const order: Sheet[] = ['peek', 'fit', 'full'];
     let start: { y: number; h: number } | null = null;
     let moved = false;
     const heights = () => {
-      const vh = window.innerHeight;
-      const css = getComputedStyle(this.app);
-      const px = (name: string) => {
-        const probe = css.getPropertyValue(name).trim();
-        if (probe.endsWith('%')) return (parseFloat(probe) / 100) * vh;
-        if (probe.endsWith('px')) return parseFloat(probe);
-        return NaN;
+      const fit = parseFloat(this.app.style.getPropertyValue('--sheet-fit')) || this.cssPx('--sheet-low');
+      return {
+        peek: this.cssPx('--sheet-peek'),
+        fit: Math.min(Math.max(this.cssPx('--sheet-min'), fit), this.cssPx('--sheet-tall')),
+        full: window.innerHeight - this.cssPx('--sheet-gap'),
       };
-      return { peek: px('--sheet-peek'), low: px('--sheet-low'), tall: px('--sheet-tall'), full: vh - px('--sheet-gap') };
     };
     grip.addEventListener('pointerdown', (e) => {
       if ((e.target as Element).closest('button')) return;
@@ -371,7 +447,7 @@ export class Phone {
       const now = this.app.dataset.sheet as Sheet;
       if (!moved) {
         const i = order.indexOf(now);
-        this.app.dataset.sheet = i >= order.length - 1 ? 'low' : order[i + 1];
+        this.app.dataset.sheet = i >= order.length - 1 ? 'fit' : order[i + 1];
         return;
       }
       const h = was.h - (e.clientY - was.y);
@@ -415,8 +491,13 @@ export class Phone {
       // 点的那一下已经写了状态（「已导出 …」「正在导出…」）：面板关了，改在小条里说
       this.showToast();
     });
-    document.querySelector('header')!.addEventListener('click', (e) => {
-      if ((e.target as Element).closest('#btnTour, a') && this.pop === 'menu') this.setPop(null);
+    const header = document.querySelector('header')!;
+    header.addEventListener('click', (e) => {
+      if ((e.target as Element).closest('#btnTour, #btnJson, a') && this.pop === 'menu') this.setPop(null);
+    });
+    // 「载入配置…」：选好文件再关菜单（点的那一下关掉的话，有的内核里选文件的框弹不出来）
+    header.addEventListener('change', (e) => {
+      if ((e.target as Element).id === 'fileJson' && this.pop === 'menu') this.setPop(null);
     });
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && this.pop) {
