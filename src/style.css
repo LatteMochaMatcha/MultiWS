@@ -111,7 +111,9 @@ textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{font-family:var(--f-mono);font-size:12px;font-variant-numeric:tabular-nums;padding:2px 9px;border-radius:999px;background:var(--chip);color:var(--muted)}
 .chip.hit{background:var(--accent);color:var(--accent-ink)}
-.presets{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:6px}
+.presets{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:8px}
+/* 「手势」「表情」的内容外面多包了一层（没有部件可摆时整层收起）：里面各块之间和别的栏一样隔开 */
+#handBody,#faceBody{display:flex;flex-direction:column;gap:10px;min-width:0}
 .btn{font:inherit;font-size:13px;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:8px;padding:6px 8px;cursor:pointer}
 @media (hover:hover){.btn:hover{border-color:var(--accent);color:var(--accent)}}
 .btn:focus-visible,.stepper button:focus-visible,.seg label:focus-within{outline:2px solid var(--accent);outline-offset:1px}
@@ -292,7 +294,7 @@ button,label,summary,select,input{touch-action:manipulation}
   .sliders{gap:2px}
   .slider{min-height:40px;gap:12px}
   .slider input{height:32px}
-  .presets{gap:8px}
+  .presets{gap:10px}
   .swatches{gap:9px}
   .swatch{width:32px;height:32px}
   .pick input{width:40px;height:32px}
@@ -311,7 +313,10 @@ button,label,summary,select,input{touch-action:manipulation}
    「更多」菜单（就是标题区）、导出面板是从顶栏右边掉下来的两个小面板（data-pop），状态消息在 3D 视图上方冒一下。
    条件是手机竖屏那一段的反面 */
 @media (width > 820px),(width > 600px) and (orientation:landscape){
-  .app{--rail:68px;--side:372px;--top-h:48px;
+  /* 面板多宽：--side-auto 是照窗口大小给的，--side-user 是人拖面板左边沿定的（phone.ts 写上来，记在浏览器里）；
+     最窄 280，最宽给 3D 视图留 320 */
+  .app{--rail:68px;--side-auto:372px;--top-h:48px;
+    --side:min(max(280px,var(--side-user,var(--side-auto))),max(280px,calc(100vw - var(--rail) - 320px)));
     grid-template-columns:minmax(0,1fr) calc(var(--rail) + var(--side));grid-template-rows:var(--top-h) minmax(0,1fr)}
 
   /* ---------- 顶栏 ---------- */
@@ -343,7 +348,13 @@ button,label,summary,select,input{touch-action:manipulation}
   .stage{grid-column:1;grid-row:2}
 
   /* ---------- 面板：左边栏目条，右边这一栏 ---------- */
-  .panel{grid-column:2;grid-row:2;display:grid;grid-template-columns:var(--rail) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+  .panel{grid-column:2;grid-row:2;position:relative;display:grid;grid-template-columns:var(--rail) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+  /* 面板左边沿：拖它改面板宽度。平时看不见，鼠标移上去、拖着、键盘选中时亮一道线 */
+  .panel-resizer{position:absolute;z-index:8;left:0;top:0;bottom:0;width:7px;cursor:col-resize;touch-action:none}
+  .panel-resizer::after{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--accent);opacity:0;transition:opacity .12s}
+  .panel-resizer.dragging::after,.panel-resizer:focus-visible::after{opacity:1}
+  @media (hover:hover){.panel-resizer:hover::after{opacity:1}}
+  .panel-resizer:focus-visible{outline:none}
   .jump{grid-column:1;grid-row:1/-1;display:flex;flex-direction:column;gap:2px;min-height:0;padding:8px 6px;border-right:1px solid var(--line);overflow-y:auto;scrollbar-width:none}
   .jump::-webkit-scrollbar{display:none}
   .jump button{flex:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 2px 6px;font:inherit;font-size:11.5px;line-height:1.15;text-align:center;color:var(--muted);background:none;border:0;border-radius:8px;cursor:pointer}
@@ -355,14 +366,15 @@ button,label,summary,select,input{touch-action:manipulation}
   /* 两边共用的几栏（镜头、参考图、配置）和上面隔一道线 */
   .jump button[data-mode]+button:not([data-mode]){position:relative;margin-top:13px}
   .jump button[data-mode]+button:not([data-mode])::before{content:"";position:absolute;left:10px;right:10px;top:-7px;border-top:1px solid var(--line)}
-  .panel-head{grid-column:2;display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;padding:14px 18px 4px 20px}
+  /* 标题下面一道线：内容滚上去时不和标题贴在一起 */
+  .panel-head{grid-column:2;display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;padding:12px 18px 10px 20px;border-bottom:1px solid var(--line)}
   .panel-head h2{min-width:0;font-size:16px;font-weight:700;letter-spacing:.02em;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .notes-toggle{flex:none;font:inherit;font-size:12px;line-height:1.5;color:var(--muted);background:none;border:1px solid var(--line);border-radius:999px;padding:1px 10px;cursor:pointer}
   .notes-toggle::before{content:"? "}
   @media (hover:hover){.notes-toggle:hover{color:var(--ink)}}
   .notes-toggle[aria-pressed="true"]{color:var(--accent);border-color:var(--accent)}
   .notes-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-  .panel-scroll{grid-column:2;grid-row:2;padding:10px 18px 28px 20px;gap:0}
+  .panel-scroll{grid-column:2;grid-row:2;padding:14px 18px 20px 20px;gap:0}
   /* 一次只看一栏，栏名在上面那行里了，栏里的标题就不要了 */
   .panel-scroll>section{display:none;border-top:0;padding-top:0}
   .panel-scroll>section.tab-on{display:flex}
@@ -373,12 +385,12 @@ button,label,summary,select,input{touch-action:manipulation}
   .panel-scroll>section.grouped>h2{display:block}
   .panel-scroll>section.grouped .fold{padding:0;cursor:default;pointer-events:none}
   .panel-scroll>section.grouped .fold::before{display:none}
-  .panel-scroll>section.tab-on~section.tab-on{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+  .panel-scroll>section.tab-on~section.tab-on{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
   .panel-scroll>section.grouped h2{font-size:13px;font-weight:700;letter-spacing:.04em;color:var(--ink)}
   .note.long{display:none}
   .app.notes .note.long{display:block;padding:10px 12px;border-radius:10px;background:var(--bg)}
-  /* 部件数量：两列小格子（同手机竖屏），「身体」一组的描述、预设、数量一屏放得下 */
-  #counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  /* 部件数量：两列小格子（同手机竖屏），「身体」一组的描述、预设、数量一屏放得下；面板拖宽了就排三列、四列 */
+  #counts{display:grid;grid-template-columns:repeat(auto-fill,minmax(136px,1fr));gap:6px}
   #counts .row{display:flex;justify-content:space-between;gap:4px;min-width:0;padding:2px 3px 2px 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg)}
   #counts .row:last-child{border-bottom:1px solid var(--line)}
   #counts .row label{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -418,11 +430,11 @@ button,label,summary,select,input{touch-action:manipulation}
 }
 /* 很宽的屏幕：面板宽一点 */
 @media (width >= 1680px){
-  .app{--side:420px}
+  .app{--side-auto:420px}
 }
 /* 窄一点的窗口、手机横屏：栏目条、面板都收窄，顶栏少放几样 */
 @media (width > 600px) and (width <= 1100px) and (orientation:landscape),(width > 820px) and (width <= 1100px){
-  .app{--rail:56px;--side:320px}
+  .app{--rail:56px;--side-auto:320px}
   .brand{display:none}
   .topbar{gap:8px;padding-left:10px}
   .topbar .history .lbl{display:none}
@@ -435,7 +447,7 @@ button,label,summary,select,input{touch-action:manipulation}
 /* 矮的横屏（手机横着拿）：顶栏薄一点，栏目条只放图标 */
 @media (width > 600px) and (height <= 520px) and (orientation:landscape){
   /* 面板再收窄：屏幕本来就矮，宽度多留给 3D 视图 */
-  .app{--top-h:42px;--rail:46px;--side:286px}
+  .app{--top-h:42px;--rail:46px;--side-auto:286px}
   .topbar .mode button{padding-block:3px}
   .jump{gap:0;padding-block:4px}
   .jump button{padding-block:6px}
@@ -443,7 +455,7 @@ button,label,summary,select,input{touch-action:manipulation}
   .panel-head{padding-top:8px}
   .panel-scroll{padding-block:8px 16px}
   /* 部件数量的两列小格子：面板窄，再紧一点 */
-  #counts{gap:5px}
+  #counts{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
   #counts .row{gap:2px;padding:1px 1px 1px 8px}
   #counts .row label{font-size:13px}
   :root:not([data-lang="zh"]) #counts .row label{font-size:12px}

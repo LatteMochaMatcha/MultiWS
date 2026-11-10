@@ -57,6 +57,8 @@
       <!-- 手机竖屏：「更多」菜单、导出面板打开时垫在下面、盖住整屏的一层，点一下关掉。
            放在面板里面：菜单（标题区）和导出面板也在面板里，要和它在同一层叠关系里才压得住 -->
       <div class="scrim" id="scrim" hidden></div>
+      <!-- 电脑上：面板左边沿的一条，拖它改面板宽度（view/phone.ts 记在浏览器里），双击还原 -->
+      <div class="panel-resizer desk-only" id="panelResizer" role="separator" aria-orientation="vertical" tabindex="0" title="拖动调整面板宽度，双击还原" aria-label="拖动调整面板宽度，双击还原"></div>
       <!-- 手机竖屏：抽屉上沿的把手（拖动、点一下换高低），右边是「说明」开关 -->
       <div class="grip phone-only" id="grip">
         <button type="button" class="notes-toggle" id="btnNotes" aria-pressed="false" title="显示各栏的长说明">说明</button>

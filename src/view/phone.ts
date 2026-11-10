@@ -30,6 +30,10 @@ type Pop = 'menu' | 'export' | 'views';
 /** 每个模式上次看的是哪一栏、「说明」开没开，记在浏览器里 */
 const TABS_KEY = 'oc-basemesh-tabs';
 const NOTES_KEY = 'oc-basemesh-notes';
+/** 电脑上人拖出来的面板宽度（像素），和它最窄、最宽能到多少 */
+const SIDE_KEY = 'oc-basemesh-side';
+const SIDE_MIN = 280;
+const SIDE_MAX = 760;
 
 /**
  * 电脑上内容少的几栏并成一组，一个图标、一次都显示出来（手机竖屏还是一次一栏）。
@@ -139,6 +143,7 @@ export class Phone {
     this.wireNotes();
     this.wireFit();
     this.wireTabsFade();
+    this.wireResizer();
     // 碰一下模型：视角小浮层收起来，摆姿势的卡片也收起来（点中关节的小卡片除外，它跟着选中走）
     document.getElementById('stage')!.addEventListener('pointerdown', (e) => {
       if (!(e.target instanceof HTMLCanvasElement)) return;
@@ -409,6 +414,68 @@ export class Phone {
     const jump = document.getElementById('jump')!;
     jump.addEventListener('scroll', () => this.fadeTabs(), { passive: true });
     window.addEventListener('resize', () => this.fadeTabs());
+  }
+
+  /**
+   * 电脑上拖面板左边沿改面板宽度：往左拖变宽、往右拖变窄，松手记在浏览器里；双击（或 Home 键）回到照窗口大小给的宽度，
+   * 左右方向键一次挪 16 像素。只写 --side-user，夹在多宽之间由样式管（窗口小了自己让开，不会把 3D 视图挤没）
+   */
+  private wireResizer() {
+    const bar = document.getElementById('panelResizer');
+    if (!bar) return;
+    const set = (px: number | null, save: boolean) => {
+      if (px === null) this.app.style.removeProperty('--side-user');
+      else this.app.style.setProperty('--side-user', `${Math.round(px)}px`);
+      if (!save) return;
+      try {
+        if (px === null) localStorage.removeItem(SIDE_KEY);
+        else localStorage.setItem(SIDE_KEY, String(Math.round(px)));
+      } catch {
+        // 记不住就下次从缺省的宽度开始
+      }
+    };
+    /** 面板里内容那一块现在多宽（不算左边的栏目条） */
+    const now = () => bar.parentElement!.getBoundingClientRect().width - document.getElementById('jump')!.getBoundingClientRect().width;
+    const clamp = (px: number) => Math.max(SIDE_MIN, Math.min(SIDE_MAX, px));
+    try {
+      const saved = Number(localStorage.getItem(SIDE_KEY));
+      if (saved >= SIDE_MIN) set(clamp(saved), false);
+    } catch {
+      // 读不到就用缺省的宽度
+    }
+    let start: { x: number; side: number; moved: boolean } | null = null;
+    bar.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      start = { x: e.clientX, side: now(), moved: false };
+      bar.setPointerCapture(e.pointerId);
+      bar.classList.add('dragging');
+      e.preventDefault();
+    });
+    bar.addEventListener('pointermove', (e) => {
+      if (!start) return;
+      // 只是点了一下（双击还原的那两下）不算拖
+      if (!start.moved && Math.abs(e.clientX - start.x) < 3) return;
+      start.moved = true;
+      set(clamp(start.side + (start.x - e.clientX)), false);
+    });
+    const end = () => {
+      if (!start) return;
+      const moved = start.moved;
+      start = null;
+      bar.classList.remove('dragging');
+      // 存的是实际摆出来的宽度（窗口小时样式会把它压窄）
+      if (moved) set(clamp(now()), true);
+    };
+    bar.addEventListener('pointerup', end);
+    bar.addEventListener('pointercancel', end);
+    bar.addEventListener('dblclick', () => set(null, true));
+    bar.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft') set(clamp(now() + 16), true);
+      else if (e.key === 'ArrowRight') set(clamp(now() - 16), true);
+      else if (e.key === 'Home') set(null, true);
+      else return;
+      e.preventDefault();
+    });
   }
 
   /** 拖把手换高低：跟着手指走，松手停在最近的一档；点一下就升一档（到顶回照内容定高那一档） */
