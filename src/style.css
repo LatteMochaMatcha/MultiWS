@@ -237,6 +237,21 @@ select:focus-visible,.triple input:focus-visible{outline:2px solid var(--accent)
 .vrm-dialog form{display:flex;flex-direction:column;gap:10px}
 .vrm-dialog h2{margin:0;font-size:16px}
 .vrm-dialog input,.vrm-dialog select{font:inherit;padding:6px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+/* 更新日志（view/changelog.ts）：比别的小框宽一点，内容长了在中间那块里滚 */
+.vrm-dialog.changelog{width:min(520px,calc(100vw - 32px))}
+.changelog-body{max-height:min(52vh,460px);overflow-y:auto;overscroll-behavior:contain;padding:2px 12px 2px 2px;font-size:13.5px;line-height:1.6;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.changelog-body h3{margin:14px 0 2px;font-size:14px}
+.changelog-body h4{margin:10px 0 4px;font-size:12px;font-weight:600;letter-spacing:.1em;color:var(--accent)}
+.changelog-body h4:first-child{margin-top:0}
+.changelog-body ul{margin:0;padding-left:1.25em;display:flex;flex-direction:column;gap:4px}
+.changelog-body p{margin:6px 0 4px}
+.changelog-body .changelog-label{font-weight:700}
+.changelog-body code{font-family:var(--f-mono);font-size:12px;padding:0 3px;border-radius:4px;background:var(--chip)}
+.changelog-older{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);color:var(--muted)}
+.changelog-older summary{width:fit-content;cursor:pointer;font-size:12.5px}
+.changelog-older[open] summary{margin-bottom:2px}
+.changelog-older .changelog-release{color:var(--ink)}
+.changelog .check input{padding:0}
 /* 保存配置、姿势时填文件名：名字框后面跟着固定的扩展名 */
 .name-row{display:flex;align-items:center;gap:6px}
 .name-row input{flex:1;min-width:0}

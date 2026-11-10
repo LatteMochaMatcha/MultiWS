@@ -186,6 +186,7 @@ import { type FusedStats, FusedModel } from './view/fusedModel';
 import { type GizmoMode, GIZMO_MODES, Gizmo } from './view/gizmo';
 import { MATERIAL_INFO } from './view/materials';
 import { type BakedMesh, PartsModel, disposeTree } from './view/partsModel';
+import { installChangelog } from './view/changelog';
 import { Phone, jumpLabel } from './view/phone';
 import { PoseHandles } from './view/poseHandles';
 import { type RefSlot, REF_SLOTS, ReferenceImages, loadPicture } from './view/references';
@@ -1591,6 +1592,7 @@ if (eye) {
 if (inAndroidShell) {
   document.documentElement.dataset.shell = 'android';
   (window as unknown as { __ocBack: () => boolean }).__ocBack = () => {
+    if (changelog.close()) return true;
     if (tour.open) {
       tour.close();
       return true;
@@ -5537,6 +5539,9 @@ try {
   // 读不到就不弹，免得每次都弹
 }
 if (!tourSeen) window.setTimeout(() => startTour(tourAt), 600);
+
+// 更新日志：每次打开弹一次（勾了「不再提醒」的那一版不弹）。第一次打开的人先看新手引导，这一次不弹
+const changelog = installChangelog(() => tourSeen && !tour.open);
 
 if (import.meta.env.DEV) {
   // 开发时在控制台里看状态用：__oc.spec()、__oc.buildMs()

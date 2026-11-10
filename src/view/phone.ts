@@ -560,7 +560,7 @@ export class Phone {
     });
     const header = document.querySelector('header')!;
     header.addEventListener('click', (e) => {
-      if ((e.target as Element).closest('#btnTour, #btnJson, a') && this.pop === 'menu') this.setPop(null);
+      if ((e.target as Element).closest('#btnTour, #btnChangelog, #btnJson, a') && this.pop === 'menu') this.setPop(null);
     });
     // 「载入配置…」：选好文件再关菜单（点的那一下关掉的话，有的内核里选文件的框弹不出来）
     header.addEventListener('change', (e) => {

@@ -82,6 +82,7 @@
           <div class="sub">
             <p>写下身体设定，生成能导进 Blender 的白模。</p>
             <button type="button" class="btn ghost" id="btnTour" title="再看一遍新手引导">新手引导</button>
+            <button type="button" class="btn ghost" id="btnChangelog" title="每一版改了什么">更新日志</button>
           </div>
           <!-- 配置：另存成文件、从文件载入（设定本来就自动存在浏览器里） -->
           <div class="menu-config">
@@ -607,6 +608,18 @@
       <div class="actions">
         <button type="submit" class="btn" value="cancel">取消</button>
         <button type="submit" class="btn primary" value="ok">保存</button>
+      </div>
+    </form>
+  </dialog>
+  <!-- 更新日志：每次打开工坊弹出来，勾「不再提醒」这一版就不再弹（view/changelog.ts，内容是 CHANGELOG.md） -->
+  <dialog class="vrm-dialog changelog" id="changelogDialog" aria-labelledby="changelogTitle">
+    <form method="dialog">
+      <h2 id="changelogTitle">更新日志</h2>
+      <div class="changelog-body" id="changelogBody"></div>
+      <label class="check" title="这一版的更新日志不再自动弹出；更新到新版本时再显示"><input type="checkbox" id="changelogMute"> 不再提醒</label>
+      <p class="note">勾上以后这一版不再自动弹出，更新到新版本时再显示。随时可以在右上角「…」菜单里点「更新日志」查看。</p>
+      <div class="actions">
+        <button type="submit" class="btn primary wide" value="ok">知道了</button>
       </div>
     </form>
   </dialog>
