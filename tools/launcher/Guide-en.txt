@@ -17,9 +17,16 @@ Parts it can make: 1-3 upper bodies (branching off from the waist, each with its
 
 The first time you open it, a "Tour" asks for a language and then shows you several areas of the interface
 one step at a time; in the steps on adjusting individual limbs and posing, you can try things out on the model.
-Click "Skip" if you don't want it. To see it again later, click "Tour" under the title.
+Click "Skip" if you don't want it. To see it again later, click "Tour" in the "…" menu at the top right.
 
-The body comes in three styles. Switch them under "Body style" in the "Body shape" section of the right-hand panel:
+Each time you open it, it also shows "What's new" (what changed in this version; the notes are in Chinese only).
+Tick "Don't show again" to stop it for this version; it comes back after the next update. "What's new" in the "…"
+menu opens it at any time.
+This guide covers the most common things only; the full, up-to-date manual is on the project page:
+https://github.com/LatteMochaMatcha/MultiWS (README.en.md)
+
+The body comes in three styles. Switch them under "Body style" in "Body shape", inside the "Look" group of the
+right-hand panel (on a phone: the "Body" section of the drawer):
 
   Mannequin             A colorless, smooth human body: one closed mesh, ready to sculpt right away.
                         Every part can be added and the body shape can be adjusted freely.
@@ -80,19 +87,32 @@ This exe works on computers only. Android phones have a separate installer, "OC�
    goes online to check for a new version; it works fine without internet too.
 
 It needs Android 10 or newer; iPhones and HarmonyOS NEXT phones can't install it.
-Hold the phone upright: the model is in the top half of the screen and the settings are in the bottom half, and the
-model stays visible as you scroll down; "Enlarge" at the top right makes the model fill the whole screen.
+Hold the phone upright: the model fills the screen and the settings sit in a drawer at the bottom, one section at a
+time; tap a section name along the top of the drawer to switch (swipe sideways for more).
+The drawer is as tall as that section needs. Drag the handle at its top (or tap it) to change the height; drag it
+all the way down to see the model full-screen.
+The two round buttons on the right are views and export; at the top right are undo, redo, reset and the "…" menu
+(language, theme, tour, what's new, save and load config).
+In Pose mode there is a row of icons at the bottom: tap one to pop up that section, tap the model to close it.
 Drag with one finger to rotate, pinch with two fingers to zoom, drag with two fingers to pan, and tap a part to
-select it.
+select it (the camera moves in; tap ✕ to deselect and it flies back).
 Exported models and configs are in the "OC白模工坊" folder inside the phone's Downloads folder, and screenshots are
 in the "OC白模工坊" album in the gallery.
 
 
 [How to use it]
 
+Along the top: "Shape / Pose", Undo, Redo, Reset, the height and triangle-count readout, "Export", and the "…" menu
+(language, theme, tour, what's new, save and load config, check for updates).
 On the left is the 3D view: left-drag to rotate, scroll to zoom, right-drag to pan. At the bottom left you can
-switch Front / Side / Back / 3/4, Undo / Redo, and show the bones.
-On the right is the settings panel, from top to bottom:
+switch Front / Side / Back / 3/4 and show the bones.
+On the right is the settings panel. A column of icons runs down its left side; click one and the panel shows that
+group:
+  Body (Body description, Presets, Part counts), Layout, Look (Body shape, Hair), Tweak (Manual tweaks, Mesh),
+  Scene, View (Camera & lighting, Reference images).
+Drag the left edge of the panel to change its width (it is remembered; double-click the edge to reset it). The
+longer notes in each section stay hidden until you click "Notes" at the top right of the panel.
+Section by section:
 
   Body description   Write the body in the box; the model updates by itself after you stop typing. Examples:
                      "two heads", "three pairs of arms", "nine tails", "four horns", "no tail",
@@ -169,14 +189,16 @@ On the right is the settings panel, from top to bottom:
                      as a whole piece; when a leg is moved, the piece of pelvis near that leg moves with it.
                      Its tweaks are recorded separately from those of the Mannequin and the Anime body.
   Mesh               "Fused (one piece)" (the default), or every part separate ("Separate parts (v1)").
-  Config             Save all the settings into a file, or read them back.
+  Config             In the "…" menu at the top right: "Save config" saves all the settings into a file,
+                     "Load config…" reads them back.
 
 All the settings are saved automatically in the browser and will still be there next time.
 
 
 [Posing]
 
-Once the body is set, click "Pose" at the top left of the 3D view and a set of handles lights up on the joints.
+Once the body is set, click "Pose" at the top left and a set of handles lights up on the joints (the icons on the
+left of the panel change to Pose, Hands, Face and Pose library).
 Click "Shape" to go back and keep editing the body.
 
   Large cyan circle    Hands, feet, pelvis. Drag a hand or foot and the elbow or knee bends by itself; if it can't
@@ -243,11 +265,13 @@ Exports and screenshots taken in "Pose" show the posed figure; exports taken in 
 
 [Export]
 
-The export buttons are at the bottom of the panel. After you click one, the file is in your browser's download folder.
+Click "Export" at the right of the top bar (on a phone: the round download button on the right) and pick a format in
+the panel that opens. After you click one, the file is in your browser's download folder.
 
   Export base mesh (GLB)   The mesh. For sculpting; the most common choice.
   Rigged GLB               Mesh + skeleton + weights (finger bones included). Use it when you want to pose or animate
                            right away.
+  VRM                      For VTuber software and VRoid Hub: fill in the name, author and licence first.
   OBJ                      The mesh, with quad faces kept.
   STL                      For 3D printing (scale it up 1000 times in the slicer, because the model is made in meters).
   PNG                      An image of the current view, with a transparent background.
@@ -344,7 +368,8 @@ The black window says the port is in use
     page; it won't start a second one.
 
 I want to start over
-    Click "Standard humanoid" in the presets. The body-shape sliders do not reset with it; drag them back yourself.
+    Click "Reset" next to Undo and Redo in the top bar: every setting of the current character goes back to how it
+    was when you first opened the workshop. Click "Undo" to get it back.
 
 The page doesn't open any more; or, when switching to "Anime body" or "Ready-made", a message below says
 loading failed… and that it can't reach the workshop program
