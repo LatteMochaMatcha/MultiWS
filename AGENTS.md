@@ -27,7 +27,7 @@ OC 白模工坊 v2：多肢体角色白模生成器（Vite + TypeScript + three.
 ## 仓库和本地文件的规矩
 
 - 渲染图、前后对比图放 `.harness-tmp/`，不进仓库。要进 `docs/` 的图必须被某份 md 引用、一张缩到 300 KB 以内；没有文档引用的图不提交（仓库里已经有 170 MB 图，别再加）。
-- `release/` 在本地（.gitignore 里），只留最近两版的安装包和加密 zip（现在是 2.7.6、2.7.7），发新版时把更老的移到回收站；`release/update/`（发自动更新的产物）和三份说明 txt 留着。
+- `release/` 在本地（.gitignore 里），只留最近两版的安装包和加密 zip（现在是 2.7.7、2.7.8），发新版时把更老的移到回收站；`release/update/`（发自动更新的产物）和三份说明 txt 留着。
 - 仓库在 GitHub 上叫 `LatteMochaMatcha/MultiWS`（2026-11-08 从打错的 MutliWS 改的，旧名会跳转）；写地址用新名。
 - `CHANGELOG.md` 会打包进工坊，每次打开时弹给用户看（`src/view/changelog.ts`，只认「## 版本（日期）」「### 小标题」「- 一条」「**一行粗体**」这几种写法，`tests/changelog.test.ts` 会查）。还没发的改动写在最上面的「## 下一个版本号（未发布）」里，用给用户看的话写；发版时把「未发布」换成日期。
 
