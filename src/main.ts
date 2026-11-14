@@ -7,6 +7,9 @@ import { TORSO_CREDIT, animeGrid, animeReady, loadAnimeBody } from './anime/body
 import { FOOT_CREDIT } from './anime/foot';
 import { GENITAL_CREDIT, genitalReady, loadGenital } from './anime/genital';
 import { adultOn, keepAdult, restoreAdult, setAdult, withoutAdult } from './model/adult';
+import type { AiDock } from './ai/dock';
+import { aiOn, setAiOn } from './ai/settings';
+import type { WorkshopApi } from './ai/workshop';
 import { type CharacterBuild, assembleCharacter } from './character/assemble';
 import { characterGlb, characterShape, characterSkeleton, poseBuild } from './character/export';
 import { characterVrm } from './character/vrm';
@@ -286,6 +289,8 @@ let text = '';
 /** 从文字里识别到的部件，对应的标签会亮起来 */
 let hits: ReadonlySet<CountKey> = new Set();
 let matches: ParseMatch[] = [];
+/** AI 助手的窗口（打开过才载入；render 时刷新它的「撤回这一轮」） */
+let aiDock: AiDock | null = null;
 
 function readText(value: string) {
   text = value;
@@ -1209,6 +1214,87 @@ for (const [key, section] of sections) {
 }
 /** 面板的版面（一次一栏、弹出层、冒出来的状态；手机竖屏上还有底下的抽屉），见 view/phone.ts。栏目名按钮要先有 */
 const phone = new Phone(sections);
+
+/* ---------------- AI 助手（默认关；打开后面板里多一栏。界面和 pi 在 src/ai/，打开了才载入） ---------------- */
+
+/** AI 助手改设定只走这里（见 ai/workshop.ts）：和人点面板一样记撤销、存档、刷新 */
+const workshop: WorkshopApi = {
+  spec: () => spec,
+  apply(next, key) {
+    spec = next;
+    readText(describeSpec(spec));
+    desc.value = text;
+    commit(key);
+    return spec;
+  },
+  adultOn,
+  hold: (key) => history.hold(key),
+  release: () => history.release(),
+  mark: () => history.current,
+  undo,
+  stage: () => document.getElementById('stage'),
+  pickAt(x, y) {
+    if (!viewport) return null;
+    const ray = new Raycaster();
+    ray.setFromCamera(new Vector2(x * 2 - 1, -(y * 2 - 1)), viewport.camera);
+    return pickPart(ray);
+  },
+  snapshot: () => (viewport ? viewport.snapshot() : Promise.reject(new Error(t('3D 视图现在没有显示出来')))),
+  viewSide() {
+    if (!viewport) return 'front';
+    // 镜头在角色的哪边（角色面朝 +Z，+X 是她自己的左手边）
+    const d = viewport.camera.position.clone().sub(viewport.controls.target).normalize();
+    if (d.y > 0.8) return 'top';
+    if (d.y < -0.8) return 'bottom';
+    const turn = (Math.atan2(d.x, d.z) * 180) / Math.PI;
+    if (Math.abs(turn) <= 25) return 'front';
+    if (Math.abs(turn) >= 155) return 'back';
+    if (turn >= 65 && turn <= 115) return 'left';
+    if (turn <= -65 && turn >= -115) return 'right';
+    return 'angled';
+  },
+  parts: () => tweakable().map((p) => p.name),
+};
+
+const aiBox = $<HTMLInputElement>('aiOn');
+const btnAi = $<HTMLButtonElement>('btnAi');
+let aiLoading: Promise<AiDock | null> | null = null;
+
+/** 载入 AI 窗口（连带 pi）：第一次点开时才下载 */
+function loadAi(): Promise<AiDock | null> {
+  aiLoading ??= import('./ai/dock')
+    .then((m) => {
+      aiDock = m.mountDock($('aiDock'), workshop, {
+        toggled: (open) => {
+          btnAi.setAttribute('aria-pressed', String(open));
+          document.querySelector('.app')?.classList.toggle('ai-open', open);
+        },
+      });
+      return aiDock;
+    })
+    .catch((err: unknown) => {
+      aiLoading = null;
+      setStatus(t('AI 助手载入失败：{message}', { message: errText(err) }), true);
+      return null;
+    });
+  return aiLoading;
+}
+
+/** 开关关着：顶上的按钮和窗口都藏起来 */
+function syncAi() {
+  const on = aiOn();
+  aiBox.checked = on;
+  btnAi.hidden = !on;
+  if (!on) aiDock?.close();
+}
+
+btnAi.addEventListener('click', async () => (await loadAi())?.toggle());
+aiBox.addEventListener('change', async () => {
+  setAiOn(aiBox.checked);
+  syncAi();
+  if (aiBox.checked) (await loadAi())?.open();
+});
+syncAi();
 
 /* ---------------- 主题 ---------------- */
 
@@ -5272,6 +5358,7 @@ function renderEcho() {
 }
 
 function render() {
+  aiDock?.refresh();
   const chips = summarize(spec).map((c) => el('span', hits.has(c.key) ? 'chip hit' : 'chip', c.label));
   if (text.trim() && matches.length === 0) chips.unshift(el('span', 'chip', t('没认出部件，试试「三对手」「九条尾巴」')));
   $('chips').replaceChildren(...chips);
@@ -5621,6 +5708,8 @@ if (import.meta.env.DEV) {
       tour,
       // __oc.spread(false)：融合不分给帮手线程（对比结果、量时间用）
       spread: spreadWork,
+      // AI 助手改设定用的那一套：__oc.ai.apply({...}, 'key')
+      ai: workshop,
       viewport,
       gizmo,
     },

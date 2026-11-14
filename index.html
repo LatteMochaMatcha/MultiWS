@@ -20,6 +20,8 @@
         <button type="button" id="btnReset" title="一键初始化：这个角色的设定全部恢复成刚打开时的样子（能撤销）"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/></svg><span class="lbl">初始化</span></button>
       </div>
       <div class="readout" id="readout" aria-live="polite"></div>
+      <!-- AI 助手：「更多」菜单里打开以后才出现，点它开关 AI 窗口（src/ai/dock.ts） -->
+      <button type="button" class="btn top-ai" id="btnAi" aria-pressed="false" title="AI 助手：用大白话改造型" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 6.5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H11l-4.5 3.5V16.5a2 2 0 0 1-2-2z"/><path d="m12 7.5.9 1.9 1.9.9-1.9.9-.9 1.9-.9-1.9-1.9-.9 1.9-.9z"/></svg><span>AI 助手</span></button>
       <button type="button" class="btn primary top-export desk-only" id="btnExportTop" data-pop-for="export" aria-haspopup="dialog" aria-expanded="false" title="导出白模、带骨骼 GLB、VRM、OBJ、STL、截图"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>导出</span><svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
       <!-- 「更多」：语言、主题、新手引导、源码 -->
       <button type="button" class="icon-btn" id="btnMore" data-pop-for="menu" aria-haspopup="true" aria-expanded="false" aria-label="更多" title="更多"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg></button>
@@ -53,6 +55,8 @@
       <div class="hint" id="hint">拖动旋转 · 滚轮缩放 · 右键平移 · 点一下部件单独调整</div>
     </main>
 
+    <!-- AI 助手的窗口：电脑上浮在 3D 视图左边，手机上铺满整屏。不放在 .stage 里面：它的 container-type 会把「铺满整屏」框在 3D 视图里 -->
+    <div class="ai-dock ai" id="aiDock" hidden></div>
     <aside class="panel">
       <!-- 手机竖屏：「更多」菜单、导出面板打开时垫在下面、盖住整屏的一层，点一下关掉。
            放在面板里面：菜单（标题区）和导出面板也在面板里，要和它在同一层叠关系里才压得住 -->
@@ -92,6 +96,12 @@
               <label class="btn file" for="fileJson">载入配置…<input type="file" id="fileJson" accept=".json,application/json" hidden></label>
             </div>
             <p class="note">所有设定自动存在这个浏览器里，下次打开还在。「保存配置」另存成一个文件，换电脑或留底时用。</p>
+          </div>
+          <!-- AI 助手：默认关，打开后面板里多一栏（src/ai/，用户自己的钥匙） -->
+          <div class="menu-config">
+            <span class="menu-label">AI 助手</span>
+            <label class="check" title="这台设备自己记着，不进配置"><input type="checkbox" id="aiOn"> 打开 AI 助手</label>
+            <p class="note">打开以后顶上多一个「AI 助手」按钮，用大白话改造型。要填你自己在 DeepSeek、Kimi、Claude 等服务商申请的钥匙，费用由你的账户付。</p>
           </div>
           <p class="repo">源码和下载：<a href="https://github.com/LatteMochaMatcha/MultiWS" target="_blank" rel="noopener" translate="no">github.com/LatteMochaMatcha/MultiWS</a></p>
         </header>

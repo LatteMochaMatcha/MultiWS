@@ -222,6 +222,8 @@ static class Launcher
     {
         try
         {
+            // AI 助手的转发（AiForward.cs）：自己回完，流式的回答边收边交
+            if (AiForward.Handle(context)) return;
             HttpListenerResponse response = context.Response;
             string path = Uri.UnescapeDataString(context.Request.Url.AbsolutePath).TrimStart('/');
             if (path.Length == 0) path = "index.html";
