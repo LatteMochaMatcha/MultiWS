@@ -47,7 +47,7 @@ export class History<T> {
    */
   push(state: T, key?: string, now = Date.now()): void {
     if (this.equals(state, this.present)) return;
-    const merge = key !== undefined && key === this.lastKey && now - this.lastTime <= this.window;
+    const merge = key !== undefined && key === this.lastKey && (key === this.held || now - this.lastTime <= this.window);
     if (!merge) {
       this.past.push(this.present);
       if (this.past.length > this.limit) this.past.shift();
@@ -62,6 +62,22 @@ export class History<T> {
   seal(): void {
     this.lastKey = null;
   }
+
+  /**
+   * 一段时间里用这个 key 记的修改，隔多久都并成一步（AI 助手一轮里改了好几下，撤销一次全回去）。
+   * 中间夹了别的 key 的修改就另算；release() 以后照常
+   */
+  hold(key: string): void {
+    this.held = key;
+    this.seal();
+  }
+
+  release(): void {
+    this.held = null;
+    this.seal();
+  }
+
+  private held: string | null = null;
 
   /** 退回上一步，返回退回去以后的状态；没有可撤销的返回 null */
   undo(): T | null {

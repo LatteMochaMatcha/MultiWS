@@ -144,6 +144,8 @@ public class MainActivity extends Activity {
 
         web.addJavascriptInterface(new Files(), "OcAndroid");
         web.addJavascriptInterface(updater.new Bridge(), "OcShell");
+        // AI 助手连服务商的请求由这里转发（AiBridge.java）
+        web.addJavascriptInterface(new AiBridge(this, web), "OcAi");
         // 转屏之类不会重开这个界面；真的被系统重开了就重新载入，设定在网页的存储里，丢不了
         web.loadUrl(HOME);
         updater.startupCheck();

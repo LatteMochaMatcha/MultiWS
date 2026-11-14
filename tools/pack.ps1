@@ -114,7 +114,7 @@ try {
   $exe = Join-Path $stage "$name.exe"
   $buildCs = Join-Path $work 'Build.cs'
   [System.IO.File]::WriteAllText($buildCs, (New-BuildInfo), [System.Text.UTF8Encoding]::new($false))
-  & $csc /nologo /target:exe /optimize+ /codepage:65001 "/out:$exe" "/win32icon:$icon" "/resource:$appZip,app.zip" /reference:System.IO.Compression.dll /reference:System.Web.Extensions.dll (Join-Path $PSScriptRoot 'launcher\Launcher.cs') (Join-Path $PSScriptRoot 'launcher\Updater.cs') $buildCs
+  & $csc /nologo /target:exe /optimize+ /codepage:65001 "/out:$exe" "/win32icon:$icon" "/resource:$appZip,app.zip" /reference:System.IO.Compression.dll /reference:System.Web.Extensions.dll (Join-Path $PSScriptRoot 'launcher\Launcher.cs') (Join-Path $PSScriptRoot 'launcher\Updater.cs') (Join-Path $PSScriptRoot 'launcher\AiForward.cs') $buildCs
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path $exe)) { throw 'exe 没编出来，看上面编译器的提示' }
 
   # 使用说明带上 BOM：老一点的记事本靠它认出这是 UTF-8，不然中文会乱码
