@@ -3,6 +3,8 @@
 #   npm run release -- -DryRun      只在 release/update/ 里生成文件，不上传
 #   npm run release -- -Installers  连新的 exe、apk 一起发（改了外壳 Launcher.cs、Updater.cs、Java 那边时）：
 #                                   先照 tools/update/config.json 的 shell 把外壳版本加一，外壳收到后会提示「安装包有新版本」
+#   npm run release -- -Installers -InstallerDir release
+#                                   不现打，用那个目录里已经打好、试跑过的 OC白模工坊.exe 和 .apk（发出去的和试过的是同一份）
 #   不加 -Installers 时，清单里的安装包照搬下载站上现在那份（先核对签名），旧外壳照样能收到上次发的安装包
 #
 # 做五件事：
@@ -21,6 +23,8 @@ param(
   [switch]$DryRun,
   [switch]$SkipBuild,
   [switch]$Installers,
+  # 配 -Installers：用这个目录里已经打好的 exe、apk，不现打
+  [string]$InstallerDir = '',
   # 下载站上已经是这个版本（或更新的）时默认不发，免得旧外壳收不到「更新」；确实要重发同一版时加 -Force
   [switch]$Force,
   [string]$KeyPath = (Join-Path $HOME '.oc-update-key\private.pem')
@@ -117,11 +121,22 @@ $installerFiles = @{}
 $installersFile = Join-Path $out 'installers.json'
 $installerList = [ordered]@{}
 if ($Installers) {
-  $built = Join-Path $out 'installers'
-  New-Item -ItemType Directory -Path $built | Out-Null
-  Invoke-Checked { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'pack.ps1') -OutDir $built } '打 exe'
-  Invoke-Checked { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'apk.ps1') -OutDir $built } '打 apk'
   $version = (Get-Content -LiteralPath (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
+  if ($InstallerDir) {
+    $built = (Resolve-Path -LiteralPath $InstallerDir).Path
+    foreach ($kind in 'exe', 'apk') {
+      if (-not (Test-Path -LiteralPath (Join-Path $built "OC白模工坊.$kind"))) { throw "$built 里没有 OC白模工坊.$kind：先 npm run pack、npm run apk" }
+    }
+    # 打好的 exe 得是这一版的（看文件属性里的版本），免得把上一版的安装包当新的发出去
+    $exeVersion = (Get-Item -LiteralPath (Join-Path $built 'OC白模工坊.exe')).VersionInfo.ProductVersion
+    if ($exeVersion -ne $version) { throw "$built 里的 exe 是 $exeVersion，package.json 是 ${version}：重新 npm run pack" }
+  }
+  else {
+    $built = Join-Path $out 'installers'
+    New-Item -ItemType Directory -Path $built | Out-Null
+    Invoke-Checked { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'pack.ps1') -OutDir $built } '打 exe'
+    Invoke-Checked { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'apk.ps1') -OutDir $built } '打 apk'
+  }
   foreach ($kind in 'exe', 'apk') {
     $file = Get-Item -LiteralPath (Join-Path $built "OC白模工坊.$kind")
     $sha = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLower()
