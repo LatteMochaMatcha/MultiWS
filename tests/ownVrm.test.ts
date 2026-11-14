@@ -244,8 +244,30 @@ describe('载入自己的 VRM', () => {
     const { json, bin } = open();
     delete json.extensions;
     expect(() => read(writeGlb(json, bin))).toThrow('不是 VRM');
-    expect(() => read(renamed('upperChest'))).toThrow('upperChest');
+    expect(() => read(renamed('hips'))).toThrow('hips');
     expect(() => read(new ArrayBuffer(40))).toThrow();
+  });
+
+  it('没有上胸、脖子（VRM 里可以没有）：补一根不带权重的，放在上下两根中间，拼得起来', () => {
+    for (const [drop, name, below, above] of [
+      ['upperChest', 'J_Bip_C_UpperChest', 'J_Bip_C_Chest', 'J_Bip_C_Neck'],
+      ['neck', 'J_Bip_C_Neck', 'J_Bip_C_UpperChest', 'J_Bip_C_Head'],
+      ['chest', 'J_Bip_C_Chest', 'J_Bip_C_Spine', 'J_Bip_C_UpperChest'],
+    ] as const) {
+      const source = read(renamed(drop));
+      const at = (n: string) => source.bones.findIndex((b) => b.name === n);
+      const made = at(name);
+      expect(made, drop).toBeGreaterThanOrEqual(0);
+      expect(source.bones[made].parent).toBe(at(below));
+      // 上面那根在补的这根下面
+      let p = at(above);
+      while (p >= 0 && p !== made) p = source.bones[p].parent;
+      expect(p, drop).toBe(made);
+      expect(source.bones[made].pos[1]).toBeCloseTo((source.bones[at(below)].pos[1] + source.bones[at(above)].pos[1]) / 2, 5);
+      for (const chunk of source.chunks) for (let k = 0; k < chunk.joints.length; k++) if (chunk.weights[k] > 0) expect(chunk.joints[k]).not.toBe(made);
+      const build = assembleCharacter(source, { ...spec(), counts: { ...spec().counts, heads: 2, armPairs: 2 } });
+      expect(build.bones.some((b) => b.name === 'Head.002')).toBe(true);
+    }
   });
 
   it('稀疏的 accessor（VRM 1.0 的表情常这么存）也读得了', () => {

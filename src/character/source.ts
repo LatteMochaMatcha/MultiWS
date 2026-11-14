@@ -206,6 +206,42 @@ const REQUIRED: [name: string, human: string][] = [
   }),
 ];
 
+/** 躯干正中从下到上的一串骨骼 */
+const SPINE_CHAIN = ['J_Bip_C_Hips', 'J_Bip_C_Spine', 'J_Bip_C_Chest', 'J_Bip_C_UpperChest', 'J_Bip_C_Neck', 'J_Bip_C_Head'];
+
+/**
+ * 胸（chest）、上胸（upperChest）、脖子（neck）在 VRM 里是可以没有的（0.x 只有上胸可以没有，1.0 三根都可以），
+ * 不少别的软件做的模型就没有上胸。工坊拼装要用它们：缺哪根就补一根，放在上下两根骨骼的正中间。
+ * 补的骨骼不带权重（顶点还是跟着原来的骨骼动）；原来挂在下面那根上的骨骼改挂到它上面——
+ * 补胸、上胸时是全部（肩、手臂、脖子都在胸上），补脖子时只挪通往头的那一支。
+ */
+function fillSpine(bones: SourceBone[]): void {
+  const at = (name: string) => bones.findIndex((b) => b.name === name);
+  const under = (b: number, root: number) => {
+    for (let p = b; p >= 0; p = bones[p].parent) if (p === root) return true;
+    return false;
+  };
+  for (let i = 2; i <= 4; i++) {
+    if (at(SPINE_CHAIN[i]) >= 0) continue;
+    const below = at(SPINE_CHAIN[i - 1]);
+    const aboveName = SPINE_CHAIN.slice(i + 1).find((n) => at(n) >= 0);
+    const above = aboveName ? at(aboveName) : -1;
+    if (below < 0 || above < 0 || !under(above, below)) continue;
+    const made = bones.length;
+    const [a, b] = [bones[below].pos, bones[above].pos];
+    bones.push({ name: SPINE_CHAIN[i], parent: below, pos: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2] });
+    if (i === 4) {
+      let branch = above;
+      while (bones[branch].parent !== below) branch = bones[branch].parent;
+      bones[branch].parent = made;
+    } else {
+      bones.forEach((bone, k) => {
+        if (k !== made && bone.parent === below) bone.parent = made;
+      });
+    }
+  }
+}
+
 /** VRM 1.0 的表情名 → 工坊用的（VRM 0.x 的）名字 */
 const PRESET_V1: Record<string, string> = {
   happy: 'joy', angry: 'angry', sad: 'sorrow', relaxed: 'fun', surprised: 'surprised', neutral: 'neutral',
@@ -262,6 +298,7 @@ export function readCharacter(buffer: ArrayBuffer, options: ReadOptions = {}): C
       if (name && b !== undefined) bones[b].name = name;
     }
   }
+  fillSpine(bones);
   const missing = REQUIRED.filter(([name]) => !bones.some((b) => b.name === name)).map(([, h]) => h);
   if (options.strict && missing.length) throw new Error(t('这个模型缺少工坊要用的人形骨骼：{bones}', { bones: missing.join(t('、')) }));
 
