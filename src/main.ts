@@ -1377,7 +1377,11 @@ function syncAi() {
   const on = aiOn();
   aiBox.checked = on;
   btnAi.hidden = !on;
-  if (!on) aiDock?.close();
+  // 关掉开关：正在干活的那一轮也停下，不在看不见的地方接着改、接着花钱
+  if (!on) {
+    aiDock?.stop();
+    aiDock?.close();
+  }
 }
 
 btnAi.addEventListener('click', async () => (await loadAi())?.toggle());

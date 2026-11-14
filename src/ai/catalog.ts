@@ -9,7 +9,7 @@
  * 请求和对话一样走转发（transport.ts），钥匙只发给这一家。
  */
 import type { Api, Model } from '@earendil-works/pi-ai';
-import { forwardUrl, type Route } from './transport';
+import { forwardUrl, forwards, type Route } from './transport';
 
 /** 从服务商那里读到的一个模型（读不到的项是 undefined） */
 export interface ListedModel {
@@ -112,7 +112,7 @@ export function listingRequest(sample: Model<Api>, providerId: string, apiKey: s
 /** 去问这家服务商有哪些模型。失败就抛错（报错内容给 humanError 翻成人话） */
 export async function fetchListing(sample: Model<Api>, providerId: string, apiKey: string, route: Route, signal?: AbortSignal): Promise<ListedModel[]> {
   const { url, headers } = listingRequest(sample, providerId, apiKey);
-  const target = route === 'direct' ? url : forwardUrl(url);
+  const target = forwards(route) ? forwardUrl(url) : url;
   const r = await fetch(target, { headers: route === 'http' ? { ...headers, 'X-Shell': '1' } : headers, signal });
   const text = await r.text();
   if (!r.ok) throw new Error(`${r.status} ${text.slice(0, 300)}`);

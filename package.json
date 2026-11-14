@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite --open",
     "serve": "vite",
-    "build": "tsc --noEmit && vite build && node tools/run.mjs tools/update-manifest.ts",
+    "build": "tsc --noEmit && vite build && node tools/licenses.mjs && node tools/run.mjs tools/update-manifest.ts",
     "preview": "vite preview",
     "pack": "npm run build && pwsh -NoProfile -File tools/pack.ps1",
     "apk": "npm run build && pwsh -NoProfile -File tools/apk.ps1",

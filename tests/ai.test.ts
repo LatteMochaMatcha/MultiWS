@@ -1,7 +1,7 @@
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from '@earendil-works/pi-ai';
 import type { Api, Model } from '@earendil-works/pi-ai';
 import { describe, expect, it } from 'vitest';
-import { applyPatch, diffSpec } from '../src/ai/body';
+import { applyPatch, diffSpec, stateForModel } from '../src/ai/body';
 import { AiSession, MAX_TURNS, humanError } from '../src/ai/session';
 import type { AiEvent } from '../src/ai/session';
 import type { Conversation } from '../src/ai/store';
@@ -67,6 +67,21 @@ describe('applyPatch', () => {
     expect(spec.legLayout).toBe('taur');
     expect(spec.counts.heads).toBe(1);
     expect(adjusted).toEqual([expect.objectContaining({ field: 'counts.tails', asked: 99, got: 9, why: 'clamped' })]);
+  });
+
+  it('胸每排几个、围成一圈也能改；越界的收回范围，改动列出来', () => {
+    const { spec, adjusted } = applyPatch(defaultSpec(), { counts: { breasts: 6 }, chestRow: 3, ring: 'fused', ringCount: 99, ringSpread: 0.6 }, false);
+    expect(spec.counts.breasts).toBe(6);
+    expect(spec.chestRow).toBe(3);
+    expect(spec.ring).toBe('fused');
+    expect(spec.ringCount).toBe(8);
+    expect(spec.ringSpread).toBeCloseTo(0.6);
+    expect(adjusted).toEqual([expect.objectContaining({ field: 'ringCount', asked: 99, got: 8, why: 'clamped' })]);
+    const fields = diffSpec(defaultSpec(), spec).map((c) => c.field);
+    for (const field of ['counts.breasts', 'chestRow', 'ring', 'ringCount', 'ringSpread']) expect(fields).toContain(field);
+    expect(stateForModel(spec, false)).toMatchObject({ chestRow: 3, ring: 'fused', ringCount: 8 });
+    // 没围的时候不把圈的那几项塞给模型
+    expect(stateForModel(defaultSpec(), false)).not.toHaveProperty('ringCount');
   });
 
   it('不认识的值、成人部件（开关关着）都不照办', () => {
@@ -139,6 +154,16 @@ describe('AiSession（假服务商）', () => {
     await session.send('再加一对翅膀');
     expect(shop.spec.counts.wingPairs).toBe(1);
     expect(shop.spec.counts.tails).toBe(5);
+  });
+
+  it('parse_description 的 merge 不把没提到的每排几个打回默认', async () => {
+    const { shop, faux, session } = fakeSession(true);
+    shop.api.apply({ ...shop.spec, counts: { ...shop.spec.counts, breasts: 6, penises: 6 }, chestRow: 3, penisLayout: 'grid', penisRow: 3 }, 'user');
+    faux.setResponses([fauxAssistantMessage([fauxToolCall('parse_description', { text: '一对翅膀', mode: 'merge' })], { stopReason: 'toolUse' }), fauxAssistantMessage([fauxText('加了翅膀')])]);
+    await session.send('再加一对翅膀');
+    expect(shop.spec.counts.wingPairs).toBe(1);
+    expect(shop.spec.chestRow).toBe(3);
+    expect(shop.spec.penisRow).toBe(3);
   });
 
   it('一轮最多调用 MAX_TURNS 次模型', async () => {
@@ -271,6 +296,36 @@ describe('对话：存、接着聊、重新生成、插话', () => {
     const turns = turnsOf(session.messages, session.starts);
     expect(turns).toHaveLength(1);
     expect(turns[0].steers).toEqual(['尾巴也要两条']);
+  });
+
+  it('干活到一半换成新对话：这一轮存回原来那段，不写进新的那段里；收尾前不能再起一轮', async () => {
+    const shop = fakeWorkshop();
+    const faux = fauxProvider({ tokensPerSecond: 40 });
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const saved: Conversation[] = [];
+    const session = new AiSession({
+      api: shop.api,
+      lang: 'zh',
+      resolve: async () => ({ models, model: faux.getModel() as Model<Api>, apiKey: 'test', route: 'direct' }),
+      save: (c) => {
+        saved.push(JSON.parse(JSON.stringify(c)) as Conversation);
+      },
+    });
+    faux.setResponses([fauxAssistantMessage([fauxText('这句话说得很慢很慢很慢很慢很慢很慢很慢很慢很慢很慢')])]);
+    const running = session.send('四条腿');
+    await new Promise((r) => setTimeout(r, 60));
+    const old = session.conversation.id;
+    session.startNew();
+    // 被打断的那一轮还没收尾：算在干活，这时发的话不会另起一轮
+    expect(session.busy).toBe(true);
+    await running;
+    expect(session.busy).toBe(false);
+    expect(session.conversation.id).not.toBe(old);
+    expect(session.conversation.messages).toHaveLength(0);
+    expect(saved).toHaveLength(1);
+    expect(saved[0].id).toBe(old);
+    expect(saved[0].messages.length).toBeGreaterThan(0);
   });
 
   it('干活时插的话算在这一轮里，不另起一轮', () => {
@@ -408,6 +463,8 @@ describe('报错和转发地址', () => {
     expect(humanError('401 Unauthorized: invalid x-api-key', 'http')).toContain('钥匙');
     expect(humanError('429 rate limit', 'http')).toContain('限流');
     expect(humanError('Failed to fetch', 'direct')).toContain('exe');
+    // 在没有转发的旧外壳里：叫人装新的安装包，不是「请用 exe」
+    expect(humanError('Failed to fetch', 'stale')).toContain('新的安装包');
     expect(humanError('Insufficient Balance', 'http')).toContain('额度');
   });
 
@@ -418,6 +475,8 @@ describe('报错和转发地址', () => {
     try {
       const url = forwardUrl('https://api.deepseek.com/v1');
       expect(url).toBe('http://localhost:5210/__ai/fwd/https/api.deepseek.com/v1');
+      // 问号后面那段带着走（取模型列表要的 ?limit=1000）
+      expect(forwardUrl('https://api.anthropic.com/v1/models?limit=1000')).toBe('http://localhost:5210/__ai/fwd/https/api.anthropic.com/v1/models?limit=1000');
       expect(targetOf('https/api.deepseek.com/v1/chat/completions')).toBe('https://api.deepseek.com/v1/chat/completions');
       expect(targetOf('http/localhost:11434/v1/chat/completions')).toBe('http://localhost:11434/v1/chat/completions');
     } finally {

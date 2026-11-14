@@ -95,6 +95,8 @@ export interface AiDock {
   readonly isOpen: boolean;
   /** 设定被别处改了（人自己点的、撤销）：刷新「撤回这一轮」能不能点 */
   refresh(): void;
+  /** 正在干活的这一轮停下（「打开 AI 助手」关掉时用） */
+  stop(): void;
 }
 
 export function mountDock(root: HTMLElement, api: WorkshopApi, hooks: { toggled: (open: boolean) => void }): AiDock {
@@ -526,6 +528,8 @@ export function mountDock(root: HTMLElement, api: WorkshopApi, hooks: { toggled:
     const newBtn = el('button', 'btn primary', t('新对话'));
     newBtn.type = 'button';
     newBtn.addEventListener('click', () => {
+      // 正在干活时不换对话（和点列表里别的对话一样）：先停下或者等这一轮完
+      if (session.busy) return;
       session.startNew();
       show('chat');
     });
@@ -584,6 +588,8 @@ export function mountDock(root: HTMLElement, api: WorkshopApi, hooks: { toggled:
       del.type = 'button';
       let armed = false;
       del.addEventListener('click', async () => {
+        // 正在干活的这一段不能删：这一轮完了还要存回它
+        if (c.id === session.conversation.id && session.busy) return;
         // 点两下才删：第一下变成「再点一下删除」
         if (!armed) {
           armed = true;
@@ -787,5 +793,6 @@ export function mountDock(root: HTMLElement, api: WorkshopApi, hooks: { toggled:
     refresh() {
       if (opened && !session.busy && view === 'chat') renderLast();
     },
+    stop: () => session.stop(),
   };
 }

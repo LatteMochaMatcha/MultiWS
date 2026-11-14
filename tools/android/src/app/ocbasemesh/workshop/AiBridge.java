@@ -18,6 +18,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -37,6 +38,8 @@ final class AiBridge {
     private final WebView web;
     /** 正在发的请求：网页点了「停」时断开 */
     private final Map<String, HttpURLConnection> calls = new ConcurrentHashMap<>();
+    /** 还没连上就被点了「停」的请求：连上以后马上断开 */
+    private final Set<String> cancelled = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
 
     AiBridge(Activity activity, WebView web) {
         this.activity = activity;
@@ -52,6 +55,7 @@ final class AiBridge {
     public void abort(String id) {
         HttpURLConnection c = calls.remove(id);
         if (c != null) c.disconnect();
+        else cancelled.add(id);
     }
 
     private void call(String id, String url, String method, String headers, String body) {
@@ -66,6 +70,10 @@ final class AiBridge {
             }
             c = (HttpURLConnection) target.openConnection();
             calls.put(id, c);
+            if (cancelled.remove(id)) {
+                calls.remove(id);
+                return;
+            }
             c.setRequestMethod(method);
             c.setInstanceFollowRedirects(false);
             c.setConnectTimeout(30_000);
@@ -107,6 +115,7 @@ final class AiBridge {
             if (calls.containsKey(id)) push("fail", id, e.getClass().getSimpleName() + ": " + e.getMessage());
         } finally {
             calls.remove(id);
+            cancelled.remove(id);
             if (c != null) c.disconnect();
         }
     }

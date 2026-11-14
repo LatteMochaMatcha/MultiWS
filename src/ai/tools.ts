@@ -7,7 +7,7 @@ import { arr, bool, int, num, obj, oneOf, opt, str, union } from '@earendil-work
 import { applyParse, describeSpec, parseDescription } from '../parser';
 import { clearOverride, setOverride } from '../model/overrides';
 import { partLabel } from '../model/partLabel';
-import { type BodySpec, COUNT_DEFS, type CountKey, HAIR_STYLES, PER_TORSO_KEYS, type PartOverride, SHAPE_DEFS, TORSO_SIDES } from '../model/spec';
+import { type BodySpec, CHEST_ROW, COUNT_DEFS, type CountKey, HAIR_STYLES, PENIS_ROW, PER_TORSO_KEYS, type PartOverride, SHAPE_DEFS, TORSO_SIDES } from '../model/spec';
 import { ADULT_CHOICES, ADULT_COUNTS, ADULT_SHAPES, type Adjusted, type BodyPatch, CHOICES, type Change, applyPatch, diffSpec, stateForModel } from './body';
 import type { WorkshopApi } from './workshop';
 
@@ -72,6 +72,9 @@ function patchSchema(adult: boolean) {
     shape: opt(shapeSchema(adult)),
     hair: opt(obj({ style: opt(oneOf(HAIR_STYLES)), color: opt(str({ description: '#rrggbb, or "" for the natural colour' })), length: opt(num()), volume: opt(num()) })),
     hipLegs: opt(int()),
+    chestRow: opt(int()),
+    ringCount: opt(int()),
+    ringSpread: opt(num()),
     fingers: opt(int()),
     toes: opt(int()),
     blend: opt(num()),
@@ -134,8 +137,9 @@ export function bodyTools(ctx: ToolContext, adult: boolean): AgentTool[] {
           armLayout: r.armLayout !== 'stack' ? r.armLayout : before.armLayout,
           legLayout: r.legLayout !== 'auto' ? r.legLayout : before.legLayout,
           hipLegs: r.hits.has('legs') ? r.hipLegs : before.hipLegs,
+          chestRow: r.chestRow !== CHEST_ROW.def ? r.chestRow : before.chestRow,
           penisLayout: r.penisLayout !== 'row' ? r.penisLayout : before.penisLayout,
-          penisRow: r.penisRow,
+          penisRow: r.penisRow !== PENIS_ROW.def ? r.penisRow : before.penisRow,
           scrotum: r.scrotum !== 'shared' ? r.scrotum : before.scrotum,
         };
       }

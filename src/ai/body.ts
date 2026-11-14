@@ -27,6 +27,10 @@ import {
   PER_TORSO_KEYS,
   type PerTorsoKey,
   POSES,
+  RINGS,
+  RING_CHESTS,
+  RING_LEGS,
+  RING_LEG_FACINGS,
   SCROTUM_MODES,
   SHAPE_DEFS,
   type ShapeKey,
@@ -55,6 +59,10 @@ export const CHOICES = {
   legEnd: LIMB_ENDS,
   conjoined: CONJOINS,
   conjoinPose: CONJOIN_POSES,
+  ring: RINGS,
+  ringChest: RING_CHESTS,
+  ringLegs: RING_LEGS,
+  ringLegFacing: RING_LEG_FACINGS,
   meshMode: MESH_MODES,
 } as const;
 export const ADULT_CHOICES = { penisLayout: PENIS_LAYOUTS, scrotum: SCROTUM_MODES } as const;
@@ -62,7 +70,7 @@ export const ADULT_CHOICES = { penisLayout: PENIS_LAYOUTS, scrotum: SCROTUM_MODE
 type ChoiceKey = keyof typeof CHOICES;
 type AdultChoiceKey = keyof typeof ADULT_CHOICES;
 /** 几个单独的整数、小数 */
-const NUMBERS = ['hipLegs', 'fingers', 'toes', 'blend'] as const;
+const NUMBERS = ['hipLegs', 'chestRow', 'ringCount', 'ringSpread', 'fingers', 'toes', 'blend'] as const;
 const ADULT_NUMBERS = ['penisRow'] as const;
 
 /** 模型要的改动：只写要改的那几项，别的照旧 */
@@ -87,8 +95,15 @@ export interface BodyPatch {
   legEnd?: string;
   conjoined?: string;
   conjoinPose?: string;
+  ring?: string;
+  ringChest?: string;
+  ringLegs?: string;
+  ringLegFacing?: string;
   meshMode?: string;
   hipLegs?: number;
+  chestRow?: number;
+  ringCount?: number;
+  ringSpread?: number;
   fingers?: number;
   toes?: number;
   blend?: number;
@@ -233,6 +248,10 @@ const CHOICE_LABEL: Record<string, Record<string, string>> = {
   legEnd: { hand: t('手'), foot: t('脚') },
   conjoined: { none: t('不连'), same: t('同向'), opposite: t('反向') },
   conjoinPose: { prone: t('趴着'), lie: t('侧躺'), flat: t('平躺'), stand: t('站着') },
+  ring: { none: t('不围'), hips: t('各有各的胯'), fused: t('并胯融合') },
+  ringChest: { stagger: t('交错成串'), taper: t('交错渐小'), aligned: t('上下对齐') },
+  ringLegs: { fill: t('中间也有'), rim: t('只在外圈') },
+  ringLegFacing: { out: t('绕圈朝外'), front: t('统一朝前') },
   meshMode: { fused: t('融合成一整块'), parts: t('分部件（v1）') },
   penisLayout: { row: t('左右并排'), stack: t('上下叠'), fan: t('扇形散开'), grid: t('几乘几') },
   scrotum: { shared: t('几根共用一个'), each: t('每根各带一个') },
@@ -253,9 +272,16 @@ const FIELD_LABEL: Record<string, string> = {
   legEnd: t('腿末端'),
   conjoined: t('连体'),
   conjoinPose: t('连体姿态'),
+  ring: t('围成一圈'),
+  ringCount: t('围几个人'),
+  ringSpread: t('圈的松紧'),
+  ringChest: t('环绕的胸'),
+  ringLegs: t('中间的腿'),
+  ringLegFacing: t('腿的朝向'),
   meshMode: t('网格模式'),
   blend: t('融合圆角'),
   hipLegs: t('每副胯几条腿'),
+  chestRow: t('每排几个胸'),
   fingers: t('手指'),
   toes: t('脚趾'),
   hairStyle: t('发型'),
@@ -337,7 +363,7 @@ export function diffSpec(a: BodySpec, b: BodySpec): Change[] {
       push(`torsoCounts.${side}.${key}`, label, from, to, (v) => (v === undefined ? t('跟着全部') : String(v)));
     }
   }
-  for (const field of ['headLayout', 'armLayout', 'legLayout', 'hipLegs', 'pose', 'earShape', 'hands', 'fingers', 'toes', 'armEnd', 'legEnd', 'conjoined', 'conjoinPose', 'meshMode', 'blend', 'penisLayout', 'scrotum', 'penisRow', 'penisSoft'] as const) {
+  for (const field of ['headLayout', 'armLayout', 'legLayout', 'hipLegs', 'chestRow', 'ring', 'ringCount', 'ringSpread', 'ringChest', 'ringLegs', 'ringLegFacing', 'pose', 'earShape', 'hands', 'fingers', 'toes', 'armEnd', 'legEnd', 'conjoined', 'conjoinPose', 'meshMode', 'blend', 'penisLayout', 'scrotum', 'penisRow', 'penisSoft'] as const) {
     scalar(field);
   }
   for (const d of SHAPE_DEFS) {
@@ -375,6 +401,7 @@ export function stateForModel(spec: BodySpec, adult: boolean): Record<string, un
     armLayout: spec.armLayout,
     legLayout: spec.legLayout,
     hipLegs: spec.hipLegs,
+    chestRow: spec.chestRow,
     pose: spec.pose,
     earShape: spec.earShape,
     hands: spec.hands,
@@ -384,6 +411,8 @@ export function stateForModel(spec: BodySpec, adult: boolean): Record<string, un
     legEnd: spec.legEnd,
     conjoined: spec.conjoined,
     conjoinPose: spec.conjoinPose,
+    ring: spec.ring,
+    ...(spec.ring !== 'none' ? { ringCount: spec.ringCount, ringSpread: spec.ringSpread, ringChest: spec.ringChest, ringLegs: spec.ringLegs, ringLegFacing: spec.ringLegFacing } : {}),
     shape,
     hair: { style: spec.hair.style, color: spec.hair.color, length: spec.hair.length, volume: spec.hair.volume },
     meshMode: spec.meshMode,

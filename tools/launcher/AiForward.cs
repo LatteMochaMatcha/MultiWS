@@ -106,6 +106,8 @@ static class AiForward
                     break;
             }
         }
+        // 回答的头已经交回去没有：交了以后再出错就不能再回一句报错了，只能掐断
+        bool started = false;
         try
         {
             if (request.HttpMethod != "GET" && request.HttpMethod != "HEAD")
@@ -149,6 +151,7 @@ static class AiForward
                 }
                 response.Headers["Cache-Control"] = "no-store";
                 response.SendChunked = true;
+                started = true;
                 using (Stream from = answer.GetResponseStream())
                 {
                     byte[] buffer = new byte[8192];
@@ -164,8 +167,13 @@ static class AiForward
         }
         catch (Exception e)
         {
-            // 页面那边断开了（点了「停」、关了页面），或者连不上：能回就回一句，回不了就算了
-            try { Fail(response, 502, "cannot reach " + target.Host + ": " + e.Message); }
+            // 页面那边断开了（点了「停」、关了页面），或者连不上：能回就回一句，回不了就算了。
+            // 回答说到一半服务商那头断了：掐断这条回答，页面马上知道断了（不掐的话它一直等着结尾，卡在「正在干活」）
+            try
+            {
+                if (started) response.Abort();
+                else Fail(response, 502, "cannot reach " + target.Host + ": " + e.Message);
+            }
             catch (Exception) { }
         }
     }

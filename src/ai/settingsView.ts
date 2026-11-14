@@ -8,7 +8,7 @@ import { clearListing, factsOf } from './catalog';
 import { CUSTOM_EXAMPLES, CUSTOM_ID, PROVIDERS, type ProviderGroup, providerOf } from './providers';
 import { type Lineup, SetupError, humanError, lineup, pickModel, resolveFromSettings } from './session';
 import { THINKING, type Thinking, loadKey, loadSettings, maskKey, saveKey, saveSettings } from './settings';
-import { detectRoute } from './transport';
+import { type Route, detectRoute } from './transport';
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = ''): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
@@ -83,6 +83,10 @@ export function mountSettings(box: HTMLElement, hooks: { changed: () => void }):
   keyLink.target = '_blank';
   keyLink.rel = 'noopener';
   fKey.append(keyLink);
+  const keyClear = el('button', 'btn', t('清除这家的钥匙'));
+  keyClear.type = 'button';
+  keyClear.hidden = true;
+  fKey.append(keyClear);
 
   // 模型：从服务商那里取的列表（取不到就是 pi 的预设）；列表长的时候上面多一个搜索框
   const modelFilter = el('input');
@@ -128,7 +132,11 @@ export function mountSettings(box: HTMLElement, hooks: { changed: () => void }):
   const testRow = el('div', 'actions');
   testRow.append(btnTest);
   box.append(testRow, testOut);
-  const routeNote = el('p', 'note warn', t('网页版是浏览器直接连服务商，很多家会被浏览器的跨域限制挡住（Claude 不会）；用 exe 或安卓版没有这个问题。'));
+  const ROUTE_NOTE: Partial<Record<Route, string>> = {
+    direct: t('网页版是浏览器直接连服务商，很多家会被浏览器的跨域限制挡住（Claude 不会）；用 exe 或安卓版没有这个问题。'),
+    stale: t('这一版的 exe / 安卓版还没有 AI 助手要用的转发：除了 Claude，很多家会连不上。请到项目主页下载新的安装包装上（exe 也可以在「检查更新」里换新的安装包）。'),
+  };
+  const routeNote = el('p', 'note warn');
   routeNote.hidden = true;
   box.append(
     routeNote,
@@ -201,6 +209,7 @@ export function mountSettings(box: HTMLElement, hooks: { changed: () => void }):
     keyInput.placeholder = key ? t('已填：{key}（要换就重新填）', { key: maskKey(key) }) : custom ? t('不需要的就空着（例如本机 Ollama）') : t('粘贴这家的钥匙');
     keyLink.hidden = !p.keyPage;
     if (p.keyPage) keyLink.href = p.keyPage;
+    keyClear.hidden = !key;
     // 一打开时还没填钥匙：设置展开着
     needsKey = !key && !custom;
 
@@ -241,7 +250,9 @@ export function mountSettings(box: HTMLElement, hooks: { changed: () => void }):
     else if (l?.listedAt) listInfo.textContent = t('模型列表取自服务商（{ago}），共 {n} 个。', { ago: ago(l.listedAt), n: shown.length });
     else if (!key && !custom) listInfo.textContent = t('填上钥匙后会自动从服务商取模型列表；现在列的是内置的预设。');
     else listInfo.textContent = '';
-    routeNote.hidden = (l?.route ?? (await detectRoute())) !== 'direct' || p.id === 'anthropic';
+    const note = ROUTE_NOTE[l?.route ?? (await detectRoute())];
+    routeNote.textContent = note ?? '';
+    routeNote.hidden = !note || p.id === 'anthropic';
   }
 
   function changed(fetch: 'never' | 'stale' | 'always' = 'stale', saidKey = false) {
@@ -291,6 +302,12 @@ export function mountSettings(box: HTMLElement, hooks: { changed: () => void }):
     clearListing(id);
     changed('always', true);
   });
+  keyClear.addEventListener('click', () => {
+    const id = providerOf(loadSettings().provider).id;
+    saveKey(id, '');
+    clearListing(id);
+    changed('never');
+  });
   selThinking.addEventListener('change', () => {
     saveSettings({ thinking: selThinking.value as Thinking });
     changed('never');
@@ -300,7 +317,7 @@ export function mountSettings(box: HTMLElement, hooks: { changed: () => void }):
     btnTest.disabled = true;
     testOut.textContent = t('连接中……');
     const started = performance.now();
-    let route: 'direct' | 'http' | 'android' = 'direct';
+    let route: Route = 'direct';
     try {
       const r = await resolveFromSettings(loadSettings());
       route = r.route;

@@ -10,8 +10,16 @@
  * 接到 pi 上只改模型的 baseUrl：https://api.deepseek.com/v1 → <本站>/__ai/fwd/https/api.deepseek.com/v1。
  */
 import type { Api, Model } from '@earendil-works/pi-ai';
+import { detectShell } from '../update/shell';
 
-export type Route = 'direct' | 'http' | 'android';
+/**
+ * 请求怎么走：direct 直接连（网页版）；http、android 交给外壳转发；
+ * stale 是在外壳里、但外壳是没有转发的旧版（自动更新只换网页，换不了外壳）：只能直接连，提示里叫人装新的安装包
+ */
+export type Route = 'direct' | 'http' | 'android' | 'stale';
+
+/** 这条路走不走转发 */
+export const forwards = (route: Route): boolean => route === 'http' || route === 'android';
 
 const FWD = '__ai/fwd/';
 
@@ -43,6 +51,8 @@ export function detectRoute(): Promise<Route> {
       installAndroidFetch(window.OcAi);
       return 'android';
     }
+    // 旧的 apk 外壳：有更新用的 OcShell，没有 OcAi
+    if ((window as unknown as { OcShell?: unknown }).OcShell) return 'stale';
     if (!/^https?:$/.test(location.protocol)) return 'direct';
     try {
       const r = await fetch(new URL('__ai/ping', location.href).href, { cache: 'no-store' });
@@ -50,6 +60,12 @@ export function detectRoute(): Promise<Route> {
       if (r.ok && (await r.text()).trim() === 'oc-ai') return 'http';
     } catch {
       // 连不上就是没有
+    }
+    // 旧的 exe 外壳：认得 /__shell/，不认得 /__ai/
+    try {
+      if (await detectShell()) return 'stale';
+    } catch {
+      // 问不到就当是网页版
     }
     return 'direct';
   })();
@@ -60,7 +76,8 @@ export function detectRoute(): Promise<Route> {
 export function forwardUrl(base: string): string {
   const u = new URL(base);
   const scheme = u.protocol.replace(':', '');
-  return new URL(`${FWD}${scheme}/${u.host}${u.pathname.replace(/\/+$/, '')}`, location.href).href;
+  // 带着问号后面那段（取模型列表时的 ?limit=1000 之类），不然服务商只回第一页
+  return new URL(`${FWD}${scheme}/${u.host}${u.pathname.replace(/\/+$/, '')}${u.search}`, location.href).href;
 }
 
 /** 转发地址里 /__ai/fwd/ 后面那段换回服务商的地址：「https/api.deepseek.com/v1/chat/completions」→「https://api.deepseek.com/v1/chat/completions」 */
@@ -71,7 +88,7 @@ export function targetOf(rest: string): string {
 
 /** 模型复制一份，地址改成走转发；exe、开发服务器的转发要带 X-Shell 头 */
 export function routeModel<T extends Api>(model: Model<T>, how: Route): Model<T> {
-  if (how === 'direct') return model;
+  if (!forwards(how)) return model;
   return { ...model, baseUrl: forwardUrl(model.baseUrl), headers: { ...(model.headers ?? {}), ...(how === 'http' ? { 'X-Shell': '1' } : {}) } };
 }
 
@@ -131,6 +148,8 @@ function installAndroidFetch(bridge: AndroidAi) {
     },
   };
   const original = window.fetch.bind(window);
+  // 请求的号带上这次载入页面随机的一段：页面重新载入以后，上一次没跑完的请求推回来的数据对不上号，混不进新的请求里
+  const load = Math.random().toString(36).slice(2, 8);
   let next = 0;
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -141,7 +160,7 @@ function installAndroidFetch(bridge: AndroidAi) {
     request.headers.forEach((value, key) => {
       headers[key] = value;
     });
-    const id = `r${++next}`;
+    const id = `${load}-r${++next}`;
     const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
     return new Promise<Response>((resolve, reject) => {
       if (signal?.aborted) {

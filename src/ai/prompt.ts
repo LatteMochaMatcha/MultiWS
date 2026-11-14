@@ -5,7 +5,8 @@
  */
 import { ROSTER } from '../character/roster';
 import type { Lang } from '../i18n';
-import { COUNT_DEFS, FINGERS, HIP_LEGS, SHAPE_DEFS, TOES } from '../model/spec';
+import { RING_PERSON_LEGS } from '../geometry/layout';
+import { CHEST_ROW, COUNT_DEFS, FINGERS, HIP_LEGS, RING_COUNT, RING_SPREAD, SHAPE_DEFS, TOES } from '../model/spec';
 import { ADULT_COUNTS, ADULT_SHAPES } from './body';
 
 const LANG_NAME: Record<Lang, string> = { zh: 'Simplified Chinese', en: 'English', ja: 'Japanese' };
@@ -14,7 +15,7 @@ const COUNT_MEANING: Record<string, string> = {
   torsos: 'upper bodies on one pair of hips (2 = split left/right like a twin-torso; heads/arms/chests/horns/eyes/ears are per upper body)',
   heads: 'heads (per upper body)',
   armPairs: 'pairs of arms (per upper body)',
-  chestPairs: 'pairs of breasts (per upper body; 0 = flat)',
+  breasts: 'breasts, counted one by one, not in pairs (per upper body; 0 = flat; 2 = one ordinary pair; laid out in rows, see chestRow)',
   legs: 'legs in total (odd numbers allowed)',
   tails: 'tails',
   wingPairs: 'pairs of wings',
@@ -57,11 +58,13 @@ headLayout (when heads > 1): cluster = separate heads bunched together, each wit
 armLayout (when armPairs > 1): stack = pairs stacked down the torso; fan = all pairs fanned out from the shoulders.
 legLayout (when legs > 2): auto = 4 legs centaur-like, 6+ spider-like, odd numbers side by side; taur = horse-like body with legs front to back; spider = legs radiating from a spider body; humantaur = like a centaur but the rear half is a second human pelvis with human legs; tandem = human hips one behind another; row = human legs side by side on one wide pelvis; gather = several pelvises pressed together, legs fanning out; abreast = several complete pelvises side by side, one upper body in the middle.
 hipLegs: ${HIP_LEGS.min}–${HIP_LEGS.max}, legs per pelvis for humantaur/tandem (e.g. 3 = three legs on each pelvis).
+chestRow: ${CHEST_ROW.min}–${CHEST_ROW.max}, breasts per row (default ${CHEST_ROW.def} = ordinary pairs; an odd one sits in the middle; 3 or 4 per row are a little smaller; ready-made characters manage at most 2 per row). "Six breasts, three per row" = counts.breasts 6, chestRow 3.
 pose: A (arms down) | T (arms straight out). This is the rest pose, not the posing mode.
 earShape: cat | fox | rabbit | elf (only matters when earPairsPerHead > 0).
 hands: fingers | mitten. fingers: ${FINGERS.min}–${FINGERS.max} per hand including the thumb (default ${FINGERS.def}). toes: ${TOES.min}–${TOES.max} (anime body only, default ${TOES.def}).
 armEnd / legEnd: hand | foot (swap hands and feet).
 conjoined: none | same | opposite — two upper bodies joined at the waist with no hips or legs ("queen conjoined"); conjoinPose: prone | lie | flat | stand.
+ring: none | hips | fused — several people standing back to back in a ring, facing outward, fused into one body ("flesh mountain"): heads in a ring, breasts all the way around, legs on every side. hips = each person keeps a visible waist and pelvis; fused = waists and pelvises merge into one barrel. Clay mannequin and anime body only; not together with conjoined. While ring is on: counts.heads, breasts${adult ? ', penises' : ''} and legs (at most ${RING_PERSON_LEGS}) are per person; counts.armPairs is the number of arms on each side of the whole body; tails, wings, extra upper bodies and legLayout are ignored. ringCount: ${RING_COUNT.min}–${RING_COUNT.max} people (default ${RING_COUNT.def}). ringSpread: ${RING_SPREAD.min}–${RING_SPREAD.max} (default ${RING_SPREAD.def}; smaller = tighter ring, bodies and heads closer together). ringChest: stagger (rows form rings around the body, every other ring shifted half a step) | taper (staggered, lower rings smaller) | aligned (each person keeps plain pairs). ringLegs: fill (legs also under the middle of the ring) | rim (outer ring only). ringLegFacing: out (each leg faces outward) | front (all feet point forward).
 meshMode: fused (one welded piece) | parts (separate parts). blend: 0–0.04, fusion fillet radius in metres.
 hair: style own | long | sidetail | bob | twintails ("own" = bald on the clay bodies, original hair on ready-made characters); color "#rrggbb" or "" (colour only shows on ready-made characters); length 0.6–1.5; volume 0.97–1.2.
 

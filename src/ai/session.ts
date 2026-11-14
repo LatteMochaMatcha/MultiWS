@@ -166,6 +166,7 @@ export function humanError(message: string, route: Route): string {
   if (/\b404\b|model.{0,40}(not.?found|not exist|does not exist|unknown)/i.test(m)) return t('服务商说没有这个模型。到设置里换一个型号。');
   if (/refus|content.?(policy|filter|management)|safety|sensitive|inappropriate|审核|违规|敏感/i.test(m)) return t('服务商拒绝了这个请求（内容审核）。换个说法，或者换一家试试。');
   if (/failed to fetch|networkerror|network error|load failed|fetch failed|econn|enotfound|etimedout|timed? ?out|cors/i.test(m)) {
+    if (route === 'stale') return t('连不上服务商。这一版的 exe / 安卓版还没有 AI 助手要用的转发，很多家会被跨域限制挡住（Claude 不会）：请到项目主页下载新的安装包装上；也可能是网络不通。');
     return route === 'direct'
       ? t('连不上服务商。网页版直接连常被浏览器的跨域限制挡住，请用 exe 或安卓版；也可能是网络不通。')
       : t('连不上服务商，检查一下网络（国外的服务可能要开代理）。');
@@ -204,6 +205,10 @@ export class AiSession {
   private hitLimit = false;
   private trimmedThisRun = false;
   private stopped = false;
+  /** 一轮从头到尾都算在干活（载入服务商、收尾存档那两段 pi 不在流式输出，也不能再起一轮） */
+  private running = false;
+  /** 这一轮里插的话：一轮结束时看哪几句没送到模型手上 */
+  private steered: { text: string; at: number }[] = [];
   private listeners = new Set<(e: AiEvent) => void>();
   /** 上一轮结束时撤销记录的记号；「撤回这一轮」时核对 */
   private lastMark: unknown = null;
@@ -229,7 +234,7 @@ export class AiSession {
   }
 
   get busy(): boolean {
-    return this.agent?.state.isStreaming ?? false;
+    return this.running || (this.agent?.state.isStreaming ?? false);
   }
 
   /** 走的是哪条路（报错翻成人话时要看） */
@@ -379,7 +384,13 @@ export class AiSession {
   /** 正在干活时用户又说了一句：插进去（下一步模型就看得到）；没在干活就是正常发话。插话只带文字（圈出来的留到下一句） */
   async say(text: string, marks: readonly Mark[] = []): Promise<void> {
     if (!this.busy) return this.send(text, marks);
-    this.agent?.steer({ role: 'user', content: text, timestamp: Date.now() });
+    if (!this.agent) {
+      this.emit({ type: 'failed', text: t('这句话没来得及发给模型，要的话再发一次。'), user: text });
+      return;
+    }
+    const at = Date.now();
+    this.steered.push({ text, at });
+    this.agent.steer({ role: 'user', content: text, timestamp: at });
     this.emit({ type: 'update' });
   }
 
@@ -398,6 +409,7 @@ export class AiSession {
   /** 跑一轮：content 照模型能不能看图拼出发给它的那句话 */
   private async run(text: string, content: (vision: boolean) => UserContent): Promise<void> {
     if (this.busy) return;
+    this.running = true;
     const api = this.opts.api;
     // 成人部件开关、界面语言变了：工具和系统提示都不一样了，另起一段（旧的留在列表里）
     if (this.conversation.messages.length && (this.conversation.adult !== api.adultOn() || this.conversation.lang !== this.opts.lang)) {
@@ -411,6 +423,7 @@ export class AiSession {
       if (!this.resolved?.apiKey && providerOf(loadSettings().provider).id !== CUSTOM_ID) throw new SetupError(t('还没填钥匙。在设置里填上这家的钥匙。'));
     } catch (err) {
       const why = err instanceof SetupError ? err.message : humanError(err instanceof Error ? err.message : String(err), this.route);
+      this.running = false;
       this.emit({ type: 'failed', text: why, user: text });
       return;
     }
@@ -418,6 +431,9 @@ export class AiSession {
     const before = api.mark();
     const from = agent.state.messages.length;
     this.conversation = { ...this.conversation, starts: [...this.conversation.starts, at] };
+    /** 这一轮是哪段对话的：跑到一半换了对话的话，结果还存回这一段，不写进新换的那段里 */
+    const mine = this.conversation;
+    this.steered = [];
     this.turnsThisRun = 0;
     this.hitLimit = false;
     this.trimmedThisRun = false;
@@ -437,8 +453,9 @@ export class AiSession {
     const messages = plain(agent.state.messages) as AgentMessage[];
     const spentNow = usageOf(messages.slice(from));
     const s = loadSettings();
-    const was = this.conversation;
-    this.conversation = {
+    const here = this.conversation.id === mine.id;
+    const was = here ? this.conversation : mine;
+    const done: Conversation = {
       ...was,
       messages,
       title: was.title || titleOf(messages),
@@ -456,12 +473,26 @@ export class AiSession {
         ? { ...was.notes, [String(at)]: { stopped: this.stopped ? 'aborted' : this.hitLimit ? 'limit' : undefined, trimmed: this.trimmedThisRun || undefined } }
         : was.notes,
     };
-    const after = api.mark();
-    this.lastChanged = after !== before;
-    this.lastMark = this.lastChanged ? after : null;
-    await this.opts.save?.(this.conversation);
+    // 插的话没送到模型手上（这一轮停了、出错了、到了步数上限）：不留在队列里拖到下一轮，告诉用户
+    const sent = new Set(messages.map((m) => (m as { role?: string; timestamp?: number }).role === 'user' ? (m as { timestamp?: number }).timestamp : undefined));
+    const unsent = this.steered.filter((s) => !sent.has(s.at)).map((s) => s.text);
+    this.steered = [];
+    agent.clearSteeringQueue();
+    if (here) {
+      this.conversation = done;
+      const after = api.mark();
+      this.lastChanged = after !== before;
+      this.lastMark = this.lastChanged ? after : null;
+    }
+    try {
+      await this.opts.save?.(done);
+    } catch {
+      // 存不了（浏览器不让存）：这一段还在内存里，接着聊不受影响
+    }
+    this.running = false;
     this.emit({ type: 'busy', busy: false });
     this.emit({ type: 'update' });
+    if (unsent.length) this.emit({ type: 'failed', text: t('这句话没来得及发给模型，要的话再发一次。'), user: unsent.join('\n') });
   }
 
   /** 发给模型的大概有多少 token（界面上显示上下文用了多少） */

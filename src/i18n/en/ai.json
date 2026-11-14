@@ -155,5 +155,9 @@
   "不圈了": "Cancel",
   "圈好了": "Done",
   "正在看圈住了哪些部件……": "Finding the parts you circled…",
-  "拖这里改窗口大小": "Drag to resize the window"
+  "拖这里改窗口大小": "Drag to resize the window",
+  "这句话没来得及发给模型，要的话再发一次。": "This message didn't reach the model in time. Send it again if you still need it.",
+  "连不上服务商。这一版的 exe / 安卓版还没有 AI 助手要用的转发，很多家会被跨域限制挡住（Claude 不会）：请到项目主页下载新的安装包装上；也可能是网络不通。": "Can't reach the provider. This build of the exe / Android app doesn't have the forwarding the AI assistant needs, so many providers are blocked by cross-origin rules (Claude is not): download and install the latest installer from the project page. It could also be a network problem.",
+  "这一版的 exe / 安卓版还没有 AI 助手要用的转发：除了 Claude，很多家会连不上。请到项目主页下载新的安装包装上（exe 也可以在「检查更新」里换新的安装包）。": "This build of the exe / Android app doesn't have the forwarding the AI assistant needs: apart from Claude, many providers won't connect. Download and install the latest installer from the project page (the exe can also get the new installer from Check for updates).",
+  "清除这家的钥匙": "Remove this provider's key"
 }
