@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { compareVersions } from '../src/update/manifest';
 import { parseChangelog } from '../src/view/changelog';
 
 describe('更新日志（打开工坊时弹出来的那一份）', () => {
@@ -24,10 +25,10 @@ describe('更新日志（打开工坊时弹出来的那一份）', () => {
   it('仓库里的 CHANGELOG.md 读得出来：最新一版在最前，每版都有内容', () => {
     const releases = parseChangelog(readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8'));
     expect(releases.length).toBeGreaterThan(3);
-    expect(releases[0].version).toMatch(/^\d+\.\d+\.\d+$/);
+    // 两段的（2.8）和三段的（2.7.8）都行，和 package.json 的版本号一个规矩（见 update/manifest.ts 的 compareVersions）
+    expect(releases[0].version).toMatch(/^\d+(\.\d+){1,3}$/);
     for (const r of releases) expect(r.lines.length, r.version).toBeGreaterThan(0);
     // 版本号从新到旧
-    const num = (v: string) => v.split('.').reduce((n, part) => n * 1000 + Number(part), 0);
-    for (let i = 1; i < releases.length; i++) expect(num(releases[i - 1].version), releases[i].version).toBeGreaterThan(num(releases[i].version));
+    for (let i = 1; i < releases.length; i++) expect(compareVersions(releases[i - 1].version, releases[i].version), releases[i].version).toBeGreaterThan(0);
   });
 });

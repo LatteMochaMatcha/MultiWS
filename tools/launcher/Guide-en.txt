@@ -11,7 +11,7 @@ After exporting, you can keep sculpting it in Blender, rig it with bones, or pos
 screenshots and hand them to an image-generation AI as a reference for the body structure.
 
 Parts it can make: 1-3 upper bodies (branching off from the waist, each with its own heads, arms and breasts),
-1-5 heads, 0-4 pairs of arms, 0-4 pairs of breasts,
+1-5 heads, 0-4 pairs of arms, 0-20 breasts (1-4 per row),
 1-12 legs (an odd number is fine; centaur or spider lower bodies, or the all-human-legs "humantaur"),
 0-9 tails, 0-3 pairs of wings, horns, animal ears (cat, fox, rabbit and elf ears), and multiple eyes.
 

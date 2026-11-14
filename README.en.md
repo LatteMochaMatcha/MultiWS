@@ -132,6 +132,8 @@ Type the body description into the "Body description" box; the model updates by 
   - Gather at pelvis: the pelvis stays as wide as one person's, the pelvises sit one against the next, and the legs spread outward more and more toward the bottom.
   - Pelvis row: several complete pelvises stand in a row, two legs each.
   - For Humantaur and Tandem you can choose how many legs each pelvis carries ("three front, three back").
+- **Breasts per row** (1–4, shown when there are two or more breasts): breasts are counted one by one and laid out in rows — two per row is ordinary pairs, an odd one sits in the middle, three or four per row are each a little smaller; when the count is not a multiple, the bottom row has fewer. In a description write "six breasts, three per row". Ready-made characters manage at most two per row.
+- **Ring of bodies** (Mannequin and Anime body): several people (3–8) stand back to back in a ring, facing outward, fused into one body — the heads form a ring, the breasts go all the way around, and the legs spread out on every side. "Separate pelvises" keeps each person's own waist and pelvis visible; "Fused pelvis" merges them into one round barrel. Heads, breasts and legs (up to 6 each) are counted per person; arms grow only on the left and right sides of the whole body, and the number of arm pairs is the number of arms on each side. "Ring breasts" can be staggered (each ring packed to the size of the breasts, every other ring shifted half a step), staggered and tapering, or in aligned rows; "Middle legs" chooses whether legs also grow under the middle of the ring; "Leg direction" chooses facing outward or all forward; "Ring tightness" is a 50%–130% slider. The backs do not bend in a ring, and ready-made poses are applied to each person. There is no ring for conjoined bodies or ready-made characters.
 - **Multiple upper bodies** (1–3): two or three upper bodies branch off the waist of one pelvis, standing side by side and fanning out to both sides, like Geryon in Greek myth (the Anime body stands them upright side by side: with two, their inner sides touch; with three, they are spaced apart and each has its own waist from just above the pelvis). Each upper body gets its own set of heads, arms, breasts and wings as set, and the middle arms reach forward. Heads, arms, breasts, horns, eyes and animal ears can be set for each upper body separately (see "Part counts"); two upper bodies on a "Pelvis row" of two normally merge into one wide torso, but when the two sides have different counts, each upper body stands upright on its own.
 
   ![Setting heads, arms and breasts per upper body](docs/per-torso.png)
@@ -310,6 +312,16 @@ The "Scene" tab puts several characters in one scene, each with its own settings
 - **Characters never fuse together**: however close they stand, each is its own mesh and they just overlap. When they overlap, the readout says with whom and where; "Move apart" in "Scene" steps away. While posing, hands and feet stop at other characters' surface (can be turned off in "Scene").
 - **Two-person poses**: in "Scene", pick who to pose "With", then click Hold hands, Arm on shoulder, Back to back, High five, Hold both hands or Hug. The current character stays put, the other one moves next to it, both change pose and their hands reach over to touch; each of them can undo it as one step. Extra arms keep their pose; the first pair of arms is used.
 
+## AI assistant (off by default)
+
+Say what you want in plain words ("three heads, six arms, nine tails", "make the legs a bit longer", "raise the arm I circled") and the assistant changes the settings for you. Tick "Turn on the AI assistant" in the "⋯" menu at the top right, and an "AI assistant" button appears at the top.
+
+- **You bring your own key**: in the assistant window's settings pick a provider (DeepSeek, Kimi, Zhipu, Claude, OpenAI, OpenRouter and others, or "Custom (OpenAI-compatible)" for an address of your own such as a local Ollama) and paste the API key you got from that provider. The cost is charged to your own account; the key is stored only on this device and sent only to the provider you picked.
+- **What it can do**: change part counts, layouts, body shape, hair and body style, and tweak a single part. After each turn it lists what changed, and "Undo this round" takes it all back at once. It cannot save or export files and does not touch your files.
+- **Circle it**: "Circle it" at the bottom left of the input box lets you draw red circles on the 3D view to show which part "here" means; models that can read images also get a screenshot.
+- **Conversations** are stored on this device, so you can pick one up again later; while it is working you can add a message or press "Stop".
+- **exe and Android app**: requests to the provider are forwarded by the app shell. Installers from before 2.8 do not have this (apart from Claude, most providers will not connect); installing the new installer once fixes it. The plain web version only works with providers that allow cross-origin requests (Claude does).
+
 ## Export
 
 Click "Export" on the right of the toolbar and pick a format (in portrait on a phone it's the round download button on the right). After you click, wait for the message that pops up to say it's done; the file is in your browser's download folder.
@@ -409,6 +421,8 @@ The base mesh has no face, hair or clothes; those still have to come from Tripo.
 ## Assets and attribution
 
 All the ready-made assets used in the workshop allow redistribution. Download links, licenses and checksums of the originals are recorded in [`assets/source/README.md`](assets/source/README.md), and the list of Ready-made characters is in `src/character/roster.ts`.
+
+Licence notices for the open-source libraries used (three.js, pi and the providers' SDKs) are in `third-party-licenses.txt` in the build output (generated by `npm run build` and shipped with the exe and apk).
 
 **Attribution required** (it is already written into exported files automatically; please keep it when you pass them on):
 

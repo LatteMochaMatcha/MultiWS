@@ -1,5 +1,5 @@
 {
-  "shell": 1,
+  "shell": 2,
   "minShell": 1,
   "sources": [
     { "base": "https://pub-d985d51f23684c13b3c981336d18882a.r2.dev/", "objects": "objects/" },
