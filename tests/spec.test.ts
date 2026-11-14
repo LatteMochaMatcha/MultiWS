@@ -36,7 +36,7 @@ describe('默认值与范围', () => {
       torsos: [1, 3, 1],
       heads: [1, 5, 1],
       armPairs: [0, 4, 1],
-      chestPairs: [0, 4, 1],
+      breasts: [0, 20, 2],
       legs: [1, 12, 2],
       tails: [0, 9, 0],
       wingPairs: [0, 3, 0],
@@ -276,7 +276,7 @@ describe('normalizeSpec', () => {
       torsos: 1,
       heads: 2,
       armPairs: 2,
-      chestPairs: 2,
+      breasts: 4,
       legs: 2,
       tails: 3,
       wingPairs: 1,
@@ -336,7 +336,7 @@ describe('保存与载入', () => {
   it('文件里带上应用名和描述文字', () => {
     const data = JSON.parse(serializeSpec(spec, '九条尾巴'));
     expect(data.app).toBe('oc-basemesh');
-    expect(data.version).toBe(3);
+    expect(data.version).toBe(4);
     expect(data.text).toBe('九条尾巴');
   });
 

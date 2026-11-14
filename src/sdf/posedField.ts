@@ -761,6 +761,7 @@ export function heldLegs(figure: Pick<Figure, 'parts' | 'scale'>, matrices: Pose
  * 一个肩膀上只有一条手臂的，照权重弯出来的肩膀本来就比重新融合的（换成圆肩头的）自然，不用换；
  * 挤在一个肩膀上的几条才是照权重弯不好的：肩头鼓成一团，手臂之间扯着皮。
  * 好几个上半身的也要：挤在一起的胸照权重弯会被拉成管子（见文件开头）。
+ * 围成一圈的也要：几个人的头、肩膀、胸是融在一起的，各人一动，照权重弯的话连着的地方被扯成一根根长条。
  * matrices 只用来核对骨骼数。
  */
 export function refusable(figure: Pick<Figure, 'parts' | 'scale'>, matrices: PoseMatrices): boolean {
@@ -771,7 +772,7 @@ export function refusable(figure: Pick<Figure, 'parts' | 'scale'>, matrices: Pos
     const crowded = arms.some((one, i) =>
       arms.some((other, j) => j > i && other.parent === one.parent && other.side === one.side && Math.hypot(other.pos[0] - one.pos[0], other.pos[1] - one.pos[1], other.pos[2] - one.pos[2]) < CROWDED),
     );
-    known = { bones: buildSkeleton(figure).bones.length, sampled: isSampled(figure.parts), crowded, bodies: severalBodies(figure.parts) };
+    known = { bones: buildSkeleton(figure).bones.length, sampled: isSampled(figure.parts), crowded, bodies: severalBodies(figure.parts) || ringBodies(figure.parts).length > 0 };
     sampledBodies.set(figure.parts, known);
   }
   if (matrices.length !== known.bones * 12) return false;
@@ -781,6 +782,8 @@ export function refusable(figure: Pick<Figure, 'parts' | 'scale'>, matrices: Pos
 const sampledBodies = new WeakMap<object, { bones: number; sampled: boolean; crowded: boolean; bodies: boolean }>();
 /** 好几个上半身（UpperBody、UpperBody_L …，见 geometry/torsos.ts） */
 const severalBodies = (parts: Part[]): boolean => parts.filter((part) => /^UpperBody/.test(part.name)).length > 1;
+/** 围成一圈（geometry/ring.ts）的每个人的躯干，照圈上的顺序：Torso、Torso_B、Torso_C …（至少三个；连体只到 Torso_B，不算）。不是围成一圈的是空的 */
+const ringBodies = (parts: Part[]): Part[] => (parts.some((part) => part.name === 'Torso_C') ? parts.filter((part) => part.type === 'torso' && /^Torso(_[A-Z])?$/.test(part.name)) : []);
 
 /** 挖开的边上圆角多大（几个 margin，见 Room.soft） */
 const CARVE_SOFT = 1.5;
@@ -947,6 +950,11 @@ export function compilePosedField(
     return Boolean(home) && dot(turn(limb, way), home!) < Math.cos(alt.beyond);
   };
 
+  // 围成一圈：胯那根骨骼在圈心的芯子里，每个人的躯干弯的时候带着自己那几条腿根上的那两截（哪条腿是谁的记在 Part.ringOf 上：
+  // 一个人四条以上腿时腿的号不止一个，不能照号数人）；圈心底下的腿不在哪个人身上，不加
+  const ring = ringBodies(figure.parts);
+  const ringOwner = new Map(figure.parts.map((part) => [part.name, part.ringOf]));
+  const ringHost = (leg: string): string | undefined => ringOwner.get(leg);
   /** 带着采样出来的腿的部件（躯干）：弯的时候每条腿的根上另加的那两截跟着胯的线段（见 PELVIS_STUB） */
   const pelvis = new Map<string, Stub[]>();
   {
@@ -959,9 +967,11 @@ export function compilePosedField(
       const host = skeleton.bones[up];
       const way = unit([top.tail[0] - top.head[0], top.tail[1] - top.head[1], top.tail[2] - top.head[2]]) ?? [0, -1, 0];
       const down = PELVIS_STUB.down * (xfs.get(top.part)?.scale ?? 1);
-      const list = pelvis.get(host.part) ?? [];
+      const owner = ring.length ? ringHost(top.part) : host.part;
+      if (!owner) continue;
+      const list = pelvis.get(owner) ?? [];
       list.push({ bone: up, seg: [...top.head, top.head[0] + way[0] * down, top.head[1] + way[1] * down, top.head[2] + way[2] * down] }, { bone: up, seg: [...top.head, ...host.head] });
-      pelvis.set(host.part, list);
+      pelvis.set(owner, list);
     }
   }
 
@@ -1165,10 +1175,19 @@ export function compilePosedField(
       chestDrafts(part, xf, group);
       continue;
     }
-    if (bodyBones.length && part.type === 'chest' && !bodyBones.every((b) => same(matrices, b * 12, bodyBones[0] * 12))) {
+    // 胸和它长在上面的那块躯干一样弯。围成一圈的每个人各有一块躯干：照胸自己那个人的（不然都跟着第一个人弯）
+    let hostBones = bodyBones;
+    let hostStubs = bodyStubs;
+    if (sampled && ring.length && part.type === 'chest') {
+      let host: Part | undefined = part;
+      while (host && host.type !== 'torso') host = host.parent ? byName.get(host.parent) : undefined;
+      hostBones = host ? (own.get(host.name) ?? []) : [];
+      hostStubs = host ? (pelvis.get(host.name) ?? []) : [];
+    }
+    if (hostBones.length && part.type === 'chest' && !hostBones.every((b) => same(matrices, b * 12, hostBones[0] * 12))) {
       const rest: Draft[] = [];
       partDrafts(part, xf, group, minR, rest);
-      for (const d of rest) bendDraft(d, bodyBones, skeleton, matrices, null, undefined, drafts, bodyStubs);
+      for (const d of rest) bendDraft(d, hostBones, skeleton, matrices, null, undefined, drafts, hostStubs);
       continue;
     }
     if (!mine) {

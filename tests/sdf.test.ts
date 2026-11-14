@@ -581,7 +581,7 @@ describe('融合整个角色', () => {
       withCounts({
         heads: 5,
         armPairs: 4,
-        chestPairs: 4,
+        breasts: 8,
         legs: 8,
         tails: 9,
         wingPairs: 3,

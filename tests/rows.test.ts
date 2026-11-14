@@ -9,7 +9,7 @@ import { useAnimeBody } from './animeBody';
 
 const rows = (chestPairs: number, bust: number): Figure => {
   const d = defaultSpec();
-  return buildFigure(normalizeSpec({ ...d, bodyStyle: 'anime', armLayout: 'stack', counts: { ...d.counts, chestPairs, armPairs: 2 }, shape: { ...d.shape, bust } }));
+  return buildFigure(normalizeSpec({ ...d, bodyStyle: 'anime', armLayout: 'stack', counts: { ...d.counts, breasts: chestPairs * 2, armPairs: 2 }, shape: { ...d.shape, bust } }));
 };
 const chests = (f: Figure, side: 1 | -1): Part[] => f.parts.filter((p) => p.type === 'chest' && p.side === side).sort((a, b) => b.pos[1] - a.pos[1]);
 

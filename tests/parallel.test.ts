@@ -155,7 +155,7 @@ describe('大活分给帮手一起算', () => {
   it('胸没烤过：先按层分给帮手一起烤，再融合，结果和一个线程从头算的一样', async () => {
     useAnimeBody();
     // 这副胸别的测试没用过：这个线程里还没烤
-    const job: FuseJob = { parts: partsOf(make({ chestPairs: 2 }, { bodyStyle: 'anime', shape: { ...defaultSpec().shape, bust: 1.37 } })), voxel: VOXEL.preview, blend: 0.02 };
+    const job: FuseJob = { parts: partsOf(make({ breasts: 4 }, { bodyStyle: 'anime', shape: { ...defaultSpec().shape, bust: 1.37 } })), voxel: VOXEL.preview, blend: 0.02 };
     const fakes = [fakeHelper(), fakeHelper(), fakeHelper()];
     const made = await fuseSpread(11, job, fakes.map((f) => f.helper), never);
     const bakes = fakes.flatMap((f) => f.bakes());

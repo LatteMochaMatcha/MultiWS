@@ -14,11 +14,11 @@
  */
 import { FACE_OUT, faceTurns, fanShift, gatherOut, headCluster, headShrink, headTurn, shoulderSpan, widenShift } from '../geometry/bodyPlan';
 import { type FigureMetrics, nthName } from '../geometry/figure';
-import { type HangBlock, GAP, armDirection, hangAngles } from '../geometry/layout';
+import { type HangBlock, GAP, armDirection, chestNames, hangAngles } from '../geometry/layout';
 import { FAN_YAW, INNER_ARM_DROP, SLOT_SIDE, torsoLean, torsoSlots } from '../geometry/torsos';
 import { type V3, UP, len, norm, quatBetween, quatConj, quatEuler, quatMul, rotate } from '../geometry/vec';
 import { t } from '../i18n';
-import { type BodySpec, type CharacterId, PER_TORSO_KEYS, colorToLinear, countsOf, headHairColor, legPlan, BUST_MAX_OTHER } from '../model/spec';
+import { type BodySpec, type CharacterId, PER_TORSO_KEYS, chestPlan as chestPlanOf, colorToLinear, countsOf, headHairColor, legPlan, BUST_MAX_OTHER } from '../model/spec';
 import { type BeastPiece, beastBody } from './beast';
 import { type ExtraHead, type ExtraKind, extraParts } from './extras';
 import type { HairDonor } from './hair';
@@ -1103,7 +1103,13 @@ function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | nul
 
   /* ---- 多排手臂、多排胸：把腰以上、胸以下的一段拉长 ---- */
   const stacked = spec.armLayout === 'stack';
-  const rows = Math.max(stacked ? armPairs : 1, c.chestPairs, 1);
+  /**
+   * 从上往下每排几个胸。成品角色的胸是带着衣服的现成网格，一排最多两个（一排三个、四个的照每排两个排，见下面胸）；
+   * 一排一个的那个摆在正中。每排一个时第一排还是自带的那一对（去不掉），算两个，往下才是一排一个：总数和设的一样
+   */
+  const perRow = Math.min(spec.chestRow ?? 2, 2);
+  const chestPlan = perRow === 1 && c.breasts >= 2 ? [2, ...new Array<number>(c.breasts - 2).fill(1)] : chestPlanOf(c.breasts, perRow);
+  const rows = Math.max(stacked ? armPairs : 1, chestPlan.length, 1);
   const extra = GAP * (rows - 1);
   const bustY = busts.length ? rest[busts[0]][1] : rest[upperChest][1];
   const bustX = busts.length ? Math.abs(rest[busts[0]][0]) : 0.05;
@@ -1339,7 +1345,8 @@ function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | nul
     const blocks: HangBlock[] = [{ wide: sideAt(rest[hips][1], 0) + rowReach, level: rest[hips][1] }];
     // 兽身最宽的地方也要让开
     if (beast) blocks.push({ wide: beast.wide * beastScale, level: onBeast([0, beast.level, 0])[1] });
-    for (let j = 0; j < c.chestPairs; j++) blocks.push({ wide: bustX + 0.095 * sh.bust * (1 - 0.1 * j), level: bustY + extra - j * GAP });
+    // 每排胸的外沿（第一排总是角色自带的那一对；一排一个的在正中）
+    chestPlan.forEach((count, j) => blocks.push({ wide: (count === 2 || !j ? bustX : 0) + 0.095 * sh.bust * (1 - 0.1 * j), level: bustY + extra - j * GAP }));
     // 蛛腿在两侧高高拱起，手臂垂不下去，只能停在腿的上方
     hang = hangAngles(armPairs, 48 + rowLift, { x: shoulder[0], y: shoulder[1] }, blocks, form === 'spider' ? 45 : 18, 0.065);
   }
@@ -1559,27 +1566,49 @@ function assemble(source: CharacterSource, spec: BodySpec, hair: HairDonor | nul
   }
   if (Math.abs(hs - 1) > 1e-6) for (const b of heads) pose.set(b, { ...pose.get(b), scale: hs });
 
-  /* ---- 胸：第一排是角色自带的，大小靠胸的骨骼来缩放；往下每排是复制出来的一片 ---- */
+  /*
+   * ---- 胸：第一排是角色自带的那一对，大小靠胸的骨骼来缩放；往下每排是复制出来的：两个的整对复制成一片，
+   * 一个的（单数个时最下面那排，或者每排一个）只复制左边那只、摆在正中。一排三个、四个排不了（带着衣服的网格叠在一起），照每排两个排 ----
+   */
   if (busts.length) {
     if (Math.abs(sh.bust - 1) > 1e-6) for (const b of busts) pose.set(b, { scale: sh.bust });
-    const under = frontAt(bustX, bustY + extra - 0.07);
-    for (let j = 1; j < c.chestPairs; j++) {
+    if ((spec.chestRow ?? 2) > 2 && c.breasts > 2) ignored.push(t('一排三个以上的胸'));
+    const top = bustY + extra;
+    const under = frontAt(bustX, top - 0.07);
+    const chestName = chestNames();
+    chestPlan.forEach((count, j) => {
       const down = j * GAP;
       const size = sh.bust * (1 - 0.1 * j);
-      const center: V3 = [0, bustY + extra, rest[busts[0]][2]];
       // 贴着这一排所在高度的躯干前面，稍微埋进去一点
-      const dz = frontAt(bustX, bustY + extra - 0.07 - down) - under - 0.006;
-      // 这一片不带骨骼：整片跟着所在高度的那节脊柱
-      clone(
-        busts,
-        `Chest_${pad(j + 1)}`,
-        (p) => [center[0] + (p[0] - center[0]) * size, center[1] + (p[1] - center[1]) * size - down, center[2] + (p[2] - center[2]) * size + dz],
-        (n) => n,
-        spineAt(bustY + extra - down),
-        0.25,
-      );
-    }
-  } else if (c.chestPairs > 1 || Math.abs(sh.bust - 1) > 1e-6) {
+      const dz = frontAt(count === 2 ? bustX : 0, top - 0.07 - down) - under - 0.006;
+      if (count === 2) {
+        // 一对：第一排是自带的，往下每排整对复制成一片（这一片不带骨骼：整片跟着所在高度的那节脊柱）
+        const label = chestName(1).slice(0, -2);
+        chestName(-1);
+        if (j === 0) return;
+        const center: V3 = [0, top, rest[busts[0]][2]];
+        clone(
+          busts,
+          label,
+          (p) => [center[0] + (p[0] - center[0]) * size, center[1] + (p[1] - center[1]) * size - down, center[2] + (p[2] - center[2]) * size + dz],
+          (n) => n,
+          spineAt(top - down),
+          0.25,
+        );
+        return;
+      }
+      const name = chestName(0);
+      // 第一排只有正中一个：自带的那一对去不掉，就留着它
+      if (j === 0) {
+        ignored.push(t('第一排只有一个胸'));
+        return;
+      }
+      // 正中一个：左边那只照它自己的关节缩放，挪到正中（左右两只叠在正中试过，带着衣服的两片网格互相穿插，更乱）
+      const from = busts.find((bone) => rest[bone][0] > 0) ?? busts[0];
+      const c0 = rest[from];
+      clone([from], name, (p) => [(p[0] - c0[0]) * size, c0[1] + (p[1] - c0[1]) * size - down, c0[2] + (p[2] - c0[2]) * size + dz], (n) => n, spineAt(top - down), 0.25);
+    });
+  } else if (c.breasts > 2 || Math.abs(sh.bust - 1) > 1e-6) {
     ignored.push(t('胸'));
   }
 

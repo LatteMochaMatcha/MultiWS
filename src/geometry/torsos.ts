@@ -355,6 +355,9 @@ export function splitTorsos(figure: Figure, count: number, sources: Partial<Reco
   const headsPer = (slot: number) => per(slot, 'head', /^Head_(\d+)$/);
   const pairsPer = (slot: number, kind: string) => per(slot, kind === 'Arm' ? 'arm' : kind === 'Chest' ? 'chest' : 'wing', new RegExp(`^${kind}_(\\d+)_[LR]$`));
 
+  /** 第 slot 个上半身正中线上有几个胸（Chest_01_C …） */
+  const middlesPer = (slot: number) => per(slot, 'chest', /^Chest_(\d+)_C$/);
+
   const out: Part[] = [pelvis];
   slots.forEach((slot) => {
     const tag = sideTag(slot);
@@ -407,6 +410,11 @@ export function splitTorsos(figure: Figure, count: number, sources: Partial<Reco
           // 翅膀的骨骼就叫部件的名字；手臂、手指照 Shoulder_L.002 那样带序号
           bone: (b) => (m![1] === 'Wing' ? part : nthName(ordinal(b)[0], k)),
         };
+      }
+      if ((m = /^Chest_(\d+)_C$/.exec(p.name))) {
+        // 正中线上的胸（一排单数个时正中那个）：和头一样，从右往左一个上半身一个上半身地数
+        const k = Number(m[1]) + slots.filter((other) => other < slot).reduce((sum: number, other) => sum + middlesPer(other), 0);
+        return { part: `Chest_${String(k).padStart(2, '0')}_C`, bone: (b) => b };
       }
       return { part: `${p.name}${tag}`, bone: (b) => `${b}${tag}` };
     };

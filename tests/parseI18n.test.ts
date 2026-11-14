@@ -86,18 +86,18 @@ describe('规范描述：英文、日文的样子', () => {
     expect(describeSpec(defaultSpec(), 'zh')).toBe('一个头，一对手臂，一对胸，一对腿');
     // 默认语言在 Node 里是中文
     expect(describeSpec(defaultSpec())).toBe(describeSpec(defaultSpec(), 'zh'));
-    expect(describeSpec(withCounts({ heads: 2, armPairs: 2, chestPairs: 2 }), 'zh')).toBe('两个头，两对手臂，两对胸，一对腿');
+    expect(describeSpec(withCounts({ heads: 2, armPairs: 2, breasts: 4 }), 'zh')).toBe('两个头，两对手臂，两对胸，一对腿');
   });
 
   it('英文：数字用阿拉伯数字，逗号分隔', () => {
     expect(describeSpec(defaultSpec(), 'en')).toBe('1 head, 1 pair of arms, 1 pair of breasts, 1 pair of legs');
-    expect(describeSpec(withCounts({ heads: 2, armPairs: 2, chestPairs: 2 }), 'en')).toBe(
+    expect(describeSpec(withCounts({ heads: 2, armPairs: 2, breasts: 4 }), 'en')).toBe(
       '2 heads, 2 pairs of arms, 2 pairs of breasts, 1 pair of legs',
     );
     expect(
-      describeSpec(withCounts({ heads: 2, armPairs: 2, chestPairs: 2, legs: 4, tails: 9, earPairsPerHead: 1 }, { legLayout: 'taur', earShape: 'fox' }), 'en'),
+      describeSpec(withCounts({ heads: 2, armPairs: 2, breasts: 4, legs: 4, tails: 9, earPairsPerHead: 1 }, { legLayout: 'taur', earShape: 'fox' }), 'en'),
     ).toBe('2 heads, 2 pairs of arms, 2 pairs of breasts, 2 pairs of legs, centaur lower body, 9 tails, fox ears');
-    expect(describeSpec(withCounts({ armPairs: 0, chestPairs: 0, legs: 3, tails: 1 }, { gender: 'male', pose: 'T' }), 'en')).toBe(
+    expect(describeSpec(withCounts({ armPairs: 0, breasts: 0, legs: 3, tails: 1 }, { gender: 'male', pose: 'T' }), 'en')).toBe(
       'male, 1 head, no arms, flat chest, 3 legs, 1 tail, T-pose',
     );
     expect(describeSpec(withCounts({ heads: 3 }, { headLayout: 'faces' }), 'en')).toBe('3 faces, 1 pair of arms, 1 pair of breasts, 1 pair of legs');
@@ -114,11 +114,11 @@ describe('规范描述：英文、日文的样子', () => {
 
   it('日文：数字用阿拉伯数字，顿号分隔', () => {
     expect(describeSpec(defaultSpec(), 'ja')).toBe('頭1つ、腕1対、胸1対、脚1対');
-    expect(describeSpec(withCounts({ heads: 2, armPairs: 2, chestPairs: 2 }), 'ja')).toBe('頭2つ、腕2対、胸2対、脚1対');
+    expect(describeSpec(withCounts({ heads: 2, armPairs: 2, breasts: 4 }), 'ja')).toBe('頭2つ、腕2対、胸2対、脚1対');
     expect(
-      describeSpec(withCounts({ heads: 2, armPairs: 2, chestPairs: 2, legs: 4, tails: 9, earPairsPerHead: 1 }, { legLayout: 'taur', earShape: 'fox' }), 'ja'),
+      describeSpec(withCounts({ heads: 2, armPairs: 2, breasts: 4, legs: 4, tails: 9, earPairsPerHead: 1 }, { legLayout: 'taur', earShape: 'fox' }), 'ja'),
     ).toBe('頭2つ、腕2対、胸2対、脚2対、ケンタウロスの下半身、尻尾9本、狐耳');
-    expect(describeSpec(withCounts({ armPairs: 0, chestPairs: 0, legs: 3, tails: 1 }, { gender: 'male', pose: 'T' }), 'ja')).toBe(
+    expect(describeSpec(withCounts({ armPairs: 0, breasts: 0, legs: 3, tails: 1 }, { gender: 'male', pose: 'T' }), 'ja')).toBe(
       '男性、頭1つ、腕なし、貧乳、脚3本、尻尾1本、Tポーズ',
     );
     expect(describeSpec(withCounts({ heads: 3 }, { headLayout: 'faces' }), 'ja')).toBe('顔3つ、腕1対、胸1対、脚1対');
@@ -183,7 +183,7 @@ describe('英文、日文的规范描述：往返一致，且和中文读出来�
     for (const gender of GENDERS) {
       for (const pose of POSES) {
         expectRoundTripAll(withCounts({ armPairs: 3, tails: 2 }, { gender, pose, armLayout: 'fan' }));
-        expectRoundTripAll(withCounts({ armPairs: 0, chestPairs: 0 }, { gender, pose }));
+        expectRoundTripAll(withCounts({ armPairs: 0, breasts: 0 }, { gender, pose }));
       }
     }
   });
@@ -233,7 +233,7 @@ describe('英文的自然写法', () => {
     ['three eyes', { eyesPerHead: 3 }],
     ['2 horns', { hornsPerHead: 2 }],
     ['cat ears', { earPairsPerHead: 1 }],
-    ['flat chest', { chestPairs: 0 }],
+    ['flat chest', { breasts: 0 }],
     ['centaur', { legs: 4 }],
     ['Centaur girl', { legs: 4 }],
     ['drider', { legs: 8 }],
@@ -384,9 +384,9 @@ describe('日文的自然写法', () => {
     ['うさ耳', { earPairsPerHead: 1 }],
     ['エルフ耳', { earPairsPerHead: 1 }],
     ['猫耳2対', { earPairsPerHead: 2 }],
-    ['胸2対', { chestPairs: 2 }],
-    ['貧乳', { chestPairs: 0 }],
-    ['ぺたんこ', { chestPairs: 0 }],
+    ['胸2対', { breasts: 4 }],
+    ['貧乳', { breasts: 0 }],
+    ['ぺたんこ', { breasts: 0 }],
     ['脚4本', { legs: 4 }],
     ['脚が3本', { legs: 3 }],
     ['脚2対', { legs: 4 }],
@@ -538,7 +538,7 @@ describe('中、英、日混着写', () => {
     ['two heads, 腕4本', { heads: 2, armPairs: 2 }],
     ['2 heads，三对手臂，尻尾9本', { heads: 2, armPairs: 3, tails: 9 }],
     ['两个头, four arms, 翼3対', { heads: 2, armPairs: 2, wingPairs: 3 }],
-    ['九尾 flat chest 角2本', { tails: 9, chestPairs: 0, hornsPerHead: 2 }],
+    ['九尾 flat chest 角2本', { tails: 9, breasts: 0, hornsPerHead: 2 }],
     ['ケンタウロス、six legs', { legs: 6 }],
     ['centaur 脚6本', { legs: 6 }],
     ['阿修羅，2 pairs of arms', { heads: 3, armPairs: 2 }],
@@ -672,11 +672,11 @@ describe('每个上半身单独设：英文、日文', () => {
 
   it.each<[string, TorsoCounts]>([
     ['2 upper bodies, left torso: 3 heads, right upper body has no arms', { L: { heads: 3 }, R: { armPairs: 0 } }],
-    ['three upper bodies, center upper body with 2 pairs of breasts', { M: { chestPairs: 2 } }],
+    ['three upper bodies, center upper body with 2 pairs of breasts', { M: { breasts: 4 } }],
     ['3 torsos, middle torso with 4 horns per head and 3 eyes per head', { M: { hornsPerHead: 4, eyesPerHead: 3 } }],
     ['上半身2つ、右側の上半身は腕3対と角2本', { R: { armPairs: 3, hornsPerHead: 2 } }],
     ['上半身3つ、真ん中の上半身に頭2つ', { M: { heads: 2 } }],
-    ['上半身2つ、左の上半身は胸なし', { L: { chestPairs: 0 } }],
+    ['上半身2つ、左の上半身は胸なし', { L: { breasts: 0 } }],
     ['两个上半身，left upper body with 2 heads，右の上半身は腕2対', { L: { heads: 2 }, R: { armPairs: 2 } }],
   ])('%s', (text, want) => {
     const r = parseDescription(text);

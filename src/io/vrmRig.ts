@@ -25,6 +25,22 @@ export function tPosing(humanoid: Map<string, number>, rest: Skeleton): Posing {
   return { version: POSING_VERSION, bones };
 }
 
+/**
+ * 围成一圈（geometry/ring.ts）的骨架导出 VRM 前改一下：VRM 的人形骨骼要两条手臂都长在同一条脊柱的胸上，
+ * 围成一圈时两侧的手臂却各长在不同的人身上（哪个人都凑不齐一对）。所以把手臂的锁骨都改接到第一个人（脸朝正前、
+ * 名字不带序号的那一套）最上面那节胸上：骨骼的位置、下标、权重都不变，只是换了父骨骼。
+ * 不是围成一圈的（胯底下不是三条以上叫 Spine、Spine.002 … 的脊柱）原样返回
+ */
+export function ringHumanoid(skeleton: Skeleton): Skeleton {
+  const { bones } = skeleton;
+  const hips = bones.findIndex((b) => b.name === 'Hips');
+  const roots = bones.filter((b) => b.parent === hips && /^Spine/.test(b.name));
+  if (hips < 0 || roots.length < 3 || !roots.every((b) => /^Spine(\.\d+)?$/.test(b.name))) return skeleton;
+  const chest = ['UpperChest', 'Chest', 'Spine'].map((name) => bones.findIndex((b) => b.name === name)).find((i) => i >= 0);
+  if (chest === undefined) return skeleton;
+  return { bones: bones.map((b, i) => (/^Shoulder_[LR]/.test(b.name) && i > chest ? { ...b, parent: chest } : b)) };
+}
+
 /** 尾巴是会晃的弹簧骨骼：每条一串，从尾根晃到尾尖 */
 export function tailSprings(skeleton: Skeleton): VrmSpring[] {
   const roots = skeleton.bones.flatMap((b, i) => (/^Tail_\d+_01$/.test(b.name) ? [i] : []));

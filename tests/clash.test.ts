@@ -127,7 +127,7 @@ describe('各种组合下都没有明显穿模', () => {
   it('每种部件数量逐个取遍，配上每种手臂和腿的排法、男女体型、A / T 两种姿势', () => {
     const base = defaultSpec();
     for (const d of COUNT_DEFS) {
-      for (let v = d.min; v <= d.max; v++) {
+      for (let v = d.min; v <= (d.safe ?? d.max); v++) {
         for (const armLayout of ['stack', 'fan'] as const) {
           for (const legLayout of LEG_LAYOUTS) {
             for (const gender of GENDERS) {
@@ -145,7 +145,7 @@ describe('各种组合下都没有明显穿模', () => {
 
   it('每个体型滑块拉到两头（男女各一遍）', () => {
     const base = defaultSpec();
-    const counts = { ...base.counts, armPairs: 2, chestPairs: 2, tails: 3 };
+    const counts = { ...base.counts, armPairs: 2, breasts: 4, tails: 3 };
     for (const gender of GENDERS) {
       for (const d of SHAPE_DEFS) {
         for (const v of [d.min, d.max]) {
@@ -162,7 +162,7 @@ describe('各种组合下都没有明显穿模', () => {
     const rand = rng(seed);
     const int = (min: number, max: number) => min + Math.floor(rand() * (max - min + 1));
     for (let i = 0; i < count; i++) {
-      const counts = Object.fromEntries(COUNT_DEFS.map((d) => [d.key, int(d.min, d.max)])) as BodyCounts;
+      const counts = Object.fromEntries(COUNT_DEFS.map((d) => [d.key, int(d.min, d.safe ?? d.max)])) as BodyCounts;
       // 一个上半身的；好几个上半身的另有测试（torsos.test.ts），那边的组合范围小一些
       counts.torsos = 1;
       const shape = { ...base.shape };

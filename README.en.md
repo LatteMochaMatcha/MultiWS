@@ -7,7 +7,7 @@ A base mesh generator for multi-limbed characters. Write one sentence describing
 ![Multi-headed, multi-armed forms in the three body styles](docs/body-forms.png)
 
 - **Three body styles**: Mannequin, Anime body, and Ready-made (sixteen ready-made VRoid characters, ten girls and six boys; with several upper bodies each one can be a different character; you can also load your own VRM).
-- **Parts**: 1–3 upper bodies, 1–5 heads, 0–4 pairs of arms, 0–4 pairs of breasts, 1–12 legs, plus tails, wings, horns and animal ears; lower bodies such as centaur, arachne (spider body) and humantaur.
+- **Parts**: 1–3 upper bodies, 1–5 heads, 0–4 pairs of arms, 0–20 breasts (1–4 per row), 1–12 legs, plus tails, wings, horns and animal ears; lower bodies such as centaur, arachne (spider body) and humantaur.
 - **Adjusting**: body-shape sliders; move, rotate and scale any single part; undo / redo.
 - **Posing**: drag the joints to pose; 60 ready-made poses and 16 hand gestures; Ready-made characters also get expressions and gaze.
 - **Export**: GLB (optionally with bones and weights), VRM, OBJ, STL, and screenshots with a transparent background.
@@ -114,7 +114,7 @@ Type the body description into the "Body description" box; the model updates by 
 ### Presets and part counts
 
 - **Presets**: 12 ready-made combinations; click one to switch to it.
-- **Part counts**: 1–3 upper bodies, 1–5 heads, 0–4 pairs of arms, 0–4 pairs of breasts, 1–12 legs, 0–9 tails, 0–3 pairs of wings, and for each head 0–4 horns, 1–6 eyes and 0–2 pairs of animal ears. With several upper bodies, heads, arms, breasts and wings are counted per upper body, and an "Edit which upper body" row appears above the counts. After picking Left or Right (and Middle with three), heads, arms, breasts, horns, eyes and animal ears change only on that upper body (left and right are the character's own). "All" changes every upper body, and also resets the ones that were set separately (a number followed by an asterisk means some upper bodies were set separately).
+- **Part counts**: 1–3 upper bodies, 1–5 heads, 0–4 pairs of arms, 0–20 breasts, 1–12 legs, 0–9 tails, 0–3 pairs of wings, and for each head 0–4 horns, 1–6 eyes and 0–2 pairs of animal ears. With several upper bodies, heads, arms, breasts and wings are counted per upper body, and an "Edit which upper body" row appears above the counts. After picking Left or Right (and Middle with three), heads, arms, breasts, horns, eyes and animal ears change only on that upper body (left and right are the character's own). "All" changes every upper body, and also resets the ones that were set separately (a number followed by an asterisk means some upper bodies were set separately).
 - After you click a preset or change a count, the description box is rewritten as one canonical sentence so you can keep editing it.
 
 ### Layout
@@ -242,6 +242,7 @@ When the automatic placement isn't what you want, you can adjust a single part: 
 
 - Directions: X is the character's own left, Y is up, Z is forward. Rotation and scaling are around the joint (an arm around the shoulder, a leg around the hip).
 - With "Also adjust the opposite side" on, left/right pairs of parts change together, mirrored.
+- **Multi-select**: hold Ctrl or Shift and click a part to add it to the selection, and click it again to remove it; on a phone, tick "Multi-select" (also on the chip at the bottom left of the stage) and tap the parts one by one. "Select all of this kind" selects every part of the same kind (all arms, all legs…). The selected parts move, rotate, and scale together, each around its own joint; the gizmo and the numbers belong to the last one selected, and the others change by the same amount. With "Change left and right symmetrically" ticked, the other side is mirrored (left and right arms rise together); when the torso and an arm on it are both selected, only the torso changes and the arm follows.
 - The torso carries the neck, heads, arms, breasts and wings; a head carries the eyes, horns and ears. The feet always stay on the ground.
 - Tweaked parts are listed under "Tweaked". "Reset this part" resets only the selected part, and "Reset all" clears every tweak; clicking a preset also clears them (you can undo).
 - If you push too far (pulling an arm away from the body), the mesh breaks apart and the readout at the top shows "The mesh has split into N pieces".

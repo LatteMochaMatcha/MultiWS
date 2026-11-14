@@ -444,7 +444,7 @@ describe('部件数量', () => {
     const f = figure({
       heads: 3,
       armPairs: 4,
-      chestPairs: 3,
+      breasts: 6,
       legs: 8,
       tails: 7,
       wingPairs: 3,
@@ -467,7 +467,7 @@ describe('部件数量', () => {
   });
 
   it('没有手臂、平胸时就没有对应部件', () => {
-    const f = figure({ armPairs: 0, chestPairs: 0 });
+    const f = figure({ armPairs: 0, breasts: 0 });
     expect(ofType(f, 'arm')).toHaveLength(0);
     expect(ofType(f, 'chest')).toHaveLength(0);
   });
@@ -574,23 +574,23 @@ describe('手臂和胸的排布', () => {
     };
     const slim = figure({ armPairs: 3 }, { armLayout: 'fan' });
     const wideHips = figure({ armPairs: 3 }, { armLayout: 'fan' }, { hips: 1.4, shoulders: 0.85, build: 1.3 });
-    const bigChest = figure({ armPairs: 3, chestPairs: 3 }, { armLayout: 'fan' }, { bust: 1.6, shoulders: 0.85 });
+    const bigChest = figure({ armPairs: 3, breasts: 6 }, { armLayout: 'fan' }, { bust: 1.6, shoulders: 0.85 });
     expect(angle(wideHips)).toBeGreaterThan(angle(slim) + 5);
     expect(angle(bigChest)).toBeGreaterThan(angle(slim) + 5);
   });
 
   it('多排胸和多排手臂共用躯干加长：取两者里排数多的', () => {
     const base = figure().metrics.height;
-    const chest3 = figure({ chestPairs: 3 }).metrics.height;
-    const both = figure({ chestPairs: 3, armPairs: 2 }).metrics.height;
-    const arms4 = figure({ chestPairs: 3, armPairs: 4 }).metrics.height;
+    const chest3 = figure({ breasts: 6 }).metrics.height;
+    const both = figure({ breasts: 6, armPairs: 2 }).metrics.height;
+    const arms4 = figure({ breasts: 6, armPairs: 4 }).metrics.height;
     expect(chest3).toBeGreaterThan(base + 0.28);
     expect(both).toBeCloseTo(chest3, 9);
     expect(arms4).toBeGreaterThan(chest3 + 0.14);
   });
 
   it('下面几排胸更小，并且贴在躯干前表面', () => {
-    const f = figure({ chestPairs: 3 });
+    const f = figure({ breasts: 6 });
     const radius = (n: string) => {
       const p = part(f, n).prims[0];
       if (p.kind !== 'ellipsoid') throw new Error('胸不是椭球');

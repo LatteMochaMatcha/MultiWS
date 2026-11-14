@@ -11,8 +11,10 @@ import {
   type CountKey,
   type EarShape,
   type LegLayout,
+  CHEST_ROW,
   HIP_LEGS,
   PENIS_ROW,
+  chestPlan,
   legPlan,
   perHip,
   PER_TORSO_KEYS,
@@ -42,8 +44,11 @@ interface Phrases {
   faces: (n: number) => string;
   arms: (pairs: number) => string;
   noArms: string;
-  chests: (pairs: number) => string;
+  /** 胸按个数给：双数按对写（「两对胸」），单数按个写（「三个胸」） */
+  chests: (n: number) => string;
   flatChest: string;
+  /** 胸每排几个（不是一对一对排的时候才写） */
+  chestRow: (n: number) => string;
   /** 双数条腿按对写（「两对腿」），单数按条写（「三条腿」） */
   legs: (n: number) => string;
   legLayout: Record<Exclude<LegLayout, 'auto'>, string>;
@@ -85,8 +90,9 @@ const PHRASES: Record<Lang, Phrases> = {
     faces: (n) => `${zhCount(n)}张脸`,
     arms: (n) => `${zhCount(n)}对手臂`,
     noArms: '没有手臂',
-    chests: (n) => `${zhCount(n)}对胸`,
+    chests: (n) => (n % 2 ? `${zhCount(n)}个胸` : `${zhCount(n / 2)}对胸`),
     flatChest: '平胸',
+    chestRow: (n) => `胸每排${zhCount(n)}个`,
     legs: (n) => (n % 2 ? `${zhCount(n)}条腿` : `${zhCount(n / 2)}对腿`),
     legLayout: {
       taur: '人马下身',
@@ -122,8 +128,9 @@ const PHRASES: Record<Lang, Phrases> = {
     faces: (n) => `${n} faces`,
     arms: (n) => `${n} ${plural(n, 'pair', 'pairs')} of arms`,
     noArms: 'no arms',
-    chests: (n) => `${n} ${plural(n, 'pair', 'pairs')} of breasts`,
+    chests: (n) => (n % 2 ? `${n} ${plural(n, 'breast', 'breasts')}` : `${n / 2} ${plural(n / 2, 'pair', 'pairs')} of breasts`),
     flatChest: 'flat chest',
+    chestRow: (n) => `breasts in rows of ${n}`,
     legs: (n) => (n % 2 ? `${n} ${plural(n, 'leg', 'legs')}` : `${n / 2} ${plural(n / 2, 'pair', 'pairs')} of legs`),
     legLayout: {
       taur: 'centaur lower body',
@@ -159,8 +166,9 @@ const PHRASES: Record<Lang, Phrases> = {
     faces: (n) => `顔${n}つ`,
     arms: (n) => `腕${n}対`,
     noArms: '腕なし',
-    chests: (n) => `胸${n}対`,
+    chests: (n) => (n % 2 ? `胸${n}つ` : `胸${n / 2}対`),
     flatChest: '貧乳',
+    chestRow: (n) => `胸は段ごとに${n}つ`,
     legs: (n) => (n % 2 ? `脚${n}本` : `脚${n / 2}対`),
     legLayout: {
       taur: 'ケンタウロスの下半身',
@@ -192,7 +200,7 @@ const PHRASES: Record<Lang, Phrases> = {
 };
 
 export type Describable = Pick<BodySpec, 'counts' | 'armLayout' | 'legLayout' | 'earShape'> &
-  Partial<Pick<BodySpec, 'gender' | 'pose' | 'headLayout' | 'hipLegs' | 'penisLayout' | 'penisRow' | 'scrotum' | 'torsoCounts'>>;
+  Partial<Pick<BodySpec, 'gender' | 'pose' | 'headLayout' | 'hipLegs' | 'chestRow' | 'penisLayout' | 'penisRow' | 'scrotum' | 'torsoCounts'>>;
 
 /** 每个上半身单独设的数量照左、中、右写 */
 const SIDE_ORDER: readonly TorsoSide[] = ['L', 'M', 'R'];
@@ -206,7 +214,7 @@ function ownPhrase(w: Phrases, spec: Describable, key: PerTorsoKey, n: number): 
       return spec.headLayout === 'faces' && n > 1 ? w.faces(n) : w.heads(n);
     case 'armPairs':
       return n ? w.arms(n) : w.noArms;
-    case 'chestPairs':
+    case 'breasts':
       return n ? w.chests(n) : w.flatChest;
     case 'hornsPerHead':
       return n ? w.horns(n) : w.noHorns;
@@ -215,6 +223,14 @@ function ownPhrase(w: Phrases, spec: Describable, key: PerTorsoKey, n: number): 
     case 'earPairsPerHead':
       return n ? w.ears(n, spec.earShape) : w.noEars;
   }
+}
+
+/** 「每排几个胸」排出来和缺省的每排两个不一样（整个身体的，或者某个上半身单独设的那个数） */
+export function chestRowMatters(spec: Describable): boolean {
+  const row = spec.chestRow ?? CHEST_ROW.def;
+  if (row === CHEST_ROW.def) return false;
+  const differs = (n: number) => chestPlan(n, row).join() !== chestPlan(n).join();
+  return differs(spec.counts.breasts) || torsoSides(spec.counts.torsos).some((side) => differs(countsOf(spec, side).breasts));
 }
 
 /** 是不是「一个头上几张脸」（只有一个头时谈不上） */
@@ -234,9 +250,11 @@ export function describeSpec(spec: Describable, lang: Lang = LANG): string {
   p.push(
     manyFaces(spec) ? w.faces(c.heads) : w.heads(c.heads),
     c.armPairs ? w.arms(c.armPairs) : w.noArms,
-    c.chestPairs ? w.chests(c.chestPairs) : w.flatChest,
+    c.breasts ? w.chests(c.breasts) : w.flatChest,
     w.legs(c.legs),
   );
+  // 胸不是一对一对排的（每排一个、三个、四个，排出来和每排两个不一样）才写
+  if (chestRowMatters(spec)) p.push(w.chestRow(spec.chestRow ?? CHEST_ROW.def));
   if (spec.legLayout !== 'auto' && legPlan(spec).form !== 'biped') {
     p.push(w.legLayout[spec.legLayout]);
     const hip = spec.hipLegs ?? HIP_LEGS.def;
@@ -277,6 +295,7 @@ export function summarize(spec: Describable): Chip[] {
   const c = spec.counts;
   const plan = legPlan(spec);
   const feet = plan.total;
+  const chestRows = chestPlan(c.breasts, spec.chestRow ?? CHEST_ROW.def);
   /** 每站几条腿：每站都是一对（或更少）时只写总数，否则「3+3」 */
   const split = plan.stations.join('+');
   const legs = {
@@ -311,8 +330,15 @@ export function summarize(spec: Describable): Chip[] {
     },
     { key: 'armPairs', label: each('armPairs', (n) => t('手臂 {n} 对', { n })) ?? t('手臂 {n} 对', { n: c.armPairs }) },
     {
-      key: 'chestPairs',
-      label: each('chestPairs', (n) => t('胸 {n} 对', { n })) ?? (c.chestPairs ? t('胸 {n} 对', { n: c.chestPairs }) : t('平胸')),
+      key: 'breasts',
+      // 一对一对的写几对；别的把每排几个写出来：「胸 3+3 个」「胸 2+1 个」
+      label:
+        each('breasts', (n) => t('胸 {n} 个', { n })) ??
+        (!c.breasts
+          ? t('平胸')
+          : chestRows.every((n) => n === 2)
+            ? t('胸 {n} 对', { n: chestRows.length })
+            : t('胸 {n} 个', { n: chestRows.join('+') })),
     },
     { key: 'legs', label: legs },
     { key: 'tails', label: t('尾 {n}', { n: c.tails }) },

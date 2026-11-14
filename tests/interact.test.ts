@@ -19,7 +19,7 @@ import {
   toScene,
 } from '../src/scene/interact';
 
-const human = () => buildSkeleton(buildFigure({ ...defaultSpec(), counts: { ...defaultSpec().counts, heads: 1, armPairs: 1, chestPairs: 1 } })).bones;
+const human = () => buildSkeleton(buildFigure({ ...defaultSpec(), counts: { ...defaultSpec().counts, heads: 1, armPairs: 1, breasts: 2 } })).bones;
 const base = (name: string) => POSE_LIBRARY.find((p) => p.name === name)!.posing;
 
 describe('角色之间：胶囊体近似', () => {
@@ -123,7 +123,7 @@ describe('双人动作', () => {
   });
 
   it('刚打开时的体型（两个头、两对手臂）摆每个双人动作：拉开到整个人都不穿插，也都够得着', () => {
-    const wide = buildSkeleton(buildFigure({ ...defaultSpec(), counts: { ...defaultSpec().counts, heads: 2, armPairs: 2, chestPairs: 2 } })).bones;
+    const wide = buildSkeleton(buildFigure({ ...defaultSpec(), counts: { ...defaultSpec().counts, heads: 2, armPairs: 2, breasts: 4 } })).bones;
     const posedAll = (posing: Parameters<typeof stateOf>[1], place: { x: number; z: number; yaw: number }) => {
       const s = makeSolver(wide);
       const f = forward(s.rig, stateOf(s, posing));

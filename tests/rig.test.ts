@@ -141,7 +141,7 @@ describe('骨架：多出来的部件', () => {
   });
 
   it('多排胸也会让胸腔多出几节', () => {
-    const s = skeletonOf(make({ chestPairs: 3 }));
+    const s = skeletonOf(make({ breasts: 6 }));
     expect(chainOf(s, 'UpperChest')).toEqual(['UpperChest', 'Chest.002', 'Chest.003', 'Chest', 'Spine', 'Hips']);
     expect(parentOf(s, 'Shoulder_L')).toBe('UpperChest');
   });
@@ -288,7 +288,7 @@ describe('骨架：各种组合都成立', () => {
   });
 
   it('各种排法、男女、A / T 姿势、粗细极端值：骨骼都在身体里面', () => {
-    const base = make({ heads: 2, armPairs: 3, chestPairs: 2, tails: 3, wingPairs: 2, hornsPerHead: 2, earPairsPerHead: 2 });
+    const base = make({ heads: 2, armPairs: 3, breasts: 4, tails: 3, wingPairs: 2, hornsPerHead: 2, earPairsPerHead: 2 });
     for (const armLayout of ['stack', 'fan'] as const) {
       for (const pose of ['A', 'T'] as const) {
         for (const gender of ['female', 'male'] as const) {

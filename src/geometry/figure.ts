@@ -296,6 +296,16 @@ export interface ChestShape {
    * 不给就照素体的平胸躯干（anime/chest.ts 的 chestFrame），贴在 body 那一份上
    */
   wide?: boolean;
+  /**
+   * 只取胸根以内的那一块、不带底下那片躯干的皮（和分部件模式里的胸一样，见 sdf/grids.ts 的 chestDist）。
+   * 胸不在它贴的那块躯干上时用：围成一圈、胸交错成串时，错开的那一圈整只转到别处去（见 geometry/ring.ts）
+   */
+  piece?: boolean;
+  /**
+   * 长在正中线上的一只（一排单数个胸时正中那个）：左右对称，两半都照胸尖往外那半边的样子（照胸尖镜像），不在正中线上切开。
+   * side 照 1 给；shift 的第一个是整只往 +X 挪多少
+   */
+  middle?: boolean;
 }
 
 export type Prim = Ellipsoid | Cone | Tube | Loft | Wing | GridShape | ChestShape;
@@ -418,6 +428,8 @@ export interface Part {
    * 从同一个模型上切下来、还摆在原位的几块（素体的躯干和腿）要这样接，不然重叠的地方会鼓起一圈。
    */
   fuseAs?: PartType;
+  /** 围成一圈时外圈的腿长在哪个人身上（那个人躯干的部件名）：摆了姿势重新融合时腿根跟着这个人的躯干（见 posedField.ts）；圈心底下的腿没有 */
+  ringOf?: string;
 }
 
 type Shaped = Pick<Part, 'stretch' | 'resize' | 'axes'>;

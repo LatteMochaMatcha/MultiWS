@@ -19,15 +19,15 @@ import { type TweakedCharacter, characterPartAt, characterPartGlow, characterPar
 import { describeClashes, findClashes } from './geometry/clash';
 import { type Figure, type FigureMetrics, type PartType, nthName } from './geometry/figure';
 import { buildFigure } from './geometry/layout';
-import { partFrame } from './geometry/tweak';
-import { type V3, Q_ID, UP, len, norm, quatBetween, quatMul, rotate, sub } from './geometry/vec';
+import { type PartFrame, partFrame } from './geometry/tweak';
+import { type V3, Q_ID, UP, len, norm, quatBetween, quatConj, quatEuler, quatMul, rotate, sub } from './geometry/vec';
 import { cleanFileName, inAndroidShell, saveBlob, saveText } from './io/download';
 import { exportGlb } from './io/exportGlb';
 import { OfflineError } from './io/fetchFile';
 import { type GlbMesh, writeGlb } from './io/glb';
 import { forgetFile, keepFile, keptFile } from './io/keepFile';
 import { type VrmLicense, type VrmMeta, VRM_LICENSES, describeLicense, humanoidMap, writeVrm } from './io/vrm';
-import { tPosing, tailSprings } from './io/vrmRig';
+import { ringHumanoid, tPosing, tailSprings } from './io/vrmRig';
 import { writeObj, writeStl } from './io/meshFiles';
 import { History } from './model/history';
 import {
@@ -57,7 +57,18 @@ import { type Baked, bakeFigure, bakedGlb, bakedView, charactersOf, skeletonFor 
 import { type Capsule, type Clash as FigureClash, type PairPreset, PAIR_PRESETS, PART_LABEL, capsulesOf, findClashes as figureClashes, heightOf, placeCapsules, pushOut, solvePair } from './scene/interact';
 import { mergeGlbs } from './io/mergeGlb';
 import { SceneFigures } from './view/sceneFigures';
-import { activeOverrides, clearAllOverrides, clearOverride, mirrorName, setOverride } from './model/overrides';
+import {
+  type TweakDelta,
+  activeOverrides,
+  clearAllOverrides,
+  clearOverride,
+  mirrorDelta,
+  mirrorName,
+  nudgeOverride,
+  setOverride,
+  sideOf,
+  topMost,
+} from './model/overrides';
 import { partLabel } from './model/partLabel';
 import { PRESETS, applyPreset } from './model/presets';
 import {
@@ -94,6 +105,7 @@ import {
   TOES,
   clampToes,
   PENIS_ROW,
+  CHEST_ROW,
   EAR_SHAPES,
   GENDERS,
   HAIR_LENGTH,
@@ -102,6 +114,16 @@ import {
   HAND_STYLES,
   CONJOINS,
   CONJOIN_POSES,
+  RINGS,
+  RING_CHESTS,
+  RING_COUNT,
+  RING_LEGS,
+  RING_LEG_FACINGS,
+  RING_SPREAD,
+  type RingChestMode,
+  type RingLegFacingMode,
+  type RingLegMode,
+  type RingMode,
   type ConjoinMode,
   type ConjoinPose,
   LIMB_ENDS,
@@ -116,12 +138,16 @@ import {
   SCROTUM_MODES,
   clampHipLegs,
   clampPenisRow,
+  clampChestRow,
+  chestPlan,
   perHip,
   MESH_MODES,
   OVERRIDE_LIMITS,
   POSES,
   SHAPE_DEFS,
   clampBlend,
+  clampRingSpread,
+  ringActive,
   clampHair,
   clampShape,
   HAIR_UNDYED,
@@ -167,6 +193,7 @@ import { fitArms, followArms } from './pose/fit';
 import { fitLegs } from './pose/fitLegs';
 import { armOfBone, armPairCount, followPair } from './pose/follow';
 import { fitConjoined } from './pose/conjoined';
+import { fitRing } from './pose/ring';
 import { POSE_LIBRARY } from './pose/library';
 import { type Posing, POSING_VERSION, cleanPosing, emptyPosing, flipPosing, isPosed, placedTwins } from './pose/posing';
 import { type Frame, type PoseRig, type PoseState, type RigBone, cloneState, forward, pointOn, poseMatrices, posedBones, shiftRoot, tailOf } from './pose/rig';
@@ -657,6 +684,28 @@ const syncPenisRow = (() => {
   };
 })();
 
+/** 胸每排几个：有两个以上的胸才显示（某个上半身单独设的也算）；围成一圈时胸还是一对一对的，不显示 */
+const syncChestRow = (() => {
+  const minus = el('button', '', '−');
+  const plus = el('button', '', '+');
+  const out = el('output');
+  minus.type = plus.type = 'button';
+  minus.setAttribute('aria-label', t('每排少一个胸'));
+  plus.setAttribute('aria-label', t('每排多一个胸'));
+  const step = (delta: number) => () => fromParams({ ...spec, chestRow: clampChestRow(spec.chestRow + delta) });
+  minus.addEventListener('click', step(-1));
+  plus.addEventListener('click', step(1));
+  $('chestRow').append(minus, out, plus);
+  return () => {
+    const most = Math.max(spec.counts.breasts, ...torsoSides(spec.counts.torsos).map((side) => countsOf(spec, side).breasts));
+    $('chestRowField').hidden = most < 2 || ringActive(spec);
+    const rows = chestPlan(spec.counts.breasts, spec.chestRow);
+    out.textContent = t('{n}（{rows} 排）', { n: spec.chestRow, rows: rows.length });
+    minus.disabled = spec.chestRow <= CHEST_ROW.min;
+    plus.disabled = spec.chestRow >= CHEST_ROW.max;
+  };
+})();
+
 /** 人腿人马、前后串联每副胯上几条腿：只在选了这两种排法时显示 */
 const syncHipLegs = (() => {
   const minus = el('button', '', '−');
@@ -670,7 +719,7 @@ const syncHipLegs = (() => {
   plus.addEventListener('click', step(1));
   $('hipLegs').append(minus, out, plus);
   return () => {
-    $('hipLegsField').hidden = !perHip(spec.legLayout);
+    $('hipLegsField').hidden = !perHip(spec.legLayout) || ringActive(spec);
     out.textContent = String(spec.hipLegs);
     minus.disabled = spec.hipLegs <= HIP_LEGS.min;
     plus.disabled = spec.hipLegs >= HIP_LEGS.max;
@@ -893,6 +942,49 @@ const syncHand = buildSeg($('segHand'), HAND_STYLES, (v) => HAND_LABEL[v], (hand
 const CONJOIN_LABEL: Record<ConjoinMode, string> = { none: t('不连'), same: t('同向'), opposite: t('反向') };
 const syncConjoin = buildSeg($('segConjoin'), CONJOINS, (v) => CONJOIN_LABEL[v], (conjoined) => {
   spec = { ...spec, conjoined };
+  commit();
+});
+
+/** 围成一圈：不围 / 各有各的胯 / 并胯融合（见 geometry/ring.ts） */
+const RING_LABEL: Record<RingMode, string> = { none: t('不围'), hips: t('各有各的胯'), fused: t('并胯融合') };
+const syncRing = buildSeg($('segRing'), RINGS, (v) => RING_LABEL[v], (ring) => {
+  spec = { ...spec, ring };
+  commit();
+});
+const RING_CHEST_LABEL: Record<RingChestMode, string> = { stagger: t('交错成串'), taper: t('交错渐小'), aligned: t('上下对齐') };
+/** 圈的松紧：界面上按百分之几显示（100% 是所有的腿隔得一样远） */
+const ringSpreadInput = $<HTMLInputElement>('s-ringSpread');
+ringSpreadInput.min = String(RING_SPREAD.min * 100);
+ringSpreadInput.max = String(RING_SPREAD.max * 100);
+ringSpreadInput.step = String(RING_SPREAD.step * 100);
+ringSpreadInput.addEventListener('input', () => {
+  spec = { ...spec, ringSpread: clampRingSpread(Number(ringSpreadInput.value) / 100) };
+  commit('ringSpread');
+});
+ringSpreadInput.addEventListener('change', () => history.seal());
+function syncRingSpread(value: number, enabled: boolean) {
+  const percent = Math.round(value * 100);
+  if (Math.abs(Number(ringSpreadInput.value) - percent) > 1e-6) ringSpreadInput.value = String(percent);
+  ringSpreadInput.disabled = !enabled;
+  $('o-ringSpread').textContent = `${percent}%`;
+}
+const RING_LEGS_LABEL: Record<RingLegMode, string> = { fill: t('中间也有'), rim: t('只在外圈') };
+const syncRingLegs = buildSeg($('segRingLegs'), RING_LEGS, (v) => RING_LEGS_LABEL[v], (ringLegs) => {
+  spec = { ...spec, ringLegs };
+  commit();
+});
+const RING_LEG_FACING_LABEL: Record<RingLegFacingMode, string> = { out: t('绕圈朝外'), front: t('统一朝前') };
+const syncRingLegFacing = buildSeg($('segRingLegFacing'), RING_LEG_FACINGS, (v) => RING_LEG_FACING_LABEL[v], (ringLegFacing) => {
+  spec = { ...spec, ringLegFacing };
+  commit();
+});
+const syncRingChest = buildSeg($('segRingChest'), RING_CHESTS, (v) => RING_CHEST_LABEL[v], (ringChest) => {
+  spec = { ...spec, ringChest };
+  commit();
+});
+const RING_COUNTS = Array.from({ length: RING_COUNT.max - RING_COUNT.min + 1 }, (_, i) => String(RING_COUNT.min + i));
+const syncRingCount = buildSeg($('segRingCount'), RING_COUNTS, (v) => v, (n) => {
+  spec = { ...spec, ringCount: Number(n) };
   commit();
 });
 
@@ -2100,8 +2192,17 @@ for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-view]')) {
 
 /* ---------------- 手动微调 ---------------- */
 
-/** 选中的部件实例名。选中状态不进撤销历史，也不存档 */
+/**
+ * 选中的部件实例名。选中状态不进撤销历史，也不存档。
+ * 多选时是操纵杆摆在上面、面板上显示数值的那一个（见 picks）
+ */
 let selected: string | null = null;
+/** 选中的全部部件，照选的先后排；只选了一个时就是 [selected] */
+let picks: string[] = [];
+/** 「多选」开着：在模型上点部件是往选中的里加一个、再点去掉（电脑上按着 Ctrl 或 Shift 点也一样） */
+let multiPick = false;
+/** 多选时正拖着操纵杆：按下那一刻各个部件的微调和操作坐标，拖动中都从它算起 */
+let dragFrom: Map<string, { override: PartOverride | undefined; frame: PartFrame }> | null = null;
 /** 左右成对的部件：改一侧时对侧同时改成镜像的样子 */
 let mirror = true;
 /** 缩放时锁定比例 */
@@ -2135,19 +2236,110 @@ function shownValues(key: TweakKey): Vec3 {
   return key === 'position' ? [v[0] * cmPerUnit, v[1] * cmPerUnit, v[2] * cmPerUnit] : [v[0], v[1], v[2]];
 }
 
-/** 改选中部件的微调。key 用来把连续的小改动并成一步撤销 */
-function applyTweak(patch: PartOverride, key?: string) {
+/** 一个部件跟着哪个父部件动 */
+function parentOfPart(name: string): string | undefined {
+  return figure ? figure.parts.find((p) => p.name === name)?.parent : tweaked?.parents.get(name);
+}
+
+/** 一个部件的操作坐标：支点在哪、父部件朝哪 */
+function frameOfPart(name: string): PartFrame | null {
+  return figure ? partFrame(figure, name) : (tweaked?.frames.get(name) ?? null);
+}
+
+/** 多选时真正要改的那些：父部件也选中了的不算，它跟着父部件动（见 topMost） */
+const tweakTargets = () => topMost(picks, parentOfPart);
+
+/** 改这个部件时对侧要不要跟着镜像：对侧自己也选中了的话各改各的 */
+function mirrorFor(name: string): boolean {
+  const twin = mirror ? mirrorName(name) : null;
+  if (twin === null || picks.includes(twin)) return false;
+  // 对侧那个带着哪个要改的部件、或者跟着哪个要改的部件动：不镜像，不然那个部件动了两份（一份跟着父部件，一份自己的）
+  return !tweakTargets().some((target) => isUnder(target, twin) || isUnder(twin, target));
+}
+
+/** name 是不是长在 ancestor 上（往上数任何一层） */
+function isUnder(name: string, ancestor: string): boolean {
+  for (let up = parentOfPart(name), guard = 0; up !== undefined && guard < 32; up = parentOfPart(up), guard++) if (up === ancestor) return true;
+  return false;
+}
+
+/**
+ * 改选中部件的微调。key 用来把连续的小改动并成一步撤销。
+ * 多选时给 delta：别的选中部件各自照这同一份改动改（from 给了就从那时的微调算起，不给从现在的算起）。
+ * 勾着「对称」时，和操纵杆所在的部件不在同一侧的照镜像改：左右两边的手臂都选中了，一起抬、一起张开，不是一边抬一边垂
+ */
+function applyTweak(patch: PartOverride, key?: string, delta?: TweakDelta, from?: typeof dragFrom) {
   if (!selected) return;
-  spec = setOverride(spec, selected, patch, mirror);
+  spec = setOverride(spec, selected, patch, mirrorFor(selected));
+  if (delta) {
+    const side = mirror ? sideOf(selected) : null;
+    const flipped = side ? mirrorDelta(delta) : delta;
+    for (const name of tweakTargets()) {
+      if (name === selected) continue;
+      const base = from?.get(name);
+      const frame = base?.frame ?? frameOfPart(name);
+      if (!frame) continue;
+      const other = side !== null && sideOf(name) !== null && sideOf(name) !== side;
+      spec = setOverride(spec, name, nudgeOverride(base ? base.override : activeOverrides(spec)[name], frame, other ? flipped : delta), mirrorFor(name));
+    }
+  }
   commit(key);
 }
 
-function select(name: string | null) {
-  if (name === selected) return;
-  selected = name;
+/** 操纵杆摆在哪个部件上：最后选的那个；它的父部件也选中了，就摆在父部件上（子部件跟着父部件动） */
+function anchorOf(names: readonly string[]): string | null {
+  let anchor = names[names.length - 1] ?? null;
+  for (let up = anchor ? parentOfPart(anchor) : undefined, guard = 0; up !== undefined && guard < 32; up = parentOfPart(up), guard++) {
+    if (names.includes(up)) anchor = up;
+  }
+  return anchor;
+}
+
+/** 换选中的部件（一个或好几个） */
+function setPicks(next: string[]) {
+  const anchor = anchorOf(next);
+  if (anchor === selected && next.length === picks.length && next.every((n, i) => n === picks[i])) return;
+  picks = next;
+  selected = anchor;
   history.seal();
   syncTweak();
   focusPicked();
+}
+
+function select(name: string | null) {
+  setPicks(name ? [name] : []);
+}
+
+/** 多选：没选中的加进来，已经选中的去掉 */
+function togglePick(name: string) {
+  setPicks(picks.includes(name) ? picks.filter((n) => n !== name) : [...picks, name]);
+}
+
+/** 在列表、小牌子上点了一个部件：开着「多选」是加一个、去一个，否则只选它 */
+function pickPartName(name: string | null) {
+  if (multiPick && name) togglePick(name);
+  else select(name);
+}
+
+function setMultiPick(on: boolean) {
+  multiPick = on;
+  tweakMulti.checked = on;
+  pickedMulti.setAttribute('aria-pressed', String(on));
+}
+
+/** 面板上改了一格数字，换成别的选中部件也照着改的那一份改动（世界坐标里的）。cur、next 是摆位用的单位、度、倍 */
+function fieldDelta(key: TweakKey, cur: Vec3, next: Vec3): TweakDelta | undefined {
+  const frame = selected && picks.length > 1 ? frameOfPart(selected) : null;
+  if (!frame) return undefined;
+  if (key === 'position') {
+    const k = frame.parentScale;
+    return { move: rotate(frame.parentQuat, [(next[0] - cur[0]) * k, (next[1] - cur[1]) * k, (next[2] - cur[2]) * k]) };
+  }
+  if (key === 'rotation') {
+    const turn = (v: Vec3) => quatEuler((v[0] * Math.PI) / 180, (v[1] * Math.PI) / 180, (v[2] * Math.PI) / 180);
+    return { turn: quatMul(quatMul(quatMul(frame.parentQuat, turn(next)), quatConj(turn(cur))), quatConj(frame.parentQuat)) };
+  }
+  return { ratio: [next[0] / cur[0], next[1] / cur[1], next[2] / cur[2]] };
 }
 
 /** 手机上屏幕小：点中部件时镜头凑过去，取消选择时飞回原来的地方 */
@@ -2167,7 +2359,25 @@ function focusPicked() {
 }
 
 const tweakPart = $<HTMLSelectElement>('tweakPart');
-tweakPart.addEventListener('change', () => select(tweakPart.value || null));
+tweakPart.addEventListener('change', () => {
+  pickPartName(tweakPart.value || null);
+  // 多选时下拉框回到操纵杆所在的那个部件上
+  tweakPart.value = selected ?? '';
+});
+const tweakMulti = $<HTMLInputElement>('tweakMulti');
+const pickedMulti = $<HTMLButtonElement>('pickedMulti');
+tweakMulti.addEventListener('change', () => setMultiPick(tweakMulti.checked));
+pickedMulti.addEventListener('click', () => setMultiPick(!multiPick));
+/** 同类全选：和选中的这个同一类的部件（全部手臂、全部腿……）都选上；已经选中的别的类的留着 */
+$('btnTweakKind').addEventListener('click', () => {
+  const type = tweakable().find((p) => p.name === selected)?.type;
+  if (!selected || !type) return;
+  const kind = tweakable()
+    .filter((p) => p.type === type && p.name !== selected)
+    .map((p) => p.name);
+  const rest = picks.filter((name) => name !== selected && !kind.includes(name));
+  setPicks([...rest, ...kind, selected]);
+});
 
 const syncGizmoMode = buildSeg($('segGizmo'), GIZMO_MODES, (v) => GIZMO_LABEL[v], (mode) => {
   gizmoMode = mode;
@@ -2191,15 +2401,18 @@ const tweakRows = TWEAK_FIELDS.map((field) => {
       if (!Number.isFinite(v)) return;
       // 「0.5」是一个字一个字敲出来的：敲到一半的「0」不算数
       if (field.key === 'scale' && v < OVERRIDE_LIMITS.scaleMin) return;
-      const cur = shownValues(field.key);
+      let cur = shownValues(field.key);
       let next: Vec3 = [cur[0], cur[1], cur[2]];
       next[axis] = v;
       if (field.key === 'scale' && lockRatio) {
         const k = v / cur[axis];
         next = [cur[0] * k, cur[1] * k, cur[2] * k];
       }
-      if (field.key === 'position') next = [next[0] / cmPerUnit, next[1] / cmPerUnit, next[2] / cmPerUnit];
-      applyTweak({ [field.key]: next }, `tweak:${selected}:${field.key}:${axis}`);
+      if (field.key === 'position') {
+        cur = [cur[0] / cmPerUnit, cur[1] / cmPerUnit, cur[2] / cmPerUnit];
+        next = [next[0] / cmPerUnit, next[1] / cmPerUnit, next[2] / cmPerUnit];
+      }
+      applyTweak({ [field.key]: next }, `tweak:${selected}:${field.key}:${axis}`, fieldDelta(field.key, cur, next));
     });
     // 输完以后把显示整理一遍（超出范围的数会被收回来）；下一次再改这一格另算一步撤销
     input.addEventListener('change', () => {
@@ -2240,7 +2453,7 @@ mirrorInput.addEventListener('change', () => {
 const btnTweakReset = $<HTMLButtonElement>('btnTweakReset');
 btnTweakReset.addEventListener('click', () => {
   if (!selected) return;
-  spec = clearOverride(spec, selected, mirror);
+  for (const name of picks) spec = clearOverride(spec, name, mirrorFor(name));
   commit();
 });
 $('btnTweakDone').addEventListener('click', () => select(null));
@@ -2335,25 +2548,55 @@ function renderTweak() {
   tweakPart.value = selected ?? '';
 
   const part = selected ? tweakable().find((p) => p.name === selected) : undefined;
+  const many = picks.length > 1;
   $('tweakBody').hidden = !part;
+  // 多选时列出选中的都有谁：点名字把它从里面去掉
+  const picksHost = $('tweakPicks');
+  picksHost.hidden = !many;
+  if (many) {
+    const items: HTMLElement[] = [el('span', '', t('选中了 {n} 个：', { n: picks.length }))];
+    for (const n of picks) {
+      const chip = el('button', n === selected ? 'chip hit' : 'chip', `${partLabel(n)} ✕`);
+      chip.type = 'button';
+      chip.title = t('从选中的里去掉（{name}）', { name: n });
+      chip.addEventListener('click', () => togglePick(n));
+      items.push(chip);
+    }
+    picksHost.replaceChildren(...items);
+  }
   if (part) {
     syncGizmoMode(gizmoMode, Boolean(gizmo));
     syncTweakFields();
     lockInput.checked = lockRatio;
     mirrorInput.checked = mirror;
     const twin = mirrorName(part.name);
-    $('tweakMirrorRow').hidden = !twin;
-    if (twin) $('tweakMirrorText').textContent = t('同时调整对侧（{name}）', { name: partLabel(twin) });
-    btnTweakReset.disabled = !activeOverrides(spec)[part.name];
-    syncLimbTip(part);
+    // 多选：选中的里有分左右的部件，才有「对称」可言
+    $('tweakMirrorRow').hidden = many ? !tweakTargets().some((n) => sideOf(n)) : !twin;
+    if (many) $('tweakMirrorText').textContent = t('左右对称着改（另一侧照镜像）');
+    else if (twin) $('tweakMirrorText').textContent = t('同时调整对侧（{name}）', { name: partLabel(twin) });
+    btnTweakReset.textContent = many ? t('还原选中的部件') : t('还原这个部件');
+    btnTweakReset.disabled = !picks.some((n) => activeOverrides(spec)[n]);
+    $<HTMLButtonElement>('btnTweakKind').disabled = !tweakable().some((p) => p.type === part.type && !picks.includes(p.name));
+    // 这一条的末端、手指数只对单独选中的一条说得通
+    syncLimbTip(many ? undefined : part);
     const frame = part.type === 'eye' || part.type === 'horn' || part.type === 'ear' ? t('这个头的') : t('角色的');
     $('tweakNote').textContent = joinSentences([
+      many
+        ? t('选中的 {n} 个部件一起改：各自绕自己的关节移动、转动、缩放；操纵杆和数字是「{name}」的，别的照同样的量跟着改。', {
+            n: picks.length,
+            name: partLabel(part.name),
+          })
+        : '',
+      many && tweakTargets().length < picks.length ? t('父部件也选中了的（比如躯干和它上面的手臂）只改父部件，子部件跟着它动。') : '',
       t('X 是{frame}左手边，Y 朝上，Z 朝前；角度绕这三根轴转，以关节为中心。', { frame }),
       t('大小：{hint}。', { hint: SCALE_HINT[part.type] ?? t('X 宽、Y 高、Z 厚') }),
       character ? t('成品角色的部件是照骨骼分的：和身体连着的地方（肩膀、腿根、脖子）跟着拉长；复制出来的手臂、角、尾巴、翅膀是整块挪的。') : '',
     ]);
   } else {
-    $('tweakNote').textContent = t('在模型上点一下某个部件，或者在上面选，就能单独调它的位置、角度和大小。');
+    $('tweakNote').textContent = joinSentences([
+      t('在模型上点一下某个部件，或者在上面选，就能单独调它的位置、角度和大小。'),
+      t('要好几个一起调：勾上「多选」再一个个点，或者按住 Ctrl、Shift 点。'),
+    ]);
   }
   // 舞台左下角也标出选中的是谁：面板滚走了也看得见
   syncPicked();
@@ -2366,10 +2609,10 @@ function renderTweak() {
   if (all.length) {
     const items: HTMLElement[] = [el('span', '', t('已微调：'))];
     for (const n of changed) {
-      const chip = el('button', n === selected ? 'chip hit' : 'chip', partLabel(n));
+      const chip = el('button', picks.includes(n) ? 'chip hit' : 'chip', partLabel(n));
       chip.type = 'button';
       chip.title = n;
-      chip.addEventListener('click', () => select(n));
+      chip.addEventListener('click', () => pickPartName(n));
       items.push(chip);
     }
     if (all.length > changed.length) {
@@ -2388,16 +2631,36 @@ function renderTweak() {
 
 /** 模型重建、或者换了选中的部件以后：把高亮、操纵杆和面板同步过来 */
 function syncTweak() {
-  if (selected && !tweakable().some((p) => p.name === selected)) selected = null;
-  const frame = !selected ? null : figure ? partFrame(figure, selected) : (tweaked?.frames.get(selected) ?? null);
+  // 部件数变了以后已经不存在的，从选中的里去掉
+  if (picks.some((n) => !tweakable().some((p) => p.name === n))) {
+    picks = picks.filter((n) => tweakable().some((p) => p.name === n));
+    selected = anchorOf(picks);
+  }
+  const frame = selected ? frameOfPart(selected) : null;
   cmPerUnit = frame ? frame.parentScale * 100 : 100;
   const override = selected ? activeOverrides(spec)[selected] : undefined;
   if (tweaked && character) {
-    // 成品角色：高亮的形状跟着微调变，拖着的时候每次都要换
+    // 成品角色：高亮的形状跟着微调变，拖着的时候每次都要换。多选时选中的几个部件的面并在一起
     const at = tweaked;
-    gizmo?.syncFrame(frame, () => characterPartGlow(at, selected!), `${selected}|${characterVersion}`, override);
+    const names = [...picks];
+    const glow = () => {
+      const each = names.map((n) => characterPartGlow(at, n));
+      const out = new Float32Array(each.reduce((sum, a) => sum + a.length, 0));
+      let offset = 0;
+      for (const a of each) {
+        out.set(a, offset);
+        offset += a.length;
+      }
+      return out;
+    };
+    gizmo?.syncFrame(frame, glow, `${names.join(',')}|${characterVersion}`, override);
   } else {
-    gizmo?.sync(figure, selected, override);
+    gizmo?.sync(
+      figure,
+      selected,
+      override,
+      picks.filter((n) => n !== selected),
+    );
   }
   renderTweak();
 }
@@ -2427,18 +2690,30 @@ $('pickedClear').addEventListener('click', () => {
 
 if (gizmo) {
   gizmo.pick = pickPart;
-  gizmo.onPick = (name) => {
-    select(name);
+  gizmo.onPick = (name, add) => {
+    // 多选（开着开关，或者按着 Ctrl、Shift）：点中的加进来、再点去掉；点在空白处不动，免得一下全丢了
+    if (add || multiPick) {
+      if (name) togglePick(name);
+    } else select(name);
     // 在模型上点中了部件：把「手动微调」那一栏亮出来
     if (!name) return;
     reveal('tweak');
     learnedPick();
   };
-  gizmo.onChange = (patch) => applyTweak(patch, `gizmo:${selected}`);
+  gizmo.onChange = (patch, delta) => applyTweak(patch, `gizmo:${selected}`, dragFrom ? delta : undefined, dragFrom);
   gizmo.onDrag = (active) => {
     // 每次拖动单独算一步撤销
     history.seal();
     tweaking = active;
+    // 多选：记下按下这一刻各个部件的样子，拖动中都从它算起
+    dragFrom = null;
+    if (active && picks.length > 1) {
+      dragFrom = new Map();
+      for (const name of tweakTargets()) {
+        const frame = frameOfPart(name);
+        if (frame) dragFrom.set(name, { override: activeOverrides(spec)[name], frame });
+      }
+    }
     // 松手以后存档、刷新面板，再同步一次：操纵杆回到按存下来的数值算出的位置（数值被取整、限幅过）
     if (!active) {
       save();
@@ -2810,7 +3085,12 @@ function syncPicked() {
   $('picked').hidden = !part && !handle;
   // 小牌子亮着时，3D 视图正中那句提示收起来，免得叠在一起（新手引导替人选中部件时没碰过屏幕，它还亮着）
   if (part || handle) $('hint').classList.remove('tip');
-  if (part) $('pickedName').textContent = `${partLabel(part.name)} · ${part.name}`;
+  if (part) {
+    $('pickedName').textContent =
+      picks.length > 1 ? t('{name} 等 {n} 个部件', { name: partLabel(part.name), n: picks.length }) : `${partLabel(part.name)} · ${part.name}`;
+  }
+  // 「多选」只在造型时有（摆姿势时这块牌子写的是关节）
+  pickedMulti.hidden = !part;
   if (handle) $('pickedName').textContent = handle.label;
   // 手机上：选中、换了选中、取消选中的那一下，抽屉换到「微调」、摆姿势弹出关节的小卡片
   const now = part ? `part:${part.name}` : handle ? `joint:${handle.id}` : '';
@@ -3581,8 +3861,11 @@ if (POSE_LIBRARY.length) {
   // 别的多出来的手臂跟着原来的那条动（见 pose/fit.ts）。然后手臂让开身体、让开别的手臂（见 pose/clear.ts）
   /** 连体：姿势换到每个上半身自己的朝向里去套，胯不动，撑着身子的手留在原处（见 pose/conjoined.ts） */
   const fittedConjoined = (posing: Posing): Posing => (spec.conjoined !== 'none' && kit ? fitConjoined(kit.solver, posing, spec.conjoinPose) : posing);
+  /** 围成一圈：姿势换到每个人、每条腿自己朝外的方向里去套，两侧的手臂照整个身子的左右（见 pose/ring.ts）。不是围成一圈的返回 null */
+  const fittedRing = (posing: Posing): Posing | null =>
+    ringActive(spec) && kit ? fitRing(kit.solver, posing) : null;
   const fitted = (posing: Posing): Posing => {
-    const own = fittedConjoined(fittedTorsos(fittedLegs(posing)));
+    const own = fittedRing(posing) ?? fittedConjoined(fittedTorsos(fittedLegs(posing)));
     if (!kit) return own;
     const { posing: next, followers } = followArms(kit.solver, fitArms(kit.solver, own));
     const body = bodyDist();
@@ -3598,6 +3881,9 @@ if (POSE_LIBRARY.length) {
   const pairPosing = (posing: Posing, pair: number): Posing => {
     // 连体：每一对手臂都照第一对换好了，只摆哪一对由 presetPick 挑
     if (spec.conjoined !== 'none') return fittedConjoined(posing);
+    // 围成一圈：两侧的手臂都照整个身子的左右换好了
+    const ringed = fittedRing(posing);
+    if (ringed) return ringed;
     const own = fittedTorsos(fittedLegs(posing));
     const bones = { ...own.bones };
     for (const [name, turn] of Object.entries(posing.bones)) if (armPairOf(name) === 0) bones[nthName(name, pair)] = turn;
@@ -4209,8 +4495,8 @@ async function exportVrm() {
     setStatus(t('VRM 要一整块网格：先在「网格」一栏换成「融合成一整块」。'), true);
     return;
   }
-  // 先看人形骨骼对不对得上：对不上就不用问名字了
-  const rest = buildSkeleton(target);
+  // 先看人形骨骼对不对得上：对不上就不用问名字了。围成一圈的把两侧的手臂改接到第一个人的脊柱上（见 ringHumanoid）
+  const rest = ringHumanoid(buildSkeleton(target));
   let humanoid: Map<string, number>;
   try {
     humanoid = humanoidMap(rest);
@@ -5285,8 +5571,10 @@ function render() {
   for (const sync of sliders) sync();
   syncHead(spec.headLayout, spec.counts.heads > 1);
   syncArm(spec.armLayout, spec.counts.armPairs > 1);
-  syncLeg(spec.legLayout, spec.counts.legs > 1);
+  // 围成一圈时腿是每个人几条、并排长在这个人的胯上（见 layout.ts）：排法不起作用
+  syncLeg(spec.legLayout, spec.counts.legs > 1 && !ringActive(spec));
   syncHipLegs();
+  syncChestRow();
   syncAdult();
   syncEar(spec.earShape, spec.counts.earPairsPerHead > 0);
   const ready = spec.bodyStyle !== 'mannequin';
@@ -5295,6 +5583,19 @@ function render() {
   syncConjoin(spec.conjoined, true);
   $('conjoinPoseField').hidden = spec.conjoined === 'none';
   syncConjoinPose(spec.conjoinPose, spec.conjoined !== 'none');
+  // 围成一圈：成品角色、连体时不围
+  const ringable = !finished && spec.conjoined === 'none';
+  syncRing(spec.ring, ringable);
+  $('ringCountField').hidden = spec.ring === 'none';
+  syncRingCount(String(spec.ringCount), ringable && spec.ring !== 'none');
+  $('ringChestField').hidden = spec.ring === 'none';
+  syncRingChest(spec.ringChest, ringable && spec.ring !== 'none' && spec.counts.breasts > 2);
+  $('ringLegsField').hidden = spec.ring === 'none';
+  $('ringSpreadField').hidden = spec.ring === 'none';
+  syncRingSpread(spec.ringSpread, ringable && spec.ring !== 'none');
+  syncRingLegs(spec.ringLegs, ringable && spec.ring !== 'none');
+  $('ringLegFacingField').hidden = spec.ring === 'none';
+  syncRingLegFacing(spec.ringLegFacing, ringable && spec.ring !== 'none');
   syncArmEnd(spec.armEnd, spec.counts.armPairs > 0);
   syncLegEnd(spec.legEnd, humanLegs());
   syncFingers();
@@ -5555,6 +5856,9 @@ if (import.meta.env.DEV) {
       character: () => character,
       selected: () => selected,
       select,
+      // 多选：__oc.picks() 现在选中的全部部件；__oc.togglePick('Arm_02_L') 加一个、去一个
+      picks: () => picks,
+      togglePick,
       buildMs: () => lastBuildMs,
       fusedStats: () => fusedStats,
       rebuild,

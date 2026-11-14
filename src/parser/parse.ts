@@ -28,6 +28,7 @@ import {
   type Pose,
   type ScrotumMode,
   COUNT_DEF_BY_KEY,
+  CHEST_ROW,
   HIP_LEGS,
   PENIS_ROW,
   PAIRED_KEYS,
@@ -65,6 +66,8 @@ export interface ParseResult {
   penisLayout: PenisLayout;
   /** 排成几乘几时每排几根（「阴茎每排两根」）；没说就是 2 */
   penisRow: number;
+  /** 胸每排几个（「胸每排三个」）；没说就是 2（一对一对的） */
+  chestRow: number;
   scrotum: ScrotumMode;
   /** 文字里点名了耳朵形状时才有 */
   earShape?: EarShape;
@@ -160,8 +163,8 @@ const CN_PARTS: readonly CnPart[] = [
   { word: '手臂', key: 'armPairs' },
   { word: '胳膊', key: 'armPairs' },
   { word: '臂膀', key: 'armPairs' },
-  { word: '胸部', key: 'chestPairs' },
-  { word: '乳房', key: 'chestPairs' },
+  { word: '胸部', key: 'breasts' },
+  { word: '乳房', key: 'breasts' },
   { word: '翅膀', key: 'wingPairs' },
   { word: '羽翼', key: 'wingPairs' },
   { word: '尾巴', key: 'tails' },
@@ -174,8 +177,8 @@ const CN_PARTS: readonly CnPart[] = [
   { word: '脸', key: 'heads', notBefore: '红颊色蛋型庞部上谱' },
   { word: '手', key: 'armPairs', notBefore: '指套镯链表环杖枪机办' },
   { word: '臂', key: 'armPairs', notBefore: '环章甲' },
-  { word: '胸', key: 'chestPairs', notBefore: '针甲罩衣围口肌' },
-  { word: '乳', key: 'chestPairs', notBefore: '胶牛白液汁' },
+  { word: '胸', key: 'breasts', notBefore: '针甲罩衣围口肌' },
+  { word: '乳', key: 'breasts', notBefore: '胶牛白液汁' },
   { word: '腿', key: 'legs', notBefore: '环袜甲' },
   { word: '脚', key: 'legs', notBefore: '趾链环踝印' },
   { word: '足', key: 'legs', notBefore: '袜球够以' },
@@ -243,7 +246,7 @@ const MULTI: BodyCounts = {
   torsos: 2,
   heads: 2,
   armPairs: 2,
-  chestPairs: 2,
+  breasts: 4,
   legs: 4,
   tails: 3,
   wingPairs: 2,
@@ -294,8 +297,8 @@ const EN_PART: ReadonlyMap<string, CountKey> = new Map(
     face: 'heads', faces: 'heads', faced: 'heads',
     arm: 'armPairs', arms: 'armPairs', armed: 'armPairs',
     limb: 'armPairs', limbs: 'armPairs',
-    breast: 'chestPairs', breasts: 'chestPairs', breasted: 'chestPairs',
-    boob: 'chestPairs', boobs: 'chestPairs',
+    breast: 'breasts', breasts: 'breasts', breasted: 'breasts',
+    boob: 'breasts', boobs: 'breasts',
     leg: 'legs', legs: 'legs', legged: 'legs',
     tail: 'tails', tails: 'tails', tailed: 'tails',
     wing: 'wingPairs', wings: 'wingPairs', winged: 'wingPairs',
@@ -382,7 +385,7 @@ const KEMONO = { earPairsPerHead: 1, tails: 1 } as const;
 
 const KEYWORDS: readonly Keyword[] = [
   // 日文的词表写自然日文，用 J() 过一遍和输入一样的规整（片假名转平假名、新字体转简体）再拼进去
-  { re: kw(`平胸|无胸|没有胸|${L}flat${S}chest(?:ed)?${R}|${J('貧乳|ぺたんこ|つるぺた|まな板')}`), set: { chestPairs: 0 } },
+  { re: kw(`平胸|无胸|没有胸|${L}flat${S}chest(?:ed)?${R}|${J('貧乳|ぺたんこ|つるぺた|まな板')}`), set: { breasts: 0 } },
   // 阿修罗是「三面六臂」：一个头上三张脸
   { re: kw(`阿修罗|${L}ash?ura${R}`), set: { heads: 3, armPairs: 3 }, headLayout: 'faces', armLayout: 'fan' },
   { re: kw(`${L}janus${R}`), set: { heads: 2 }, headLayout: 'faces' },
@@ -420,7 +423,7 @@ const KEYWORDS: readonly Keyword[] = [
   { re: kw(`${L}armless${R}`), set: { armPairs: 0 } },
   // 「连体泳衣」不算
   { re: kw(`连体(?:人|婴|双胞胎|姐妹|兄弟)|${L}conjoined${R}|${J('結合双生児|シャム双生児')}`), min: { heads: 2 } },
-  { re: kw('复乳|副乳'), min: { chestPairs: 2 } },
+  { re: kw('复乳|副乳'), min: { breasts: 4 } },
   { re: kw('多腕|复腕'), min: { armPairs: 2 } },
   { re: kw(`龙娘|龙女|龙人|${L}dragon${S}?(?:girl|boy)${R}|${J('ドラゴン娘|ドラゴンガール')}`), min: CREATURE },
   {
@@ -483,8 +486,8 @@ const JA_PARTS: readonly CnPart[] = [
   { word: J('顔'), key: 'heads' },
   { word: J('腕'), key: 'armPairs', notAfter: J('手'), notBefore: J('表時时力前輪环章带白') },
   { word: J('手'), key: 'armPairs', notAfter: J('相歌握拍选選助空'), notBefore: J('指袋套镯链表環环杖枪機机办首足元前順入') },
-  { word: J('おっぱい'), key: 'chestPairs' },
-  { word: J('胸'), key: 'chestPairs', notBefore: J('針针甲罩衣囲围口肌元当像板筋毛骨') },
+  { word: J('おっぱい'), key: 'breasts' },
+  { word: J('胸'), key: 'breasts', notBefore: J('針针甲罩衣囲围口肌元当像板筋毛骨') },
   { word: J('脚'), key: 'legs', notBefore: J('環环袜靴本立色') },
   { word: J('足'), key: 'legs', notAfter: J('手'), notBefore: J('袜球够以元跡音場场首袋') },
   { word: J('尻尾'), key: 'tails' },
@@ -620,6 +623,22 @@ const PENIS_ROW_RES: readonly RegExp[] = [
   new RegExp(`(?<=${L}(?:penises|cocks|dicks)[^.;]{0,24}?)(${EN_NUM_SRC})${S}+per${S}+row${R}`, 'g'),
   new RegExp(
     J(`(?<=${PENIS_WORD}[^。;]{0,10}?)(?:[段列行](?:ごと|ずつ|あたり)に?([${N}\\d]+)[本つ]|([${N}\\d]+)本ずつ)`) +
+      `(?!${JA_PART_SRC})`,
+    'g',
+  ),
+];
+/**
+ * 胸每排几个：「胸每排三个」「每排三个胸」。数字在第一个有值的捕获组里。英文 `breasts in rows of 3`、`6 breasts, 3 per row`；
+ * 日文 `胸は段ごとに3つ`、`胸を3つずつ`
+ */
+const CHEST_WORD = '(?:胸部?|乳房|乳)';
+const CHEST_ROW_RES: readonly RegExp[] = [
+  new RegExp(`(?<=${CHEST_WORD}[^。;]{0,10}?)每排([${N}\\d]+)[个只](?!${PART_SRC})`, 'g'),
+  new RegExp(`每排([${N}\\d]+)[个只]的?${CHEST_WORD}`, 'g'),
+  new RegExp(`${L}(?:breasts|boobs)${S}+in${S}+rows?${S}+of${S}+(${EN_NUM_SRC})${R}`, 'g'),
+  new RegExp(`(?<=${L}(?:breasts|boobs)[^.;]{0,24}?)(${EN_NUM_SRC})${S}+per${S}+row${R}`, 'g'),
+  new RegExp(
+    J(`(?<=(?:胸|おっぱい|乳房)[^。;]{0,10}?)(?:[段列行](?:ごと|ずつ|あたり)に?([${N}\\d]+)[つ個个]|([${N}\\d]+)[つ個个]ずつ)`) +
       `(?!${JA_PART_SRC})`,
     'g',
   ),
@@ -915,6 +934,21 @@ export function parseDescription(text: string): ParseResult {
     }
     work = mask(work, spans);
   }
+  /* ---- 0.57 胸每排几个：取走，免得「每排三个」被读成三个 ---- */
+  let chestRow: number = CHEST_ROW.def;
+  {
+    const spans: Span[] = [];
+    for (const re of CHEST_ROW_RES) {
+      for (const m of work.matchAll(re)) {
+        const word = m[1] ?? m[2];
+        const n = /^\d+$/.test(word) ? Number(word) : /^[a-z]/.test(word) ? enNum(word) : cnNum(word);
+        if (n >= CHEST_ROW.min && n <= CHEST_ROW.max) chestRow = n;
+        spans.push([m.index, m.index + m[0].length]);
+        record(m.index, m.index + m[0].length, 'keyword', []);
+      }
+    }
+    work = mask(work, spans);
+  }
   let gender: Gender | undefined;
   {
     let last = -1;
@@ -1174,6 +1208,7 @@ export function parseDescription(text: string): ParseResult {
     hipLegs,
     penisLayout,
     penisRow,
+    chestRow,
     scrotum,
     earShape,
     shape,

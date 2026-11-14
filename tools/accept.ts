@@ -52,17 +52,17 @@ const SETTINGS = {
 
 const BASES: Case[] = [
   { name: 'S1', group: 'S', label: 'S 一个上半身 · 一排胸 · 一对手臂', spec: { counts: {} }, settings: ['b06', 'def', 'b13', 'his', 'b23'] },
-  { name: 'A2', group: 'A', label: 'A 两排胸 · 两对手臂（上下排）', spec: { armLayout: 'stack', counts: { chestPairs: 2, armPairs: 2 } } },
-  { name: 'A3', group: 'A', label: 'A 三排胸 · 两对手臂（上下排）', spec: { armLayout: 'stack', counts: { chestPairs: 3, armPairs: 2 } } },
-  { name: 'A4', group: 'A', label: 'A 四排胸 · 两对手臂（上下排）', spec: { armLayout: 'stack', counts: { chestPairs: 4, armPairs: 2 } } },
+  { name: 'A2', group: 'A', label: 'A 两排胸 · 两对手臂（上下排）', spec: { armLayout: 'stack', counts: { breasts: 4, armPairs: 2 } } },
+  { name: 'A3', group: 'A', label: 'A 三排胸 · 两对手臂（上下排）', spec: { armLayout: 'stack', counts: { breasts: 6, armPairs: 2 } } },
+  { name: 'A4', group: 'A', label: 'A 四排胸 · 两对手臂（上下排）', spec: { armLayout: 'stack', counts: { breasts: 8, armPairs: 2 } } },
   { name: 'B-ref', group: 'B', label: 'B 两个上半身 · 各一头一对手一对胸（参考图那种）', spec: { counts: { torsos: 2 } } },
-  { name: 'B-his', group: 'B', label: 'B 两个上半身 · 各两头两对手（肩部聚拢）两对胸', spec: { armLayout: 'fan', counts: { torsos: 2, heads: 2, armPairs: 2, chestPairs: 2 } } },
+  { name: 'B-his', group: 'B', label: 'B 两个上半身 · 各两头两对手（肩部聚拢）两对胸', spec: { armLayout: 'fan', counts: { torsos: 2, heads: 2, armPairs: 2, breasts: 4 } } },
   { name: 'C', group: 'C', label: 'C 两个上半身 · 横排两副胯', spec: { legLayout: 'abreast', counts: { torsos: 2, legs: 4 } } },
   { name: 'D1', group: 'D', label: 'D 两个头 · 横排两副胯 · 两对手（肩部聚拢）一对胸', spec: { legLayout: 'abreast', armLayout: 'fan', counts: { heads: 2, legs: 4, armPairs: 2 } } },
-  { name: 'D2', group: 'D', label: 'D 两个头 · 横排两副胯 · 两对手（肩部聚拢）两对胸', spec: { legLayout: 'abreast', armLayout: 'fan', counts: { heads: 2, legs: 4, armPairs: 2, chestPairs: 2 } } },
+  { name: 'D2', group: 'D', label: 'D 两个头 · 横排两副胯 · 两对手（肩部聚拢）两对胸', spec: { legLayout: 'abreast', armLayout: 'fan', counts: { heads: 2, legs: 4, armPairs: 2, breasts: 4 } } },
   { name: 'E3', group: 'E', label: 'E 三个上半身（只查不坏）', spec: { counts: { torsos: 3 } }, checkOnly: true },
   { name: 'E3-hips', group: 'E', label: 'E 三个上半身 · 横排两副胯', spec: { legLayout: 'abreast', counts: { torsos: 3, legs: 4 } }, checkOnly: true },
-  { name: 'E3-his', group: 'E', label: 'E 三个上半身 · 各两头两对手（上下排）两对胸 · 横排两副胯', spec: { legLayout: 'abreast', armLayout: 'stack', counts: { torsos: 3, heads: 2, armPairs: 2, chestPairs: 2, legs: 4 } }, checkOnly: true },
+  { name: 'E3-his', group: 'E', label: 'E 三个上半身 · 各两头两对手（上下排）两对胸 · 横排两副胯', spec: { legLayout: 'abreast', armLayout: 'stack', counts: { torsos: 3, heads: 2, armPairs: 2, breasts: 4, legs: 4 } }, checkOnly: true },
 ];
 
 /**

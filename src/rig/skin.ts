@@ -363,10 +363,15 @@ export function planSkin(
     }
   }
   const groupOf = Uint16Array.from(entries, (entry) => entry.group);
-  // 每个部件往上找到的那个上半身（UpperBody、UpperBody_L …，见 geometry/torsos.ts）
+  // 每个部件往上找到的那个上半身（UpperBody、UpperBody_L …，见 geometry/torsos.ts）。
+  // 围成一圈（geometry/ring.ts）的每个人各算一个：他们的躯干叫 Torso、Torso_B、Torso_C …（至少三个；连体只到 Torso_B，不算）。
+  // 不这样的话挨着的几个头、几圈胸互相分权重，各人的头一转就被扯成一圈
   const kept = figure.parts.filter((part) => part.material !== 'eye');
+  const ringed = figure.parts.some((part) => part.name === 'Torso_C');
   const bodyOf = (part: Part): number => {
-    for (let p: Part | undefined = part; p; p = p.parent ? byName.get(p.parent) : undefined) if (/^UpperBody/.test(p.name)) return figure.parts.indexOf(p);
+    for (let p: Part | undefined = part; p; p = p.parent ? byName.get(p.parent) : undefined) {
+      if (/^UpperBody/.test(p.name) || (ringed && /^Torso(_[A-Z])?$/.test(p.name))) return figure.parts.indexOf(p);
+    }
     return -1;
   };
   const body = Int32Array.from({ length: groups }, (_, g) => bodyOf(kept[sample[g]]));

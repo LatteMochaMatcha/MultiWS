@@ -54,7 +54,7 @@ describe('照姿势变形以后身体的距离', () => {
   it('套姿势时手腕外面那一截照它量：两个上半身弯腰时屁股那里，照静止姿势换算量不准，手腕外面那一截顶在屁股上（缝不上，手掉成单独一块）', () => {
     useAnimeBody();
     const base = defaultSpec();
-    const spec: BodySpec = { ...base, bodyStyle: 'anime', counts: { ...base.counts, torsos: 2 }, torsoCounts: { L: { armPairs: 2 }, R: { heads: 2, chestPairs: 2 } } };
+    const spec: BodySpec = { ...base, bodyStyle: 'anime', counts: { ...base.counts, torsos: 2 }, torsoCounts: { L: { armPairs: 2 }, R: { heads: 2, breasts: 4 } } };
     const figure = buildFigure(spec);
     const solver = makeSolver(buildSkeleton(figure).bones);
     const kept = new Set<string>();

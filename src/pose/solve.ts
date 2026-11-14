@@ -14,6 +14,7 @@
 import { type Quat, type V3, add, cross, dot, len, mul, norm, quatBetween, quatConj, quatMul, rotate, sub } from '../geometry/vec';
 import { type Limb, STRAIGHT, limbFrame } from './limbs';
 import { anyPerp, quatAngle, quatLimit, quatPart, quatUnit, reject } from './math';
+import { isRingRig, isSpineBone } from './ring';
 import { type Frame, type PoseRig, type PoseState, cloneState, forward, pointOn, setWorldRot, shiftRoot } from './rig';
 import type { Solver } from './solver';
 
@@ -202,7 +203,9 @@ function pull(solver: Solver, state: PoseState, start: PoseState, limb: Limb, ta
   const reach = (limb.len1 + limb.len2) * REACH;
   // 手臂够不着、又有脚钉着：骨盆也跟着转（腿会重新摆回脚的位置）。脚都没钉的话骨盆一转腿就甩出去了，不转
   const planted = pins.some((pin) => solver.limbs[pin.limb].kind === 'leg');
-  const helpers = limb.chain.length && planted ? [...limb.chain, rig.hips] : limb.chain;
+  // 围成一圈的背不弯（见 pose/ring.ts）：脊柱不帮着够，只有锁骨（和胯）帮
+  const chain = isRingRig(rig) ? limb.chain.filter((bone) => !isSpineBone(rig.names[bone])) : limb.chain;
+  const helpers = chain.length && planted ? [...chain, rig.hips] : chain;
   for (const give of ROOT_GIVE) {
     let f = forward(rig, state);
     let gap = shortfall(f.pos[limb.upper], target, reach);

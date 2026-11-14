@@ -42,7 +42,7 @@ describe('好几个上半身', () => {
     it('单独设的和「全部一样」的数一样（或者没设）：和以前一模一样', () => {
       for (const style of ['anime', 'mannequin'] as const) {
         const base = make({ torsos: 2, heads: 2, armPairs: 2 }, { bodyStyle: style, armLayout: 'fan' });
-        const same = { ...base, torsoCounts: { L: { heads: 2, armPairs: 2 }, R: { chestPairs: 1 } } };
+        const same = { ...base, torsoCounts: { L: { heads: 2, armPairs: 2 }, R: { breasts: 2 } } };
         expect(buildFigure(same), style).toEqual(buildFigure(base));
         // 上半身减到一个时单独设的不管用
         expect(buildFigure({ ...base, counts: { ...base.counts, torsos: 1 }, torsoCounts: { L: { heads: 3 } } }), style).toEqual(buildFigure({ ...base, counts: { ...base.counts, torsos: 1 } }));
@@ -51,8 +51,8 @@ describe('好几个上半身', () => {
 
     it('两边不一样多：每个上半身照自己的数量长头、手臂、胸，部件名、骨骼名不重复，融合出来是一整块', () => {
       const cases: [string, BodySpec][] = [
-        ['二次元素体 两个', { ...make({ torsos: 2 }, { bodyStyle: 'anime', armLayout: 'fan' }), torsoCounts: { L: { heads: 2, armPairs: 2, chestPairs: 2 } } }],
-        ['二次元素体 三个', { ...make({ torsos: 3 }, { bodyStyle: 'anime' }), torsoCounts: { M: { heads: 2 }, L: { armPairs: 2, chestPairs: 0 }, R: { heads: 3 } } }],
+        ['二次元素体 两个', { ...make({ torsos: 2 }, { bodyStyle: 'anime', armLayout: 'fan' }), torsoCounts: { L: { heads: 2, armPairs: 2, breasts: 4 } } }],
+        ['二次元素体 三个', { ...make({ torsos: 3 }, { bodyStyle: 'anime' }), torsoCounts: { M: { heads: 2 }, L: { armPairs: 2, breasts: 0 }, R: { heads: 3 } } }],
         ['白模人台 两个', { ...make({ torsos: 2, armPairs: 2 }, { armLayout: 'stack' }), torsoCounts: { R: { heads: 3, armPairs: 1 } } }],
         ['白模人台 三个', { ...make({ torsos: 3 }), torsoCounts: { M: { heads: 3 }, R: { armPairs: 3 } } }],
       ];
@@ -66,8 +66,8 @@ describe('好几个上半身', () => {
           // 里侧挤不下的手臂、胸会去掉（见 crowded）：不比设的多，外侧那一边一个不少
           expect(tally(f, body, 'arm'), `${label} ${side} 手臂`).toBeLessThanOrEqual(own.armPairs * 2);
           expect(tally(f, body, 'arm'), `${label} ${side} 手臂`).toBeGreaterThanOrEqual(own.armPairs);
-          expect(tally(f, body, 'chest'), `${label} ${side} 胸`).toBeLessThanOrEqual(own.chestPairs * 2);
-          expect(tally(f, body, 'chest'), `${label} ${side} 胸`).toBeGreaterThanOrEqual(own.chestPairs);
+          expect(tally(f, body, 'chest'), `${label} ${side} 胸`).toBeLessThanOrEqual(own.breasts);
+          expect(tally(f, body, 'chest'), `${label} ${side} 胸`).toBeGreaterThanOrEqual(own.breasts / 2);
         }
         const partNames = f.parts.map((p) => p.name);
         expect(new Set(partNames).size, label).toBe(partNames.length);
@@ -97,7 +97,7 @@ describe('好几个上半身', () => {
   it('二次元素体的胸贴着它挂着的那个上半身的躯干：和上半身的躯干同一个分叉（只是定在胸中心的高度），手动挪过上半身也跟着', () => {
     const cases: Record<string, PartOverride>[] = [{}, { UpperBody_L: { position: [0.03, 0.08, 0], rotation: [0, 12, 8] } }];
     for (const overrides of cases) {
-      const f = buildFigure(make({ torsos: 2, heads: 2, armPairs: 2, chestPairs: 2 }, { bodyStyle: 'anime', armLayout: 'fan', overrides }));
+      const f = buildFigure(make({ torsos: 2, heads: 2, armPairs: 2, breasts: 4 }, { bodyStyle: 'anime', armLayout: 'fan', overrides }));
       const chests = f.parts.filter((p) => p.type === 'chest');
       expect(chests.length).toBeGreaterThan(0);
       for (const chest of chests) {
@@ -111,14 +111,14 @@ describe('好几个上半身', () => {
   });
 
   it('大胸的胸壁连接不依赖手臂：移除手臂以后，下排胸在精细网格里也不脱开', () => {
-    const spec=make({torsos:2,heads:2,armPairs:2,chestPairs:2},{bodyStyle:'anime',armLayout:'stack',shape:{...defaultSpec().shape,bust:2.2}});
+    const spec=make({torsos:2,heads:2,armPairs:2,breasts:4},{bodyStyle:'anime',armLayout:'stack',shape:{...defaultSpec().shape,bust:2.2}});
     const f=buildFigure(spec);
     const mesh=fuseParts(f.parts.filter(p=>p.type!=='arm'&&p.material!=='eye'),{voxel:0.008,blend:spec.blend});
     expect(mesh.info.components).toBe(1);
   },60_000);
 
   it('微调上半身的宽高时，腰背接口保持原位，不把连接根部一起缩放', () => {
-    const base = make({ torsos: 2, heads: 2, armPairs: 2, chestPairs: 2, legs: 4 }, { bodyStyle: 'anime', armLayout: 'fan', legLayout: 'abreast' });
+    const base = make({ torsos: 2, heads: 2, armPairs: 2, breasts: 4, legs: 4 }, { bodyStyle: 'anime', armLayout: 'fan', legLayout: 'abreast' });
     const before = buildFigure(base);
     const after = buildFigure({ ...base, overrides: { UpperBody_L: { scale: [1.41, 0.9, 1] }, UpperBody_R: { scale: [1.41, 0.9, 1] } } });
     const [a, b] = [before, after].map((f) => compilePartField(part(f, 'UpperBody_L'), worldTransforms({ ...f, scale: 1 }).get('UpperBody_L')!));
@@ -165,7 +165,7 @@ describe('好几个上半身', () => {
 
   it('胸部跳过分叉变形后，小胸、大胸和多排胸仍连在两三个上半身上，网格封闭', () => {
     for (const torsos of [2, 3]) for (const bust of [1, 2.2]) for (const chestPairs of [1, 3]) {
-      const spec = make({ torsos, heads: 2, armPairs: 2, chestPairs }, {
+      const spec = make({ torsos, heads: 2, armPairs: 2, breasts: chestPairs * 2 }, {
         bodyStyle: 'anime', armLayout: 'fan', shape: { ...defaultSpec().shape, bust },
       });
       const mesh = fuseParts(buildFigure(spec).parts, { voxel: VOXEL.preview, blend: spec.blend });
@@ -188,7 +188,7 @@ describe('好几个上半身', () => {
   }, 60_000);
 
   it('二次元素体两个上半身（每个一个头）、横排两副胯：并成一个宽躯干（胸按一个人算摆在正中），切成两个上半身各带脊柱，网格一整块', () => {
-    const counts = { armPairs: 2, chestPairs: 2, legs: 4 };
+    const counts = { armPairs: 2, breasts: 4, legs: 4 };
     const rest = { bodyStyle: 'anime', armLayout: 'fan', legLayout: 'abreast' } as const;
     const spec = make({ ...counts, torsos: 2, heads: 1 }, rest);
     const f = buildFigure(spec);
@@ -381,7 +381,7 @@ describe('好几个上半身', () => {
 
   it('二次元素体三个上半身直立并排、分得开：不扇开，两边的只往外歪一点，三个腰之间空出一道缝；里侧的手臂往前伸、不举过头', () => {
     for (const legs of [2, 4]) {
-      const spec = make({ torsos: 3, legs, armPairs: 2, heads: 2, chestPairs: 2 }, { bodyStyle: 'anime', legLayout: legs > 2 ? 'abreast' : 'auto' });
+      const spec = make({ torsos: 3, legs, armPairs: 2, heads: 2, breasts: 4 }, { bodyStyle: 'anime', legLayout: legs > 2 ? 'abreast' : 'auto' });
       const f = buildFigure(spec);
       const xfs = worldTransforms(f);
       const bodies = ['UpperBody_R', 'UpperBody', 'UpperBody_L'].map((n) => part(f, n));
@@ -575,7 +575,7 @@ describe('好几个上半身', () => {
       expect(world.get('Arm_02_R')!.pos[0] - world.get('Arm_02_L')!.pos[0], label).toBeGreaterThan(0.09);
     }
     // 两个头的：歪到头分开，不穿模
-    const two = buildFigure(make({ torsos: 2, heads: 2, armPairs: 2, chestPairs: 2 }, { bodyStyle: 'anime', armLayout: 'fan' }));
+    const two = buildFigure(make({ torsos: 2, heads: 2, armPairs: 2, breasts: 4 }, { bodyStyle: 'anime', armLayout: 'fan' }));
     expect(describeClashes(findClashes(two))).toBe('');
   });
 
@@ -624,7 +624,7 @@ describe('好几个上半身', () => {
             for (const armLayout of ['stack', 'fan'] as const)
               for (const pose of ['A', 'T'] as const) {
                 if (armLayout === 'fan' && armPairs < 2) continue;
-                const spec = make({ torsos, heads, armPairs, chestPairs }, { armLayout, pose });
+                const spec = make({ torsos, heads, armPairs, breasts: chestPairs * 2 }, { armLayout, pose });
                 expect(describeClashes(findClashes(buildFigure(spec))), JSON.stringify({ torsos, heads, armPairs, chestPairs, armLayout, pose })).toBe('');
               }
   }, 120_000);
@@ -640,7 +640,7 @@ describe('好几个上半身', () => {
   }, 120_000);
 
   it('挨着旁边那个上半身、长不下的里侧胸不长；最上面一排留着', () => {
-    const f = buildFigure(make({ torsos: 3, chestPairs: 4 }));
+    const f = buildFigure(make({ torsos: 3, breasts: 8 }));
     // 外侧的四排都在
     expect(f.parts.filter((p) => p.type === 'chest' && p.parent === 'UpperBody_L' && p.side === 1)).toHaveLength(4);
     const inner = f.parts.filter((p) => p.type === 'chest' && p.parent === 'UpperBody_L' && p.side === -1);
@@ -665,7 +665,7 @@ describe('好几个上半身', () => {
       for (const armPairs of [1, 2]) {
         for (const armLayout of ['stack', 'fan'] as const) {
           if (armLayout === 'fan' && armPairs < 2) continue;
-          const f = buildFigure(make({ torsos: 2, armPairs, chestPairs: 2 }, { bodyStyle, armLayout }));
+          const f = buildFigure(make({ torsos: 2, armPairs, breasts: 4 }, { bodyStyle, armLayout }));
           const s = buildSkeleton({ ...f, parts: bindParts(f.parts) });
           const at = (n: string) => s.bones.find((b) => b.name === n);
           const chain = (side: string, k: number): P[] => {

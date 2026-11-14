@@ -198,7 +198,7 @@ describe('横排两副胯：两个人并成一个宽躯干（C）、一个人的
     for (const spec of [
       make(),
       make({}, { shape: { ...defaultSpec().shape, bust: 1.6, hips: 1.3 } }),
-      make({ chestPairs: 2 }, { armLayout: 'stack' }),
+      make({ breasts: 4 }, { armLayout: 'stack' }),
       make({ heads: 1, tails: 1, wingPairs: 1 }),
     ]) {
       for (const f of [merged(spec), buildFigure(spec)]) {

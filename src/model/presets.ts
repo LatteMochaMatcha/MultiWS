@@ -7,6 +7,7 @@ import {
   type EarShape,
   type HeadLayout,
   type LegLayout,
+  CHEST_ROW,
   HIP_LEGS,
   clampShape,
   defaultCounts,
@@ -26,7 +27,7 @@ export const PRESETS: readonly Preset[] = [
   { name: t('标准人形') },
   { name: t('双头'), counts: { heads: 2 } },
   { name: t('四臂'), counts: { armPairs: 2 } },
-  { name: t('两对胸'), counts: { chestPairs: 2 } },
+  { name: t('两对胸'), counts: { breasts: 4 } },
   // 阿修罗是「三面六臂」：一个头上三张脸，不是三个头
   { name: t('阿修罗'), counts: { heads: 3, armPairs: 3 }, headLayout: 'faces', armLayout: 'fan' },
   { name: t('半人马'), counts: { legs: 4 }, legLayout: 'taur' },
@@ -52,6 +53,8 @@ export function applyPreset(spec: BodySpec, preset: Preset): BodySpec {
     armLayout: preset.armLayout ?? 'stack',
     legLayout: preset.legLayout ?? 'auto',
     hipLegs: HIP_LEGS.def,
+    chestRow: CHEST_ROW.def,
+    ring: 'none',
     earShape: preset.earShape ?? spec.earShape,
     overrides: {},
   };

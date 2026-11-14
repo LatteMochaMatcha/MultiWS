@@ -7,7 +7,7 @@ type Expected = Partial<BodyCounts>;
 
 describe('需求里点名的输入', () => {
   const cases: [string, Expected, CountKey[]][] = [
-    ['两个头，两对手，两对胸', { heads: 2, armPairs: 2, chestPairs: 2 }, ['heads', 'armPairs', 'chestPairs']],
+    ['两个头，两对手，两对胸', { heads: 2, armPairs: 2, breasts: 4 }, ['heads', 'armPairs', 'breasts']],
     ['三头六臂', { heads: 3, armPairs: 3 }, ['heads', 'armPairs']],
     [
       '九尾狐，一对角',
@@ -16,7 +16,7 @@ describe('需求里点名的输入', () => {
     ],
     ['四条腿', { legs: 4 }, ['legs']],
     ['八条腿，没有尾巴', { legs: 8 }, ['legs', 'tails']],
-    ['六翼天使 平胸', { wingPairs: 3, chestPairs: 0 }, ['wingPairs', 'chestPairs']],
+    ['六翼天使 平胸', { wingPairs: 3, breasts: 0 }, ['wingPairs', 'breasts']],
     ['第三只眼', { eyesPerHead: 3 }, ['eyesPerHead']],
     [
       'four_arms multiple_tails two-headed',
@@ -138,7 +138,7 @@ describe('需求里点名的输入', () => {
       torsos: 1,
       heads: 1,
       armPairs: 1,
-      chestPairs: 1,
+      breasts: 2,
       legs: 2,
       tails: 0,
       wingPairs: 0,
@@ -165,8 +165,8 @@ describe('中文数字与量词', () => {
     ['一双翅膀', { wingPairs: 1 }],
     ['两副翅膀', { wingPairs: 2 }],
     ['四片翅膀', { wingPairs: 2 }],
-    ['三对胸', { chestPairs: 3 }],
-    ['四个乳房', { chestPairs: 2 }],
+    ['三对胸', { breasts: 6 }],
+    ['四个乳房', { breasts: 4 }],
     // 按个数算的部件：给「对」则乘 2
     ['一对角', { hornsPerHead: 2 }],
     ['两对眼睛', { eyesPerHead: 4 }],
@@ -251,8 +251,8 @@ describe('数字和部件之间的修饰语', () => {
 
 describe('关键词', () => {
   it.each<[string, Expected]>([
-    ['平胸', { chestPairs: 0 }],
-    ['无胸', { chestPairs: 0 }],
+    ['平胸', { breasts: 0 }],
+    ['无胸', { breasts: 0 }],
     ['半人马', { legs: 4 }],
     ['人马', { legs: 4 }],
     ['蜘蛛女', { legs: 8 }],
@@ -264,7 +264,7 @@ describe('关键词', () => {
     ['千手观音', { armPairs: 4 }],
     ['地狱犬', { heads: 3 }],
     ['连体双胞胎', { heads: 2 }],
-    ['复乳', { chestPairs: 2 }],
+    ['复乳', { breasts: 4 }],
     ['多腕', { armPairs: 2 }],
     ['天使', { wingPairs: 1 }],
     ['龙娘', { hornsPerHead: 2, wingPairs: 1, tails: 1 }],
@@ -320,7 +320,7 @@ describe('不带数字的「多 X」', () => {
   it.each<[string, Expected]>([
     ['多头', { heads: 2 }],
     ['多臂', { armPairs: 2 }],
-    ['多乳', { chestPairs: 2 }],
+    ['多乳', { breasts: 4 }],
     ['多足', { legs: 4 }],
     ['多尾', { tails: 3 }],
     ['多翼', { wingPairs: 2 }],
@@ -346,8 +346,8 @@ describe('英文标签（Danbooru / e621 风格）', () => {
     ['extra_arms', { armPairs: 2 }],
     ['multiple_legs', { legs: 4 }],
     ['extra_legs', { legs: 4 }],
-    ['multiple_breasts', { chestPairs: 2 }],
-    ['extra_breasts', { chestPairs: 2 }],
+    ['multiple_breasts', { breasts: 4 }],
+    ['extra_breasts', { breasts: 4 }],
     ['multiple_tails', { tails: 3 }],
     ['multiple_wings', { wingPairs: 2 }],
     ['multiple_horns', { hornsPerHead: 4 }],
@@ -358,7 +358,7 @@ describe('英文标签（Danbooru / e621 风格）', () => {
     ['multi_tail', { tails: 3 }],
     ['multi_limb', { armPairs: 2 }],
     ['multi_head', { heads: 2 }],
-    ['multi_breast', { chestPairs: 2 }],
+    ['multi_breast', { breasts: 4 }],
     ['multi_wing', { wingPairs: 2 }],
     ['multi_eye', { eyesPerHead: 3 }],
     ['multi_leg', { legs: 4 }],
@@ -372,8 +372,8 @@ describe('英文标签（Danbooru / e621 风格）', () => {
     ['six_arms', { armPairs: 3 }],
     ['six-armed', { armPairs: 3 }],
     ['eight_arms', { armPairs: 4 }],
-    ['four_breasts', { chestPairs: 2 }],
-    ['6_breasts', { chestPairs: 3 }],
+    ['four_breasts', { breasts: 4 }],
+    ['6_breasts', { breasts: 6 }],
     ['four_legs', { legs: 4 }],
     ['four-legged', { legs: 4 }],
     ['six_legs', { legs: 6 }],
@@ -401,7 +401,7 @@ describe('英文标签（Danbooru / e621 风格）', () => {
     ['two pairs of large wings', { wingPairs: 2 }],
     // 关键词
     ['third_eye', { eyesPerHead: 3 }],
-    ['flat_chest', { chestPairs: 0 }],
+    ['flat_chest', { breasts: 0 }],
     ['centaur', { legs: 4 }],
     ['taur', { legs: 4 }],
     ['arachne', { legs: 8 }],
@@ -535,7 +535,7 @@ describe('排布', () => {
 
   it('「两对胸（上下排列）」不会被当成手臂排布，也不影响数量', () => {
     const r = parseDescription('两个头，两对手，两对胸（上下排列）');
-    expect(diffCounts(r.counts)).toEqual({ heads: 2, armPairs: 2, chestPairs: 2 });
+    expect(diffCounts(r.counts)).toEqual({ heads: 2, armPairs: 2, breasts: 4 });
     expect(r.armLayout).toBe('stack');
   });
 });

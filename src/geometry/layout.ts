@@ -4,7 +4,7 @@
  * 部件都按一个 1.76 m 上下的标准人台来摆（沿用 v1 的骨架尺寸），Figure.scale 再把它缩放到设定身高。
  * 体型是动漫比例的成年女性：躯干有胸腔、腰、骨盆的起伏，四肢带一点肌肉的鼓起。
  */
-import { type BodySpec, type Gender, type HandStyle, type LegForm, type LimbEnd, type PartOverride, BUST_MAX_OTHER, countsOf, legPlan, limbOf, torsosAlike } from '../model/spec';
+import { type BodySpec, type Gender, type HandStyle, type LegForm, type LimbEnd, type PartOverride, BUST_MAX_OTHER, chestRows, countsOf, legPlan, limbOf, ringActive, rowSlots, torsosAlike } from '../model/spec';
 import { animeReady } from '../anime/body';
 import { genitalReady } from '../anime/genital';
 import { HAND_ELBOW, HAND_LENGTH, HAND_WRIST, fingerJoints, handGraft } from '../anime/hand';
@@ -19,6 +19,15 @@ import { WING_OUTLINE, sampleTube } from './shapes';
 import { ringAt, smoothRings } from './torso';
 import { SLOT_SIDE, refork, splitTorsos, torsoSlots } from './torsos';
 import { conjoin } from './conjoined';
+import { ringBuild, ringRows } from './ring';
+
+/** 围成一圈时每个人最多几条腿：再多的话外圈、圈心底下的腿加起来上百条，融合一次要很久 */
+export const RING_PERSON_LEGS = 6;
+/** 摆好的一个人两条腿隔多远 */
+const legGapOf = (figure: Figure): number => {
+  const xs = figure.parts.filter((p) => p.type === 'leg' && !p.parent).map((p) => p.pos[0]);
+  return xs.length > 1 ? Math.max(...xs) - Math.min(...xs) : 0.1;
+};
 import { applyOverrides } from './tweak';
 import { wigOf } from './wig';
 import {
@@ -67,6 +76,28 @@ export type LR = (typeof SIDES)[number];
 
 export const pad = (n: number) => String(n).padStart(2, '0');
 export const tag = (side: number) => (side > 0 ? 'L' : 'R');
+
+/**
+ * 胸的编号（和人腿一样）：成对的从上往下、从里往外数（Chest_01_L、Chest_02_L …），正中线上的另外数（Chest_01_C、Chest_02_C …）。
+ * 每排两个时就是第几排。返回的函数每叫一次给下一个名字（一对的左边先叫）
+ */
+export function chestNames(): (side: Side) => string {
+  let pairs = 0;
+  let middles = 0;
+  return (side) => (side === 0 ? `Chest_${pad(++middles)}_C` : `Chest_${pad(side > 0 ? ++pairs : pairs)}_${tag(side)}`);
+}
+
+/** 一排三个、四个胸时每个小一圈（一个、两个的照原样大） */
+export const ROW_SHRINK: Record<number, number> = { 3: 0.85, 4: 0.72 };
+/**
+ * 二次元素体、成品角色一排三个、四个胸：胸腔窄（一对胸就差不多占满正面），每个小一圈（NARROW_ROW_SHRINK），
+ * 相邻两个隔多远的一半是一对胸时胸中心离正中线那么远的几成（NARROW_ROW_HALF）——最外面那个的外沿差不多到身侧
+ */
+export const NARROW_ROW_SHRINK: Record<number, number> = { 3: 0.8, 4: 0.66 };
+export const NARROW_ROW_HALF: Record<number, number> = { 3: 0.85, 4: 0.63 };
+/** 白模人台一排三个、四个胸时，相邻两个隔多远是一对胸那样的几成；最外面那个的中心最多到胸腔半宽的多少 */
+const ROW_CLOSE: Record<number, number> = { 3: 0.72, 4: 0.58 };
+const ROW_WITHIN = 0.86;
 
 export const ball = (name: string, r: number, center: V3): Prim => ({ kind: 'ellipsoid', name, center, radii: [r, r, r] });
 export const blob = (name: string, radii: V3, center: V3, quat?: Quat): Prim =>
@@ -879,7 +910,46 @@ function layoutEnds(given: BodySpec): Figure {
   // 连体：照一个上半身、一对人腿摆好，再改成两个上半身在腰上对接（见 conjoined.ts）
   if (given.conjoined !== 'none') {
     const counts = { ...given.counts, legs: 2, tails: 0, penises: 0, torsos: 1 };
-    return conjoin(layoutEnds({ ...given, conjoined: 'none', counts, legLayout: 'auto', legEnd: 'foot', torsoCounts: {} }), given.conjoined, given.conjoinPose);
+    return conjoin(layoutEnds({ ...given, conjoined: 'none', ring: 'none', counts, legLayout: 'auto', legEnd: 'foot', torsoCounts: {} }), given.conjoined, given.conjoinPose);
+  }
+  // 围成一圈：照一个上半身、一对人腿、一对手臂摆好，再整份复制、转成一圈；手臂只留整个身子左右两侧的（见 ring.ts）
+  if (given.ring !== 'none' && ringActive(given)) {
+    // 摆好的那个人身上胸是一对一对的（每排几个不管），照 rows 排摆、躯干照它加长；手臂照这么多对、这种排法摆好
+    // （上下排的躯干跟着加长），ring.ts 把它们留在两侧的那两个人身上
+    // 腿：「腿」几条就是每个人几条（最多 RING_PERSON_LEGS），并排长在这个人的胯上，圈照所有的腿隔得一样远跟着变大变小；
+    // 阴茎是每副胯几根，每个人的胯上各长一套、跟着这个人朝外
+    const legs = Math.min(given.counts.legs, RING_PERSON_LEGS);
+    const person = (rows: number, own = legs) =>
+      layoutEnds({
+        ...given,
+        ring: 'none',
+        counts: { ...given.counts, legs: own, tails: 0, torsos: 1, armPairs: Math.max(1, given.counts.armPairs), wingPairs: 0, breasts: 2 * rows },
+        chestRow: 2,
+        legLayout: own > 2 ? 'row' : 'auto',
+        torsoCounts: {},
+      });
+    // 上下对齐的每个人各自几排（单数个的补成一对）；交错的两种每个人就是这么多只，ring.ts 照胸的大小一圈圈排满
+    const pairs = Math.ceil(given.counts.breasts / 2);
+    const options = {
+      mode: given.ring,
+      count: given.ringCount,
+      armPairs: given.counts.armPairs,
+      armLayout: given.armLayout,
+      tPose: given.pose === 'T',
+      chest: given.ringChest,
+      breasts: given.ringChest === 'aligned' ? 2 * pairs : given.counts.breasts,
+      innerLegs: given.ringLegs === 'fill',
+      spread: given.ringSpread,
+      legFacing: given.ringLegFacing,
+      // 一个人只有一条腿：圈的大小照平常两条腿的人两条腿隔多远算（摆一个两条腿的量）
+      ...(legs === 1 ? { legGap: legGapOf(person(1, 2)) } : {}),
+    };
+    // 交错的圈占多高要排了才知道（照胸的大小排，见 ring.ts 的 packChest）：先照老办法估的排数摆一遍、排出来，
+    // 排数不一样的话照排出来的排数再摆一遍，每圈几只照第一遍的定死（不然两遍的躯干长短不一样，排出来的可能又差一圈），胸多大也不用再量
+    const rows = ringRows(pairs, given.ringChest);
+    const first = ringBuild(person(rows), options);
+    if (!first.chest || first.chest.rows === rows) return first.figure;
+    return ringBuild(person(first.chest.rows), { ...options, chestPack: first.chest }).figure;
   }
   // 好几个上半身站在一副胯上：胯比一个人的宽一点（画里都是这样画的），在「胯宽」滑块的基础上再乘 MULTI_HIPS（直立并排的乘 UPRIGHT_HIPS）
   const plan = legPlan(given);
@@ -970,7 +1040,9 @@ function layoutMannequin(spec: BodySpec): Figure {
 
   /* ---- 躯干：一摞椭圆截面，从胯底到脖子根 ---- */
   const stacked = spec.armLayout === 'stack';
-  const rows = Math.max(stacked ? c.armPairs : 1, c.chestPairs, 1);
+  /** 从上往下每排几个胸 */
+  const chestPlan = chestRows(c, spec);
+  const rows = Math.max(stacked ? c.armPairs : 1, chestPlan.length, 1);
   const extra = GAP * (rows - 1);
   const shoulderY = SHOULDER_Y + extra;
   const chestTop = CHEST_TOP + extra;
@@ -1137,10 +1209,26 @@ function layoutMannequin(spec: BodySpec): Figure {
       ? { wide: 0.21 * b, level: TAUR_LEVEL - lift[1] }
       : { wide: form === 'abreast' ? abreastSpots(plan.stations, 0.162 * sh.hips * b, hx).wide : hipW + (form === 'row' ? 0.02 * legR : 0), level: 0.935 },
   ];
-  for (let j = 0; j < c.chestPairs; j++) {
-    const s = 0.056 * sh.bust * (1 - 0.1 * j) * Math.sqrt(b);
-    blocks.push({ wide: 0.066 * b + s * (0.3 + g.breast[0]), level: chestTop - 0.02 - j * GAP });
-  }
+  /** 最宽的那排（第一排）几个胸 */
+  const chestAcross = chestPlan[0] ?? 0;
+  /**
+   * 第 j 排胸（这排 count 个）：每个多大（s，一排三个、四个的小一圈，见 ROW_SHRINK）、相邻两个隔多远的一半（half）。
+   * 一排两个的就是以前的一对；三个、四个的挨得近一些（ROW_CLOSE），最外面那个的中心不出这个高度上胸腔半宽的 ROW_WITHIN。
+   * 少几个的最下面那排照同样的大小、间隔排在正中（三个底下两个：正好错开半格）
+   */
+  const chestRow = (j: number, count: number) => {
+    const y = chestTop - 0.02 - j * GAP;
+    const r = at(y);
+    const s = 0.056 * sh.bust * (1 - 0.1 * j) * Math.sqrt(b) * (ROW_SHRINK[chestAcross] ?? 1);
+    /** 一对胸时每个离中线多远 */
+    const pair = 0.066 * b + s * 0.3;
+    const half = chestAcross > 2 ? Math.min(pair * (ROW_CLOSE[chestAcross] ?? 1), (ROW_WITHIN * r.w) / (chestAcross - 1)) : pair;
+    return { y, r, s, pair, half, wide: (count - 1) * half + s * g.breast[0] };
+  };
+  chestPlan.forEach((count, j) => {
+    const row = chestRow(j, count);
+    blocks.push({ wide: row.wide, level: row.y });
+  });
   const inner = fanJoint(c.armPairs - 1);
   const clearance = 0.04 * armR + 0.03;
   /** 肩关节在 joint 时手臂最少要张开多少度：蛛形下身要从两侧拱起的蛛腿上面过去 */
@@ -1206,26 +1294,27 @@ function layoutMannequin(spec: BodySpec): Figure {
     }
   }
 
-  /* ---- 胸：贴着胸腔前表面往下排，越往下越小、越往外撇 ---- */
-  for (let j = 0; j < c.chestPairs; j++) {
-    const y = chestTop - 0.02 - j * GAP;
-    const r = at(y);
-    const s = 0.056 * sh.bust * (1 - 0.1 * j) * Math.sqrt(b);
-    for (const side of SIDES) {
-      const x = side * (0.066 * b + s * 0.3);
+  /* ---- 胸：贴着胸腔前表面往下排，越往下越小、越往外撇；一排几个左右并排（单数时正中一个） ---- */
+  const chestName = chestNames();
+  chestPlan.forEach((count, j) => {
+    const { y, r, s, pair, half } = chestRow(j, count);
+    for (const { side, slot } of rowSlots(count)) {
+      const x = side * slot * half;
       const front = r.z + r.d * Math.sqrt(Math.max(0, 1 - (x / r.w) ** 2));
+      // 越靠外越往外撇：一对时就是以前那么多
+      const turn = side * (0.22 * (Math.abs(x) / pair) ** 1.5 + 0.05 * j);
       parts.push({
-        name: `Chest_${pad(j + 1)}_${tag(side)}`,
+        name: chestName(side),
         type: 'chest',
         side,
         parent: TORSO,
         pos: [x, y - s * g.breastDrop, front - s * g.breastSink],
-        quat: quatEuler(0, side * (0.22 + 0.05 * j), 0),
+        quat: quatEuler(0, turn, 0),
         material: 'clay',
         prims: [blob('Breast', mul(g.breast, s), O)],
       });
     }
-  }
+  });
 
   /* ---- 翅膀：根部在肩胛，从上往下依次张开，越往下越小 ---- */
   parts.push(

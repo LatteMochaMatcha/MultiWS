@@ -322,6 +322,8 @@ interface Columns {
   active: Float32Array;
   /** 乳头：胸尖周围胸面比磨平（NIPPLE_BLUR）的胸面凸出来多少（米，只算凸出来的）。往圆里变时照它补回去，胸尖不磨平 */
   nipple: Float32Array;
+  /** 胸尖在胸型里离正中线多远（u）：长在正中线上的那只照这一列左右镜像（见 ChestShape.middle） */
+  tipU: number;
 }
 const COLUMNS = new Map<ChestPatch, Columns>();
 
@@ -381,7 +383,7 @@ function columns(p: ChestPatch): Columns {
     const d = Math.hypot((k % p.nu) - (tip % p.nu), Math.floor(k / p.nu) - Math.floor(tip / p.nu)) * p.cell;
     nipple[k] = Math.max(0, height[k] - blur[k]) * (1 - ease(d / NIPPLE_REACH - 0.5));
   }
-  const out = { rise, foot, active, nipple };
+  const out = { rise, foot, active, nipple, tipU: (tip % p.nu) * p.cell };
   COLUMNS.set(p, out);
   return out;
 }
@@ -462,11 +464,13 @@ const DEG = Math.PI / 180;
 export function chestSkin(shape: ChestShape, piece = false, f: ChestFrame = chestFrame()): Skin {
   const { layers, fade } = chestLayers(shape.size);
   const side = shape.side;
+  /** 长在正中线上的一只（见 ChestShape.middle）：u 从它自己的正中（胸尖）往两边量，两半一样 */
+  const middle = shape.middle === true;
   const [tu, tv, th] = shape.scale ?? [1, 1, 1];
   // 往圆里变的椭球（见 ROUNDNESS）：跟着手动微调挪、放大；整个胸往外挪的那一份加在手动微调的往外挪上
   const round = layers.length ? roundAt(shape.size) : null;
   const [shiftU, dv, push] = shape.shift ?? [0, 0, 0];
-  const du = shiftU + (round?.move ?? 0);
+  const du = middle ? 0 : shiftU + (round?.move ?? 0);
   const [rx, ry, rz] = (shape.tilt ?? [0, 0, 0]).map((a) => a * DEG);
   const tanX = Math.tan(rx);
   const tanY = Math.tan(ry);
@@ -481,13 +485,15 @@ export function chestSkin(shape: ChestShape, piece = false, f: ChestFrame = ches
     const kh = l.scale[2] * th;
     // 往正中线挪：先压窄，压到 SQUEEZE 以后整个平移过去（slide < 0，胸型的正中线挪到了正中线那边）
     const want = l.at[0] + du;
-    const slide = Math.min(0, want - Math.max(0.01, SQUEEZE * p.center[0] * ku));
+    const slide = middle ? 0 : Math.min(0, want - Math.max(0.01, SQUEEZE * p.center[0] * ku));
     const at: [number, number] = [want - slide, l.at[1] + dv];
     // 左右：胸中心那一列对上 at，中心附近照 ku 放大；往正中线那边渐渐换成「正中线对正中线」（左右镜像接得上）
-    const shift = Math.min(at[0] - p.center[0] * ku, 0.6 * at[0]);
+    // 正中线上的那只：胸尖那一列在它自己的正中，往两边照 ku 放大，不挪不压
+    const shift = middle ? 0 : Math.min(at[0] - p.center[0] * ku, 0.6 * at[0]);
     const pivot = l.pivot;
     return {
       p,
+      tip: columns(p).tipU * ku,
       slide,
       weight: l.weight,
       ku,
@@ -507,7 +513,7 @@ export function chestSkin(shape: ChestShape, piece = false, f: ChestFrame = ches
       e: 0,
     };
   });
-  const rc: [number, number] = round ? [ready[0].slide + Math.max(0.01, ready[0].at[0] + round.off[0] * tu), ready[0].at[1] + round.off[1] * tv] : [0, 0];
+  const rc: [number, number] = round ? [middle ? 0 : ready[0].slide + Math.max(0.01, ready[0].at[0] + round.off[0] * tu), ready[0].at[1] + round.off[1] * tv] : [0, 0];
   /** 整个胸平移过正中线最远的那一层挪了多少（≤ 0）：正中线那边留到这里 */
   const reach = Math.min(0, ...ready.map((l) => l.slide));
   const [ra, rb, rh] = round ? [round.radii[0] * tu, round.radii[1] * tv, round.radii[2] * th] : [1, 1, 1];
@@ -523,9 +529,9 @@ export function chestSkin(shape: ChestShape, piece = false, f: ChestFrame = ches
       const at = shell(f, x, y, z);
       h = at.h;
       // 沿表面横着量，这一边是正的、正中线那边是负的
-      const su = (x * side < 0 ? -at.u : at.u) * narrow;
-      // 只要这一边（正中线那边的切掉）；整个胸平移过了正中线的，切在挪过去那么远
-      const own = reach < 0 ? reach - su : -x * side;
+      const su = (x * side < 0 ? -at.u : at.u) * narrow - (middle ? shiftU : 0);
+      // 只要这一边（正中线那边的切掉）；整个胸平移过了正中线的，切在挪过去那么远。正中线上的那只两边都要
+      const own = middle ? -Infinity : reach < 0 ? reach - su : -x * side;
       // 手动微调的转动：绕胸中心在表面上转（rz），胸尖往下、往外歪（rx、ry：离表面越远挪得越多）。几层胸型的中心是同一个
       const hh = h - push;
       let uu = su;
@@ -534,11 +540,14 @@ export function chestSkin(shape: ChestShape, piece = false, f: ChestFrame = ches
       if (ry) uu -= side * hh * tanY;
       if (rz) {
         const c = ready[0].at;
-        const a = uu - c[0] - ready[0].slide;
+        const cu = middle ? 0 : c[0] + ready[0].slide;
+        const a = uu - cu;
         const b = vv - c[1];
-        uu = c[0] + ready[0].slide + a * cosZ + b * sinZ * side;
+        uu = cu + a * cosZ + b * sinZ * side;
         vv = c[1] - a * sinZ * side + b * cosZ;
       }
+      // 正中线上的那只：两半都照往外那半边的（从它自己的正中往两边量）
+      if (middle) uu = Math.abs(uu);
       let edge = Infinity;
       if (round) {
         // 椭球的距离（近似）；融合时出了它和平胸接上的圆角就不要，分部件时出了它就不要
@@ -553,7 +562,7 @@ export function chestSkin(shape: ChestShape, piece = false, f: ChestFrame = ches
       }
       for (const l of ready) {
         const p = l.p;
-        const u0 = uu - l.slide;
+        const u0 = middle ? uu + l.tip : uu - l.slide;
         const t = u0 <= 0 ? 0 : u0 >= l.at[0] ? 1 : u0 / l.at[0];
         l.pu = (u0 - l.shift * t * t * (3 - 2 * t)) / l.ku;
         l.pv = l.pivot + (vv - l.lower - l.pivot) / l.kv;
@@ -612,8 +621,9 @@ export function chestRegion(shape: ChestShape, f: ChestFrame = chestFrame()): { 
   if (!layers.length) return null;
   const [tu, tv, th] = shape.scale ?? [1, 1, 1];
   const round = layers.length ? roundAt(shape.size) : null;
+  const middle = shape.middle === true;
   const [shiftU, dv, push] = shape.shift ?? [0, 0, 0];
-  const du = shiftU + (round?.move ?? 0);
+  const du = middle ? 0 : shiftU + (round?.move ?? 0);
   const tilt = Math.max(...(shape.tilt ?? [0, 0, 0]).map((a) => Math.abs(Math.tan(Math.min(80, Math.abs(a)) * DEG))));
   const lift = shape.lift ?? 0;
   /** 躯干横着压窄的话（taperX），胸在躯干上横着占得宽一些（见 chestSkin） */
@@ -641,10 +651,10 @@ export function chestRegion(shape: ChestShape, f: ChestFrame = chestFrame()): { 
     const kv = l.scale[1] * tv;
     const kh = l.scale[2] * th;
     const want = l.at[0] + du;
-    const slide = Math.min(0, want - Math.max(0.01, SQUEEZE * p.center[0] * ku));
+    const slide = middle ? 0 : Math.min(0, want - Math.max(0.01, SQUEEZE * p.center[0] * ku));
     if (l === layers[0]) slide0 = slide;
     const at: [number, number] = [want - slide, l.at[1] + dv];
-    const shift = Math.min(at[0] - p.center[0] * ku, 0.6 * at[0]);
+    const shift = middle ? 0 : Math.min(at[0] - p.center[0] * ku, 0.6 * at[0]);
     const pivot = l.pivot;
     const lower = at[1] - (pivot + (p.center[1] - pivot) * kv);
     // 胸型的 u 换回躯干上的 u（chestSkin 里那一步反过来：单调的，二分）
@@ -666,7 +676,9 @@ export function chestRegion(shape: ChestShape, f: ChestFrame = chestFrame()): { 
         const top = Number.isNaN(cols.rise[k]) ? 0 : Math.max(0, cols.rise[k]);
         const h = top * kh + Math.max(push, 0) + 0.005;
         const slack = h * tilt;
-        const u = (slide + realU(iu * p.cell)) * wide;
+        // 正中线上的那只：只算胸尖往外那半边（另一半是它的镜像，见最后）
+        if (middle && iu * p.cell < cols.tipU - p.cell) continue;
+        const u = middle ? Math.max(0, iu * p.cell - cols.tipU) * ku * wide : (slide + realU(iu * p.cell)) * wide;
         // 胸照加长以后的高度摆，贴着的那一圈表面在加长之前的高度上
         const y = pivot + (p.v0 + iv * p.cell - pivot) * kv + lower + lift;
         for (const dy of slack ? [-slack, 0, slack] : [0]) {
@@ -680,7 +692,7 @@ export function chestRegion(shape: ChestShape, f: ChestFrame = chestFrame()): { 
   if (round) {
     // 往圆里变的椭球（和平胸接上的圆角也算进去）
     const c0 = layers[0].at;
-    const cu = slide0 + Math.max(0.01, c0[0] + du - slide0 + round.off[0] * tu);
+    const cu = middle ? 0 : slide0 + Math.max(0.01, c0[0] + du - slide0 + round.off[0] * tu);
     const cv = c0[1] + dv + round.off[1] * tv + lift;
     const [ra, rb, rh] = [round.radii[0] * tu, round.radii[1] * tv, round.radii[2] * th];
     const rk = FILLET_TOP * rb;
@@ -697,6 +709,11 @@ export function chestRegion(shape: ChestShape, f: ChestFrame = chestFrame()): { 
   if (!Number.isFinite(min[0])) return null;
   // +X 那一边算的：换到这一边，正中线那边留到正中线、平移过正中线的留到它那里（胸那一片的格点隔一格取的，四周再多留 1.5 厘米）
   const pad = 0.015;
+  if (middle) {
+    // 左右两半一样宽，整只照 shift 挪过去
+    const half = Math.max(max[0], 0) + pad;
+    return { min: [shiftU - half, min[1] - pad, min[2] - pad], max: [shiftU + half, max[1] + pad, max[2] + pad] };
+  }
   const inner = Math.min(min[0], 0);
   const lo: V3 = shape.side > 0 ? [inner - pad, min[1] - pad, min[2] - pad] : [-max[0] - pad, min[1] - pad, min[2] - pad];
   const hi: V3 = shape.side > 0 ? [max[0] + pad, max[1] + pad, max[2] + pad] : [-inner + pad, max[1] + pad, max[2] + pad];

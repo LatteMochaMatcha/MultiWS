@@ -828,12 +828,14 @@ export function gridDist(grid: Grid, use: GridUse = {}): { fn: Dist; min: V3; ma
  * 胸（见 anime/chest.ts）：躯干那一块格子（body，带着和躯干一样的加宽、加长）的距离换成贴好胸的、只取这一边胸那一片的。
  * 胸这个部件不转不缩放，它的原点在躯干里的 origin：先挪回躯干的坐标再求。piece：分部件用，只取胸根以内。
  * 融合时一个点要求好几次（分块、找表面、算法线），胸现算又慢：融合用的先烤成 BAKE 一格的格子（同一个胸几档精细度之间共用），
- * 分部件只网格化一次，现算
+ * 分部件只网格化一次，现算。胸自己就是只取胸根以内的（ChestShape.piece，围成一圈时错开的那一圈）也要进融合，照样烤
  */
 export function chestDist(p: ChestShape, piece = false, voxel = 0): { fn: Dist; min: V3; max: V3; outer: { min: V3; max: V3 } } {
   // 烤成的格子：最细一档 BAKE，融合的体素粗的话跟着粗（草图那档拖滑块时要快）
   const cell = voxel > 0 ? Math.min(BAKE_COARSE, Math.max(BAKE, voxel * 0.6)) : BAKE;
-  const shape = piece ? '' : `${cell} ${JSON.stringify(p)}`;
+  // 只有分部件临时要的那种（胸自己不是 piece）现算、不烤
+  const loose = piece && !p.piece;
+  const shape = loose ? '' : `${cell} ${JSON.stringify(p)}`;
   const key = shape && `${chestVersion()} ${shape}`;
   const known = key ? BAKED.get(key) : undefined;
   if (known) {
@@ -843,7 +845,7 @@ export function chestDist(p: ChestShape, piece = false, voxel = 0): { fn: Dist; 
     return known;
   }
   const exact = chestExact(p, piece);
-  if (piece) return exact;
+  if (loose) return exact;
   // 只是看看要烤哪些（见 neededChests）：先不烤，现算的对付这一遍
   if (wanted) {
     wanted.set(shape, { shape, p, cell });
@@ -953,7 +955,7 @@ export function collectingChests(): boolean {
 
 /** 定下一个要烤的胸烤哪一块（要现算着扫一遍）。什么都没扫到的返回 null：不烤，用到时现算 */
 export function planChest(order: ChestOrder): ChestPlan | null {
-  const exact = chestExact(order.p, false);
+  const exact = chestExact(order.p, order.p.piece === true);
   const box = chestBox(exact, order.cell);
   if (!box) return null;
   return { ...order, lo: box.lo, hi: box.hi, outer: exact.outer, ...gridSize(box.lo, box.hi, order.cell) };
@@ -966,7 +968,7 @@ const EXACT = new Map<string, Dist>();
 export function bakeChestLayers(plan: ChestPlan, from: number, to: number): Float32Array {
   let fn = EXACT.get(plan.shape);
   if (!fn) {
-    fn = chestExact(plan.p, false).fn;
+    fn = chestExact(plan.p, plan.p.piece === true).fn;
     EXACT.set(plan.shape, fn);
     if (EXACT.size > 16) EXACT.delete(EXACT.keys().next().value!);
   }

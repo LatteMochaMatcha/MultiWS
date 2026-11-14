@@ -15,7 +15,7 @@ export type CountKey =
   | 'torsos'
   | 'heads'
   | 'armPairs'
-  | 'chestPairs'
+  | 'breasts'
   | 'legs'
   | 'tails'
   | 'wingPairs'
@@ -33,11 +33,16 @@ export interface CountDef {
   min: number;
   max: number;
   def: number;
+  /**
+   * 「常用的」上限：到这个数为止各种组合都查过不穿模（和 ShapeDef.safe 一样的意思）。
+   * 再往上加也行，那一截不保证不穿模。缺省就是 max
+   */
+  safe?: number;
 }
 
 /** 数量那一栏名字上的悬停说明 */
 export const COUNT_HINTS: Partial<Record<keyof BodyCounts, string>> = {
-  chestPairs: t('好几个上半身时每个上半身各长这么多；二次元素体两个人并成一个宽躯干时（两个上半身，或者两个头选了宽躯干，横排两副胯）按一个人算，摆在正中'),
+  breasts: t('好几个上半身时每个上半身各长这么多；二次元素体两个人并成一个宽躯干时（两个上半身，或者两个头选了宽躯干，横排两副胯）按一个人算，摆在正中'),
 };
 
 export const COUNT_DEFS: readonly CountDef[] = [
@@ -46,7 +51,9 @@ export const COUNT_DEFS: readonly CountDef[] = [
   { key: 'torsos', label: t('上半身'), unit: t('个'), min: 1, max: 3, def: 1 },
   { key: 'heads', label: cap(t('头')), unit: t('个'), min: 1, max: 5, def: 1 },
   { key: 'armPairs', label: t('手臂'), unit: t('对'), min: 0, max: 4, def: 1 },
-  { key: 'chestPairs', label: t('胸'), unit: t('对'), min: 0, max: 4, def: 1 },
+  // 胸按个数记，每排几个见 BodySpec.chestRow（缺省两个，就是一对一对的）。10 个以上是给「围成一圈」的胸交错成串用的（十圈）；
+  // 一个人身上上下排十排的话躯干接得很长，手臂、尾巴这些不保证不穿模
+  { key: 'breasts', label: t('胸'), unit: t('个'), min: 0, max: 20, def: 2, safe: 8 },
   { key: 'legs', label: t('腿'), unit: t('条'), min: 1, max: 12, def: 2 },
   { key: 'tails', label: t('尾巴'), unit: t('条'), min: 0, max: 9, def: 0 },
   { key: 'wingPairs', label: t('翅膀'), unit: t('对'), min: 0, max: 3, def: 0 },
@@ -65,7 +72,7 @@ export const COUNT_DEF_BY_KEY = Object.fromEntries(COUNT_DEFS.map((d) => [d.key,
 >;
 
 /** 好几个上半身时每个上半身可以单独设的几样（见 BodySpec.torsoCounts）；别的（翅膀、尾巴、腿……）整个身体一份 */
-export const PER_TORSO_KEYS = ['heads', 'armPairs', 'chestPairs', 'hornsPerHead', 'eyesPerHead', 'earPairsPerHead'] as const;
+export const PER_TORSO_KEYS = ['heads', 'armPairs', 'breasts', 'hornsPerHead', 'eyesPerHead', 'earPairsPerHead'] as const;
 export type PerTorsoKey = (typeof PER_TORSO_KEYS)[number];
 /** 哪个上半身：L 角色的左手边（+X），R 右手边，M 正中（三个上半身时） */
 export const TORSO_SIDES = ['L', 'R', 'M'] as const;
@@ -88,10 +95,9 @@ export function torsosAlike(spec: Pick<BodySpec, 'counts' | 'torsoCounts'>): boo
   return torsoSides(spec.counts.torsos).every((side) => PER_TORSO_KEYS.every((key) => countsOf(spec, side)[key] === spec.counts[key]));
 }
 
-/** 以「对」计数的部件：文字里给个数时取 ceil(n / 2)。其余按个数计，给「对」时乘 2。腿按条数计（可以是单数） */
+/** 以「对」计数的部件：文字里给个数时取 ceil(n / 2)。其余按个数计，给「对」时乘 2。腿按条数计、胸按个数计（可以是单数） */
 export const PAIRED_KEYS: ReadonlySet<CountKey> = new Set<CountKey>([
   'armPairs',
-  'chestPairs',
   'wingPairs',
   'earPairsPerHead',
 ]);
@@ -223,6 +229,38 @@ export type ConjoinMode = (typeof CONJOINS)[number];
 export const CONJOIN_POSES = ['prone', 'lie', 'flat', 'stand'] as const;
 export type ConjoinPose = (typeof CONJOIN_POSES)[number];
 
+/**
+ * 围成一圈：几个人背靠背站成一圈、脸朝外，融合成一个身子（见 geometry/ring.ts）。不围、各有各的胯（每个人自己的腰、胯都看得出来）、
+ * 并胯融合（整个身子是一个圆桶，胯并成一圈）
+ */
+export const RINGS = ['none', 'hips', 'fused'] as const;
+export type RingMode = (typeof RINGS)[number];
+/** 围成一圈时胸怎么排：交错成串（隔一圈错开半个，每圈一样大）、交错渐小（错开，越往下越小）、上下对齐（每个人各自的几排，一样大） */
+export const RING_CHESTS = ['stagger', 'taper', 'aligned'] as const;
+export type RingChestMode = (typeof RING_CHESTS)[number];
+/** 围成一圈时腿长在哪：圈心底下也长（往里一圈圈排满）、只在外圈（每人两条） */
+export const RING_LEGS = ['fill', 'rim'] as const;
+export type RingLegMode = (typeof RING_LEGS)[number];
+/** 围成一圈时腿朝哪：绕圈朝外（每条腿跟着它所在的那个人，脚尖朝外）、统一朝前（腿长在哪不变，脚尖都朝正前） */
+export const RING_LEG_FACINGS = ['out', 'front'] as const;
+export type RingLegFacingMode = (typeof RING_LEG_FACINGS)[number];
+/**
+ * 围成一圈的松紧：胯那一圈的半径是「所有的腿在圈上隔得一样远」那么大的多少倍。小的圈小、身子叠得多、头挤得近、圈心的芯子细；
+ * 1 是所有的腿隔得一样远；再大人和人之间拉开，圈心底下放得下更多的腿。
+ * 缺省 76%：比它再小时腿比平常往外叉开得多，胯挤在一处、脚还踩在原来那么大的圈上（不然相邻两个人的腿叠在一处，
+ * 见 geometry/ring.ts 的 SPLAY_MAX）
+ */
+export const RING_SPREAD = { min: 0.5, max: 1.3, def: 0.76, step: 0.02 } as const;
+/** 以前是三档：存下来的设定里还可能是这几个字 */
+const RING_SPREAD_OLD: Record<string, number> = { tight: 0.76, medium: 0.88, loose: 1 };
+export const clampRingSpread = (v: unknown): number => {
+  const given = typeof v === 'string' ? RING_SPREAD_OLD[v] : v;
+  return typeof given === 'number' && Number.isFinite(given) ? Math.max(RING_SPREAD.min, Math.min(RING_SPREAD.max, given)) : RING_SPREAD.def;
+};
+/** 围成一圈的有几个人 */
+export const RING_COUNT = { min: 3, max: 8, def: 6 } as const;
+const clampRingCount = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(RING_COUNT.min, Math.min(RING_COUNT.max, Math.round(v))) : RING_COUNT.def);
+
 /** 一条手臂、腿单独的设法：末端接什么、手指几根、脚趾几个；不写的跟着 BodySpec 里统一的 */
 export interface LimbSetting {
   end?: LimbEnd;
@@ -348,6 +386,9 @@ export const TOES = { min: TOE_COUNT.min, max: TOE_COUNT.max, def: TOE_COUNT.bas
 /** 阴茎排成几乘几时每排几根（左右并排着）：根数不是它的整数倍时，最上面那排少几根 */
 export const PENIS_ROW = { min: 1, max: 4, def: 2 } as const;
 
+/** 胸每排几个（左右并排着）：2 就是一对一对的；个数不是它的整数倍时，最下面那排少几个 */
+export const CHEST_ROW = { min: 1, max: 4, def: 2 } as const;
+
 /** 融合圆角的半径：不同部件交界处（肩、髋、颈）圆滑过渡的范围，米（按标准人台算） */
 export const BLEND = { min: 0, max: 0.04, step: 0.001, def: 0.02 } as const;
 
@@ -393,8 +434,11 @@ export function cleanOverride(o: PartOverride): PartOverride | null {
 
 /* ---------------- BodySpec ---------------- */
 
-/** 第 3 版起腿按条数记（counts.legs）；第 2 版和 v1 记的是对数 */
-export const SPEC_VERSION = 3;
+/**
+ * 第 3 版起腿按条数记（counts.legs）；第 2 版和 v1 记的是对数。
+ * 第 4 版起胸按个数记（counts.breasts，每排几个见 chestRow）；以前记的是对数（counts.chestPairs，v1 叫 chest）
+ */
+export const SPEC_VERSION = 4;
 
 export interface BodySpec {
   version: typeof SPEC_VERSION;
@@ -416,6 +460,8 @@ export interface BodySpec {
   scrotum: ScrotumMode;
   /** 阴茎是软的（疲软）：根部、几根、排法、大小照旧，整根小一圈、往下垂（见 geometry/genital.ts 的 SOFT_SIZE）。不写进描述 */
   penisSoft: boolean;
+  /** 胸每排几个，见 CHEST_ROW、chestPlan。围成一圈时不管它（还是一对一对的） */
+  chestRow: number;
   pose: Pose;
   earShape: EarShape;
   hands: HandStyle;
@@ -432,6 +478,22 @@ export interface BodySpec {
   conjoined: ConjoinMode;
   /** 连体静止时是趴着、侧躺、平躺还是站着 */
   conjoinPose: ConjoinPose;
+  /**
+   * 围成一圈：头、胸是每个人各长这么多，腿、阴茎也是每个人各长（counts.legs 是每个人几条，最多 6 条）；
+   * 手臂只长在整个身子的左右两侧（counts.armPairs 是每侧几条）；翅膀、尾巴、几个上半身、腿的排法都不管。
+   * 连体、成品角色时不围，这一项留着不起作用（见 ringActive）
+   */
+  ring: RingMode;
+  /** 围成一圈的有几个人，见 RING_COUNT */
+  ringCount: number;
+  /** 围成一圈时胸怎么排，见 RING_CHESTS */
+  ringChest: RingChestMode;
+  /** 围成一圈时腿长在哪，见 RING_LEGS */
+  ringLegs: RingLegMode;
+  /** 围成一圈时腿朝哪，见 RING_LEG_FACINGS */
+  ringLegFacing: RingLegFacingMode;
+  /** 围成一圈的松紧，见 RING_SPREAD */
+  ringSpread: number;
   hair: HairSpec;
   meshMode: MeshMode;
   /** 融合圆角的半径，见 BLEND */
@@ -476,6 +538,11 @@ export function defaultShape(): BodyShape {
   return Object.fromEntries(SHAPE_DEFS.map((d) => [d.key, d.def])) as BodyShape;
 }
 
+/** 围成一圈现在起不起作用：连体、成品角色时不围（设定留着，换回来还在） */
+export function ringActive(spec: Pick<BodySpec, 'ring' | 'conjoined' | 'bodyStyle'>): boolean {
+  return spec.ring !== 'none' && spec.conjoined === 'none' && spec.bodyStyle !== 'character';
+}
+
 export function defaultSpec(): BodySpec {
   return {
     version: SPEC_VERSION,
@@ -492,6 +559,7 @@ export function defaultSpec(): BodySpec {
     penisRow: PENIS_ROW.def,
     scrotum: 'shared',
     penisSoft: false,
+    chestRow: CHEST_ROW.def,
     pose: 'A',
     earShape: 'cat',
     hands: 'fingers',
@@ -502,6 +570,12 @@ export function defaultSpec(): BodySpec {
     perLimb: {},
     conjoined: 'none',
     conjoinPose: 'prone',
+    ring: 'none',
+    ringCount: RING_COUNT.def,
+    ringChest: 'stagger',
+    ringLegs: 'fill',
+    ringLegFacing: 'out',
+    ringSpread: RING_SPREAD.def,
     hair: defaultHair(),
     meshMode: 'fused',
     blend: BLEND.def,
@@ -545,7 +619,8 @@ export function clampTorsoCounts(value: unknown): TorsoCounts {
     if (!isRecord(src)) continue;
     const own: Partial<Record<PerTorsoKey, number>> = {};
     for (const key of PER_TORSO_KEYS) {
-      const v = src[key];
+      // 第 4 版以前胸记的是对数（chestPairs）
+      const v = key === 'breasts' && typeof src.chestPairs === 'number' && src.breasts === undefined ? src.chestPairs * 2 : src[key];
       const d = COUNT_DEF_BY_KEY[key];
       if (typeof v === 'number' && Number.isFinite(v)) own[key] = clamp(Math.round(v), d.min, d.max);
     }
@@ -610,6 +685,36 @@ export function clampPenisRow(value: unknown): number {
   return clamp(Math.round(value), PENIS_ROW.min, PENIS_ROW.max);
 }
 
+export function clampChestRow(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return CHEST_ROW.def;
+  return clamp(Math.round(value), CHEST_ROW.min, CHEST_ROW.max);
+}
+
+/**
+ * 胸实际怎么排：从上往下每排几个（三种身体样式、描述文字都照这个）。breasts 个每排 row 个，最下面那排少几个；
+ * 一排里左右对称地排，单数时正中一个
+ */
+export function chestPlan(breasts: number, row: number = CHEST_ROW.def): number[] {
+  return Array.from({ length: Math.ceil(breasts / row) }, (_, k) => Math.min(row, breasts - k * row));
+}
+
+/** 某个上半身（或者整个身体）的胸怎么排，见 chestPlan */
+export const chestRows = (counts: Pick<BodyCounts, 'breasts'>, spec: Partial<Pick<BodySpec, 'chestRow'>>) => chestPlan(counts.breasts, spec.chestRow ?? CHEST_ROW.def);
+
+/**
+ * 一排 count 个左右并排时各在第几格（照半个间隔数）、在哪一边：单数时正中一个（0 格），成对的从里往外
+ * （双数是 ±1、±3 …，单数是 ±2、±4 …）。先正中、再从里往外一对一对（左边先）
+ */
+export function rowSlots(count: number): { side: 0 | 1 | -1; slot: number }[] {
+  const odd = count % 2;
+  const out: { side: 0 | 1 | -1; slot: number }[] = odd ? [{ side: 0, slot: 0 }] : [];
+  for (let j = 0; j < Math.floor(count / 2); j++) {
+    const slot = odd ? 2 * (j + 1) : 2 * j + 1;
+    out.push({ side: 1, slot }, { side: -1, slot });
+  }
+  return out;
+}
+
 /** 这种排法是不是一副胯一副胯往后排的人腿（每副胯几条腿看 hipLegs） */
 export const perHip = (legLayout: LegLayout) => legLayout === 'humantaur' || legLayout === 'tandem';
 
@@ -671,10 +776,9 @@ function abreastStations(legs: number): number[] {
 
 /* ---------------- 读入 / 保存 ---------------- */
 
-/** v1 配置文件里的旧键名（v1 的 legs 是对数，在 normalizeSpec 里换算） */
+/** v1 配置文件里的旧键名（v1 的 legs 是对数、chest 是胸的对数，在 normalizeSpec 里换算） */
 const V1_COUNT_ALIAS: Record<string, CountKey> = {
   arms: 'armPairs',
-  chest: 'chestPairs',
   wings: 'wingPairs',
   horns: 'hornsPerHead',
   eyes: 'eyesPerHead',
@@ -726,6 +830,11 @@ export function normalizeSpec(input: unknown): BodySpec {
         counts.legs = v * 2;
         continue;
       }
+      // 第 4 版以前胸记的是对数：叫 chestPairs，v1 叫 chest
+      if (k === 'chestPairs' || k === 'chest') {
+        counts.breasts = v * 2;
+        continue;
+      }
       const key = V1_COUNT_ALIAS[k] ?? k;
       if (key in COUNT_DEF_BY_KEY) counts[key as CountKey] = v;
     }
@@ -756,6 +865,7 @@ export function normalizeSpec(input: unknown): BodySpec {
     penisRow: clampPenisRow(src.penisRow),
     scrotum: pick(SCROTUM_MODES, src.scrotum, 'shared'),
     penisSoft: src.penisSoft === true,
+    chestRow: clampChestRow(src.chestRow),
     pose: pick(POSES, src.pose, 'A'),
     earShape: pick(EAR_SHAPES, src.earShape, 'cat'),
     hands: pick(HAND_STYLES, src.hands, 'fingers'),
@@ -766,6 +876,12 @@ export function normalizeSpec(input: unknown): BodySpec {
     perLimb: cleanPerLimb(src.perLimb),
     conjoined: pick(CONJOINS, src.conjoined, 'none'),
     conjoinPose: pick(CONJOIN_POSES, src.conjoinPose, 'prone'),
+    ring: pick(RINGS, src.ring, 'none'),
+    ringCount: clampRingCount(src.ringCount),
+    ringChest: pick(RING_CHESTS, src.ringChest, 'stagger'),
+    ringLegs: pick(RING_LEGS, src.ringLegs, 'fill'),
+    ringLegFacing: pick(RING_LEG_FACINGS, src.ringLegFacing, 'out'),
+    ringSpread: clampRingSpread(src.ringSpread),
     hair: clampHair(src.hair),
     meshMode: pick(MESH_MODES, src.meshMode, 'fused'),
     blend: clampBlend(src.blend),

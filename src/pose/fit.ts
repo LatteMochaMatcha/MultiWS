@@ -18,6 +18,7 @@ import { nthName } from '../geometry/figure';
 import { type Quat, type V3, quatConj, quatMul, rotate } from '../geometry/vec';
 import type { Limb } from './limbs';
 import type { Posing } from './posing';
+import { isRingRig } from './ring';
 import { forward } from './rig';
 import { type Solver, stateOf } from './solver';
 
@@ -33,6 +34,8 @@ export function fitArms(solver: Solver, posing: Posing): Posing {
   // 第 1 版的数据记的是相对父骨骼转了多少，换到别的手臂上意思就变了：不动
   if (posing.version === 1) return posing;
   const { rig, limbs } = solver;
+  // 围成一圈的：每条手臂怎么摆 pose/ring.ts 的 fitRing 已经写好了
+  if (isRingRig(rig)) return posing;
   const frames = posing.version === 2 ? solver.frames2 : solver.frames;
   const arms = limbs.filter((limb) => limb.kind === 'arm');
   if (arms.length <= 2) return posing;
@@ -110,6 +113,13 @@ export function followArms(solver: Solver, posing: Posing): { posing: Posing; fo
   const arms = limbs.filter((limb) => limb.kind === 'arm');
   const followers: number[] = [];
   if (posing.version === 1 || arms.length <= 2) return { posing, followers };
+  // 围成一圈：每条手臂 pose/ring.ts 的 fitRing 已经摆好了，这里都登记成「跟着动的」——clear.ts 照它们让开身体和别的手臂，
+  // 实在让不开的退回静止的样子。第一对也登记：姿势是给一个人做的，这里身子粗得多、胸绕了一圈，第一对只转一点（MAX_TURN）
+  // 常常让不开（抱着胳膊时手埋在胸里），手缝不上、掉成单独一块
+  if (isRingRig(rig)) {
+    for (const limb of arms) if (posing.bones[rig.names[limb.upper]]) followers.push(limbs.indexOf(limb));
+    return { posing, followers };
+  }
   const bones = { ...posing.bones };
   for (const limb of arms) {
     if (limb.pair === 0 || posing.bones[rig.names[limb.upper]]) continue;

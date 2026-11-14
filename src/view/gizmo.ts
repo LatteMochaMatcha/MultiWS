@@ -4,10 +4,11 @@
  */
 import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { type Figure, worldTransforms } from '../geometry/figure';
+import { type Figure, type Part, worldTransforms } from '../geometry/figure';
 import { buildPartGeometry } from '../geometry/partsMesh';
 import { type PartFrame, partFrame } from '../geometry/tweak';
 import { type Quat, eulerOf, quatConj, quatEuler, quatMul, rotate } from '../geometry/vec';
+import type { TweakDelta } from '../model/overrides';
 import type { PartOverride, Vec3 } from '../model/spec';
 import { shapeKey } from './partsModel';
 import type { Viewport } from './viewport';
@@ -24,10 +25,13 @@ const TAP_SLOP = 10;
 const GLOW_SETTLE_MS = 400;
 
 export class Gizmo {
-  /** 在模型上点了一下：点中的部件名；点在空白处是 null */
-  onPick: (name: string | null) => void = () => {};
-  /** 拖动操纵杆：选中部件的微调应该改成这样（只给出这次在改的那一项） */
-  onChange: (patch: PartOverride) => void = () => {};
+  /** 在模型上点了一下：点中的部件名；点在空白处是 null。add：按着 Ctrl、Shift 点的（往选中的里加一个、去一个） */
+  onPick: (name: string | null, add: boolean) => void = () => {};
+  /**
+   * 拖动操纵杆：选中部件的微调应该改成这样（只给出这次在改的那一项）。
+   * delta 是从这次拖动开始算起一共改了多少：多选时别的选中部件照它各自改
+   */
+  onChange: (patch: PartOverride, delta: TweakDelta) => void = () => {};
   /** 一次拖动开始（true）/ 结束（false） */
   onDrag: (active: boolean) => void = () => {};
   /** 屏幕上的一条射线点中了哪个部件。两种网格模式的查法不一样，由外面提供 */
@@ -45,11 +49,15 @@ export class Gizmo {
   /** 高亮外壳是哪个部件的；同一个部件形状变了时，等停手再重算（见 sync） */
   private glowName = '';
   private glowTimer = 0;
+  /** 多选时别的选中部件的高亮外壳（操纵杆只摆在一个部件上，见 sync 的 more） */
+  private readonly more: { mesh: THREE.Mesh; name: string; key: string; part: Part }[] = [];
+  private moreTimer = 0;
+  private readonly overlay: THREE.Object3D;
   private mode: GizmoMode = 'translate';
   private frame: PartFrame | null = null;
   private override: PartOverride = {};
   /** 这次拖动开始时的状态 */
-  private start: { frame: PartFrame; position: Vec3; scale: Vec3; at: THREE.Vector3 } | null = null;
+  private start: { frame: PartFrame; position: Vec3; scale: Vec3; at: THREE.Vector3; quat: Quat } | null = null;
   private down: { x: number; y: number; busy: boolean } | null = null;
   /** 现在按在屏幕上的手指 */
   private readonly fingers = new Set<number>();
@@ -70,6 +78,7 @@ export class Gizmo {
     );
     this.glow.renderOrder = 5;
     this.glow.visible = false;
+    this.overlay = viewport.overlay;
     viewport.overlay.add(this.handle, this.glow, this.controls.getHelper());
 
     this.controls.addEventListener('dragging-changed', (event) => {
@@ -82,6 +91,7 @@ export class Gizmo {
           position: this.override.position ?? [0, 0, 0],
           scale: this.override.scale ?? [1, 1, 1],
           at: this.handle.position.clone(),
+          quat: [this.handle.quaternion.x, this.handle.quaternion.y, this.handle.quaternion.z, this.handle.quaternion.w],
         };
       } else {
         this.start = null;
@@ -116,7 +126,7 @@ export class Gizmo {
         new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, 1 - ((e.clientY - rect.top) / rect.height) * 2),
         viewport.camera,
       );
-      this.onPick(this.pick(ray));
+      this.onPick(this.pick(ray), e.ctrlKey || e.metaKey || e.shiftKey);
     });
     dom.addEventListener('pointercancel', (e) => {
       this.fingers.delete(e.pointerId);
@@ -128,15 +138,19 @@ export class Gizmo {
     return this.controls.dragging;
   }
 
-  /** 选中的部件在世界坐标里占的那块地方（手机上镜头凑过去用）；没选中就是 null */
+  /** 选中的部件（多选时是全部）在世界坐标里占的那块地方（手机上镜头凑过去用）；没选中就是 null */
   selectionBox(): THREE.Box3 | null {
     if (!this.glow.visible) return null;
-    const geometry = this.glow.geometry;
-    if (!geometry.getAttribute('position')) return null;
-    geometry.computeBoundingBox();
-    if (!geometry.boundingBox) return null;
-    this.glow.updateWorldMatrix(true, false);
-    return geometry.boundingBox.clone().applyMatrix4(this.glow.matrixWorld);
+    const box = new THREE.Box3();
+    for (const mesh of [this.glow, ...this.more.map((g) => g.mesh)]) {
+      const geometry = mesh.geometry;
+      if (!geometry.getAttribute('position')) continue;
+      geometry.computeBoundingBox();
+      if (!geometry.boundingBox) continue;
+      mesh.updateWorldMatrix(true, false);
+      box.union(geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld));
+    }
+    return box.isEmpty() ? null : box;
   }
 
   setMode(mode: GizmoMode) {
@@ -150,8 +164,9 @@ export class Gizmo {
   /**
    * 模型重建以后调用：把高亮和操纵杆摆到选中部件现在的位置。
    * name 为空、或者这个部件已经不存在时，两样都收起来。
+   * more：多选时别的选中部件，只罩高亮（操纵杆摆在 name 上）
    */
-  sync(figure: Figure | null, name: string | null, override: PartOverride | undefined) {
+  sync(figure: Figure | null, name: string | null, override: PartOverride | undefined, more: readonly string[] = []) {
     const part = name && figure ? figure.parts.find((p) => p.name === name) : undefined;
     this.frame = part && figure ? partFrame(figure, part.name) : null;
     this.override = override ?? {};
@@ -160,8 +175,10 @@ export class Gizmo {
       this.glow.visible = false;
       window.clearTimeout(this.glowTimer);
       this.glowName = '';
+      this.syncMore(null, []);
       return;
     }
+    this.syncMore(figure, more);
 
     // 高亮外壳照这个部件自己的形状现算（粗一档）。格子做的部件（胸、躯干、手臂）算一次要几十到几百毫秒：
     // 换了选中的部件马上算；同一个部件拖着、滑着改形状时先沿用原来的外壳（下面照位置、朝向、大小摆过去），
@@ -189,11 +206,55 @@ export class Gizmo {
     if (this.controls.object !== this.handle) this.controls.attach(this.handle);
   }
 
+  /** 别的选中部件的高亮外壳：和主外壳一个做法，同一个部件改了形状等停手再重算 */
+  private syncMore(figure: Figure | null, names: readonly string[]) {
+    window.clearTimeout(this.moreTimer);
+    const parts = figure ? names.flatMap((n) => figure.parts.find((p) => p.name === n) ?? []) : [];
+    while (this.more.length > parts.length) {
+      const gone = this.more.pop()!;
+      gone.mesh.removeFromParent();
+      gone.mesh.geometry.dispose();
+    }
+    if (!figure || !parts.length) return;
+    const xfs = worldTransforms(figure);
+    const rebuild = (g: (typeof this.more)[number]) => {
+      g.mesh.geometry.dispose();
+      g.mesh.geometry = buildPartGeometry(g.part, true);
+      g.key = shapeKey(g.part);
+      g.name = g.part.name;
+    };
+    let stale = false;
+    parts.forEach((part, i) => {
+      let g = this.more[i];
+      if (!g) {
+        const mesh = new THREE.Mesh(new THREE.BufferGeometry(), this.glow.material);
+        mesh.renderOrder = this.glow.renderOrder;
+        this.overlay.add(mesh);
+        g = this.more[i] = { mesh, name: '', key: '', part };
+      }
+      g.part = part;
+      if (shapeKey(part) !== g.key) {
+        if (part.name !== g.name) rebuild(g);
+        else stale = true;
+      }
+      const xf = xfs.get(part.name)!;
+      g.mesh.position.set(xf.pos[0], xf.pos[1], xf.pos[2]);
+      g.mesh.quaternion.set(xf.quat[0], xf.quat[1], xf.quat[2], xf.quat[3]);
+      g.mesh.scale.setScalar(xf.scale);
+    });
+    if (stale) {
+      this.moreTimer = window.setTimeout(() => {
+        for (const g of this.more) if (shapeKey(g.part) !== g.key) rebuild(g);
+      }, GLOW_SETTLE_MS);
+    }
+  }
+
   /**
    * 成品角色用：部件不是一块块的基本体，支点、朝向是算好的（frame），高亮用给好的三角面（世界坐标，每三个点一个面）。
-   * key 变了才换高亮的形状。frame 为空时两样都收起来
+   * key 变了才换高亮的形状。frame 为空时两样都收起来。多选时别的选中部件的三角面也在 glow 里
    */
   syncFrame(frame: PartFrame | null, glow: () => Float32Array, key: string, override: PartOverride | undefined) {
+    this.syncMore(null, []);
     this.frame = frame;
     this.override = override ?? {};
     if (!frame) {
@@ -248,13 +309,14 @@ export class Gizmo {
       const d = this.handle.position.clone().sub(s.at);
       const local = rotate(quatConj(s.frame.parentQuat), [d.x, d.y, d.z]);
       const k = 1 / s.frame.parentScale;
-      this.onChange({
-        position: [s.position[0] + local[0] * k, s.position[1] + local[1] * k, s.position[2] + local[2] * k],
-      });
+      this.onChange(
+        { position: [s.position[0] + local[0] * k, s.position[1] + local[1] * k, s.position[2] + local[2] * k] },
+        { move: [d.x, d.y, d.z] },
+      );
     } else if (this.mode === 'rotate') {
       const q = this.handle.quaternion;
       const e = eulerOf(quatMul(quatConj(s.frame.parentQuat), [q.x, q.y, q.z, q.w]));
-      this.onChange({ rotation: [e[0] / DEG, e[1] / DEG, e[2] / DEG] });
+      this.onChange({ rotation: [e[0] / DEG, e[1] / DEG, e[2] / DEG] }, { turn: quatMul([q.x, q.y, q.z, q.w], quatConj(s.quat)) });
     } else {
       const v = this.handle.scale;
       let next: Vec3 = [Math.max(v.x, 0.01), Math.max(v.y, 0.01), Math.max(v.z, 0.01)];
@@ -264,7 +326,7 @@ export class Gizmo {
         const most = ratios.reduce((a, b) => (Math.abs(Math.log(b)) > Math.abs(Math.log(a)) ? b : a));
         next = [s.scale[0] * most, s.scale[1] * most, s.scale[2] * most];
       }
-      this.onChange({ scale: next });
+      this.onChange({ scale: next }, { ratio: [next[0] / s.scale[0], next[1] / s.scale[1], next[2] / s.scale[2]] });
     }
   }
 }

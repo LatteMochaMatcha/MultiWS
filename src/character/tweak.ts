@@ -156,6 +156,13 @@ export function characterParts(build: Pick<CharacterBuild, 'bones' | 'meshes'>):
     if (horn) parts.push({ name: mesh.name, type: 'horn', side: horn[2] === 'L' ? 1 : horn[2] === 'R' ? -1 : 0, parent: `Head_${horn[1]}`, bones: [], meshes: [mesh.name] });
     const chest = /_Chest_(\d+)$/.exec(mesh.name);
     if (chest) chests.set(Number(chest[1]), [...(chests.get(Number(chest[1])) ?? []), mesh.name]);
+    // 正中线上的胸（一排一个的）：一只一块网格，名字就是部件名（Chest_02_C）
+    const one = /_(Chest_\d+_([LRC]))$/.exec(mesh.name);
+    if (one) {
+      const part = parts.find((q) => q.name === one[1]);
+      if (part) part.meshes!.push(mesh.name);
+      else parts.push({ name: one[1], type: 'chest', side: one[2] === 'L' ? 1 : one[2] === 'R' ? -1 : 0, parent: 'Torso', bones: [], meshes: [mesh.name] });
+    }
   }
   for (const [k, meshes] of chests) {
     for (const side of [1, -1] as const) parts.push({ name: `Chest_${pad(k)}_${tagOf(side)}`, type: 'chest', side, parent: 'Torso', bones: [], meshes });
@@ -222,6 +229,8 @@ export interface TweakedCharacter {
   build: CharacterBuild;
   parts: CharacterPart[];
   frames: Map<string, PartFrame>;
+  /** 每个部件实际跟着哪个父部件动（部件名 → 父部件名）；没有父部件的不在里面 */
+  parents: Map<string, string>;
 }
 
 /**
@@ -241,6 +250,7 @@ export function tweakCharacter(base: CharacterBuild, overrides: Readonly<Record<
   /** 挪过以后每个部件在世界里的朝向 */
   const orient = new Map<string, Quat>();
   const frames = new Map<string, PartFrame>();
+  const parents = new Map<string, string>();
   /** 部件 p 的父部件：照网格认的用记着的；按骨骼的是带着它的关节的那些里最深的一个 */
   const parentOf = (p: CharacterPart): CharacterPart | undefined => {
     if (p.meshes || p.root === undefined) return p.parent ? byName.get(p.parent) : undefined;
@@ -289,6 +299,7 @@ export function tweakCharacter(base: CharacterBuild, overrides: Readonly<Record<
   };
   for (const part of order) {
     const up = parentOf(part);
+    if (up) parents.set(part.name, up.name);
     const F = (up && orient.get(up.name)) ?? Q_ID;
     // 角的关节在它贴着头的那一圈：离头的关节最近的那些点
     const host = part.type === 'horn' ? byName.get(part.parent ?? '') : undefined;
@@ -354,7 +365,7 @@ export function tweakCharacter(base: CharacterBuild, overrides: Readonly<Record<
       build.metrics = { ...build.metrics, height: build.metrics.height + dy };
     }
   }
-  return { build, parts, frames };
+  return { build, parts, frames, parents };
 }
 
 /** 腿上（跟着腿的权重过半的点）最低的那一点有多高：脚底 */

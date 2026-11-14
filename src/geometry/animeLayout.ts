@@ -13,7 +13,7 @@ import { CHEST_FLAT, chestCenter, chestFrame, chestReach, surfacePoint } from '.
 import { FOOT_ANKLE, FOOT_CUFF, FOOT_SOLE, FOOT_STUMP, FOOT_TOE, FOOT_TOE_END, footGraft } from '../anime/foot';
 import { HAND_STUMP, fingerJoints, handGraft } from '../anime/hand';
 import { BENT_TIP, FOOT_TIP, HAND_TIP, LEG_FINGER, PALM_AHEAD, type Placement, ankleToWrist, bentHand, footOnArmGraft, palmGraft, palmHeight, swapPlace, thenPlace } from '../anime/swap';
-import { type BodySpec, legPlan, limbOf } from '../model/spec';
+import { type BodySpec, chestRows as chestPlanOf, legPlan, limbOf, rowSlots } from '../model/spec';
 import { genitalReady } from '../anime/genital';
 import { type CompiledField, castRay, compileField } from '../sdf/field';
 import { tileShift, wideFrame } from '../sdf/grids';
@@ -25,6 +25,8 @@ import {
   type HangBlock,
   DEG,
   GAP,
+  NARROW_ROW_HALF,
+  NARROW_ROW_SHRINK,
   SIDES,
   TAUR_LEVEL,
   armDirection,
@@ -37,6 +39,7 @@ import {
   cleft,
   cone,
   genitalsOn,
+  chestNames,
   hangAngles,
   legBones,
   legPart,
@@ -413,20 +416,26 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
 
   /* ---- 躯干 ---- */
   const stacked = spec.armLayout === 'stack';
-  const rows = Math.max(stacked ? c.armPairs : 1, c.chestPairs, 1);
+  /** 从上往下每排几个胸；最宽的那排（第一排）几个；几排 */
+  const chestPlan = chestPlanOf(c, spec);
+  const across = chestPlan[0] ?? 0;
+  const chestCount = chestPlan.length;
+  const rows = Math.max(stacked ? c.armPairs : 1, chestCount, 1);
+  /** 一排三个、四个时每个小一圈（见 NARROW_ROW_SHRINK）；少几个的最下面那排也照这么大 */
+  const rowK = NARROW_ROW_SHRINK[across] ?? 1;
   /** 每排胸照设定多大：往小调时不缩小，整个往胸口里沉（见下面胸）。下排和第一排一比一（以前往下每排小一成） */
   const rowSize = Math.max(1, sh.bust);
   /** 相邻两排隔多远（手臂沿躯干上下排时也照它排）：多排胸照胸的大小排（见 rowTuck），只有多排手臂的照 GAP */
-  const [reachUp, reachDown] = chestReach(rowSize).map((r) => r * (twinned ? WIDE_CHEST : 1));
+  const [reachUp, reachDown] = chestReach(rowSize).map((r) => r * (twinned ? WIDE_CHEST : 1) * rowK);
   /** 胸中心在平胸表面上的哪一点（u 沿表面横着、高度，素体自己的坐标），见下面每排胸 */
   const [chestU, chestV] = chestCenter(sh.bust);
-  const gap = c.chestPairs > 1 ? reachDown + (1 - rowTuck(rowSize)) * reachUp + ROW_ROOM : GAP;
+  const gap = chestCount > 1 ? reachDown + (1 - rowTuck(rowSize)) * reachUp + ROW_ROOM : GAP;
   /** 手臂沿躯干上下排时隔多远 */
-  const armGap = c.chestPairs > 1 ? Math.min(gap, ARM_ROW) : gap;
+  const armGap = chestCount > 1 ? Math.min(gap, ARM_ROW) : gap;
   const extra = gap * (rows - 1);
   /** 躯干在哪一段拉长（见 STRETCH、ROW_STRETCH） */
-  const band: [number, number] = c.chestPairs > 1 ? [chestV - ROW_STRETCH, chestV] : STRETCH;
-  const stretch: Stretch | undefined = extra ? (c.chestPairs > 1 ? [band[0], band[1], extra, ROW_RAMP] : [band[0], band[1], extra]) : undefined;
+  const band: [number, number] = chestCount > 1 ? [chestV - ROW_STRETCH, chestV] : STRETCH;
+  const stretch: Stretch | undefined = extra ? (chestCount > 1 ? [band[0], band[1], extra, ROW_RAMP] : [band[0], band[1], extra]) : undefined;
   /** 素体上的高度加长胸腔以后在哪 */
   const raised = (y: number) => restretch(y, stretch);
   const shoulderY = SHOULDER[1] + extra;
@@ -463,10 +472,10 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
 
   /** 多排胸时下半截肋骨往下收窄（见 ROW_TAPER）：从第一排胸中心（rowTop）收到最下面一排胸中心（rowLow）；并成一个宽躯干的不收 */
   const rowTop = raised(chestV);
-  const rowLow = rowTop - (c.chestPairs - 1) * gap;
+  const rowLow = rowTop - (chestCount - 1) * gap;
   const taperBy = ROW_TAPER * (rowTop - rowLow) * (1 - smooth(rowSize - 1));
   const taper: SpreadX | undefined =
-    c.chestPairs > 1 && !twinned && taperBy > 1e-6
+    chestCount > 1 && !twinned && taperBy > 1e-6
       ? { mid: 0, rise: 0, k: 1 - taperBy, levels: [rowTop, rowLow, rowLow, Math.min(SHAPE.waist.y, rowLow - 0.05)] }
       : undefined;
   // 胸部大小往小调：躯干在「原样」和「平胸」两份形状之间混合
@@ -475,8 +484,8 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
   const plain = grid('Torso', 'torso', 1, {
     ...(stretch ? { stretchY: stretch } : {}),
     ...(taper ? { taperX: taper } : {}),
-    ...(stretch && c.chestPairs > 1 ? { backStretch: { stretch: [BACK_BAND[0], BACK_BAND[1], extra, ROW_RAMP] as Stretch, front: BACK_BLEND[0], back: BACK_BLEND[1] } } : {}),
-    ...(c.chestPairs > 0 || flat ? { morph: [animeGrid('torsoFlat'), c.chestPairs > 0 ? 1 : flat] as [string, number] } : {}),
+    ...(stretch && chestCount > 1 ? { backStretch: { stretch: [BACK_BAND[0], BACK_BAND[1], extra, ROW_RAMP] as Stretch, front: BACK_BLEND[0], back: BACK_BLEND[1] } } : {}),
+    ...(c.breasts > 0 || flat ? { morph: [animeGrid('torsoFlat'), c.breasts > 0 ? 1 : flat] as [string, number] } : {}),
     // 肩膀加宽：从胸口往上逐渐加宽；腰在那一段加宽、收窄；胯按比例拉宽
     ...(bands.length ? { widenX: bands } : {}),
     ...spread(0, 0),
@@ -561,12 +570,21 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
    * 胸中心在平胸表面上的哪一点（+X 那边、素体自己的坐标）；肩膀加宽时那里往外挪了多少（x）；胸腔加长以后第一排跟着上移多少（lift）。
    * 并成一个宽躯干的：胸按一个人算，摆在正中，照宽躯干现量的展开图（见 ChestShape.wide）找表面上的那一点（高度是加长以后的）
    */
-  const wide = twinned && c.chestPairs > 0 ? wideFrame(torsoShape) : null;
-  const chestAt = surfacePoint(chestFrame(), chestU, chestV);
-  const chestRows = Array.from({ length: c.chestPairs }, (_, j) => {
+  const wide = twinned && c.breasts > 0 ? wideFrame(torsoShape) : null;
+  /**
+   * 一排里相邻两个沿表面隔多远的一半：一个、两个的照一对胸原来的位置（chestU），三个、四个的挨得近（见 NARROW_ROW_HALF）。
+   * 少几个的最下面那排照同样的间隔排在正中（三个底下两个：正好错开半格）
+   */
+  const slotU = (NARROW_ROW_HALF[across] ?? 1) * chestU;
+  const chestRows = chestPlan.map((count, j) => {
     const y = raised(chestV) - j * gap;
-    const at = wide ? surfacePoint(wide, chestU * WIDE_CHEST, y) : chestAt;
-    return { y, x: wide ? at[0] : at[0] + pushed(at[0], at[1]), z: at[2], lift: raised(chestV) - chestV - j * gap, size: rowSize };
+    const spots = rowSlots(count).map(({ side, slot }) => {
+      /** 胸中心沿表面离正中线多远（并成一个宽躯干的照正中线放大） */
+      const u = slot * slotU * (wide ? WIDE_CHEST : 1);
+      const at = wide ? surfacePoint(wide, u, y) : surfacePoint(chestFrame(), u, chestV);
+      return { side, u, x: wide ? at[0] : at[0] + pushed(at[0], at[1]), z: at[2] };
+    });
+    return { y, spots, x: Math.max(...spots.map((q) => q.x)), lift: raised(chestV) - chestV - j * gap, size: rowSize * rowK };
   });
 
   // 屁股缝：素体自己的屁股上有一道浅的，照着挖深（多出来的胯、加宽的胯上的屁股见 lowerParts）。
@@ -723,7 +741,7 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
     if (tile) for (let y = HIP[1]; y < SHAPE.waist.y; y += 0.04) blocks.push({ wide: sideAt(y, 0) + tileShift(tile, y), level: y });
     chestRows.forEach((row, j) => {
       // 照胸调的大小量（大胸的胸型比以前那种窄，虽然放大得多一点，这样留的空也够：再宽的话手臂抬得高，手臂根上那片腋下的皮翻出来）
-      blocks.push({ wide: upperD + row.x + 0.095 * (j ? row.size : sh.bust), level: row.y });
+      blocks.push({ wide: upperD + row.x + 0.095 * (j ? row.size : sh.bust * rowK), level: row.y });
     });
     hang = hangAngles(c.armPairs, Math.max(48 + armLift, form === 'spider' ? floorAt(shoulder) : 0), { x: shoulder[0], y: shoulder[1] }, blocks, floorAt(shoulder), clearance);
   }
@@ -904,12 +922,17 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
   // 胸贴着的那块躯干和躯干一样加宽、加长；并成一个宽躯干的就是并好的那一块（胸贴在它外面，见 ChestShape.wide）
   const chestBody: GridShape = { ...torsoShape, name: 'Torso' };
   /** 多排胸时胸尖往下垂（见 ROW_DROOP） */
-  const droop = c.chestPairs > 1 ? ROW_DROOP * smooth(sh.bust - 1) : 0;
-  for (let j = 0; j < c.chestPairs; j++) {
-    const { y, x, z, lift } = chestRows[j];
-    for (const side of SIDES) {
-      const [at, flip, index] = [side * x, side, j];
-      const name = `Chest_${pad(index + 1)}_${tag(side)}`;
+  const droop = chestCount > 1 ? ROW_DROOP * smooth(sh.bust - 1) : 0;
+  const chestName = chestNames();
+  for (const { y, spots, lift } of chestRows) {
+    for (const { side, u, x, z } of spots) {
+      // 正中线上的那只（side 是 0）照左边那只的样子，两半对称（见 ChestShape.middle）
+      const [at, flip] = [side * x, side || 1];
+      const name = chestName(side);
+      /** 沿表面比一对胸原来的位置往外挪了多少（一排三个、四个的；并成一个宽躯干的照正中线放大，见 WIDE_CHEST） */
+      const outward = side ? u - chestU : 0;
+      /** 整个放大几倍：并成一个宽躯干的大一截，一排三个、四个的小一圈 */
+      const grow = (wide ? WIDE_CHEST : 1) * rowK;
       // 手动微调不挪这个部件（Part.surface），换算成沿表面的：往外（离正中线）、往上、往前挪，沿表面横、竖、往外放大，转
       const o = spec.overrides[name];
       const move = o?.position ?? O;
@@ -936,11 +959,9 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
             size: sh.bust,
             lift,
             ...(wide ? { wide: true } : {}),
-            // 并成一个宽躯干的照正中线放大（见 WIDE_CHEST）：中心跟着往外挪
-            ...(o?.position || wide ? { shift: [move[0] * flip + (wide ? chestU * (WIDE_CHEST - 1) : 0), move[1], move[2]] as V3 } : {}),
-            ...(o?.scale || wide
-              ? { scale: [0, 1, 2].map((k) => (o?.scale?.[k] ?? 1) * (wide ? WIDE_CHEST : 1)) as V3 }
-              : {}),
+            ...(side ? {} : { middle: true }),
+            ...(o?.position || outward ? { shift: [move[0] * flip + outward, move[1], move[2]] as V3 } : {}),
+            ...(o?.scale || grow !== 1 ? { scale: [0, 1, 2].map((k) => (o?.scale?.[k] ?? 1) * grow) as V3 } : {}),
             ...(o?.rotation || droop ? { tilt: [(o?.rotation?.[0] ?? 0) + droop, o?.rotation?.[1] ?? 0, o?.rotation?.[2] ?? 0] as V3 } : {}),
           },
         ],

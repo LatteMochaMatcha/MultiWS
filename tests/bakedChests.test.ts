@@ -16,7 +16,7 @@ useAnimeBody();
 describe('烤好的胸', () => {
   it('两个上半身、两对胸：三档精细度一共二十几份都留着，再编译一遍一份都不用烤', () => {
     const base = defaultSpec();
-    const spec: BodySpec = { ...base, bodyStyle: 'anime', counts: { ...base.counts, torsos: 2, chestPairs: 2 } };
+    const spec: BodySpec = { ...base, bodyStyle: 'anime', counts: { ...base.counts, torsos: 2, breasts: 4 } };
     const parts = buildFigure(spec).parts.filter((p) => p.material !== 'eye');
     const voxels = [0.02, 0.012, 0.0065];
     for (const voxel of voxels) stageJob({ parts, voxel, blend: spec.blend });
@@ -31,7 +31,7 @@ describe('烤好的胸', () => {
 
   it('先试编译一遍看要烤哪些胸（有帮手时 bakeAhead 这么做），照姿势正式编译出来的场和没试过的逐值一样：两个上半身、一个歪开', async () => {
     const base = defaultSpec();
-    const spec: BodySpec = { ...base, bodyStyle: 'anime', counts: { ...base.counts, torsos: 2, chestPairs: 2 } };
+    const spec: BodySpec = { ...base, bodyStyle: 'anime', counts: { ...base.counts, torsos: 2, breasts: 4 } };
     const parts = buildFigure(spec).parts.filter((p) => p.material !== 'eye');
     const solver = makeSolver(buildSkeleton({ parts, scale: 1 }).bones);
     // 左边那个上半身往外歪 30°：胸上的点跟躯干还是跟自己的上半身，照它离躯干多远定（见 posedField.ts 的 torsoNearChests）
@@ -71,7 +71,7 @@ describe('烤好的胸', () => {
     const job = await import('../src/sdf/job');
     grids.onPhone();
     const base = defaultSpec();
-    const spec: BodySpec = { ...base, bodyStyle: 'anime', counts: { ...base.counts, torsos: 2, chestPairs: 2 } };
+    const spec: BodySpec = { ...base, bodyStyle: 'anime', counts: { ...base.counts, torsos: 2, breasts: 4 } };
     const parts = buildFigure(spec).parts.filter((p) => p.material !== 'eye');
     for (const voxel of [0.02, 0.012, 0.0065]) job.stageJob({ parts, voxel, blend: spec.blend });
     const { count, bytes: kept } = grids.bakedSize();

@@ -13,6 +13,7 @@ import { t } from '../i18n';
 import { cap } from '../model/partLabel';
 import { FINGER_LABEL, FINGER_NAMES, fingerHinge } from './fingers';
 import type { AimLink } from './solve';
+import { isRingRig } from './ring';
 import type { Solver } from './solver';
 
 /** body 拖胯；reach 拖手、脚；bend 拖肘、膝；aim 带着它的骨头转过去 */
@@ -104,8 +105,10 @@ export function buildHandles(solver: Solver): Handle[] {
   const hips = rig.hips;
   handles.push(joint(hips, { kind: 'body', group: 'torso', label: cap(t('胯')) }));
 
-  // 脊柱：从胯往上一节一节，走到带着脖子的那一节为止。好几个上半身时胯上长着好几串，各有各的腰和胸
-  const roots = kids[hips].filter((k) => SPINE.test(rig.names[k]));
+  // 脊柱：从胯往上一节一节，走到带着脖子的那一节为止。好几个上半身时胯上长着好几串，各有各的腰和胸。
+  // 围成一圈的背不弯（见 pose/ring.ts）：不给腰、胸的圆点，拖肩膀时脊柱也不跟着转
+  const stiff = isRingRig(rig);
+  const roots = stiff ? [] : kids[hips].filter((k) => SPINE.test(rig.names[k]));
   for (const root of roots) {
     const spine: number[] = [];
     for (let at: number | undefined = root; at !== undefined; at = kids[at].find((k) => SPINE.test(rig.names[k]))) spine.push(at);
@@ -126,6 +129,8 @@ export function buildHandles(solver: Solver): Handle[] {
   /** 从这根骨骼往上（往胯那边）的几节脊柱，近的在前 */
   const spineAbove = (bone: number) => {
     const list: number[] = [];
+    // 围成一圈的背不弯：拖头、拖肩膀时脊柱都不跟着
+    if (stiff) return list;
     for (let p = rig.parent[bone]; p >= 0 && p !== hips; p = rig.parent[p]) if (SPINE.test(rig.names[p])) list.push(p);
     return list;
   };

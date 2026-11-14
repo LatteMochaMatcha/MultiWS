@@ -16,6 +16,7 @@ import {
   legPlan,
 } from '../src/model/spec';
 import { applyParse, describeSpec, parseDescription, summarize } from '../src/parser';
+import { chestRowMatters } from '../src/parser/describe';
 import { rng } from './helpers';
 
 function withCounts(patch: Partial<BodySpec['counts']>, rest: Partial<BodySpec> = {}): BodySpec {
@@ -45,6 +46,7 @@ function expectRoundTrip(spec: BodySpec) {
   if (spec.counts.penises > 1) expect(back.penisLayout, text).toBe(spec.penisLayout);
   if (spec.counts.penises > 1 && spec.penisLayout === 'grid') expect(back.penisRow, text).toBe(spec.penisRow);
   if (spec.counts.penises > 0) expect(back.scrotum, text).toBe(spec.scrotum);
+  if (chestRowMatters(spec)) expect(back.chestRow, text).toBe(spec.chestRow);
   // 性别和姿势：从一份全新的默认设定出发，光靠这句话就能读回来
   const fresh = applyParse(defaultSpec(), parseDescription(text));
   expect(fresh.gender, text).toBe(spec.gender);
@@ -60,10 +62,10 @@ describe('describeSpec 规范描述', () => {
   });
 
   it('与 v1 的写法一致', () => {
-    expect(describeSpec(withCounts({ heads: 2, armPairs: 2, chestPairs: 2 }))).toBe(
+    expect(describeSpec(withCounts({ heads: 2, armPairs: 2, breasts: 4 }))).toBe(
       '两个头，两对手臂，两对胸，一对腿',
     );
-    expect(describeSpec(withCounts({ armPairs: 0, chestPairs: 0 }))).toBe('一个头，没有手臂，平胸，一对腿');
+    expect(describeSpec(withCounts({ armPairs: 0, breasts: 0 }))).toBe('一个头，没有手臂，平胸，一对腿');
     expect(describeSpec(withCounts({ heads: 3, armPairs: 3 }, { armLayout: 'fan' }))).toBe(
       '三个头，三对手臂，一对胸，一对腿，手臂肩部聚拢',
     );
@@ -107,7 +109,7 @@ describe('describeSpec 规范描述', () => {
     expect(describeSpec(two)).toBe('两个上半身，一个头，一对手臂，一对胸，一对腿，左边的上半身两个头、两对手臂');
     expect(parseDescription(describeSpec(two)).torsoCounts).toEqual({ L: { heads: 2, armPairs: 2 } });
     expect(parseDescription(describeSpec(two)).counts).toEqual(two.counts);
-    const zero = { ...withCounts({ torsos: 3, hornsPerHead: 2, earPairsPerHead: 1 }), torsoCounts: { R: { armPairs: 0, chestPairs: 0, hornsPerHead: 0, earPairsPerHead: 0 }, M: { eyesPerHead: 3, heads: 2 } } };
+    const zero = { ...withCounts({ torsos: 3, hornsPerHead: 2, earPairsPerHead: 1 }), torsoCounts: { R: { armPairs: 0, breasts: 0, hornsPerHead: 0, earPairsPerHead: 0 }, M: { eyesPerHead: 3, heads: 2 } } };
     const back = parseDescription(describeSpec(zero));
     expect(back.torsoCounts, describeSpec(zero)).toEqual(zero.torsoCounts);
     expect(back.counts, describeSpec(zero)).toEqual(zero.counts);
@@ -120,10 +122,10 @@ describe('describeSpec 规范描述', () => {
   });
 
   it('识别标签：有上半身单独设过的那几样写出每个的数', () => {
-    const spec = { ...withCounts({ torsos: 2 }), torsoCounts: { L: { heads: 2, chestPairs: 0 } } };
+    const spec = { ...withCounts({ torsos: 2 }), torsoCounts: { L: { heads: 2, breasts: 0 } } };
     const chip = (key: string) => summarize(spec).find((c) => c.key === key)?.label;
     expect(chip('heads')).toBe('头 左2 右1');
-    expect(chip('chestPairs')).toBe('胸 左0 右1 对');
+    expect(chip('breasts')).toBe('胸 左0 右2 个');
     expect(chip('armPairs')).toBe('手臂 1 对');
   });
 
@@ -200,6 +202,7 @@ describe('描述 → 解析 → 描述 往返一致', () => {
         pose: pick(POSES),
         penisLayout: pick(PENIS_LAYOUTS),
         scrotum: pick(SCROTUM_MODES),
+        chestRow: 1 + Math.floor(rand() * 4),
       });
     }
   });
@@ -215,7 +218,7 @@ describe('描述 → 解析 → 描述 往返一致', () => {
     for (const gender of GENDERS) {
       for (const pose of POSES) {
         expectRoundTrip(withCounts({ armPairs: 3, tails: 2 }, { gender, pose, armLayout: 'fan' }));
-        expectRoundTrip(withCounts({ armPairs: 0, chestPairs: 0 }, { gender, pose }));
+        expectRoundTrip(withCounts({ armPairs: 0, breasts: 0 }, { gender, pose }));
       }
     }
   });
@@ -340,7 +343,7 @@ describe('summarize 识别结果标签', () => {
   });
 
   it('平胸与耳形', () => {
-    expect(label(withCounts({ chestPairs: 0 }), 'chestPairs')).toBe('平胸');
+    expect(label(withCounts({ breasts: 0 }), 'breasts')).toBe('平胸');
     expect(label(withCounts({ earPairsPerHead: 2 }, { earShape: 'fox' }), 'earPairsPerHead')).toBe('狐耳 2 对');
   });
 });

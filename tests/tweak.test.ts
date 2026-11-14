@@ -169,7 +169,7 @@ describe('微调的数据', () => {
 
   it('每个部件都有中文名字', () => {
     const figure = buildFigure(
-      make({ heads: 2, armPairs: 2, chestPairs: 2, legs: 6, tails: 2, wingPairs: 1, hornsPerHead: 3, eyesPerHead: 3, earPairsPerHead: 1 }),
+      make({ heads: 2, armPairs: 2, breasts: 4, legs: 6, tails: 2, wingPairs: 1, hornsPerHead: 3, eyesPerHead: 3, earPairsPerHead: 1 }),
     );
     for (const part of figure.parts) expect(partLabel(part.name), part.name).toMatch(/^[一-鿿]/);
   });

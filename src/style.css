@@ -59,6 +59,9 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);fo
 .picked button{width:22px;height:22px;font:inherit;line-height:1;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer}
 /* 鼠标移上去的变化都写在 (hover:hover) 里：触屏上点过以后那个样子会粘着不走，看着像选中了 */
 @media (hover:hover){.picked button:hover{background:var(--press)}}
+/* 「多选」开关：比 ✕ 宽，开着时垫一层底色 */
+.picked button.wide{width:auto;padding:0 7px;white-space:nowrap;flex:none}
+.picked button.wide[aria-pressed="true"]{background:var(--accent-ink);color:var(--accent)}
 .picked button:focus-visible{outline:2px solid var(--accent-ink);outline-offset:-2px}
 .dock{display:flex;flex-wrap:wrap;gap:8px}
 .views{display:flex;gap:4px;padding:3px;border-radius:9px;background:var(--glass)}

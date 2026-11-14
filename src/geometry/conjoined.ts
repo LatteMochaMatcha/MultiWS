@@ -161,7 +161,7 @@ const ordinal = (name: string): [string, number] => {
  * 一串部件里最低的那一点（部件的单位，Figure.scale 当作 1）：接上去的网格照顶点量，基本体照外接的圆、球量。
  * only：只量这几个部件（别的照样算位置）
  */
-function lowest(all: Part[], only?: ReadonlySet<string>): number {
+export function lowest(all: Part[], only?: ReadonlySet<string>): number {
   let low = Infinity;
   const parts = only ? all.map((p) => (only.has(p.name) ? p : { ...p, grafts: undefined, prims: [] })) : all;
   const points = graftPoints(parts);
@@ -193,7 +193,7 @@ function underside(parts: Part[], blend = 0, depth = 0.4, step = 0.04): number {
 }
 
 /** 一串部件里最高的那一点（头顶）：头照外接盒子量 */
-function highest(parts: Part[]): number {
+export function highest(parts: Part[]): number {
   let top = -Infinity;
   const xfs = worldTransforms({ parts, scale: 1 });
   for (const part of parts) {
@@ -398,7 +398,7 @@ const FLAT_SPREAD = 1.6;
 const FLAT_DROP = 0.3;
 
 /** 整条手臂绕肩关节转到朝 target（躯干的坐标里），别的不动 */
-function pointArm(part: Part, target: V3): Part {
+export function pointArm(part: Part, target: V3): Part {
   const j = armJointsOf(part);
   if (!j) return part;
   const now = norm(rotate(part.quat, sub(j.wrist, j.shoulder)));

@@ -36,6 +36,7 @@
       <div class="stage-foot">
         <div class="picked" id="picked" hidden>
           <span id="pickedName"></span>
+          <button type="button" class="wide" id="pickedMulti" aria-pressed="false" title="多选：开着时在模型上点部件是加进来，再点一下去掉（电脑上按住 Ctrl 或 Shift 点也一样）">多选</button>
           <button type="button" id="pickedClear" title="取消选择（Esc）" aria-label="取消选择">✕</button>
         </div>
         <div class="dock">
@@ -145,6 +146,10 @@
               <span>多对手臂</span>
               <div class="seg" id="segArm" role="radiogroup" aria-label="多对手臂的排布"></div>
             </div>
+            <div class="field" id="chestRowField" hidden title="胸一排几个，左右并排：两个就是一对一对的，单数时正中一个；个数不是它的整数倍时，最下面那排少几个">
+              <span>每排几个胸</span>
+              <div class="stepper" id="chestRow"></div>
+            </div>
             <div class="field">
               <span>三条以上的腿</span>
               <div class="seg grid3" id="segLeg" role="radiogroup" aria-label="三条以上的腿怎么排"></div>
@@ -184,6 +189,31 @@
             <div class="field" id="conjoinPoseField" hidden title="连体静止时的姿态：趴着是四只手撑地；侧躺是两个上半身侧着躺在同一条轴上，靠地那只手臂朝前贴地、上面那只手撑在胸前；平躺是仰面躺平、手臂放在身子两边（反向的那个趴着）；站着是下面那个倒立、两只手撑地，上面那个照常站着">
               <span>连体姿态</span>
               <div class="seg" id="segConjoinPose" role="radiogroup" aria-label="连体静止时是趴着、侧躺、平躺还是站着"></div>
+            </div>
+            <div class="field" title="围成一圈：几个人背靠背站成一圈、脸朝外，融合成一个身子。头成一圈，胸环绕身体一周，腿往四周排开。各有各的胯是每个人自己的腰、胯都看得出来；并胯融合是腰胯并成一个圆桶。头、胸、腿、阴茎是每个人各长这么多（腿每人最多 6 条）；手臂只长在整个身子的左右两侧，「手臂」几对就是每侧几条；翅膀、尾巴、几个上半身、腿的排法都不管（成品角色、连体时不围）">
+              <span>围成一圈</span>
+              <div class="seg" id="segRing" role="radiogroup" aria-label="几个人背靠背围成一圈的形式"></div>
+            </div>
+            <div class="field" id="ringCountField" hidden>
+              <span>围几个人</span>
+              <div class="seg" id="segRingCount" role="radiogroup" aria-label="围成一圈的有几个人"></div>
+            </div>
+            <div class="slider" id="ringSpreadField" hidden title="围成一圈的松紧：数值小的圈小，每个人的身子和头靠得近、叠得多，圈心的圆柱细；100% 是所有的腿隔得一样远，人和人只在肩膀和胯上挨着；再大人和人之间拉开，圈心的圆柱粗，底下放得下更多的腿">
+              <label for="s-ringSpread">圈的松紧</label>
+              <input type="range" id="s-ringSpread">
+              <output id="o-ringSpread" for="s-ringSpread"></output>
+            </div>
+            <div class="field" id="ringChestField" hidden title="围成一圈时胸怎么排：交错成串是每个人的几排胸连成几圈，隔一圈错开半个，每圈一样大，挤成一串；交错渐小是在这个基础上越往下的圈越小；上下对齐是每个人各自的几排，一样大、上下对齐">
+              <span>环绕的胸</span>
+              <div class="seg" id="segRingChest" role="radiogroup" aria-label="围成一圈时胸怎么排"></div>
+            </div>
+            <div class="field" id="ringLegsField" hidden title="围成一圈时腿长在哪：中间也有是外圈每个人自己的腿以外，圈心底下也一圈圈排满腿；只在外圈是只有每个人自己的那几条。「腿」几条就是每个人几条（最多 6 条），腿多了圈跟着变大，少了跟着变小">
+              <span>中间的腿</span>
+              <div class="seg" id="segRingLegs" role="radiogroup" aria-label="围成一圈时腿长在哪"></div>
+            </div>
+            <div class="field" id="ringLegFacingField" hidden title="围成一圈时腿朝哪：绕圈朝外是每条腿跟着它所在的那个人，脚尖朝外；统一朝前是腿长在哪不变，脚尖都朝正前，套走路这类姿势时所有的腿朝一个方向迈">
+              <span>腿的朝向</span>
+              <div class="seg" id="segRingLegFacing" role="radiogroup" aria-label="围成一圈时腿朝哪"></div>
             </div>
             <div class="field" title="手脚互换：手臂末端接一只脚。手臂垂下来时脚底朝下、脚趾朝前，像腿上那样，缩到和手腕一样粗">
               <span>手臂末端</span>
@@ -267,6 +297,8 @@
               <label for="tweakPart">选中的部件</label>
               <select id="tweakPart"></select>
             </div>
+            <label class="check" title="开着时在模型上点部件是加进来，再点一下去掉；电脑上按住 Ctrl 或 Shift 点也一样"><input type="checkbox" id="tweakMulti"> 多选（点一下加进来，再点一下去掉）</label>
+            <div class="tweaked" id="tweakPicks" hidden></div>
             <div class="tweak" id="tweakBody" hidden>
               <div class="field">
                 <span>在模型上拖动</span>
@@ -287,6 +319,7 @@
               </div>
               <div class="actions">
                 <button type="button" class="btn" id="btnTweakReset">还原这个部件</button>
+                <button type="button" class="btn" id="btnTweakKind" title="把和它同一类的部件都选上：全部手臂、全部腿、全部头……">同类全选</button>
                 <button type="button" class="btn" id="btnTweakDone">取消选择</button>
               </div>
             </div>

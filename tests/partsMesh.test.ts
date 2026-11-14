@@ -16,7 +16,7 @@ const spec = (counts: Partial<ReturnType<typeof defaultSpec>['counts']> = {}) =>
 describe('分部件网格', () => {
   it('每个部件都生成一个合法的网格：有三角面，坐标都是有限数，带法线', () => {
     const figure = buildFigure(
-      spec({ heads: 2, armPairs: 2, chestPairs: 2, tails: 2, wingPairs: 1, hornsPerHead: 3, earPairsPerHead: 1 }),
+      spec({ heads: 2, armPairs: 2, breasts: 4, tails: 2, wingPairs: 1, hornsPerHead: 3, earPairsPerHead: 1 }),
     );
     for (const part of figure.parts) {
       const geo = buildPartGeometry(part);
