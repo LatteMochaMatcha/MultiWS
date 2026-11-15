@@ -1,7 +1,7 @@
 // 围成一圈（src/geometry/ring.ts）：几个人背靠背站成一圈，融合成一个身子
 import { describe, expect, it } from 'vitest';
 import { worldTransforms } from '../src/geometry/figure';
-import { add, rotate, sub } from '../src/geometry/vec';
+import { add, quatConj, quatMul, rotate, sub } from '../src/geometry/vec';
 import { RING_PERSON_LEGS, buildFigure } from '../src/geometry/layout';
 import { PRESETS, applyPreset } from '../src/model/presets';
 import { type BodySpec, RING_COUNT, RING_SPREAD, RING_SPREAD_CIRCLE_MIN, defaultSpec, normalizeSpec, ringActive } from '../src/model/spec';
@@ -587,34 +587,36 @@ describe('围成一圈', () => {
     }
   });
 
-  it('前后排：两排脖子之间填着后颈，脖子和脖子之间不透；填充不高过头的正中、不比最外面的脖子宽出一个头', () => {
+  it('前后排的素体：每个头照原样接在自己的脖子上（头整个跟着脖子转、脖子不拉长），脖子之间不填东西', () => {
     useAnimeBody();
     const d = defaultSpec();
-    for (const bodyStyle of ['anime', 'mannequin'] as const) {
-      for (const ringCount of [3, 5, 6]) {
-        const figure = buildFigure(specOf({ bodyStyle, ring: 'rows', ringCount, counts: { ...d.counts, breasts: 2, armPairs: 1 } }));
-        const flat = { parts: figure.parts, scale: 1 };
-        const xfs = worldTransforms(flat);
-        const necks = figure.parts.filter((p) => p.type === 'neck').map((p) => xfs.get(p.name)!.pos);
-        const heads = figure.parts.filter((p) => p.type === 'head').map((p) => xfs.get(p.name)!.pos);
-        const nape = figure.parts.find((p) => p.name === 'Nape')!;
-        expect(nape, `${bodyStyle} ${ringCount} 人`).toBeDefined();
-        const at = xfs.get('Nape')!.pos;
-        const loft = nape.prims[0];
-        if (loft.kind !== 'loft') throw new Error('后颈该是一块放样体');
-        expect(Math.max(...loft.rings.map((ring) => ring.y)) + at[1]).toBeLessThan(Math.min(...heads.map((p) => p[1])));
-        expect(Math.max(...loft.rings.map((ring) => ring.w))).toBeLessThan(Math.max(...necks.map((p) => Math.abs(p[0]))) + 0.03);
-        // 前排相邻两根脖子的正中间、脖子半高处、两排之间：是实心的
-        const front = necks.filter((p) => p[2] > 0).sort((a, b) => a[0] - b[0]);
-        const field = compileField(flat, { blend: 0 });
-        const midY = (Math.max(...necks.map((p) => p[1])) + Math.min(...heads.map((p) => p[1]))) / 2;
-        for (let i = 1; i < front.length; i++) {
-          expect(fieldAt(field, (front[i - 1][0] + front[i][0]) / 2, midY, 0), `${bodyStyle} ${ringCount} 人 第 ${i} 个空当`).toBeLessThan(0);
+    // 头相对自己的脖子在哪、怎么转（脖子自己的坐标里）
+    const joints = (spec: BodySpec) => {
+      const figure = buildFigure(spec);
+      return figure.parts
+        .filter((p) => p.type === 'head')
+        .map((head) => {
+          const neck = figure.parts.find((p) => p.type === 'neck' && p.parent === head.parent)!;
+          const back = quatConj(neck.quat);
+          return { neck, at: rotate(back, sub(head.pos, neck.pos)), turn: quatMul(back, head.quat) };
+        });
+    };
+    const [plain] = joints(specOf({ bodyStyle: 'anime' }));
+    for (const ringCount of [3, 5, 6]) {
+      for (const ringSpread of [0.44, 0.76, 1.2]) {
+        const spec = specOf({ bodyStyle: 'anime', ring: 'rows', ringCount, ringSpread, counts: { ...d.counts, breasts: 2, armPairs: 1 } });
+        const all = joints(spec);
+        expect(all.length).toBe(ringCount);
+        for (const joint of all) {
+          const where = `${ringCount} 人 松紧 ${ringSpread} ${joint.neck.name}`;
+          expect(joint.neck.resize, where).toBeUndefined();
+          for (let i = 0; i < 3; i++) expect(joint.at[i], where).toBeCloseTo(plain.at[i], 5);
+          // 四元数差一个正负号是同一个转法
+          const sign = Math.sign(joint.turn[3] * plain.turn[3]) || 1;
+          for (let i = 0; i < 4; i++) expect(joint.turn[i] * sign, where).toBeCloseTo(plain.turn[i], 5);
         }
+        expect(buildFigure(spec).parts.some((p) => p.name === 'Nape')).toBe(false);
       }
-    }
-    for (const ring of ['fused', 'hips'] as const) {
-      expect(buildFigure(specOf({ bodyStyle: 'anime', ring, ringCount: 6 })).parts.some((p) => p.name === 'Nape')).toBe(false);
     }
   });
 
