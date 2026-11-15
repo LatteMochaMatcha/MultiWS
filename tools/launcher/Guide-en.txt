@@ -137,7 +137,7 @@ Section by section:
                      waist and belly, and the V between them opens all the way to the top of the pelvis.
                      With a Ready-made character, everything above her waist (hair and clothes included) is copied
                      once and bent apart at the waist.
-  Presets            12 ready-made combinations; click one to switch to it.
+  Presets            13 ready-made combinations; click one to switch to it.
   Parts              One card per part (head, arms, breasts, legs, tails, wings): set how many with − and + on
                      the card header, and click the header to open that part's own layout, style and size
                      (options that don't apply are hidden). Layouts: "Multiple heads": "Clustered", "1 head, N faces" (one head with several faces) or "Wide torso";
