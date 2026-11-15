@@ -22,7 +22,7 @@ import { type TweakedCharacter, characterPartAt, characterPartGlow, characterPar
 import { describeClashes, findClashes } from './geometry/clash';
 import { type Figure, type FigureMetrics, type PartType, nthName } from './geometry/figure';
 import { buildFigure } from './geometry/layout';
-import { type PartFrame, partFrame } from './geometry/tweak';
+import { type PartFrame, deletable, partFrame } from './geometry/tweak';
 import { type V3, Q_ID, UP, len, norm, quatBetween, quatConj, quatEuler, quatMul, rotate, sub } from './geometry/vec';
 import { cleanFileName, inAndroidShell, saveBlob, saveText } from './io/download';
 import { exportGlb } from './io/exportGlb';
@@ -65,10 +65,13 @@ import {
   activeOverrides,
   clearAllOverrides,
   clearOverride,
+  hiddenParts,
+  hidePart,
   mirrorDelta,
   mirrorName,
   nudgeOverride,
   setOverride,
+  showPart,
   sideOf,
   topMost,
 } from './model/overrides';
@@ -126,6 +129,7 @@ import {
   RING_LEGS,
   RING_LEG_FACINGS,
   RING_SPREAD,
+  RING_SPREAD_CIRCLE_MIN,
   type RingChestMode,
   type RingLegFacingMode,
   type RingLegMode,
@@ -1083,8 +1087,11 @@ ringSpreadInput.addEventListener('input', () => {
   commit('ringSpread');
 });
 ringSpreadInput.addEventListener('change', () => history.seal());
-function syncRingSpread(value: number, enabled: boolean) {
-  const percent = Math.round(value * 100);
+function syncRingSpread(value: number, enabled: boolean, rows: boolean) {
+  // 前后排能挤到 RING_SPREAD.min；围成一圈的到 RING_SPREAD_CIRCLE_MIN 为止（存着更小的数也照它摆）
+  const least = rows ? RING_SPREAD.min : RING_SPREAD_CIRCLE_MIN;
+  ringSpreadInput.min = String(least * 100);
+  const percent = Math.round(Math.max(least, value) * 100);
   if (Math.abs(Number(ringSpreadInput.value) - percent) > 1e-6) ringSpreadInput.value = String(percent);
   ringSpreadInput.disabled = !enabled;
   $('o-ringSpread').textContent = `${percent}%`;
@@ -2678,6 +2685,18 @@ mirrorInput.addEventListener('change', () => {
   mirror = mirrorInput.checked;
 });
 
+/* ---- 删除部件：记在微调里（PartOverride.hidden），套微调时从身上拿掉；成品角色不支持 ---- */
+const btnTweakDelete = $<HTMLButtonElement>('btnTweakDelete');
+/** 选中的里面能删的（躯干、下身、脖子不能删） */
+const deletablePicks = (): string[] => (character ? [] : picks.filter((n) => tweakable().some((p) => p.name === n && deletable(p.type))));
+btnTweakDelete.addEventListener('click', () => {
+  const names = deletablePicks();
+  if (!names.length) return;
+  for (const name of names) spec = hidePart(spec, name);
+  select(null);
+  commit();
+});
+
 const btnTweakReset = $<HTMLButtonElement>('btnTweakReset');
 btnTweakReset.addEventListener('click', () => {
   if (!selected) return;
@@ -2804,6 +2823,8 @@ function renderTweak() {
     else if (twin) $('tweakMirrorText').textContent = t('同时调整对侧（{name}）', { name: partLabel(twin) });
     btnTweakReset.textContent = many ? t('还原选中的部件') : t('还原这个部件');
     btnTweakReset.disabled = !picks.some((n) => activeOverrides(spec)[n]);
+    btnTweakDelete.textContent = many ? t('删除选中的部件') : t('删除这个部件');
+    btnTweakDelete.disabled = deletablePicks().length === 0;
     $<HTMLButtonElement>('btnTweakKind').disabled = !tweakable().some((p) => p.type === part.type && !picks.includes(p.name));
     // 这一条的末端、手指数只对单独选中的一条说得通
     syncLimbTip(many ? undefined : part);
@@ -2830,12 +2851,28 @@ function renderTweak() {
   syncPicked();
 
   // 已经微调过的部件：点名字可以直接选中
-  const all = Object.keys(activeOverrides(spec));
+  const removed = character ? [] : hiddenParts(spec);
+  const all = Object.keys(activeOverrides(spec)).filter((n) => !removed.includes(n));
   const changed = names.filter((n) => activeOverrides(spec)[n]);
   const host = $('tweaked');
-  host.hidden = all.length === 0;
-  if (all.length) {
-    const items: HTMLElement[] = [el('span', '', t('已微调：'))];
+  host.hidden = all.length === 0 && removed.length === 0;
+  if (all.length || removed.length) {
+    const items: HTMLElement[] = [];
+    // 删掉的部件：点名字恢复
+    if (removed.length) {
+      items.push(el('span', '', t('已删除（点一下恢复）：')));
+      for (const n of removed) {
+        const chip = el('button', 'chip', partLabel(n));
+        chip.type = 'button';
+        chip.title = n;
+        chip.addEventListener('click', () => {
+          spec = showPart(spec, n);
+          commit();
+        });
+        items.push(chip);
+      }
+    }
+    if (all.length) items.push(el('span', '', t('已微调：')));
     for (const n of changed) {
       const chip = el('button', picks.includes(n) ? 'chip hit' : 'chip', partLabel(n));
       chip.type = 'button';
@@ -5897,7 +5934,7 @@ function render() {
   syncRingChest(spec.ringChest, ringable && spec.ring !== 'none' && (spec.ring === 'rows' ? spec.counts.breasts > 0 : spec.counts.breasts > 2));
   $('ringLegsField').hidden = spec.ring === 'none';
   $('ringSpreadField').hidden = spec.ring === 'none';
-  syncRingSpread(spec.ringSpread, ringable && spec.ring !== 'none');
+  syncRingSpread(spec.ringSpread, ringable && spec.ring !== 'none', spec.ring === 'rows');
   $('ringHipRowsField').hidden = spec.ring !== 'rows';
   syncRingHipRows(String(spec.ringHipRows), ringable && spec.ring === 'rows');
   $('ringHipsPerRowField').hidden = spec.ring !== 'rows';

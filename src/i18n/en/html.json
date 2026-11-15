@@ -204,7 +204,7 @@
   "圈的松紧": "Ring tightness",
   "胯几排": "Pelvis rows",
   "每排几个胯": "Pelvises per row",
-  "围成一圈的松紧：数值小的圈小，每个人的身子和头靠得近、叠得多，圈心的圆柱细；100% 是所有的腿隔得一样远，人和人只在肩膀和胯上挨着；再大人和人之间拉开，圈心的圆柱粗，底下放得下更多的腿": "How tight the ring of bodies is. A low value makes a small ring: the bodies and heads sit close and overlap more, and the column in the middle is thin. 100% spaces all the legs evenly, so neighbours only touch at the shoulders and hips. Higher values pull the bodies apart: the middle column is thick and more legs fit underneath",
+  "围成一圈的松紧：数值小的圈小，每个人的身子和头靠得近、叠得多，圈心的圆柱细；100% 是所有的腿隔得一样远，人和人只在肩膀和胯上挨着；再大人和人之间拉开，圈心的圆柱粗，底下放得下更多的腿。前后排能调到 30%：腿和腿只贴着、不叠着，再调小是下身的胯跟着收窄": "How tight the ring of bodies is. A low value makes a small ring: the bodies and heads sit close and overlap more, and the column in the middle is thin. 100% spaces all the legs evenly, so neighbours only touch at the shoulders and hips. Higher values pull the bodies apart: the middle column is thick and more legs fit underneath. Front-and-back rows go down to 30%: legs only touch and never overlap, so going lower narrows the hips of the lower body instead",
   "环绕的胸": "Ring breasts",
   "围成一圈时胸怎么排：交错成串是每个人的几排胸连成几圈，隔一圈错开半个，每圈一样大，挤成一串；交错渐小是在这个基础上越往下的圈越小；上下对齐是每个人各自的几排，一样大、上下对齐": "How the breasts are arranged in a ring of bodies. Staggered cluster joins each person's rows into rings, with every other ring shifted by half a breast and every ring the same size, packed into a cluster; Staggered, tapering does the same but makes each ring smaller than the one above; Aligned rows keeps each person's own rows, all the same size and lined up vertically",
   "围成一圈时胸怎么排": "How the breasts are arranged in a ring of bodies",
@@ -244,5 +244,7 @@
   "套用选项": "Apply options",
   "位置和显示": "Position and display",
   "互动": "Interaction",
-  "场景文件": "Scene file"
+  "场景文件": "Scene file",
+  "删除这个部件": "Delete this part",
+  "把选中的部件从身上拿掉（长在它上面的一起拿掉）。躯干、下身、脖子不能删；删掉的在下面「已删除」里点一下就恢复": "Removes the selected parts from the body (anything growing on them goes too). The torso, lower body and neck cannot be deleted; click a name under \"Deleted\" below to bring it back"
 }

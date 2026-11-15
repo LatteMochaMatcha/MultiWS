@@ -7,6 +7,8 @@ import {
   type EarShape,
   type HeadLayout,
   type LegLayout,
+  type RingChestMode,
+  type RingMode,
   CHEST_ROW,
   HIP_LEGS,
   clampShape,
@@ -21,6 +23,15 @@ export interface Preset {
   armLayout?: ArmLayout;
   legLayout?: LegLayout;
   earShape?: EarShape;
+  /** 胸每排几个（没写就是缺省的一对一对） */
+  chestRow?: number;
+  /** 围成一圈：哪种排法、几个人、松紧、胸怎么排；前后排的胯几排、每排几个（没写的不动） */
+  ring?: RingMode;
+  ringCount?: number;
+  ringSpread?: number;
+  ringChest?: RingChestMode;
+  ringHipRows?: number;
+  ringHipsPerRow?: number;
 }
 
 export const PRESETS: readonly Preset[] = [
@@ -37,6 +48,20 @@ export const PRESETS: readonly Preset[] = [
   { name: t('三眼'), counts: { eyesPerHead: 3 } },
   { name: t('龙娘'), counts: { hornsPerHead: 2, wingPairs: 1, tails: 1 }, shape: { tailFluff: 0.2 } },
   { name: t('兽耳娘'), counts: { earPairsPerHead: 1, tails: 1 }, earShape: 'cat', shape: { tailFluff: 0.6 } },
+  // 前后排的六个头：前排三个人、后排三个人背靠背，前中后三排胯；每侧前后两组各三条手臂，每人六只胸，前后两面各排成上宽下尖的一串（从上到下 6、5、4 只）
+  {
+    name: t('楚云萱'),
+    counts: { armPairs: 3, breasts: 6 },
+    armLayout: 'fan',
+    chestRow: 2,
+    shape: { bust: 2.3 },
+    ring: 'rows',
+    ringCount: 6,
+    ringSpread: 0.44,
+    ringChest: 'taper',
+    ringHipRows: 3,
+    ringHipsPerRow: 0,
+  },
 ];
 
 /**
@@ -53,8 +78,13 @@ export function applyPreset(spec: BodySpec, preset: Preset): BodySpec {
     armLayout: preset.armLayout ?? 'stack',
     legLayout: preset.legLayout ?? 'auto',
     hipLegs: HIP_LEGS.def,
-    chestRow: CHEST_ROW.def,
-    ring: 'none',
+    chestRow: preset.chestRow ?? CHEST_ROW.def,
+    ring: preset.ring ?? 'none',
+    ringCount: preset.ringCount ?? spec.ringCount,
+    ringSpread: preset.ringSpread ?? spec.ringSpread,
+    ringChest: preset.ringChest ?? spec.ringChest,
+    ringHipRows: preset.ringHipRows ?? spec.ringHipRows,
+    ringHipsPerRow: preset.ringHipsPerRow ?? spec.ringHipsPerRow,
     earShape: preset.earShape ?? spec.earShape,
     overrides: {},
   };

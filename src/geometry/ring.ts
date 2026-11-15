@@ -33,6 +33,7 @@ import { highest, lowest, pointArm } from './conjoined';
 import type { BoneHint, Figure, Graft, Part, PartType, Prim, Ring } from './figure';
 import { nthName } from './figure';
 import { type Quat, type V3, Q_ID, add, len, mat3Mul, mul, quatBetween, quatConj, quatMat3, quatMul, rotate, sub } from './vec';
+import { RING_SPREAD_CIRCLE_MIN } from '../model/spec';
 
 export type Ringed = 'hips' | 'fused' | 'rows';
 /** 胸怎么排：stagger 交错成串（每圈一样大）、taper 交错渐小（越往下越小）、aligned 上下对齐（每个人各自的几排） */
@@ -89,6 +90,8 @@ export interface RingOptions {
  * 圈到 1 以上都是正好挨着
  */
 const TIGHT = 0.76;
+/** 围成一圈的松紧最紧到这里；再往下只有前后排接着挤（见 ROWS.squeezed） */
+const SPREAD_FLOOR = RING_SPREAD_CIRCLE_MIN;
 const HEAD_TIGHT = 0.9;
 /**
  * 圈比 TIGHT 还小时，腿比平常往外叉开得多（像三脚架）：胯挤在一处，脚还踩在 TIGHT 那么大的圈上，最多多叉 SPLAY_MAX。
@@ -125,7 +128,9 @@ const spreadOf = (spread: number): { radius: number; head: number } => ({
  * - depth / depthMin：前排、后排的髋关节各离正中（中间那一排）多远（米）。一个人的胯前后有二十厘米厚，三排胯挨着、各留一道缝；
  * - lean：上身最少往背后靠多少；
  * - waist：腰最细的地方在髋关节以上这个范围里找（米），上下两截在那里接、上身绕那里转；
- *   overlap：两截各往对面多留这么多，叠着的一小段圆滑地融合；leanMax：整个人最多往正中靠多少；
+ *   overlap：两截各往对面多留这么多，叠着的一小段圆滑地融合。上下两截不是一类（下半截单独一类，切口才只切它们），
+ *   叠着的那一段两层表面差不多重合，圆滑融合会往外鼓一圈，像系了一条皮带；留少了切口磨圆的两头又接不上、凹一道槽。
+ *   素体 1.5 cm 正好平（2.5 cm 鼓、0.5 cm 凹、−1 cm 断开）；白模（overlapMannequin）还是 2.5 cm；leanMax：整个人最多往正中靠多少；
  *   collar：中间那一排的躯干在脖子根以下这么多的地方削平（没有头，脖子不要）；
  *   seam：削出来的那一圈棱磨多圆（上身是转过、斜过的，和下身的截面对不齐，棱留着的话腰上一圈台阶）；
  *   bare：每排的胯比人多时，两头上面没有人的那几副胯腰上磨多圆（磨成圆顶，不然是一个平平的切口）。
@@ -167,6 +172,7 @@ const spreadOf = (spread: number): { radius: number; head: number } => ({
  */
 const ROWS = {
   yaw: 45 * (Math.PI / 180),
+  hollowYaw: Math.PI / 2,
   heads: 0.8,
   rollMax: 24 * (Math.PI / 180),
   wideHipRollMax: 38 * (Math.PI / 180),
@@ -175,24 +181,36 @@ const ROWS = {
   tight: 0.8,
   depth: 0.215,
   depthMin: 0.185,
+  squeezed: { at: 0.3, step: 0.6, depth: 0.11 },
+  hipGap: 0,
+  chestFloor: 0.05,
+  chestTight: 0.5,
+  fill: { least: 0.01, into: 0.6, tall: 0.16, deep: 0.62, lift: 0.01, soft: 0.02 },
+  coreWaist: 0.04,
   lean: 6 * (Math.PI / 180),
   waist: [0.1, 0.34] as [number, number],
-  overlap: 0.025,
+  overlap: 0.015,
+  overlapMannequin: 0.025,
   seam: 0.03,
   bare: 0.09,
   pelvisRamp: [0.04, 0.18] as const,
   legsFollow: true,
+  thighFit: 1.02,
+  thighLap: 0.1,
+  legLean: 4 * (Math.PI / 180),
   thigh: 1.5,
-  slit: { gap: 0.03, top: 0.08, reach: 0.15, soft: 0.012, skew: 10 * (Math.PI / 180), rowSkew: 3 * (Math.PI / 180), deep: 0.2, shift: 0.035, knee: 0.5, waist: 0.03, rowGap: 0.06, rowSoft: 0.025 },
+  slit: { gap: 0.03, top: 0.08, reach: 0.2, soft: 0.012, skew: 10 * (Math.PI / 180), rowSkew: 3 * (Math.PI / 180), deep: 0.2, shift: 0, knee: 0.5, waist: 0.3, rowGap: 0.06, rowShare: 0.33, rowBack: 0.03, marker: 0.014, touch: 0.03, rowSoft: 0.025 },
   thighRamp: [0.02, 0.3] as const,
   thighTaper: 0.62,
   knee: 0.35,
   leanMax: 16 * (Math.PI / 180),
+  upperLeanMax: 24 * (Math.PI / 180),
   collar: 0.02,
   coreFrom: 0.1,
   coreRamp: 0.22,
   wrap: 1.25,
   cover: 0.86,
+  flank: 0.08,
   armAz: 0.32,
   armApart: 0.11,
   armFanTop: 32 * (Math.PI / 180),
@@ -203,7 +221,7 @@ const ROWS = {
   coreTop: 0.02,
   stump: { size: 0.88, inset: 0.02 },
   profile: { out: 0.045, back: 0.015, show: 0.05, bury: 0.7 },
-  pad: { wide: 0.55, tall: 0.6, behind: 0.006, into: 0.02, least: 0.008, under: 0.7, soft: 0.015 },
+  pad: { wide: 0.55, tall: 0.6, behind: 0.006, into: 0.03, least: 0.008, most: 0.07, rampTop: 0.3, rampInto: 0.015, rampThick: 0.022, soft: 0.015 },
 };
 /** 相邻两根脖子的根隔多远（一根脖子那么粗多一点）：身子往圈心靠到脖子根挨着为止 */
 const NECK_GAP = 0.085;
@@ -380,8 +398,10 @@ export function ringFigure(figure: Figure, options: RingOptions): Figure {
  */
 export function ringBuild(
   figure: Figure,
-  { mode, count, armPairs = 0, tPose = false, armLayout = 'fan', chest = 'aligned', breasts: asked, chestRow = 2, hipRows = 3, hipsPerRow = 0, chestPack, innerLegs = false, spread = 1, legFacing = 'out', legGap, lower }: RingOptions,
+  { mode, count, armPairs = 0, tPose = false, armLayout = 'fan', chest = 'aligned', breasts: asked, chestRow = 2, hipRows = 3, hipsPerRow = 0, chestPack, innerLegs = false, spread: asSet = 1, legFacing = 'out', legGap, lower }: RingOptions,
 ): { figure: Figure; chest: ChestPack | null } {
+  // 松紧比 SPREAD_FLOOR 还小的只有前后排认（见 ROWS.squeezed）；围成一圈的到 SPREAD_FLOOR 为止
+  const spread = mode === 'rows' ? asSet : Math.max(SPREAD_FLOOR, asSet);
   const loose = spreadOf(spread);
   const rowsMode = mode === 'rows';
   const torso = figure.parts.find((p) => p.name === 'Torso');
@@ -414,7 +434,7 @@ export function ringBuild(
    * 试过上身绕腰往后折二十度，肚子上折出一道棱，看着像衣服的下摆。两份里取上半截那一份量（腰宽是一样的）
    */
   const waist = (() => {
-    if (!rowsMode) return { y: hipY, z: 0 };
+    if (!rowsMode) return { y: hipY, z: 0, half: 0.1, deep: 0.08 };
     const field = compileField({ scale: 1, parts: [torso] }, { blend: 0 });
     let best = hipY + ROWS.waist[0];
     let narrow = Infinity;
@@ -429,7 +449,9 @@ export function ringBuild(
     // 上身要绕这个中心拧——绕髋关节那根竖线拧的话，上身一拧（后排的人拧半圈）腰就甩到另一边，和下身的腰错开一截，腰上一圈台阶
     const front = castRay(field, [0, best, 1], [0, 0, -1], 2);
     const back = castRay(field, [0, best, -1], [0, 0, 1], 2);
-    return { y: best, z: front < 2 && back < 2 ? (1 - front + (-1 + back)) / 2 : 0 };
+    // half：腰最细的地方半个宽；deep：前后半个厚
+    const cut = front < 2 && back < 2;
+    return { y: best, z: cut ? (1 - front + (-1 + back)) / 2 : 0, half: Number.isFinite(narrow) ? narrow : 0.1, deep: cut ? (1 - front - (-1 + back)) / 2 : 0.08 };
   })();
   /** 腰的截面中心（一个人自己的坐标） */
   const waistC: V3 = [0, waist.y, waist.z];
@@ -438,8 +460,84 @@ export function ringBuild(
   const pivotZ = 0;
   /** 前后排：前排几个人（单数时前排多一个），一排里相邻两条腿隔多远，两排的髋关节各离正中多远 */
   const frontCount = Math.ceil(count / 2);
-  const rowStep = wide * Math.max(ROWS.tight, (ROWS.step * spread) / TIGHT);
-  const rowDepth = Math.max(ROWS.depthMin, (ROWS.depth * spread) / TIGHT);
+  /**
+   * 前后排：一条没加粗的大腿左右多宽（大腿中段，髋关节往下 18–30 cm 最宽的地方；再往上是胯，本来就并在一起）。大腿加粗多少、左右相邻两个人能挨多近都照它定：
+   * 腿和腿只能贴着、不能叠着——叠着的话大腿之间那道缝（见 slits）把叠的部分削成一片片薄板（他问「为什么腿部被削平了」）
+   */
+  const thighWide = ((): number => {
+    if (!rowsMode || !legs.length) return 0.1;
+    const leg = legs[0];
+    const field = compileField({ scale: 1, parts: [leg] }, { blend: 0 });
+    let most = 0;
+    for (let y = hipY - 0.3; y <= hipY - 0.18; y += 0.02) {
+      const a = castRay(field, [leg.pos[0] + 0.5, y, leg.pos[2]], [-1, 0, 0], 1);
+      const b = castRay(field, [leg.pos[0] - 0.5, y, leg.pos[2]], [1, 0, 0], 1);
+      if (a < 1 && b < 1) most = Math.max(most, 1 - a - b);
+    }
+    return most > 0.02 ? most : 0.1;
+  })();
+  /** 大腿加粗到几倍：最多 ROWS.thigh，一个人自己的两条大腿（中段）正好贴上为止；不收细 */
+  const thighK = rowsMode && legs.length > 1 ? Math.max(1, Math.min(ROWS.thigh, (wide * ROWS.thighFit) / thighWide)) : ROWS.thigh;
+  /** 前后排下半截的腿：大腿加粗（见 thighK）。只改形状，骨骼、接上去的脚不动 */
+  const thighen = (leg: Part): Part => {
+    const ankle = leg.bones?.find((b) => /^Foot/.test(b.name))?.head;
+    if (!ankle) return leg;
+    const span = Math.hypot(ankle[0], ankle[1], ankle[2]);
+    return {
+      ...leg,
+      prims: leg.prims.map((q): Prim => {
+        if (q.kind === 'grid') {
+          const base = q.thicken?.k ?? 1;
+          const from = q.thicken?.ramp ?? [0.1, 0.2, 0.08];
+          // 从腿根起就渐渐粗起来、拉长到 thighRamp 才粗足：一下子粗起来的话大腿根上鼓出一圈，像穿了灯笼裤
+          return { ...q, thicken: { from: [0, 0, 0], to: q.thicken?.to ?? ankle, k: base * thighK, ramp: [Math.min(from[0], ROWS.thighRamp[0]), Math.max(from[1], ROWS.thighRamp[1]), span * ROWS.thighTaper], end: base } };
+        }
+        if (q.kind === 'cone' && /^Thigh/.test(q.name)) return { ...q, ra: q.ra * thighK, rb: q.rb * (1 + (thighK - 1) * ROWS.knee) };
+        return q;
+      }),
+    };
+  };
+  /**
+   * 下半截的一副胯（连加粗过的大腿）前后各鼓到哪（摆位的坐标里的 z；一个朝正前、直着站的人）：
+   * 从髋关节往下 0.38 到往上 0.14 这一段里，肚皮、大腿前面最靠前，屁股、大腿后面最靠后的地方
+   */
+  const hipBulk = ((): { front: number; back: number; thick: number } => {
+    if (!rowsMode) return { front: 0.09, back: -0.11, thick: 0.2 };
+    const far = 0.8;
+    const field = compileField({ scale: 1, parts: [lowTorso, ...legs.map(thighen)] }, { blend: 0 });
+    let front = -Infinity;
+    let back = Infinity;
+    // thick：同一个高度上最厚的地方有多厚。肚皮最鼓、屁股最鼓不在一个高度上，前后两排要贴着照它算（照 front − back 算会多隔出两三厘米）
+    let thick = 0;
+    for (let y = hipY - 0.38; y <= hipY + 0.14; y += 0.02) {
+      let [f1, b1] = [-Infinity, Infinity];
+      for (const x of [0, ...legs.map((leg) => leg.pos[0])]) {
+        const f = castRay(field, [x, y, far], [0, 0, -1], 2 * far);
+        const b = castRay(field, [x, y, -far], [0, 0, 1], 2 * far);
+        if (f < 2 * far) f1 = Math.max(f1, far - f);
+        if (b < 2 * far) b1 = Math.min(b1, -far + b);
+      }
+      if (f1 === -Infinity || b1 === Infinity) continue;
+      front = Math.max(front, f1);
+      back = Math.min(back, b1);
+      thick = Math.max(thick, f1 - b1);
+    }
+    return Number.isFinite(front) && Number.isFinite(back) ? { front, back, thick } : { front: 0.09, back: -0.11, thick: 0.2 };
+  })();
+  // 松紧到 SPREAD_FLOOR 以下接着往里挤（0 是还没挤，1 是挤到 ROWS.squeezed.at）：左右、前后都更近
+  const squeeze = Math.max(0, Math.min(1, (SPREAD_FLOOR - spread) / (SPREAD_FLOOR - ROWS.squeezed.at)));
+  // 左右相邻两个人最近挨到「里侧那两条大腿贴着」（叠 ROWS.thighLap 以内）：再近就叠在一起了。
+  // 松紧再小靠下半截的胯、大腿一起收窄来变窄（见 layout.ts 的 ROWS_LOWER），不靠人和人叠得更多
+  const rowStep = Math.max(
+    (wide + thighWide * thighK * (1 - ROWS.thighLap)) / 2,
+    wide * (Math.max(ROWS.tight, (ROWS.step * spread) / TIGHT) * (1 - squeeze) + ROWS.squeezed.step * squeeze),
+  );
+  // 前后相邻两排胯至少隔「一副完整的胯那么厚 + ROWS.hipGap」：每一排的胯、臀、腰都是完整的，不靠切掉一片来分开
+  // （他说「三个胯和臀部都要是完整的」；参考图里胯和胯也隔着二十几厘米）。松紧再小，前后也不再往里挤，只有左右接着挤
+  const rowDepth = Math.max(
+    hipBulk.thick + ROWS.hipGap,
+    Math.max(ROWS.depthMin, (ROWS.depth * spread) / TIGHT) * (1 - squeeze) + ROWS.squeezed.depth * squeeze,
+  );
   // 前后排时「半径」是正前方那个人离正中多远：下面量芯子、摆胸都照「站在正前方、不转的一个人」算（见 place0）
   // （前后排：正前方那个人的髋关节离正中多远，见 rowSpots 的 rowZ）
   /** 前后排：最前面那排胯离正中多远（几排胯前后挨着，隔 rowDepth） */
@@ -469,15 +567,38 @@ export function ringBuild(
       ),
     );
   const lean = rowsMode ? Math.max(ROWS.lean, leanAt(radius)) : leanAt(radius);
+  // 前后排：胯和腿最多斜这么多，剩下的由上身绕腰往背后靠（参考图侧面：腿差不多是直的，胯往前顶、肩往后靠，头才凑到一起）。
+  // 整个人连腿一起斜到底的话，三排胯隔开以后脚往前后撇得很开，侧面太宽
+  const rowLegLean = rowsMode ? Math.min(lean, ROWS.legLean) : lean;
+  /** 前后排：下半截斜 rowLegLean、上身绕腰靠 b 时，正前方那个人身上（自己的坐标里高 y、前后 z）的一点离正中多远 */
+  const reachAt = (y: number, z: number, b: number) =>
+    radius + waist.z * Math.cos(rowLegLean) - (waist.y - pivotY) * Math.sin(rowLegLean) + (z - waist.z) * Math.cos(b) - (y - waist.y) * Math.sin(b);
+  // 上身绕腰往背后靠多少：靠到脖子根挨着正中（没有脖子的照头的中心离正中半个头），最少 ROWS.lean，最多 ROWS.upperLeanMax
+  const upperLean = ((): number => {
+    if (!rowsMode) return lean;
+    const short = (b: number) => (single ? reachAt(neckY, neckZ, b) - neckBack : reachAt(headY, 0, b) - headRadius);
+    let lo = Math.max(rowLegLean, ROWS.lean);
+    let hi = Math.max(lo, ROWS.upperLeanMax);
+    if (short(lo) <= 0) return lo;
+    if (short(hi) > 0) return hi;
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2;
+      if (short(mid) > 0) lo = mid;
+      else hi = mid;
+    }
+    return hi;
+  })();
   /** 脖子从竖直往外歪多少：脖子根（身子靠过去以后）离圈心 from，头的中心要到 headRadius */
   let fan = 0;
   if (single) {
-    const from = radius + neckZ * Math.cos(lean) - (neckY - pivotY) * Math.sin(lean);
+    const from = rowsMode ? reachAt(neckY, neckZ, upperLean) : radius + neckZ * Math.cos(lean) - (neckY - pivotY) * Math.sin(lean);
     const reach = Math.hypot(single.head.pos[0] - single.neck.pos[0], single.head.pos[1] - single.neck.pos[1], single.head.pos[2] - single.neck.pos[2]);
     const out = (a: number) => reach * Math.sin(a) + HEAD_HALF * headHeight * Math.sin(a * HEAD_FOLLOW);
     const need = headRadius - from;
-    if (need > 0) {
-      let lo = 0;
+    // 前后排：上身绕腰靠得多（见 upperLean），脖子根离正中比半个头还远的话脖子不用往外歪——但也不能跟着身子一直往正中倒
+    // （头会扎进对面那排的头里）：往正中歪到头的中心正好离正中半个头为止（fan 是负的，最多歪到和身子一样斜）
+    if (need > 0 || rowsMode) {
+      let lo = rowsMode ? -upperLean : 0;
       let hi = FAN_MAX;
       for (let i = 0; i < 20; i++) {
         const mid = (lo + hi) / 2;
@@ -488,15 +609,16 @@ export function ringBuild(
     }
   }
   // 身子是往圈心靠的：脖子、头相对身子要多转回 lean 才是从竖直算起的
+  const bodyLean = rowsMode ? upperLean : lean;
   const base =
-    single && fan > 0
+    single && (fan > 0 || rowsMode)
       ? plain.map((p) => {
-          if (p === single.neck) return { ...p, quat: quatMul(aboutX(fan + lean), p.quat) };
+          if (p === single.neck) return { ...p, quat: quatMul(aboutX(fan + bodyLean), p.quat) };
           if (p === single.head) {
             return {
               ...p,
-              pos: add(single.neck.pos, rotate(aboutX(fan + lean), sub(p.pos, single.neck.pos))),
-              quat: quatMul(aboutX(fan * HEAD_FOLLOW + lean), p.quat),
+              pos: add(single.neck.pos, rotate(aboutX(fan + bodyLean), sub(p.pos, single.neck.pos))),
+              quat: quatMul(aboutX(fan * HEAD_FOLLOW + bodyLean), p.quat),
             };
           }
           return p;
@@ -504,6 +626,11 @@ export function ringBuild(
       : plain;
   const pivot: V3 = [0, pivotY, pivotZ];
   const leanQ = aboutX(-lean);
+  // 前后排：上身是绕腰靠的（下半截只斜 rowLegLean）。upQ 是上身靠了多少，waist0 是正前方那个人的腰在世界里哪
+  const upQ = rowsMode ? aboutX(-upperLean) : leanQ;
+  const waist0: V3 = add(add(rotate(aboutX(-rowLegLean), sub(waistC, pivot)), pivot), [0, 0, radius]);
+  /** place0 反过来：世界里的一点 → 正前方那个人自己的坐标 */
+  const unplace0 = (w: V3): V3 => (rowsMode ? add(waistC, rotate(quatConj(upQ), sub(w, waist0))) : add(rotate(quatConj(leanQ), sub(sub(w, [0, 0, radius]), pivot)), pivot));
   /**
    * 腿跟着身子一起斜，圈比 TIGHT 还紧的再往外多叉开一点（见 SPLAY_MAX）：胯挤在一处，脚还踩在 TIGHT 那么大的圈上。
    * 脚在脚踝上照这个角度转平
@@ -562,7 +689,7 @@ export function ringBuild(
       for (const t of across(m)) {
         const out = m > 1 ? t / ((m - 1) / 2) : 0;
         const yaw = row ? Math.PI - out * ROWS.yaw : out * ROWS.yaw;
-        const pitch = row ? -lean : lean;
+        const pitch = row ? -upperLean : upperLean;
         made.push({ t, row, rank: Math.round(t + (m - 1) / 2), x: t * span, z: row ? rowZ[2] : rowZ[0], yaw, roll: rollOf(t, yaw, pitch), lean: pitch, half: 'upper' });
       }
     });
@@ -580,19 +707,24 @@ export function ringBuild(
       const hips = hipsOf(people);
       for (const t of across(hips)) {
         const x = t * spacing(hips, people);
-        made.push({ t, row, line: i, rank: -1, x, z: lineZ[i], yaw: 0, roll: 0, lean: row === 0 ? lean : row === 1 ? -lean : 0, half: 'lower', nth: nth++, ...(under(people, x) ? {} : { bare: true }) });
+        made.push({ t, row, line: i, rank: -1, x, z: lineZ[i], yaw: 0, roll: 0, lean: row === 0 ? rowLegLean : row === 1 ? -rowLegLean : 0, half: 'lower', nth: nth++, ...(under(people, x) ? {} : { bare: true }) });
       }
     }
     // 中间几排的上身：没有头、胸、手臂，直着、照样往正中歪；人底下的每副胯上一个（两头多出来的胯不放，不然像几根没头的柱子）
     for (let i = 1; i < lines - 1; i++) {
       const hips = hipsOf(frontCount);
-      for (const t of across(hips)) {
+      const held = across(hips).filter((t) => under(frontCount, t * spacing(hips, frontCount)));
+      const outermost = Math.max(0, ...held.map(Math.abs));
+      for (const t of held) {
         const x = t * spacing(hips, frontCount);
-        if (under(frontCount, x)) made.push({ t, row: 2, line: i, rank: Math.round(t + (hips - 1) / 2), x, z: lineZ[i], yaw: 0, roll: rollOf(t, 0, 0), lean: 0, half: 'upper', hollow: true });
+        // 两头那两个背朝外（脸朝正中）：正面朝前站着的话，肩膀横着从前后两排斜着的人中间顶出来，侧面看是一块方疙瘩；
+        // 转过去以后侧面看是一个后背夹在前后两个人中间（参考图的侧面就是这样），两个肩膀一个接前排、一个接后排
+        const yaw = outermost > 0 && Math.abs(t) === outermost ? -Math.sign(t) * ROWS.hollowYaw : 0;
+        made.push({ t, row: 2, line: i, rank: Math.round(t + (hips - 1) / 2), x, z: lineZ[i], yaw, roll: rollOf(t, yaw, 0), lean: 0, half: 'upper', hollow: true });
       }
     }
     // 前后两排连腿一起斜（见 ROWS.legsFollow）：脚踝绕髋关节转了 lean，抬起来一点，整个人（上下两截）落回地上
-    const sink = ROWS.legsFollow ? -(hipY - ankleY) * (1 - Math.cos(lean)) : 0;
+    const sink = ROWS.legsFollow ? -(hipY - ankleY) * (1 - Math.cos(rowLegLean)) : 0;
     // 隔一排错开半道缝多一点（见 ROWS.slit.shift；只有素体切缝）：第 1、3 排；错开的是后排的话，后排的上身跟着一起挪
     const shifted = (s: (typeof made)[number]) => sampled && ((s.line ?? (s.row === 1 ? lines - 1 : 0)) % 2 === 1);
     for (const s of made) {
@@ -600,25 +732,6 @@ export function ringBuild(
       if (shifted(s)) s.x += ROWS.slit.shift;
     }
     return made.map((s) => ({ ...s, mirror: made.findIndex((o) => o.row === s.row && o.half === s.half && !!o.hollow === !!s.hollow && o.line === s.line && Math.abs(o.t + s.t) < 1e-6) }));
-  };
-  /** 前后排下半截的腿：大腿加粗（见 ROWS.thigh）。只改形状，骨骼、接上去的脚不动 */
-  const thighen = (leg: Part): Part => {
-    const ankle = leg.bones?.find((b) => /^Foot/.test(b.name))?.head;
-    if (!ankle) return leg;
-    const span = Math.hypot(ankle[0], ankle[1], ankle[2]);
-    return {
-      ...leg,
-      prims: leg.prims.map((q): Prim => {
-        if (q.kind === 'grid') {
-          const base = q.thicken?.k ?? 1;
-          const from = q.thicken?.ramp ?? [0.1, 0.2, 0.08];
-          // 从腿根起就渐渐粗起来、拉长到 thighRamp 才粗足：一下子粗起来的话大腿根上鼓出一圈，像穿了灯笼裤
-          return { ...q, thicken: { from: [0, 0, 0], to: q.thicken?.to ?? ankle, k: base * ROWS.thigh, ramp: [Math.min(from[0], ROWS.thighRamp[0]), Math.max(from[1], ROWS.thighRamp[1]), span * ROWS.thighTaper], end: base } };
-        }
-        if (q.kind === 'cone' && /^Thigh/.test(q.name)) return { ...q, ra: q.ra * ROWS.thigh, rb: q.rb * (1 + (ROWS.thigh - 1) * ROWS.knee) };
-        return q;
-      }),
-    };
   };
   /** 脚踝多高（腿上那根 Foot 骨骼的起点） */
   const ankleY = (() => {
@@ -633,7 +746,7 @@ export function ringBuild(
         return { x: radius * Math.sin(at), z: radius * Math.cos(at), yaw: at, row: 0, rank: k, mirror: (count - k) % count, roll: 0, lean };
       });
   /** 一个人自己的坐标 → 站在正前方、不转的一个人的位置（量芯子、摆胸照它算；围成一圈时就是第一个人） */
-  const place0 = (p: V3): V3 => add(add(rotate(leanQ, sub(p, pivot)), pivot), [0, 0, radius]);
+  const place0 = (p: V3): V3 => (rowsMode ? add(waist0, rotate(upQ, sub(p, waistC))) : add(add(rotate(leanQ, sub(p, pivot)), pivot), [0, 0, radius]));
   /** 一个人自己的坐标 → 第 k 个人的位置 */
   /** 第 k 个人整个怎么转：往背后靠、绕竖轴转到他朝的方向，前后排外面的人再往这一排的正中歪（绕世界的前后轴：在 +X 的往 −X 歪） */
   const turn = (k: number): Quat =>
@@ -642,7 +755,9 @@ export function ringBuild(
         quatMul(aboutZ(spots[k].roll), quatMul(aboutX(-spots[k].lean), aboutY(spots[k].yaw)))
       : quatMul(aboutZ(spots[k].roll), quatMul(aboutY(spots[k].yaw), aboutX(-spots[k].lean)));
   /** 前后排：第 k 份的腰的截面中心在世界里哪（下半截从髋关节起靠过去以后的） */
-  const waistAt = (k: number): V3 => add(add(rotate(aboutX(-spots[k].lean), sub(waistC, pivot)), pivot), [spots[k].x, spots[k].y ?? 0, spots[k].z]);
+  // 腰在哪照下半截斜了多少算（下半截最多斜 ROWS.legLean，见 rowLegLean）；上身再绕腰多往背后靠一些
+  const hipLean = (k: number) => (spots[k].half === 'upper' ? Math.sign(spots[k].lean) * Math.min(Math.abs(spots[k].lean), rowLegLean) : spots[k].lean);
+  const waistAt = (k: number): V3 => add(add(rotate(aboutX(-hipLean(k)), sub(waistC, pivot)), pivot), [spots[k].x, spots[k].y ?? 0, spots[k].z]);
   const place = (p: V3, k: number): V3 =>
     rowsMode && spots[k].half === 'upper'
       ? // 上身：腰的截面中心落在下半截的腰上，绕它拧、歪
@@ -710,7 +825,7 @@ export function ringBuild(
   // Hips 只留一根，挪到圈心（各人的脊柱、腿都接在它上面）。有芯子的话放在芯子里：芯子跟着胯，不跟着哪一个人的脊柱；
   // 没有芯子就留在第一个人的躯干里，下面是它在躯干自己的坐标里的位置
   const hips = torso.bones?.find((b) => b.name === 'Hips');
-  const center = rotate(quatConj(torso.quat), sub(add(rotate(quatConj(leanQ), sub([0, hipY, -radius], pivot)), pivot), torso.pos));
+  const center = rotate(quatConj(torso.quat), sub(unplace0([0, hipY, 0]), torso.pos));
   let hipsInCore = false;
 
   /* ---- 哪几个肩膀留手臂：从上面看离正左（+X）最近的几个，右边照镜像取 ---- */
@@ -793,7 +908,7 @@ export function ringBuild(
       // 前后排：两头的人斜着 45°，朝外的肩膀转到了正侧面的正中，前后两组手臂的根挤在一处，像从两排人中间长出来的。
       // 整组往自己那排挪 armApart（前排的往前、后排的往后），根落在前后两个躯干各自的侧面上；空出来的肩膀口子垫圆肩头（见 stumpsOf）
       const apart = rowsMode ? rotate(quatConj(quatMul(turn(k), torso.quat)), [0, 0, spots[k].row === 1 ? -ROWS.armApart : ROWS.armApart]) : ([0, 0, 0] as V3);
-      return [
+      const made =
         pointArm(
           {
             ...rest,
@@ -804,8 +919,10 @@ export function ringBuild(
             ...(arm.grafts ? { grafts: arm.grafts.map((g) => ({ ...g, bones: Object.fromEntries(Object.entries(g.bones).map(([key, v]) => [key, rename(v)])), rigid: g.rigid.map(rename) })) } : {}),
           },
           local,
-        ),
-      ];
+        );
+      // 手臂挪开了，锁骨那根骨骼的起点还留在原来的地方（躯干里面）：跟着挪的话白模的起点露到身子外面
+      const stay = rotate(quatConj(made.quat), mul(apart, 1 / (made.scale ?? 1)));
+      return [rowsMode && made.bones?.length ? { ...made, bones: made.bones.map((b, n) => (n === 0 ? { ...b, head: sub(b.head, stay) } : b)) } : made];
     });
   /** 第 k 个人没留手臂的肩膀上垫的圆肩头（只有素体的躯干要） */
   const stumpsOf = (k: number): Prim[] =>
@@ -833,8 +950,8 @@ export function ringBuild(
   // 圈心那根竖轴在一个人躯干自己的坐标里：过哪一点、朝哪
   const back = quatConj(torso.quat);
   // （世界里过正中 (0, ·, 0) 的那根竖轴：支点不在髋关节那根竖线上时——前后排是绕腰的截面中心转的——要把它前后那一截也减掉）
-  const axisAt = rotate(back, sub(add(rotate(quatConj(leanQ), [0, 0, -radius - pivotZ]), pivot), torso.pos));
-  const axisUp = rotate(back, rotate(quatConj(leanQ), [0, 1, 0]));
+  const axisAt = rotate(back, sub(unplace0([0, pivotY, 0]), torso.pos));
+  const axisUp = rotate(back, rotate(quatConj(upQ), [0, 1, 0]));
   const rowOf = (p: Part) => Number(/^Chest_(\d+)/.exec(p.name)?.[1] ?? 1) - 1;
   const breasts = base.filter((p) => p.type === 'chest' && p.parent === 'Torso');
   const rowY: number[] = [];
@@ -996,7 +1113,16 @@ export function ringBuild(
   const packRows = (): Circle[] => {
     foot = footprint();
     const known = foot.wide > 0.01 && foot.tall > 0.01;
-    const step = known ? foot.tall * CHEST_PACK.gap : CHEST_NEST.stagger * pitch;
+    let step = known ? foot.tall * CHEST_PACK.gap : CHEST_NEST.stagger * pitch;
+    // 最下面一排的下沿不低过裆（髋关节以下 ROWS.chestFloor）：再低就盖到大腿上，前后排的大腿糊成一片（参考图里胸到裆为止、
+    // 大腿一条条露着）。排不下就各排挨紧一点（一排压着一排，像瓦片），最紧到隔胸高的 ROWS.chestTight
+    const rows = perPerson.length;
+    const first = breasts.find((p) => rowOf(p) === 0) ?? breasts[0];
+    if (known && rows > 1 && first) {
+      const topY = place0(add(torso.pos, rotate(torso.quat, first.pos)))[1];
+      const lowest = hipY - ROWS.chestFloor + foot.tall * 0.5;
+      step = Math.min(step, Math.max(foot.tall * ROWS.chestTight, (topY - lowest) / (rows - 1)));
+    }
     rowFirst[0] = Math.max(...perPerson) * frontCount;
     rowFirst[1] = Math.max(...perPerson) * (count - frontCount);
     return perPerson.map((n, r) => ({ drop: r * step, per: n * frontCount, size: 1 }));
@@ -1159,53 +1285,37 @@ export function ringBuild(
    */
   const slits = (): { center: V3; radii: V3; quat: Quat; soft?: number }[] => {
     if (!rowsMode || !sampled) return [];
-    const { gap, top, reach, skew, rowSkew, deep } = ROWS.slit;
+    const { gap, top, reach, skew, deep } = ROWS.slit;
     const high = hipY - top;
-    // 椭球的上沿正好在 high，往下伸到地底下，大腿那一段差不多是满的缝宽
-    const cy = high / 2 - reach;
-    const ry = high / 2 + reach;
+    // 只切大腿贴着的那一段：上沿在 high，下沿到膝盖再往下 reach（髋关节到脚踝的 ROWS.slit.knee 那么高）。
+    // 以前一直切到地底下：小腿本来就不挨着，白白被削出一道平面（他问「为什么腿部被削平了」）
+    const low = ankleY + (hipY - ankleY) * ROWS.slit.knee - reach;
+    const cy = (high + low) / 2;
+    const ry = (high - low) / 2;
     const lows = spots.map((s, k) => ({ s, k })).filter(({ s }) => s.half === 'lower');
     const out: { center: V3; radii: V3; quat: Quat; soft?: number }[] = [];
-    const rowZ: number[] = [];
-    /** 每一排的腿往哪斜（见下面的 along）、髋关节的高度 */
-    const rowLean: number[] = [];
-    let yaw = 0;
-    let sink = 0;
-    let wide = 0;
+    let lines0 = 0;
     const lines = Math.max(...lows.map(({ s }) => s.line ?? 0)) + 1;
     for (let line = 0; line < lines; line++) {
       const mine = lows.filter(({ s }) => s.line === line);
       if (!mine.length) continue;
       const hips = mine.flatMap(({ k }) => legs.map((leg) => place(leg.pos, k))).sort((a, b) => a[0] - b[0]);
       const { k } = mine[0];
-      rowZ.push(mine[0].s.z);
-      wide = Math.max(wide, ...hips.map((h) => Math.abs(h[0])));
+      lines0++;
       // 跟着这一排的腿一起斜（和 copy 里腿的 legQuat 一样转；前后两排往外斜，后排小腿肚伸出去十几厘米，竖着的刀够不着），
       // 再绕腿的方向斜 skew
       const tilt = ROWS.legsFollow ? spots[k].lean : 0;
       const along = quatMul(aboutY(spots[k].yaw), aboutX(-tilt));
-      const turned = quatMul(along, aboutY(rowZ.length % 2 ? skew : -skew));
-      rowLean.push(tilt);
-      yaw = spots[k].yaw;
-      sink = Math.min(sink, spots[k].y ?? 0);
+      const turned = quatMul(along, aboutY(lines0 % 2 ? skew : -skew));
       for (let i = 1; i < hips.length; i++) {
         const mid: V3 = [(hips[i - 1][0] + hips[i][0]) / 2, hipY + (spots[k].y ?? 0), (hips[i - 1][2] + hips[i][2]) / 2];
         out.push({ center: add(mid, rotate(along, [0, cy - hipY, 0])), radii: [gap / 2, ry, deep], quat: turned });
       }
     }
-    // 排与排之间：左右只伸到最外面那条腿再往外一点，斜着的刀太长的话两头扎进前后排的腿里
-    // 也照两排腿斜的平均斜过去：前后两排往外斜、中间那排是直的，竖着的刀往下越来越偏向中间那排，削掉它小腿肚后面薄薄一片
-    // 只切到膝盖（ROWS.slit.knee）：前后两排的小腿碰不到，直着的腿小腿肚往后鼓，过了两排正中线就被削下一片、掉成碎块
-    // 往上切到腰（ROWS.slit.waist）：只从大腿根往下切的话，侧面看前中后三排的胯从腰到裆黏成一整块
-    const knee = ankleY + (hipY - ankleY) * ROWS.slit.knee;
-    const crest = Math.max(high, Math.min(...lows.map(({ k }) => waistAt(k)[1])) + ROWS.slit.waist);
-    const shinTop = (crest + knee) / 2;
-    const shinHalf = (crest - knee) / 2;
-    for (let i = 1; i < rowZ.length; i++) {
-      const along = quatMul(aboutY(yaw), aboutX(-(rowLean[i - 1] + rowLean[i]) / 2));
-      const mid: V3 = [0, hipY + sink, (rowZ[i - 1] + rowZ[i]) / 2];
-      out.push({ center: add(mid, rotate(along, [0, shinTop - hipY, 0])), radii: [wide + 0.3, shinHalf, ROWS.slit.rowGap / 2], quat: quatMul(along, aboutY(i % 2 ? rowSkew : -rowSkew)), soft: ROWS.slit.rowSoft });
-    }
+    // 排与排之间不切：每一排的胯、臀、腰都是完整的（他说「三排胯每个胯的屁股都是完整的」，以彩色正面 + 侧面那张参考图为准）。
+    // 前后相邻两排隔一副胯那么厚（见 rowDepth），屁股贴着后面那排的小腹，贴上的地方直接融在一起。
+    // 试过又去掉的：两排正中一道 6 cm 的缝、贴着中间那排切、空当里放一道 1.4 cm 的薄刀——都是平的一刀，
+    // 前面那排的屁股、后面那排的小腹最鼓的地方不在一个高度上（是错着嵌在一起的），平着切总要削平一块
     return out;
   };
   const halved = (k: number): Prim[] => {
@@ -1216,7 +1326,9 @@ export function ringBuild(
     const at = place(own.pos, k);
     // 在腰上接（世界里水平的一刀，过这一份的腰的截面中心）：上身留到腰以下一点，下身留到腰以上一点，叠着的那一小段圆滑地融合
     const mid = waistAt(k);
-    const level = half === 'upper' ? mid[1] - ROWS.overlap - 0.9 : mid[1] + ROWS.overlap + 0.9;
+    // 两截各往对面多留多少：素体少留（见 ROWS.overlap），白模还照原来的
+    const lap = sampled ? ROWS.overlap : ROWS.overlapMannequin;
+    const level = half === 'upper' ? mid[1] - lap - 0.9 : mid[1] + lap + 0.9;
     const center = rotate(quatConj(q), sub([mid[0], level, mid[2]], at));
     const waist: Prim = { kind: 'ellipsoid', name: 'Half', center, radii: [2.5, 0.9, 2.5], quat: quatConj(q), cut: true, soft: spots[k].bare ? ROWS.bare : ROWS.seam };
     // 第一副下半截带着几刀缝（见 slits）
@@ -1304,6 +1416,8 @@ export function ringBuild(
         ...((spots[k].half === 'lower' || spots[k].hollow) && (group === 'torso' || p.type === 'torso') ? { fuseAs: spots[k].hollow ? ('tail' as const) : ('wing' as const) } : {}),
         // 胸挤着旁边那个人是围成一圈本来的样子：不算穿模
         ...(p.type === 'chest' ? { rootFree: EMBEDDED } : {}),
+        // 中间一排没有头的上身整个并在大家的上身里：两头那两个挨着手臂的根，不算穿模
+        ...(spots[k].hollow && p.type === 'torso' ? { rootFree: EMBEDDED } : {}),
         // 外圈的腿也是：一个人并排的几条、相邻两个人挨着的那两条本来就挤着（圈紧的时候叠得更多）
         ...(p.type === 'leg' && !p.parent ? { rootFree: EMBEDDED, ringOf: partName('Torso', k) } : {}),
         // 上面没有人的胯（bare）：躯干不带脊柱，跟着胯（见 ROWS.bare）
@@ -1318,6 +1432,9 @@ export function ringBuild(
   const necks = base.filter((p) => p.type === 'neck' && p.parent === 'Torso');
   const top = torso.pos[1] + (necks.length ? Math.min(...necks.map((p) => p.pos[1])) : headY - hipY) - 0.02;
   const rings: Ring[] = [];
+  // 前后排：芯子从腰往上才有（腰上那条接缝再高 ROWS.coreWaist）。排与排之间的缝切到腰以后，伸到腰以下的那一截从缝里露出来，
+  // 侧面看是腰底下挂着的一块方板、一条小舌头
+  const coreStart = rowsMode ? Math.max(hipY + ROWS.coreFrom, Math.max(...spots.map((s, k) => (s.half === 'upper' ? waistAt(k)[1] : -Infinity))) + ROWS.coreWaist) : 0;
   for (let y = hipY - 0.2; y <= top; y += 0.02) {
     // 肚皮：正中线两边各看一点，取最靠前的（肚脐、胸口正中是凹进去的）
     let front = -Infinity;
@@ -1356,10 +1473,10 @@ export function ringBuild(
       const reachFull =
         Math.max(...spots.map((s, k) => (s.half === 'upper' ? Math.abs(place([0, y, front], k)[0]) : 0))) - (CORE_MARGIN + (CHEST_MARGIN - CORE_MARGIN) * zone);
       measured.push({ y: f[1], front: f[2], core: Math.max(0.03, r), wide: Math.max(0.03, thin + (Math.max(full, reachFull) - thin) * up) });
-      if ((f[1] + b[1]) / 2 < hipY + ROWS.coreFrom) continue;
+      if ((f[1] + b[1]) / 2 < coreStart) continue;
     }
     const under = rowsMode
-      ? Math.min(1, Math.max(0, (hipY + ROWS.coreFrom + ROWS.coreRamp - (f[1] + b[1]) / 2) / ROWS.coreRamp))
+      ? Math.min(1, Math.max(0, (coreStart + ROWS.coreRamp - (f[1] + b[1]) / 2) / ROWS.coreRamp))
       : Math.min(1, Math.max(0, (hipY - (f[1] + b[1]) / 2) / CORE_UNDER.drop));
     const slim = r * (1 + (CORE_UNDER.keep - 1) * under * under * (3 - 2 * under));
     // 前后排的芯子是扁的：前后照正前方那个人的肚皮，左右照最外面那个人的肚皮
@@ -1495,12 +1612,19 @@ export function ringBuild(
   const faceChests = (): Part[] => {
     if (!rowsMode || !stagger || !packed.length) return [];
     const made = new Map<string, number>();
-    const world = quatMul(leanQ, torso.quat);
+    const world = quatMul(upQ, torso.quat);
     const bury = foot.deep > 0 ? Math.max(CHEST_BURY_LEAST, Math.min(1, (foot.deep * packed[0].size) / CHEST_DEEP)) : 1;
     const sink = CHEST_MARGIN - (CHEST_MARGIN + CHEST_SINK) * bury;
     // 每只胸坐在身体实际的表面上：从外面朝正中那根竖轴打一条线，碰到的第一层躯干。
     // 光照椭圆摆的话，两边斜着的人比椭圆鼓，下面几排的胸陷在他们身子里
-    const shell = compileField({ scale: 1, parts: parts.flat().filter((p) => (/^Torso/.test(p.name) || p.name === 'Core') && !p.parent) }, { blend: 0 });
+    // 连大腿一起量：胸多的时候最下面几排排到髋关节以下，那里的表面是大腿。只量躯干的话照椭圆估，腿差不多是直的以后
+    // （见 ROWS.legLean）大腿比估的靠里，小胸浮在大腿前面、掉成一颗颗单独的
+    // 同一排相邻两人腰之间填的那块（rowFill）也算：不算的话腰那么高的地方人和人之间一直空到中间那排，
+    // 胸底的垫子照「空多少填多少」把这一整段填成一大块，底下齐着裆削平——胸和胯之间多出一个台子
+    const shell = compileField(
+      { scale: 1, parts: [...parts.flat().filter((p) => (/^Torso/.test(p.name) || p.name === 'Core' || p.type === 'leg') && !p.parent), ...rowFill().map((p) => ({ ...p, parent: undefined }))] },
+      { blend: 0 },
+    );
     const REACH = 1.2;
     const surfaceAt = (x: number, y: number, z: number): number | null => {
       const far = Math.hypot(x, z) || 1;
@@ -1510,8 +1634,11 @@ export function ringBuild(
     /** 胸底的垫子（见 ROWS.pad）：世界里的椭球，挂在芯子上 */
     const pads: Prim[] = [];
     const chests = [1, -1].flatMap((side) => {
-      // 隔一排错开半只（砖墙那样）：错开的那排少一只，正好嵌在上面一排两只之间
-      const counts = (side > 0 ? packed.map((ring) => ring.per) : perPerson.map((n) => n * (count - frontCount))).map((n, r) => (r % 2 && n > 1 ? n - 1 : n));
+      // 交错成串：隔一排错开半只（砖墙那样），错开的那排少一只，正好嵌在上面一排两只之间（6、5、6）。
+      // 交错渐小：一排比一排少一只、每排都嵌在上面一排两只之间，上宽下尖的一串（6、5、4；参考图是这样的）
+      const counts = (side > 0 ? packed.map((ring) => ring.per) : perPerson.map((n) => n * (count - frontCount))).map((n, r, all) =>
+        chest === 'taper' ? Math.max(1, Math.min(n, all[0] - r)) : r % 2 && n > 1 ? n - 1 : n,
+      );
       /** 第 r 排那个高度上这一面的样子：椭圆、弧长、身体表面那一层 */
       const geom = (r: number) => {
         const row = breasts.filter((p) => rowOf(p) === hosts[r]);
@@ -1536,7 +1663,18 @@ export function ringBuild(
         }
         const half = along[STEPS];
         const wraps = ROWS.cover;
-        const slot = (2 * half * wraps) / rowFirst[side > 0 ? 0 : 1];
+        // 最外面那只不越过侧面正中：它的后沿（照胸宽算）离正中那个竖面至少 ROWS.flank。越过去的话前后两面最上面一排在侧面
+        // 连成一条带子，把两排人的后背、手臂的根全盖住（参考图里侧面中间露着后背和手臂）。排不下就整排挤紧一点
+        const reachZ = (i: number) => {
+          const t = (i / STEPS) * (Math.PI / 2);
+          const on = at(t);
+          const n = norm2((on[0] / w) ** (ROWS.square - 1) / w, (on[1] / d) ** (ROWS.square - 1) / d);
+          return on[1] - 0.5 * foot.wide * packed[0].size * Math.abs(n[0]);
+        };
+        let last = STEPS;
+        while (last > 0 && reachZ(last) < ROWS.flank) last--;
+        const most = rowFirst[side > 0 ? 0 : 1];
+        const slot = Math.min((2 * half * wraps) / most, most > 1 ? along[last] / ((most - 1) / 2) : Infinity);
         /** 沿着那一面离正中 s 远（弧长，带左右的正负）的那一点：在椭圆上的位置、外法线 */
         const pointAt = (s: number) => {
           const far = Math.min(Math.abs(s), half);
@@ -1643,24 +1781,49 @@ export function ringBuild(
         const size = packed[0].size;
         const [padW, padH] = [foot.wide * size * ROWS.pad.wide, foot.tall * size * ROWS.pad.tall];
         const lowest = r === counts.length - 1;
-        for (let h = 0; h < 2 * n - 1; h++) {
+        // 垫子也不低过裆：低过去的那一截垫在大腿前面，把几条大腿连成一块平板
+        const floorY = hipY - ROWS.chestFloor;
+        const tall = Math.min(padH, rowHeight - floorY);
+        for (let h = 0; tall >= 0.02 && h < 2 * n - 1; h++) {
           const { at, reach: rooted } = seat(r, h / 2 - (n - 1) / 2);
           const q = pointAt(at);
           const out = Math.hypot(q.x, q.z) || 1;
           const front = rooted - ROWS.pad.behind;
-          const back = gaugeAt(at) - ROWS.pad.into;
-          if (front - back < ROWS.pad.least + ROWS.pad.into) continue;
-          for (const [dy, short] of lowest ? [[0, 0], [-padH * ROWS.pad.under, ROWS.pad.behind]] : [[0, 0]]) {
-            const mid = (front - short + back) / 2;
+          if (lowest) {
+            // 只垫在每只胸自己后面（两只之间的不垫）：小胸之间垫了的话，一片片斜着的垫子露在外面像鱼鳍
+            if (h % 2) continue;
+            // 最下面一排：垫子是一块斜着的——上头贴着胸根，下头收到裆那么高的身体表面上，像胸底下那道往肚子收的褶。
+            // 竖着垫的话，胸根比底下的肚子、裆靠前好几厘米，一排垫子连成一条底下削平的板，胸和胯之间多出一个台子
+            // 不伸出这只胸自己的范围：下头只到胸的下沿以里，往里收也不超过胸鼓出来那么多——小胸的话收得又长又深，
+            // 两头的垫子像两片耳朵支在外面
+            const [topY, lowY] = [rowHeight + tall * ROWS.pad.rampTop, Math.max(floorY, rowHeight - foot.tall * size * 0.45)];
+            const body = surfaceAt(q.x, lowY, q.z);
+            if (body === null) continue;
+            const [rTop, rLow] = [front, Math.max(Math.min(front, body - ROWS.pad.rampInto), front - Math.max(0.03, foot.deep * size))];
+            if (rTop - rLow < ROWS.pad.least) continue;
+            const mid = (rTop + rLow) / 2 - ROWS.pad.rampThick;
             pads.push({
               kind: 'ellipsoid',
               name: `Pad_${pads.length + 1}`,
-              center: [(q.x / out) * mid, rowHeight + dy, (q.z / out) * mid],
-              radii: [padW, padH, Math.max(0.005, (front - short - back) / 2)],
-              quat: aboutY(Math.atan2(q.normal[0], q.normal[1])),
+              center: [(q.x / out) * mid, (topY + lowY) / 2, (q.z / out) * mid],
+              radii: [foot.wide * size * 0.4, Math.hypot(topY - lowY, rTop - rLow) / 2 + ROWS.pad.rampThick, ROWS.pad.rampThick],
+              quat: quatMul(aboutY(Math.atan2(q.x, q.z)), aboutX(Math.atan2(rTop - rLow, topY - lowY))),
               soft: ROWS.pad.soft,
             });
+            continue;
           }
+          // 垫子最厚 ROWS.pad.most：后面空得再多（量不到身子的地方）也只垫这么厚，贴着胸根，不往里填成一大块
+          const back = Math.max(gaugeAt(at) - ROWS.pad.into, front - ROWS.pad.most);
+          if (front - back < ROWS.pad.least + ROWS.pad.into) continue;
+          const mid = (front + back) / 2;
+          pads.push({
+            kind: 'ellipsoid',
+            name: `Pad_${pads.length + 1}`,
+            center: [(q.x / out) * mid, rowHeight, (q.z / out) * mid],
+            radii: [padW, tall, Math.max(0.005, (front - back) / 2)],
+            quat: aboutY(Math.atan2(q.normal[0], q.normal[1])),
+            soft: ROWS.pad.soft,
+          });
         }
         return Array.from({ length: n }, (_, j): Part => {
           const { at: s, reach } = seat(r, j - (n - 1) / 2);
@@ -1697,7 +1860,34 @@ export function ringBuild(
   };
 
   /* ---- 落到地上，量身高 ---- */
-  let out = [...parts.flat(), ...innerLegParts(), ...faceChests()];
+  /**
+   * 前后排：同一排左右相邻两个人的腰之间是空的（胯挨着胯、肋挨着肋，腰细，中间漏一个透光的洞）。每个洞里填一块竖着的扁肉
+   * （见 ROWS.fill）：比两边的腰薄一点，左右伸进两边的腰里，上下从胯到肋。挂在芯子上跟着胯，和芯子、胸一类
+   */
+  const rowFill = (): Part[] => {
+    if (!rowsMode) return [];
+    const lows = spots.map((s, k) => ({ s, k })).filter(({ s }) => s.half === 'lower' && !s.bare);
+    const fills: Prim[] = [];
+    for (const line of new Set(lows.map(({ s }) => s.line ?? 0))) {
+      const row = lows.filter(({ s }) => (s.line ?? 0) === line).sort((a, b) => a.s.x - b.s.x);
+      for (let i = 1; i < row.length; i++) {
+        const [a, b] = [waistAt(row[i - 1].k), waistAt(row[i].k)];
+        const gap = Math.abs(b[0] - a[0]) - 2 * waist.half;
+        if (gap < ROWS.fill.least) continue;
+        fills.push({
+          kind: 'ellipsoid',
+          name: `Fill_${fills.length + 1}`,
+          center: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2 + ROWS.fill.lift, (a[2] + b[2]) / 2],
+          radii: [gap / 2 + waist.half * ROWS.fill.into, ROWS.fill.tall, waist.deep * ROWS.fill.deep],
+          quat: aboutX(-(row[i - 1].s.lean + row[i].s.lean) / 2),
+          soft: ROWS.fill.soft,
+        });
+      }
+    }
+    if (!fills.length) return [];
+    return [{ name: 'RowFill', type: 'lower', side: 0, ...(hipsInCore ? { parent: 'Core' } : {}), pos: [0, 0, 0], quat: [0, 0, 0, 1], material: 'clay', fuseAs: 'lower', rootFree: EMBEDDED, prims: fills }];
+  };
+  let out = [...parts.flat(), ...innerLegParts(), ...faceChests(), ...rowFill()];
   const ground = lowest(out);
   out = out.map((p) => (p.parent ? p : { ...p, pos: [p.pos[0], p.pos[1] - ground, p.pos[2]] as V3 }));
   const height = highest(out) * figure.scale;

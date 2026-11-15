@@ -300,7 +300,7 @@
               <span>围几个人</span>
               <div class="seg" id="segRingCount" role="radiogroup" aria-label="围成一圈的有几个人"></div>
             </div>
-            <div class="slider" id="ringSpreadField" hidden title="围成一圈的松紧：数值小的圈小，每个人的身子和头靠得近、叠得多，圈心的圆柱细；100% 是所有的腿隔得一样远，人和人只在肩膀和胯上挨着；再大人和人之间拉开，圈心的圆柱粗，底下放得下更多的腿">
+            <div class="slider" id="ringSpreadField" hidden title="围成一圈的松紧：数值小的圈小，每个人的身子和头靠得近、叠得多，圈心的圆柱细；100% 是所有的腿隔得一样远，人和人只在肩膀和胯上挨着；再大人和人之间拉开，圈心的圆柱粗，底下放得下更多的腿。前后排能调到 30%：腿和腿只贴着、不叠着，再调小是下身的胯跟着收窄">
               <label for="s-ringSpread">圈的松紧</label>
               <input type="range" id="s-ringSpread">
               <output id="o-ringSpread" for="s-ringSpread"></output>
@@ -409,6 +409,7 @@
               </div>
               <div class="actions">
                 <button type="button" class="btn" id="btnTweakReset">还原这个部件</button>
+                <button type="button" class="btn" id="btnTweakDelete" title="把选中的部件从身上拿掉（长在它上面的一起拿掉）。躯干、下身、脖子不能删；删掉的在下面「已删除」里点一下就恢复">删除这个部件</button>
                 <button type="button" class="btn" id="btnTweakKind" title="把和它同一类的部件都选上：全部手臂、全部腿、全部头……">同类全选</button>
                 <button type="button" class="btn" id="btnTweakDone">取消选择</button>
               </div>

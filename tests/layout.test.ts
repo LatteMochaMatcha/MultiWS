@@ -1118,7 +1118,8 @@ describe('各种组合都能生成', () => {
   it.each(PRESETS.map((p) => [p.name, p] as const))('预设「%s」', (_name, preset) => {
     const f = buildFigure(applyPreset(defaultSpec(), preset));
     expectSound(f);
-    expectMirrored(f);
+    // 围成一圈的不是照名字左右成对的（前后排中间那排还整排挪开一点挡缝），左右对称在 ring.test.ts 里另验
+    if (!preset.ring) expectMirrored(f);
   });
 
   it('所有部件数量取极值时不出 NaN', () => {

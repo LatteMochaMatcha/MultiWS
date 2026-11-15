@@ -288,7 +288,18 @@ function start(hot: ViteHotContext) {
 
   // 3D 视图左下角的「标注」：画红圈、写一句话，存成问题单（见 annotate.ts）
   startAnnotate(hot, {
-    canvas: () => oc()?.viewport?.renderer.domElement ?? null,
+    // 存图前先画一帧：兼容模式的画布不留着上一帧（preserveDrawingBuffer 关着），直接读是一张空的——问题单里只有红圈、没有模型
+    canvas: () => {
+      const vp = oc()?.viewport;
+      if (!vp) return null;
+      try {
+        const inner = vp as unknown as { scene: Parameters<typeof vp.renderer.render>[0] };
+        vp.renderer.render(inner.scene, vp.camera);
+      } catch {
+        // 画不出来就照原样读
+      }
+      return vp.renderer.domElement;
+    },
     context: () => ({ page: pageInfo(), snapshot: toPlain(snapshot()) as Record<string, unknown> }),
   });
 }

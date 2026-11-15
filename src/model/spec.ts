@@ -250,7 +250,9 @@ export type RingLegFacingMode = (typeof RING_LEG_FACINGS)[number];
  * 缺省 76%：比它再小时腿比平常往外叉开得多，胯挤在一处、脚还踩在原来那么大的圈上（不然相邻两个人的腿叠在一处，
  * 见 geometry/ring.ts 的 SPLAY_MAX）
  */
-export const RING_SPREAD = { min: 0.5, max: 1.3, def: 0.76, step: 0.02 } as const;
+export const RING_SPREAD = { min: 0.3, max: 1.3, def: 0.76, step: 0.02 } as const;
+/** 围成一圈（各有各的胯、并胯融合）最紧到这里；再往下到 RING_SPREAD.min 只有前后排接着挤（左右、前后都更近） */
+export const RING_SPREAD_CIRCLE_MIN = 0.5;
 /** 以前是三档：存下来的设定里还可能是这几个字 */
 const RING_SPREAD_OLD: Record<string, number> = { tight: 0.76, medium: 0.88, loose: 1 };
 export const clampRingSpread = (v: unknown): number => {
@@ -413,6 +415,8 @@ export interface PartOverride {
   rotation?: Vec3;
   /** 缩放倍率，以关节为中心。三个数一样就是等比缩放 */
   scale?: Vec3;
+  /** 删掉这个部件（连同长在它上面的）：套微调时从身上拿掉。躯干、下身、脖子不能删（见 geometry/tweak.ts 的 deletable） */
+  hidden?: boolean;
 }
 
 /** 微调的取值范围：位置 ±3，角度 ±180°，缩放 0.05–10 倍 */
@@ -434,8 +438,8 @@ export function cleanOverride(o: PartOverride): PartOverride | null {
   const position = tidy(o.position, -L.position, L.position, 4, 0);
   const rotation = tidy(o.rotation, -L.rotation, L.rotation, 2, 0);
   const scale = tidy(o.scale, L.scaleMin, L.scaleMax, 3, 1);
-  if (!position && !rotation && !scale) return null;
-  return { ...(position && { position }), ...(rotation && { rotation }), ...(scale && { scale }) };
+  if (!position && !rotation && !scale && !o.hidden) return null;
+  return { ...(position && { position }), ...(rotation && { rotation }), ...(scale && { scale }), ...(o.hidden && { hidden: true }) };
 }
 
 /* ---------------- BodySpec ---------------- */
@@ -819,6 +823,7 @@ function readOverrides(v: unknown): Record<string, PartOverride> {
       position: readVec3(raw.position),
       rotation: readVec3(raw.rotation),
       scale: readVec3(raw.scale),
+      hidden: raw.hidden === true,
     });
     if (o) out[name] = o;
   }

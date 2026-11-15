@@ -46,9 +46,27 @@ export function setOverride(spec: BodySpec, name: string, patch: PartOverride, m
   const next = cleanOverride({ ...activeOverrides(spec)[name], ...patch });
   let out = withOverride(spec, name, next);
   const twin = mirror ? mirrorName(name) : null;
-  if (twin) out = withOverride(out, twin, next && mirrorOverride(next));
+  // 对侧那个删掉了的还是删掉的（镜像只管位置、角度、大小）
+  const gone = twin ? activeOverrides(spec)[twin]?.hidden : false;
+  if (twin) out = withOverride(out, twin, cleanOverride({ ...(next && mirrorOverride(next)), ...(gone && { hidden: true }) }));
   return out;
 }
+
+/** 删掉一个部件（连同长在它上面的）；它原来的位置、角度、大小的微调留着，恢复以后还在 */
+export function hidePart(spec: BodySpec, name: string): BodySpec {
+  return withOverride(spec, name, cleanOverride({ ...activeOverrides(spec)[name], hidden: true }));
+}
+
+/** 把删掉的部件恢复回来 */
+export function showPart(spec: BodySpec, name: string): BodySpec {
+  return withOverride(spec, name, cleanOverride({ ...activeOverrides(spec)[name], hidden: false }));
+}
+
+/** 现在删掉了哪些部件（名字） */
+export const hiddenParts = (spec: Pick<BodySpec, 'bodyStyle' | 'overrides' | 'characterOverrides'>): string[] =>
+  Object.entries(activeOverrides(spec))
+    .filter(([, o]) => o.hidden)
+    .map(([name]) => name);
 
 /** 把一个部件还原成自动摆位的样子 */
 export function clearOverride(spec: BodySpec, name: string, mirror = false): BodySpec {

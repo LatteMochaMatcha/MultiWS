@@ -4,7 +4,7 @@
  * 部件都按一个 1.76 m 上下的标准人台来摆（沿用 v1 的骨架尺寸），Figure.scale 再把它缩放到设定身高。
  * 体型是动漫比例的成年女性：躯干有胸腔、腰、骨盆的起伏，四肢带一点肌肉的鼓起。
  */
-import { type BodySpec, type Gender, type HandStyle, type LegForm, type LimbEnd, type PartOverride, BUST_MAX_OTHER, chestRows, countsOf, legPlan, limbOf, ringActive, rowSlots, torsosAlike } from '../model/spec';
+import { type BodySpec, type Gender, type HandStyle, type LegForm, type LimbEnd, type PartOverride, BUST_MAX_OTHER, RING_SPREAD, chestRows, countsOf, legPlan, limbOf, ringActive, rowSlots, torsosAlike } from '../model/spec';
 import { animeReady } from '../anime/body';
 import { genitalReady } from '../anime/genital';
 import { HAND_ELBOW, HAND_LENGTH, HAND_WRIST, fingerJoints, handGraft } from '../anime/hand';
@@ -27,7 +27,7 @@ import { ringBuild, ringRows } from './ring';
  * 白模的胯只加宽一点（hipsMannequin）：白模的两条腿跟着胯宽分开，加宽多了几个人隔得远，头凑不到一起；素体的腿不跟着挪。
  * 参考图（refs/rows-front-side.jpg）是宽胯、粗大腿，三副胯互相贴着；照滑块原样的话素体瘦，胯和胯之间空着
  */
-const ROWS_LOWER = { hips: 1.55, hipsMannequin: 1.2, limbs: 1 };
+const ROWS_LOWER = { hips: 1.55, hipsMannequin: 1.2, limbs: 1, narrow: 1 };
 const HIPS_MOST = 1.8;
 const LIMBS_MOST = 2;
 /** 围成一圈时每个人最多几条腿：再多的话外圈、圈心底下的腿加起来上百条，融合一次要很久 */
@@ -967,7 +967,17 @@ function layoutEnds(given: BodySpec): Figure {
         ? {
             lower: person(0, legs, {
               ...given.shape,
-              hips: Math.min(HIPS_MOST, given.shape.hips * (given.bodyStyle === 'mannequin' ? ROWS_LOWER.hipsMannequin : ROWS_LOWER.hips)),
+              // 松紧调小时下半截的胯跟着收窄（松紧 RING_SPREAD.def 以上是 ROWS_LOWER 的满倍数，到 RING_SPREAD.min 收到 ROWS_LOWER.narrow）：
+              // 左右相邻两个人的腿只能贴着、不能叠着（见 ring.ts 的 rowStep），要更窄就得胯和大腿一起窄
+              hips: Math.min(
+                HIPS_MOST,
+                given.shape.hips *
+                  (() => {
+                    const full = given.bodyStyle === 'mannequin' ? ROWS_LOWER.hipsMannequin : ROWS_LOWER.hips;
+                    const t = Math.max(0, Math.min(1, (RING_SPREAD.def - given.ringSpread) / (RING_SPREAD.def - RING_SPREAD.min)));
+                    return full + (Math.min(full, ROWS_LOWER.narrow) - full) * t;
+                  })(),
+              ),
               limbs: Math.min(LIMBS_MOST, given.shape.limbs * ROWS_LOWER.limbs),
             }),
           }

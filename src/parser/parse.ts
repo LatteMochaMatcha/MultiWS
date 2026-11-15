@@ -390,6 +390,8 @@ const KEYWORDS: readonly Keyword[] = [
   { re: kw(`阿修罗|${L}ash?ura${R}`), set: { heads: 3, armPairs: 3 }, headLayout: 'faces', armLayout: 'fan' },
   { re: kw(`${L}janus${R}`), set: { heads: 2 }, headLayout: 'faces' },
   { re: kw('千手'), set: { armPairs: 4 }, armLayout: 'fan' },
+  // 预设「楚云萱」：文字里写不了「前后排」，只认得出每个人的手臂和胸
+  { re: kw('楚云萱'), set: { armPairs: 3, breasts: 6 }, armLayout: 'fan' },
   // minotaur 是牛头人，不是人马；humantaur 另算（见下一条）。centaur 整词先认，高亮时才是一整个词
   {
     re: kw(

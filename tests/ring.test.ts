@@ -4,7 +4,7 @@ import { worldTransforms } from '../src/geometry/figure';
 import { add, rotate, sub } from '../src/geometry/vec';
 import { RING_PERSON_LEGS, buildFigure } from '../src/geometry/layout';
 import { PRESETS, applyPreset } from '../src/model/presets';
-import { type BodySpec, RING_COUNT, RING_SPREAD, defaultSpec, normalizeSpec, ringActive } from '../src/model/spec';
+import { type BodySpec, RING_COUNT, RING_SPREAD, RING_SPREAD_CIRCLE_MIN, defaultSpec, normalizeSpec, ringActive } from '../src/model/spec';
 import { writeGlb } from '../src/io/glb';
 import { humanoidMap, writeVrm } from '../src/io/vrm';
 import { ringHumanoid } from '../src/io/vrmRig';
@@ -552,6 +552,12 @@ describe('围成一圈', () => {
       expect(heights.length).toBe(3);
       const rows = heights.map((y) => face.filter((p) => Math.round(p[1] * 100) === y).map((p) => p[0]).sort((a, b) => a - b));
       expect(rows.map((row) => row.length)).toEqual([6, 5, 6]);
+      // 交错渐小：一排比一排少一只（6、5、4）
+      const tapered = buildFigure(specOf({ bodyStyle: 'anime', ring: 'rows', ringChest: 'taper', ringCount: 6, ringSpread: 0.5, armLayout: 'fan', chestRow: 2, counts: { ...d.counts, breasts: 6, armPairs: 3 }, shape: { ...d.shape, bust: 1.87 } }));
+      const txf = worldTransforms({ parts: tapered.parts, scale: 1 });
+      const tface = tapered.parts.filter((p) => p.type === 'chest').map((p) => txf.get(p.name)!.pos).filter((p) => p[2] * side > 0);
+      const theights = [...new Set(tface.map((p) => Math.round(p[1] * 100)))].sort((a, b) => b - a);
+      expect(theights.map((y) => tface.filter((p) => Math.round(p[1] * 100) === y).length)).toEqual([6, 5, 4]);
       // 第三排和第一排一列对一列；第二排的每一只在第一排相邻两只的正中间（差不到 1.5 cm）
       rows[2].forEach((x, i) => expect(Math.abs(x - rows[0][i])).toBeLessThan(0.015));
       rows[1].forEach((x, i) => expect(Math.abs(x - (rows[0][i] + rows[0][i + 1]) / 2)).toBeLessThan(0.015));
@@ -579,6 +585,38 @@ describe('围成一圈', () => {
         by.forEach((v, k) => expect(Math.abs(v - want[k]), `${ring} ${name}`).toBeLessThan(1e-6));
       }
     }
+  });
+
+  it('松紧到 30%：前后排的腿只贴着、不叠着（左右不再往里挤，靠胯收窄变窄），围成一圈的到 50% 为止', () => {
+    useAnimeBody();
+    const d = defaultSpec();
+    expect(RING_SPREAD.min).toBe(0.3);
+    const size = (ring: BodySpec['ring'], ringSpread: number) => {
+      const figure = buildFigure(specOf({ bodyStyle: 'anime', ring, ringCount: 6, ringSpread, counts: { ...d.counts, breasts: 0, armPairs: 0 } }));
+      const xfs = worldTransforms({ parts: figure.parts, scale: 1 });
+      const legs = figure.parts.filter((p) => p.type === 'leg' && !p.parent).map((p) => xfs.get(p.name)!.pos);
+      const span = (k: number) => Math.max(...legs.map((p) => p[k])) - Math.min(...legs.map((p) => p[k]));
+      return [span(0), span(2)];
+    };
+    const [w5, d5] = size('rows', 0.5);
+    const [w4, d4] = size('rows', 0.4);
+    const [w3, d3] = size('rows', 0.3);
+    // 腿根左右占的范围不随松紧变大；前后也是——三排胯已经贴着了，每一排的胯都是完整的。
+    // 相邻两个人最近到大腿贴着大腿：叠着的话腿之间的缝把叠的部分削成平面
+    expect(w4).toBeLessThanOrEqual(w5 + 1e-6);
+    expect(w3).toBeLessThanOrEqual(w4 + 1e-6);
+    const tight = buildFigure(specOf({ bodyStyle: 'anime', ring: 'rows', ringCount: 6, ringSpread: 0.3, counts: { ...d.counts, breasts: 0, armPairs: 0 } }));
+    const txf = worldTransforms({ parts: tight.parts, scale: 1 });
+    const front = tight.parts.filter((p) => p.type === 'leg' && !p.parent).map((p) => txf.get(p.name)!.pos).filter((p) => p[2] > 0.1).map((p) => p[0]).sort((a, b) => a - b);
+    expect(front.length).toBe(6);
+    // 六条腿的根相邻两条都隔着十厘米以上（一条大腿那么宽）
+    for (let i = 1; i < front.length; i++) expect(front[i] - front[i - 1]).toBeGreaterThan(0.1);
+    expect(d4).toBeLessThanOrEqual(d5 + 1e-6);
+    expect(d3).toBeLessThanOrEqual(d4 + 1e-6);
+    // 胯收窄以后一副胯前后也薄一点，三排跟着贴近几厘米
+    expect(d5 - d3).toBeLessThan(0.05);
+    // 围成一圈的：30% 和 50% 摆出来一样
+    for (const ring of ['fused', 'hips'] as const) expect(size(ring, 0.3)).toEqual(size(ring, 0.5));
   });
 
   it('前后排：前后两排背靠背（单数时前排多一个），每个人腰以下朝正前、腰以上转过去，头凑在一起；中间多一排没有头的；三排胯分开、腿都朝前；每侧前后两组手臂，前后各一团胸', () => {
@@ -664,10 +702,13 @@ describe('围成一圈', () => {
         else expect(Math.abs(one.up[2])).toBeLessThan(1e-6);
         expect(one.part.fuseAs).toBe('wing');
       }
-      // 上下两截在腰上接、靠得一样多：每个人的上身和他的下身往前后靠的角度一样（腰上只拧不折）
+      // 上下两截在腰上接：下身（胯和腿）只斜一点点（腿差不多是直的），上身绕腰朝同一边靠得更多，头才凑得到一起
       for (const one of uppers) {
         const own = lowers.reduce((a, b) => (Math.hypot(b.x - one.x, b.z - one.z) < Math.hypot(a.x - one.x, a.z - one.z) ? b : a));
-        if (Math.abs(one.x) < 0.02) expect(one.up[2]).toBeCloseTo(own.up[2], 5);
+        if (Math.abs(one.x) >= 0.02) continue;
+        expect(Math.abs(own.up[2])).toBeLessThan(0.08);
+        expect(one.up[2] * own.up[2]).toBeGreaterThan(0);
+        expect(Math.abs(one.up[2])).toBeGreaterThanOrEqual(Math.abs(own.up[2]) - 1e-6);
       }
       const rowOf = (z: number) => (z > 0.1 ? 1 : z < -0.1 ? -1 : 0);
       for (const row of [1, 0, -1]) {
@@ -808,7 +849,7 @@ describe('围成一圈', () => {
       const tip = rotate(part.quat, low.tail);
       return Math.hypot(part.pos[0] + tip[0], part.pos[2] + tip[2]);
     };
-    expect(RING_SPREAD.min).toBe(0.5);
+    expect(RING_SPREAD_CIRCLE_MIN).toBe(0.5);
     for (const style of ['anime', 'mannequin'] as const) {
       const tight = build(0.5, style);
       const usual = build(0.76, style);
@@ -847,7 +888,7 @@ describe('围成一圈', () => {
       const whole = runJob({ parts: figure.parts, voxel: VOXEL.preview, blend: spec.blend }).mesh.info.components;
       return { hip: far('Leg_01_L'), head: far('Head_01'), thick, whole };
     };
-    const tight = measure(RING_SPREAD.min);
+    const tight = measure(RING_SPREAD_CIRCLE_MIN);
     const medium = measure(0.88);
     const loose = measure(1);
     const wide = measure(RING_SPREAD.max);

@@ -73,6 +73,9 @@ function place(part: Part, o: PartOverride): { part: Part; warp: Mat3 | null } {
 
 const headOf = (neckName: string) => neckName.replace('Neck_', 'Head_');
 
+/** 这一类部件能不能删（PartOverride.hidden）：躯干、下身是身子本身，脖子跟着头走，都不能单独删 */
+export const deletable = (type: Part['type']): boolean => type !== 'torso' && type !== 'lower' && type !== 'neck';
+
 /**
  * 头挪了位置，脖子跟着伸过去：脖子从根部指向头的新位置，
  * 末端离头中心的距离和原来一样（也就是照旧插在头的底下），头不会和脖子脱开。
@@ -215,7 +218,17 @@ export function applyOverrides(figure: Figure, overrides: Overrides): Figure {
   const byName = new Map(figure.parts.map((p) => [p.name, p]));
   const warps = new Map<string, Mat3>();
   const parts: Part[] = [];
+  /** 删掉的部件（PartOverride.hidden），连同长在它上面的、头底下那根脖子 */
+  const gone = new Set<string>();
   for (const src of figure.parts) {
+    const dropped =
+      (overrides[src.name]?.hidden && deletable(src.type)) ||
+      (src.parent !== undefined && gone.has(src.parent)) ||
+      (src.type === 'neck' && byName.get(headOf(src.name))?.parent === src.parent && overrides[headOf(src.name)]?.hidden === true);
+    if (dropped) {
+      gone.add(src.name);
+      continue;
+    }
     const warp = src.parent ? warps.get(src.parent) : undefined;
     let part = warp ? { ...src, pos: mat3Apply(warp, src.pos) } : src;
     if (src.type === 'neck') part = followHead(part, src, byName, overrides, warp);

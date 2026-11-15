@@ -19,7 +19,7 @@ import { getGrid } from '../sdf/grids';
 import { chestBulk } from '../anime/chest';
 import { PENIS_BASE, PENIS_GRID, PENIS_LINE, PENIS_RADIUS } from '../anime/genital';
 import { sampleTube } from './shapes';
-import { type V3, add, dot, lerp, mat3Apply, mul, rotate, sub } from './vec';
+import { type V3, add, dot, lerp, mat3Apply, mul, quatConj, rotate, sub } from './vec';
 
 export interface Clash {
   /** 互相穿插的两个部件 */
@@ -177,7 +177,16 @@ function toBody(part: Part, xf: WorldXf): Body {
   // 根部那一截的格子是弯的，照外接盒子放一根直棒不准，也照这一串算
   const grafted = part.grafts?.some((g) => g.mesh === 'penis') ? penisRods() : [];
   const prims = part.prims.filter((p) => p.kind !== 'grid' || p.grid !== PENIS_GRID);
-  const rods = [...prims.flatMap(primRods), ...grafted].map((r) => ({
+  // 被整块切掉的那一截不算（前后排、多个上半身里只留上半截、下半截的躯干）：圆棒的两头和正中都在切口（挖掉的大椭球）里面的去掉。
+  // 不去掉的话，长在别人肩膀上的手臂会和「下半截」躯干早就切掉的上身撞上，报一串穿模
+  const cuts = part.prims.filter((p): p is Extract<Prim, { kind: 'ellipsoid' }> => p.kind === 'ellipsoid' && p.cut === true);
+  const gone = (q: V3) =>
+    cuts.some((c) => {
+      const d = c.quat ? rotate(quatConj(c.quat), sub(q, c.center)) : sub(q, c.center);
+      return (d[0] / c.radii[0]) ** 2 + (d[1] / c.radii[1]) ** 2 + (d[2] / c.radii[2]) ** 2 < 1;
+    });
+  const kept = (r: Rod) => !(gone(r.a) && gone(r.b) && gone(mul(add(r.a, r.b), 0.5)));
+  const rods = [...prims.flatMap(primRods).filter(kept), ...grafted].map((r) => ({
     a: place(r.a),
     b: place(r.b),
     ra: r.ra * xf.scale * thin,

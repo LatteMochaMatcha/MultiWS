@@ -215,5 +215,7 @@
   "蹲坐躺@@姿势分类": "Sit / lie",
   "打斗@@姿势分类": "Combat",
   "全部@@姿势分类": "All",
-  "一个部位都没勾": "no parts ticked"
+  "一个部位都没勾": "no parts ticked",
+  "删除选中的部件": "Delete selected parts",
+  "已删除（点一下恢复）：": "Deleted (click to restore): "
 }

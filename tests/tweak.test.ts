@@ -21,9 +21,9 @@ import {
   scaleAlong,
   sub,
 } from '../src/geometry/vec';
-import { clearAllOverrides, clearOverride, mirrorName, mirrorOverride, setOverride } from '../src/model/overrides';
+import { clearAllOverrides, clearOverride, hiddenParts, hidePart, mirrorName, mirrorOverride, setOverride, showPart } from '../src/model/overrides';
 import { partLabel } from '../src/model/partLabel';
-import { type BodyCounts, type BodySpec, type PartOverride, cleanOverride, defaultSpec } from '../src/model/spec';
+import { type BodyCounts, type BodySpec, type PartOverride, cleanOverride, defaultSpec, normalizeSpec } from '../src/model/spec';
 import { compilePartField, fieldAt } from '../src/sdf/field';
 import { makePicker } from '../src/sdf/pick';
 import { rng } from './helpers';
@@ -614,5 +614,41 @@ describe('点选部件', () => {
   it('离身体很远的点谁也不算', () => {
     expect(pick([1.5, 1, 0])).toBeNull();
     expect(pick([0, 3, 0])).toBeNull();
+  });
+});
+
+describe('删除部件', () => {
+  it('删掉的记在微调里：存档读回来还在，恢复以后原来的位置微调还在', () => {
+    let spec = setOverride(make({ armPairs: 2 }), 'Arm_02_L', { position: [0.05, 0, 0] });
+    spec = hidePart(hidePart(spec, 'Arm_02_L'), 'Head_01');
+    expect(hiddenParts(spec).sort()).toEqual(['Arm_02_L', 'Head_01']);
+    expect(cleanOverride({ hidden: true })).toEqual({ hidden: true });
+    expect(hiddenParts(normalizeSpec(JSON.parse(JSON.stringify(spec)))).sort()).toEqual(['Arm_02_L', 'Head_01']);
+    spec = showPart(spec, 'Arm_02_L');
+    expect(hiddenParts(spec)).toEqual(['Head_01']);
+    expect(spec.overrides.Arm_02_L).toEqual({ position: [0.05, 0, 0] });
+    // 只删、没别的微调的：恢复以后这条记录整个没了
+    expect(showPart(spec, 'Head_01').overrides.Head_01).toBeUndefined();
+    // 左右对称着改时，对侧删掉了的还是删掉的
+    const twin = setOverride(hidePart(make({ armPairs: 2 }), 'Arm_02_R'), 'Arm_02_L', { rotation: [0, 0, 10] }, true);
+    expect(twin.overrides.Arm_02_R).toEqual({ rotation: [0, -0, -10].map((v) => v + 0), hidden: true });
+  });
+
+  it('套微调时从身上拿掉：长在它上面的、头底下的脖子一起拿掉；躯干、下身、脖子删不掉', () => {
+    const base = buildFigure(make({ armPairs: 2, hornsPerHead: 2 }));
+    const names = (f: Figure) => f.parts.map((p) => p.name);
+    const hide = (...list: string[]) => buildFigure(make({ armPairs: 2, hornsPerHead: 2 }, Object.fromEntries(list.map((n) => [n, { hidden: true }]))));
+    const arm = hide('Arm_02_L');
+    expect(names(arm)).toEqual(names(base).filter((n) => n !== 'Arm_02_L'));
+    // 头：头上的角、眼睛（它的子部件），还有底下那根脖子
+    const headless = names(hide('Head_01'));
+    const onHead = base.parts.filter((p) => p.parent === 'Head_01').map((p) => p.name);
+    expect(onHead.length).toBeGreaterThan(0);
+    expect(headless).toEqual(names(base).filter((n) => n !== 'Head_01' && n !== 'Neck_01' && !onHead.includes(n)));
+    // 躯干、下身、脖子：不删
+    const core = base.parts.filter((p) => p.type === 'torso' || p.type === 'lower' || p.type === 'neck').map((p) => p.name);
+    expect(names(hide(...core))).toEqual(names(base));
+    // 删掉以后还能融合、不出 NaN
+    for (const p of hide('Arm_02_L', 'Leg_01_R', 'Head_01').parts) expect(p.pos.every(Number.isFinite), p.name).toBe(true);
   });
 });
