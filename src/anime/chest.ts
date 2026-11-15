@@ -117,6 +117,52 @@ export function angleAt(f: ChestFrame, y: number, s: number): number {
   return inRow(i) + (inRow(i + 1) - inRow(i)) * (fi - i);
 }
 
+/** 展开图竖着、横着各磨多宽（高斯的 σ，米、度）：比躯干上肋骨、腹肌的起伏宽得多（build-torso.ts 叠的高通是 σ 2.5 厘米，磨 3 厘米还看得出一道道） */
+const SMOOTH_Y = 0.1;
+const SMOOTH_A = 30;
+const SMOOTHED = new WeakMap<ChestFrame, ChestFrame>();
+
+/** 磨平的展开图：每行前后正中、每格半径磨平，弧长照磨平的半径重新量。下垂的大胸照它贴（见 chestSkin） */
+export function smoothFrame(f: ChestFrame): ChestFrame {
+  const known = SMOOTHED.get(f);
+  if (known) return known;
+  const blur = (data: Float64Array, count: number, stride: number, lines: number, step: number, sigma: number) => {
+    const reach = Math.ceil(sigma * 3);
+    const kernel = Array.from({ length: 2 * reach + 1 }, (_, k) => Math.exp(-((k - reach) ** 2) / (2 * sigma * sigma)));
+    const out = new Float64Array(data.length);
+    for (let line = 0; line < lines; line++) {
+      const base = line * step;
+      for (let a = 0; a < count; a++) {
+        let acc = 0;
+        let sum = 0;
+        for (let k = -reach; k <= reach; k++) {
+          const b = Math.max(0, Math.min(count - 1, a + k));
+          acc += data[base + b * stride] * kernel[k + reach];
+          sum += kernel[k + reach];
+        }
+        out[base + a * stride] = acc / sum;
+      }
+    }
+    return out;
+  };
+  const da = Math.PI / (f.cols - 1);
+  const zc = blur(f.zc, f.rows, 1, 1, 0, SMOOTH_Y / f.dy);
+  // 先竖着（每列），再横着（每行）
+  const rv = blur(f.r, f.rows, f.cols, f.cols, 1, SMOOTH_Y / f.dy);
+  const r = blur(rv, f.cols, 1, f.rows, f.cols, (SMOOTH_A * Math.PI) / 180 / da);
+  const s = new Float64Array(r.length);
+  for (let i = 0; i < f.rows; i++) {
+    const o = i * f.cols;
+    for (let j = 1; j < f.cols; j++) {
+      const [a0, a1] = [(j - 1) * da, j * da];
+      s[o + j] = s[o + j - 1] + Math.hypot(r[o + j] * Math.sin(a1) - r[o + j - 1] * Math.sin(a0), r[o + j] * Math.cos(a1) - r[o + j - 1] * Math.cos(a0));
+    }
+  }
+  const out = { ...f, zc, r, s };
+  SMOOTHED.set(f, out);
+  return out;
+}
+
 /** 一点在这个躯干上的 u（照 |x| 量，左右对称）、h、角度 */
 export function shell(f: ChestFrame, x: number, y: number, z: number): { u: number; h: number; a: number } {
   const dz = z - zcOf(f, y);
@@ -188,7 +234,7 @@ const ROUND_FULL = 1.6;
  */
 const FILLET_TOP = 0.6;
 const FILLET_BOTTOM = 0.08;
-const fillet = (v: number, center: number, rv: number) => rv * (FILLET_BOTTOM + (FILLET_TOP - FILLET_BOTTOM) * ease((v - center) / rv + 0.65));
+const fillet = (v: number, center: number, rv: number, top = FILLET_TOP) => rv * (FILLET_BOTTOM + (top - FILLET_BOTTOM) * ease((v - center) / rv + 0.65));
 
 /**
  * 每个大小（sizes）一组：整个胸往外挪多少（move：参考胸离正中线近，椭球照它的宽度不越过正中线，就连参考胸一起往外挪）、
@@ -207,17 +253,57 @@ export function registerChestRound(round: ChestRound | null) {
   VERSION++;
 }
 
-/** 滑块 size 上的椭球（相对胸中心），和混合时它占多少；没有就是 null */
-function roundAt(size: number): { move: number; off: [number, number]; radii: V3; hc: number; alpha: number } | null {
+/**
+ * 往大了调略微下垂（11-15 他要的：滑块上限 2.3 提到 4，往大了调「形状更自然、略微下垂」，不是照原样放大的圆球）。
+ * 照二次元画法的参考（侧面：上半截从胸口斜下来，下半截圆鼓鼓地兜着、最低处垂过胸下褶，乳头偏下、朝前下方）：
+ * 2.3（以前滑块的最大）以下不变；往上椭球竖着拉长、拉长的那一截往下长（上沿不动），胸尖往下歪，到 SAG_FULL 垂足；
+ * 椭球照磨平的展开图贴（见 smoothFrame），不然垂到肋骨那一段的胸面跟着肋骨一道道起伏。
+ * 试过的别的办法：椭球上半截、下半截半径不一样（以为横褶是它带出来的）；拿写实女性躯干（Sketchfab 上 CC BY 的）上采的
+ * 自然下垂的胸型放大（中等大小的胸放大三四倍，成了竖着的一长条或者从锁骨斜下来的大锥子）
+ */
+const SAG_FROM = 2.3;
+const SAG_FULL = 4;
+/** 垂足时：胸尖往下歪多少度（离胸壁越远往下挪得越多） */
+const SAG_TILT = 20;
+/** 垂足时：椭球竖着拉长几成，拉长的那一截有多少往下长（其余往上） */
+const SAG_LONG = 0.35;
+const SAG_HANG = 1;
+/** 垂足时：和平胸躯干接上的圆角上半截收到多大（见 FILLET_TOP）；往圆里变的程度加到多少（参考胸照原样放大到这么大边上是方的） */
+const SAG_FILLET_TOP = 0.45;
+const SAG_ROUND = 1;
+/**
+ * 2.3 往上横着、竖着、往前各照 size / SAG_FROM 的几次方放大（参考胸型和椭球一起）：竖着长得少一点，
+ * 三个方向等比的话到 4 一只胸 37 cm 高，胸根上沿长到锁骨
+ */
+const SAG_GROW: V3 = [1, 0.9, 1];
+const sagGrow = (size: number): V3 => SAG_GROW.map((e) => Math.max(1, size / SAG_FROM) ** e) as V3;
+/** 胸部大小 size 时下垂了多少（0 到 1） */
+export const chestSag = (size: number) => ease((size - SAG_FROM) / (SAG_FULL - SAG_FROM));
+
+/** 滑块 size 上的椭球（相对胸中心），和混合时它占多少、下垂了多少；没有就是 null */
+function roundAt(size: number): { move: number; off: [number, number]; radii: V3; hc: number; alpha: number; sag: number } | null {
   if (!ROUND || size <= ROUND_FROM) return null;
   const { sizes, params } = ROUND;
-  let i = 0;
-  while (i < sizes.length - 2 && sizes[i + 1] < size) i++;
-  const t = Math.min(1, Math.max(0, (size - sizes[i]) / (sizes[i + 1] - sizes[i])));
-  const q = params[i].map((v, k) => v + (params[i + 1][k] - v) * t);
-  const alpha = ROUNDNESS * ease((size - ROUND_FROM) / (ROUND_FULL - ROUND_FROM));
+  const last = sizes.length - 1;
+  const sag = chestSag(size);
+  let q: number[];
+  if (size > sizes[last]) {
+    // 量过的最大的那个（就是 SAG_FROM）往上：和参考胸型一样照 SAG_GROW 放大（横着照正中线、竖着照胸中心那里）；
+    // 再竖着拉长，中心往下挪（见 SAG_LONG）
+    const [gu, gv, gh] = sagGrow(size);
+    const [move0, du0, dv0, au0, av0, ah0, hc0] = params[last];
+    const av = av0 * gv;
+    const longer = av * SAG_LONG * sag;
+    q = [move0 * gu, du0 * gu, dv0 * gv - longer * SAG_HANG, au0 * gu, av + longer, ah0 * gh, hc0 * gh];
+  } else {
+    let i = 0;
+    while (i < sizes.length - 2 && sizes[i + 1] < size) i++;
+    const t = Math.min(1, Math.max(0, (size - sizes[i]) / (sizes[i + 1] - sizes[i])));
+    q = params[i].map((v, k) => v + (params[i + 1][k] - v) * t);
+  }
+  const alpha = (ROUNDNESS + (SAG_ROUND - ROUNDNESS) * sag) * ease((size - ROUND_FROM) / (ROUND_FULL - ROUND_FROM));
   // 往外挪也跟着往圆里变的程度渐渐加上
-  return { move: (q[0] * alpha) / ROUNDNESS, off: [q[1], q[2]], radii: [q[3], q[4], q[5]], hc: q[6], alpha };
+  return { move: (q[0] * Math.min(alpha, ROUNDNESS)) / ROUNDNESS, off: [q[1], q[2]], radii: [q[3], q[4], q[5]], hc: q[6], alpha, sag };
 }
 
 /** 一层胸型：放大几倍、中心放在哪、占多少分量 */
@@ -232,10 +318,11 @@ interface Layer {
   weight: number;
 }
 
-/** 照 k 等比放大：左右照正中线放大，上下照 PIVOT 那个高度放大 */
-function plainLayer(patch: ChestPatch, k: number, weight = 1): Layer {
+/** 照 k 放大（grow：横着、竖着、往前再各放大几倍，见 SAG_GROW）：左右照正中线放大，上下照 PIVOT 那个高度放大 */
+function plainLayer(patch: ChestPatch, k: number, weight = 1, grow: V3 = [1, 1, 1]): Layer {
   const pivot = patch.center[1] + PIVOT * patch.rv;
-  return { patch, k, scale: [k, k, k], pivot, at: [patch.center[0] * k, pivot + (patch.center[1] - pivot) * k], weight };
+  const scale = grow.map((g) => g * k) as V3;
+  return { patch, k, scale, pivot, at: [patch.center[0] * scale[0], pivot + (patch.center[1] - pivot) * scale[1]], weight };
 }
 
 /** 两层胸型挪到同一个中心（照 t 在两者原本的中心之间取）按比例混合：隔开的两团混出来是尖的 */
@@ -251,7 +338,7 @@ const ease = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 
 /**
  * 滑块上的胸：CHEST_FLAT 以下是平胸；往上先是中胸（放大倍数照开方变，再和平胸按比例混合：往小调主要是往平胸里沉，
- * 不缩成一小团）；中胸到大胸之间两种胸型渐变；再往上照大胸放大（滑块最大 2.3）。
+ * 不缩成一小团）；中胸到大胸之间两种胸型渐变；再往上照大胸放大，2.3 往上略微下垂（见 SAG_FROM，滑块最大 4）。
  * fade：和平胸混合时胸占多少
  */
 export function chestLayers(size: number): { layers: Layer[]; fade: number } {
@@ -265,7 +352,8 @@ export function chestLayers(size: number): { layers: Layer[]; fade: number } {
     const t = ease((size - ref.natural) / (large.natural - ref.natural));
     return { layers: blend(plainLayer(ref, size / ref.natural), plainLayer(large, size / large.natural), t), fade: 1 };
   }
-  return { layers: [plainLayer(large, size / large.natural)], fade: 1 };
+  if (size <= SAG_FROM) return { layers: [plainLayer(large, size / large.natural)], fade: 1 };
+  return { layers: [plainLayer(large, SAG_FROM / large.natural, 1, sagGrow(size))], fade: 1 };
 }
 
 /** 胸的中心（u、高度）在滑块 size 上原本在哪（还没往上下挪、没手动微调） */
@@ -284,7 +372,9 @@ export function chestReach(size: number): [up: number, down: number] {
   const round = roundAt(size);
   if (!round) return [reach, reach];
   const up = round.off[1] + round.radii[1];
-  const down = round.radii[1] - round.off[1];
+  // 胸尖往下歪的（见 SAG_TILT）：最低处是歪过去的椭球最低的那一点
+  const tan = Math.tan(SAG_TILT * round.sag * DEG);
+  const down = Math.hypot(round.radii[1], round.radii[2] * tan) + round.hc * tan - round.off[1];
   return [reach + (up - reach) * round.alpha, reach + (down - reach) * round.alpha];
 }
 
@@ -471,7 +561,9 @@ export function chestSkin(shape: ChestShape, piece = false, f: ChestFrame = ches
   const round = layers.length ? roundAt(shape.size) : null;
   const [shiftU, dv, push] = shape.shift ?? [0, 0, 0];
   const du = middle ? 0 : shiftU + (round?.move ?? 0);
-  const [rx, ry, rz] = (shape.tilt ?? [0, 0, 0]).map((a) => a * DEG);
+  const sag = round?.sag ?? 0;
+  // 下垂的胸尖往下歪（见 SAG_TILT），加在手动微调的转动上
+  const [rx, ry, rz] = (shape.tilt ?? [0, 0, 0]).map((a, k) => (a + (k === 0 ? SAG_TILT * sag : 0)) * DEG);
   const tanX = Math.tan(rx);
   const tanY = Math.tan(ry);
   const cosZ = Math.cos(rz);
@@ -523,41 +615,61 @@ export function chestSkin(shape: ChestShape, piece = false, f: ChestFrame = ches
   let ball = 0;
   let rk = 1;
   let cut = 0;
+  /**
+   * 躯干附近一点（x，沿表面离正中线的 u、加长之前的高度 yp、离平胸表面的 h）换成胸型里的 (u, v, h)：
+   * 只要这一边的、正中线上那只两边一样，手动微调的挪动、转动（rx、ry 胸尖往下、往外歪，rz 绕胸中心在表面上转）
+   */
+  const place = (x: number, u: number, yp: number, hAt: number): [number, number, number] => {
+    // 沿表面横着量，这一边是正的、正中线那边是负的
+    const su = (x * side < 0 ? -u : u) * narrowNow - (middle ? shiftU : 0);
+    const hh = hAt - push;
+    let uu = su;
+    let vv = yp - lift;
+    if (rx) vv += hh * tanX;
+    if (ry) uu -= side * hh * tanY;
+    if (rz) {
+      const c = ready[0].at;
+      const cu = middle ? 0 : c[0] + ready[0].slide;
+      const a = uu - cu;
+      const b = vv - c[1];
+      uu = cu + a * cosZ + b * sinZ * side;
+      vv = c[1] - a * sinZ * side + b * cosZ;
+    }
+    // 正中线上的那只：两半都照往外那半边的（从它自己的正中往两边量）
+    if (middle) uu = Math.abs(uu);
+    return [uu, vv, hh];
+  };
+  /** prepare 这一次的 narrow（见 chestSkin 的说明） */
+  let narrowNow = 1;
   return {
     prepare(x, y, z, yp, narrow = 1) {
       if (empty) return 1;
+      narrowNow = narrow;
       const at = shell(f, x, y, z);
       h = at.h;
-      // 沿表面横着量，这一边是正的、正中线那边是负的
-      const su = (x * side < 0 ? -at.u : at.u) * narrow - (middle ? shiftU : 0);
       // 只要这一边（正中线那边的切掉）；整个胸平移过了正中线的，切在挪过去那么远。正中线上的那只两边都要
+      const su = (x * side < 0 ? -at.u : at.u) * narrow - (middle ? shiftU : 0);
       const own = middle ? -Infinity : reach < 0 ? reach - su : -x * side;
-      // 手动微调的转动：绕胸中心在表面上转（rz），胸尖往下、往外歪（rx、ry：离表面越远挪得越多）。几层胸型的中心是同一个
-      const hh = h - push;
-      let uu = su;
-      let vv = yp - lift;
-      if (rx) vv += hh * tanX;
-      if (ry) uu -= side * hh * tanY;
-      if (rz) {
-        const c = ready[0].at;
-        const cu = middle ? 0 : c[0] + ready[0].slide;
-        const a = uu - cu;
-        const b = vv - c[1];
-        uu = cu + a * cosZ + b * sinZ * side;
-        vv = c[1] - a * sinZ * side + b * cosZ;
-      }
-      // 正中线上的那只：两半都照往外那半边的（从它自己的正中往两边量）
-      if (middle) uu = Math.abs(uu);
+      const [uu, vv, hh] = place(x, at.u, yp, h);
       let edge = Infinity;
       if (round) {
-        // 椭球的距离（近似）；融合时出了它和平胸接上的圆角就不要，分部件时出了它就不要
-        const qu = (uu - rc[0]) / ra;
-        const qv = (vv - rc[1]) / rb;
-        const qh = (hh - rhc) / rh;
+        // 椭球的距离（近似）；融合时出了它和平胸接上的圆角就不要，分部件时出了它就不要。
+        // 下垂的大胸（见 SAG_FROM）照磨平的展开图贴：离躯干远的地方不跟着躯干表面的肋骨、腹肌起伏走（不然胸面上一道道横褶）
+        let [eu, ev, eh] = [uu, vv, hh];
+        if (sag) {
+          const soft = shell(smoothFrame(f), x, y, z);
+          const [su2, sv2, sh2] = place(x, soft.u, yp, soft.h);
+          eu += (su2 - eu) * sag;
+          ev += (sv2 - ev) * sag;
+          eh += (sh2 - eh) * sag;
+        }
+        const qu = (eu - rc[0]) / ra;
+        const qv = (ev - rc[1]) / rb;
+        const qh = (eh - rhc) / rh;
         const k0 = Math.sqrt(qu * qu + qv * qv + qh * qh);
         const k1 = Math.sqrt((qu / ra) ** 2 + (qv / rb) ** 2 + (qh / rh) ** 2);
         ball = k1 > 1e-9 ? (k0 * (k0 - 1)) / k1 : -Math.min(ra, rb, rh);
-        rk = fillet(vv, rc[1], rb);
+        rk = fillet(ev, rc[1], rb, FILLET_TOP + (SAG_FILLET_TOP - FILLET_TOP) * sag);
         edge = piece ? ball : ball - rk;
       }
       for (const l of ready) {
@@ -624,7 +736,8 @@ export function chestRegion(shape: ChestShape, f: ChestFrame = chestFrame()): { 
   const middle = shape.middle === true;
   const [shiftU, dv, push] = shape.shift ?? [0, 0, 0];
   const du = middle ? 0 : shiftU + (round?.move ?? 0);
-  const tilt = Math.max(...(shape.tilt ?? [0, 0, 0]).map((a) => Math.abs(Math.tan(Math.min(80, Math.abs(a)) * DEG))));
+  const sag = round?.sag ?? 0;
+  const tilt = Math.max(...(shape.tilt ?? [0, 0, 0]).map((a, k) => Math.abs(Math.tan(Math.min(80, Math.abs(a + (k === 0 ? SAG_TILT * sag : 0))) * DEG))));
   const lift = shape.lift ?? 0;
   /** 躯干横着压窄的话（taperX），胸在躯干上横着占得宽一些（见 chestSkin） */
   const wide = 1 / Math.min(1, shape.body.taperX?.k ?? 1);
@@ -697,10 +810,12 @@ export function chestRegion(shape: ChestShape, f: ChestFrame = chestFrame()): { 
     const [ra, rb, rh] = [round.radii[0] * tu, round.radii[1] * tv, round.radii[2] * th];
     const rk = FILLET_TOP * rb;
     const top = round.hc * th + rh + Math.max(push, 0) + rk;
+    // 胸尖往下歪（tilt）的离表面越远往下挪得越多：底下多留那么多
+    const below = rb + rk + top * tilt;
     for (let i = 0; i <= 8; i++) {
       for (let j = 0; j <= 8; j++) {
         const u = Math.max(slide0 < 0 ? -Infinity : 0, cu + (i / 4 - 1) * (ra + rk)) * wide;
-        const y = unstretch(cv + (j / 4 - 1) * (rb + rk), stretch);
+        const y = unstretch(cv + (j < 4 ? ((j - 4) / 4) * below : ((j - 4) / 4) * (rb + rk)), stretch);
         add(point(u, y, top));
         add(point(u, y, -CHEST_DEPTH));
       }

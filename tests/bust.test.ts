@@ -338,3 +338,70 @@ describe('二次元素体的胸', () => {
     expect(after.n / before.n).toBeLessThan(1.1);
   }, 60_000);
 });
+
+describe('胸部大小 2.3 往上（滑块最大 4）：往下垂', () => {
+  useAnimeBody();
+  const flat = () => gridDist(getGrid(animeGrid('torsoFlat'))).fn;
+  /** 一边的胸比平胸躯干多出来的那一块：体积（升，两边加起来）、上下范围、重心多高；顺便看有没有碰到算胸的范围的边（碰到就是被切掉了） */
+  const measure = (size: number, side: 1 | -1 = 1, h = 0.008) => {
+    const d = chestDist(nativeChest(size, side));
+    const plain = flat();
+    let n = 0;
+    let lo = Infinity;
+    let hi = -Infinity;
+    let sumY = 0;
+    /** 贴着躯干的那一圈（离平胸表面 1.2 厘米以内）最低到哪：胸根的下沿 */
+    let rootLo = Infinity;
+    let touches = false;
+    for (let x = d.min[0] + h / 2; x < d.max[0]; x += h) {
+      for (let y = d.min[1] + h / 2; y < d.max[1]; y += h) {
+        for (let z = d.min[2] + h / 2; z < d.max[2]; z += h) {
+          if (d.fn(x, y, z) >= 0 || plain(x, y, z) < 0.004) continue;
+          n++;
+          lo = Math.min(lo, y);
+          hi = Math.max(hi, y);
+          sumY += y;
+          if (plain(x, y, z) < 0.012) rootLo = Math.min(rootLo, y);
+          if (y < d.min[1] + h || z > d.max[2] - h) touches = true;
+        }
+      }
+    }
+    return { liters: n * h ** 3 * 2000, lo, hi, midY: sumY / n, rootLo, touches };
+  };
+
+  it('体积接着变大，在 2.3 那里接得上（2.3 以下的样子不变，见上面几项）', () => {
+    const sizes = [2.3, 2.32, 2.6, 3, 3.5, 4];
+    const v = sizes.map((s) => measure(s).liters);
+    for (let k = 1; k < v.length; k++) expect(v[k], `胸 ${sizes[k]} 比 ${sizes[k - 1]} 大`).toBeGreaterThan(v[k - 1]);
+    // 2.3 到 2.32 只多一点点（体积照三次方长大约多 2.6%）
+    expect(v[1] / v[0]).toBeLessThan(1.06);
+    // 4 大约是 2.3 的 (4 / 2.3)³ ≈ 5.3 倍，竖着长得少一点、往下拉长又多一些（量出来 8 倍上下）
+    expect(v[5] / v[0]).toBeGreaterThan(5);
+    expect(v[5] / v[0]).toBeLessThan(10);
+  }, 120_000);
+
+  it('越大越往下垂：胸底比胸根的下沿垂下去得越多（占整个胸高的比例）；没被算胸的范围切掉', () => {
+    const drop = [2.3, 3.2, 4].map((s) => {
+      const m = measure(s);
+      expect(m.touches, `胸 ${s} 碰到了范围的边`).toBe(false);
+      return (m.rootLo - m.lo) / (m.hi - m.lo);
+    });
+    expect(drop[1]).toBeGreaterThan(drop[0] + 0.02);
+    expect(drop[2]).toBeGreaterThan(drop[1]);
+  }, 120_000);
+
+  it('左右对称', () => {
+    for (const size of [3, 4]) {
+      const left = chestSkin(nativeChest(size));
+      const right = chestSkin(nativeChest(size, -1));
+      for (let i = 0; i < 200; i++) {
+        const x = 0.01 + ((i * 37) % 100) * 0.0025;
+        const y = 0.95 + ((i * 53) % 100) * 0.003;
+        const z = 0.05 + ((i * 71) % 100) * 0.0025;
+        const a = left.prepare(x, y, z, y);
+        const b = right.prepare(-x, y, z, y);
+        expect(a > 0 ? a : left.finish(0.01), `${size}`).toBeCloseTo(b > 0 ? b : right.finish(0.01), 9);
+      }
+    }
+  });
+});

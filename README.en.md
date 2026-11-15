@@ -190,7 +190,7 @@ The head, torso, breasts, arms and legs are replaced with the shape of a ready-m
 
 - Multiple heads, arms and breasts, tails, wings, all kinds of lower bodies, manual tweaks, bones and every export format work as usual, and the export is still one closed mesh.
 - The body-shape sliders widen or narrow the base body from its original shape; gender and hand style have no effect on it.
-- **Bust size** 0.3–2.3: toward smaller it gradually flattens; toward larger it blends between two breast shapes, this base body's small one and another base body's large one.
+- **Bust size** 0.3–4: toward smaller it gradually flattens; toward larger it blends between two breast shapes, this base body's small one and another base body's large one; above 2.3 the breasts gradually droop (a hanging teardrop from the side). The mannequin and the finished characters stop at 2.2.
 - Hands and feet are ready-made meshes that are sewn on at the wrists and ankles after fusing, so fingers and toes stay separate at any precision.
 - **Models exported with this style must be credited when you share them**; see [Assets and attribution](#assets-and-attribution).
 
