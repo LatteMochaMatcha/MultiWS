@@ -101,6 +101,7 @@ import {
   BODY_STYLES,
   BUST_MAX_OTHER,
   COUNT_DEFS,
+  COUNT_DEF_BY_KEY,
   COUNT_HINTS,
   HIP_LEGS,
   FINGERS,
@@ -199,7 +200,7 @@ import { fitLegs } from './pose/fitLegs';
 import { armOfBone, armPairCount, followPair } from './pose/follow';
 import { fitConjoined } from './pose/conjoined';
 import { fitRing } from './pose/ring';
-import { POSE_LIBRARY } from './pose/library';
+import { POSE_GROUPS, POSE_LIBRARY, type PoseGroup, type PresetPose } from './pose/library';
 import { type Posing, POSING_VERSION, cleanPosing, emptyPosing, flipPosing, isPosed, placedTwins } from './pose/posing';
 import { type Frame, type PoseRig, type PoseState, type RigBone, cloneState, forward, pointOn, poseMatrices, posedBones, shiftRoot, tailOf } from './pose/rig';
 import { type Pin, capturePins, dragAim, dragBend, dragBody, dragReach, plantFeet, turnBone, turnSpine } from './pose/solve';
@@ -219,7 +220,7 @@ import { type GizmoMode, GIZMO_MODES, Gizmo } from './view/gizmo';
 import { MATERIAL_INFO } from './view/materials';
 import { type BakedMesh, PartsModel, disposeTree } from './view/partsModel';
 import { installChangelog } from './view/changelog';
-import { Phone, jumpLabel } from './view/phone';
+import { PHONE_QUERY, Phone, jumpLabel } from './view/phone';
 import { PoseHandles } from './view/poseHandles';
 import { type RefSlot, REF_SLOTS, ReferenceImages, loadPicture } from './view/references';
 import { Tour } from './view/tour';
@@ -570,21 +571,100 @@ const steppers = COUNT_DEFS.map((d) => {
   plus.addEventListener('click', step(1));
   const stepper = el('div', 'stepper');
   stepper.append(minus, out, plus);
-  row.append(label, stepper);
-  $('counts').append(row);
+  // 往哪放（index.html 里的 data-count）：卡片标题上的只放加减号，名字和单位写在卡片的标题按钮上；别的是卡片里的一行
+  const host = document.querySelector<HTMLElement>(`[data-count~="${d.key}"]`)!;
+  const card = host.classList.contains('part-count') ? host.closest<HTMLElement>('.part') : null;
+  if (card) {
+    const fold = card.querySelector<HTMLElement>('.part-fold')!;
+    fold.title = label.title;
+    fold.append(el('span', 'part-name', d.label), el('small', 'part-unit', d.unit), el('small', 'part-sum'));
+    row.append(stepper);
+  } else row.append(label, stepper);
+  host.append(row);
   return () => {
     const v = value();
-    if (d.key === 'penises') row.hidden = !adultShown();
     out.textContent = String(v);
     // 全部一样时有上半身单独设过这一样：数后面加个星号
     const mixed = perTorso && !side() && torsoSides(spec.counts.torsos).some((s) => countsOf(spec, s)[d.key] !== spec.counts[d.key]);
     out.classList.toggle('mixed', mixed);
     out.title = mixed ? t('有的上半身单独设过；在「全部一样」下加减会把它们都改成一样') : '';
     row.classList.toggle('per-torso', !!side());
+    card?.classList.toggle('per-torso', !!side());
     minus.disabled = v <= d.min;
     plus.disabled = v >= d.max;
   };
 });
+
+/** 几个上半身里这一样最多的那个有几个（每个上半身单独设的也算）：卡片里「两个以上才有」的选项看它 */
+const most = (key: PerTorsoKey) => Math.max(spec.counts[key], ...torsoSides(spec.counts.torsos).map((side) => countsOf(spec, side)[key]));
+
+/**
+ * 「部件」栏的卡片：点标题收起、展开，开合记在浏览器里（没记过的：电脑上都展开，手机竖屏都收着）。
+ * 收起时标题下面一行小字写现在选的；里面一样东西都没有的（没有尾巴、翅膀）不给展开
+ */
+const CARDS_KEY = 'oc-basemesh-cards';
+const partCards = [...document.querySelectorAll<HTMLElement>('#counts .part')];
+const cardsOpen: Record<string, boolean> = (() => {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(CARDS_KEY) ?? 'null');
+    return saved && typeof saved === 'object' ? (saved as Record<string, boolean>) : {};
+  } catch {
+    return {};
+  }
+})();
+const cardOpen = (card: HTMLElement) => cardsOpen[card.dataset.part!] ?? !window.matchMedia(PHONE_QUERY).matches;
+for (const card of partCards) {
+  card.querySelector('.part-fold')!.addEventListener('click', () => {
+    if (card.classList.contains('empty')) return;
+    cardsOpen[card.dataset.part!] = !cardOpen(card);
+    try {
+      localStorage.setItem(CARDS_KEY, JSON.stringify(cardsOpen));
+    } catch {
+      // 记不住就下次照缺省的开合
+    }
+    syncCards();
+  });
+}
+/** 每张卡片收起时那一行小字：现在选的排法、样式 */
+const CARD_SUMMARY: Record<string, () => (string | false)[]> = {
+  head: () => [
+    most('heads') > 1 && HEAD_LABEL[spec.headLayout],
+    `${COUNT_DEF_BY_KEY.eyesPerHead.label} ${spec.counts.eyesPerHead}`,
+    spec.counts.hornsPerHead > 0 && `${COUNT_DEF_BY_KEY.hornsPerHead.label} ${spec.counts.hornsPerHead}`,
+    most('earPairsPerHead') > 0 && EAR_NAME[spec.earShape],
+  ],
+  arm: () => [
+    most('armPairs') > 1 && ARM_LABEL[spec.armLayout],
+    spec.counts.armPairs > 0 && spec.bodyStyle === 'mannequin' && HAND_LABEL[spec.hands],
+    spec.counts.armPairs > 0 && spec.armEnd !== 'hand' && LIMB_END_LABEL[spec.armEnd],
+  ],
+  chest: () => [most('breasts') > 1 && !ringActive(spec) && t('每排 {n} 个', { n: spec.chestRow })],
+  leg: () => [spec.counts.legs > 2 && !ringActive(spec) && LEG_LABEL[spec.legLayout], humanLegs() && spec.legEnd !== 'foot' && LIMB_END_LABEL[spec.legEnd]],
+  tail: () => [],
+  wing: () => [],
+  penis: () => [spec.counts.penises > 0 && PENIS_STATE_LABEL[spec.penisSoft ? 'soft' : 'hard'], spec.counts.penises > 1 && PENIS_LABEL[spec.penisLayout]],
+};
+function syncCards() {
+  /** 手机竖屏收着的卡片两个一排：这一排左边已经放了一张收着的（右边还空着） */
+  let left: HTMLElement | null = null;
+  for (const card of partCards) {
+    const body = card.querySelector<HTMLElement>('.part-body')!;
+    // 说明那几段不算内容（平时收着）
+    const empty = ![...body.children].some((child) => !(child as HTMLElement).hidden && !child.classList.contains('note') && child.childElementCount > 0 && [...child.children].some((c) => !(c as HTMLElement).hidden));
+    const open = !empty && cardOpen(card);
+    card.classList.toggle('empty', empty);
+    card.classList.toggle('open', open);
+    card.querySelector('.part-fold')!.setAttribute('aria-expanded', String(open));
+    card.querySelector('.part-sum')!.textContent = open ? '' : CARD_SUMMARY[card.dataset.part!]().filter(Boolean).join(' · ');
+    // 点开的卡片占一整行：它前面那张要是单独在左边，也拉成一整行，免得右边空一格（样式只在手机竖屏用得上）
+    card.classList.remove('lone');
+    if (card.hidden) continue;
+    if (open) {
+      left?.classList.add('lone');
+      left = null;
+    } else left = left ? null : card;
+  }
+}
 
 /** 一排单选按钮；返回的函数用来把它同步到当前状态 */
 function buildSeg<T extends string>(
@@ -660,6 +740,7 @@ adultBox.addEventListener('change', () => {
 function syncAdult() {
   // 别的标签页里拨过的：这一页的勾跟着
   adultBox.checked = adultOn();
+  $('adultPart').hidden = !adultShown();
   const shown = adultShown() && spec.counts.penises > 0;
   $('penisStateField').hidden = !shown;
   $('penisLayoutField').hidden = !shown;
@@ -958,6 +1039,39 @@ const syncRing = buildSeg($('segRing'), RINGS, (v) => RING_LABEL[v], (ring) => {
   spec = { ...spec, ring };
   commit();
 });
+// 「不连」「不围」由上面的四选一管，这两排里不出
+for (const id of ['segConjoin', 'segRing']) $(id).querySelector<HTMLElement>('input[value="none"]')!.parentElement!.hidden = true;
+
+/**
+ * 形态：整个身体是哪一种——普通、多个上半身、连体、围成一圈，四选一。
+ * 只是界面上的说法：存进配置的还是上半身个数、连体、围成一圈那三项，谁压过谁照旧（连体压过围成一圈，围成一圈压过几个上半身）。
+ * 选一种就是把另外两项设回「没有」；每种切走以前选的是什么记在这一页里，切回来还在
+ */
+const FORMS = ['normal', 'torsos', 'conjoined', 'ring'] as const;
+type Form = (typeof FORMS)[number];
+const FORM_LABEL: Record<Form, string> = { normal: t('普通@@形态'), torsos: t('多个上半身@@形态'), conjoined: t('连体@@形态'), ring: t('围成一圈@@形态') };
+const formOf = (s: BodySpec): Form => (s.conjoined !== 'none' ? 'conjoined' : ringActive(s) ? 'ring' : s.counts.torsos > 1 ? 'torsos' : 'normal');
+const formKept: { torsos: number; conjoined: ConjoinMode; ring: RingMode } = { torsos: 2, conjoined: 'same', ring: 'hips' };
+const syncForm = buildSeg($('segForm'), FORMS, (v) => FORM_LABEL[v], (form) => {
+  if (form === formOf(spec)) return;
+  if (spec.counts.torsos > 1) formKept.torsos = spec.counts.torsos;
+  if (spec.conjoined !== 'none') formKept.conjoined = spec.conjoined;
+  if (spec.ring !== 'none') formKept.ring = spec.ring;
+  const torsos = form === 'torsos' ? formKept.torsos : 1;
+  const next: BodySpec = {
+    ...spec,
+    conjoined: form === 'conjoined' ? formKept.conjoined : 'none',
+    ring: form === 'ring' ? formKept.ring : 'none',
+    counts: { ...spec.counts, torsos },
+  };
+  refitNext = true;
+  // 上半身个数写在描述里：变了就把描述重写成规范写法；连体、围成一圈描述里不写，文字不动
+  if (torsos !== spec.counts.torsos) fromParams(next);
+  else {
+    spec = next;
+    commit();
+  }
+});
 const RING_CHEST_LABEL: Record<RingChestMode, string> = { stagger: t('交错成串'), taper: t('交错渐小'), aligned: t('上下对齐') };
 /** 圈的松紧：界面上按百分之几显示（100% 是所有的腿隔得一样远） */
 const ringSpreadInput = $<HTMLInputElement>('s-ringSpread');
@@ -1223,9 +1337,12 @@ function syncBlend() {
 const shapeText = (d: ShapeDef, v: number) =>
   d.key === 'height' ? `${v.toFixed(2)} m` : d.key === 'headRatio' ? v.toFixed(1) : v.toFixed(2);
 
-const sliders = SHAPE_DEFS.map((d) => {
+/**
+ * 一个体型滑块。只管一个部件的那几个（胸部大小、手臂长短、腿长短、尾巴、阴茎）摆两处：「体型」里一份，
+ * 它那个部件的卡片里一份（index.html 里的 data-shape，id 带 -part），两份拖哪个都一样
+ */
+function shapeSlider(d: ShapeDef, host: HTMLElement, id: string, inCard: boolean) {
   const row = el('div', 'slider');
-  const id = `s-${d.key}`;
   const label = el('label', '', d.label);
   label.htmlFor = id;
   const input = el('input');
@@ -1251,7 +1368,7 @@ const sliders = SHAPE_DEFS.map((d) => {
   input.addEventListener('pointerup', endSlide);
   input.addEventListener('pointercancel', endSlide);
   row.append(label, input, out);
-  $('shapes').append(row);
+  host.append(row);
   return () => {
     const v = spec.shape[d.key];
     if (Number(input.value) !== v) input.value = String(v);
@@ -1260,9 +1377,17 @@ const sliders = SHAPE_DEFS.map((d) => {
     input.disabled = fixed;
     row.classList.toggle('off', fixed);
     if (d.key === 'penisSize') row.hidden = !adultShown() || spec.counts.penises === 0;
+    if (!inCard) return;
+    // 卡片里的那一份：没有这个部件就不出
+    if (d.key === 'tailFluff' || d.key === 'tailLength') row.hidden = spec.counts.tails === 0;
+    if (d.key === 'armLength') row.hidden = most('armPairs') === 0;
   };
+}
+const sliders = SHAPE_DEFS.flatMap((d) => {
+  const main = document.querySelector<HTMLElement>(`[data-shape-main~="${d.key}"]`) ?? $('shapes');
+  const card = document.querySelector<HTMLElement>(`[data-shape~="${d.key}"]`);
+  return [shapeSlider(d, main, `s-${d.key}`, false), ...(card ? [shapeSlider(d, card, `s-${d.key}-part`, true)] : [])];
 });
-
 const btnUndo = $<HTMLButtonElement>('btnUndo');
 const btnRedo = $<HTMLButtonElement>('btnRedo');
 btnUndo.addEventListener('click', undo);
@@ -3629,7 +3754,7 @@ const HAND_NOTE = {
   none: t('这个身体上没有带手指的手。'),
   legs: t('手臂末端接的是脚，没有手；腿末端接的手不归这一栏管：在「姿势」栏的「显示哪些圆点」里打开「手指」，拖指尖摆。'),
   mitten:
-    t('并指的手，四根手指是连成一片的：握拳、张开这类整只手一起动的手势像样，「剪刀手」「指」这种一根根分开的摆不出来。要分开摆，到「造型 → 排布 → 手」里换成「分指」。'),
+    t('并指的手，四根手指是连成一片的：握拳、张开这类整只手一起动的手势像样，「剪刀手」「指」这种一根根分开的摆不出来。要分开摆，到「造型 → 部件 → 手臂」里把「手」换成「分指」。'),
   usual:
     t('点一个手势，上面选中的手就摆成那样（不分左右）；再用滑块一根手指一根手指地调。想直接拖指尖：在「姿势」栏的「显示哪些圆点」里打开「手指」，把手放大了再拖。'),
 };
@@ -3944,6 +4069,8 @@ let presetAmount = 100;
 let lastPreset: { name: string; preset: Posing; base: PoseState; key: string; result: Posing | null } | null = null;
 /** 「手臂套给哪一对」照现在的身体排好（手臂有几对就几格） */
 let syncPresetPanel = () => {};
+/** 「套用选项」收着时那一行小字：套到哪些部位、强度 */
+let syncPresetSummary = () => {};
 
 if (POSE_LIBRARY.length) {
   $('poseLibraryNote').textContent =
@@ -4054,6 +4181,7 @@ if (POSE_LIBRARY.length) {
     input.addEventListener('change', () => {
       if (input.checked) presetParts.add(region);
       else presetParts.delete(region);
+      syncPresetSummary();
       if (presetParts.size) reblend();
     });
     const wrap = el('label', 'check');
@@ -4064,6 +4192,7 @@ if (POSE_LIBRARY.length) {
   amountInput.addEventListener('input', () => {
     presetAmount = Number(amountInput.value);
     $('o-poseAmount').textContent = `${presetAmount}%`;
+    syncPresetSummary();
     reblend();
   });
   // 手臂有几对，「手臂套给哪一对」就有几格（一对的时候不显示）。身体变了才重排
@@ -4085,9 +4214,29 @@ if (POSE_LIBRARY.length) {
     }
     $('posePairRow').hidden = count < 2;
     syncPair?.(presetPair === null ? 'all' : String(presetPair), true);
+    syncPresetSummary();
   };
 
-  for (const preset of POSE_LIBRARY) {
+  /* ---- 分类：一次只看一类（记在浏览器里），「全部」是所有的 ---- */
+  const POSE_GROUP_KEY = 'oc-basemesh-pose-group';
+  const POSE_GROUP_LABEL: Record<PoseGroup | 'all', string> = {
+    stand: t('站姿@@姿势分类'),
+    daily: t('日常@@姿势分类'),
+    move: t('走跑跳@@姿势分类'),
+    rest: t('蹲坐躺@@姿势分类'),
+    fight: t('打斗@@姿势分类'),
+    all: t('全部@@姿势分类'),
+  };
+  const groupOptions = [...POSE_GROUPS, 'all'] as const;
+  let poseGroup: PoseGroup | 'all' = 'stand';
+  try {
+    const saved = localStorage.getItem(POSE_GROUP_KEY);
+    if ((groupOptions as readonly string[]).includes(saved ?? '')) poseGroup = saved as PoseGroup | 'all';
+  } catch {
+    // 读不到就从第一类开始
+  }
+  const inGroup = (preset: PresetPose) => poseGroup === 'all' || preset.group === poseGroup;
+  const presetButtons = POSE_LIBRARY.map((preset) => {
     const btn = el('button', 'btn', t(preset.name));
     btn.type = 'button';
     btn.addEventListener('click', () => {
@@ -4095,12 +4244,39 @@ if (POSE_LIBRARY.length) {
       if (note) setStatus(note, !presetParts.size);
     });
     $('poseLibrary').append(btn);
-  }
+    return () => (btn.hidden = !inGroup(preset));
+  });
+  const syncGroup = buildSeg($('segPoseGroup'), groupOptions, (v) => POSE_GROUP_LABEL[v], (group) => {
+    poseGroup = group;
+    try {
+      localStorage.setItem(POSE_GROUP_KEY, group);
+    } catch {
+      // 记不住就下次从第一类开始
+    }
+    showGroup();
+  });
+  const showGroup = () => {
+    syncGroup(poseGroup, true);
+    for (const sync of presetButtons) sync();
+  };
+  showGroup();
+
+  /** 「套用选项」那一行收着时写现在的设定：套到哪些部位、强度 */
+  syncPresetSummary = () => {
+    const parts = POSE_REGIONS.filter((r) => presetParts.has(r)).map((r) => POSE_REGION_LABEL[r]);
+    const where = parts.length === POSE_REGIONS.length ? t('整套') : parts.length ? parts.join(t('、')) : t('一个部位都没勾');
+    const arm = presetPair === null ? '' : t('（手臂是第 {n} 对）', { n: presetPair + 1 });
+    $('poseApplyNow').textContent = `${where}${arm} · ${presetAmount}%`;
+  };
+  syncPresetSummary();
+
   let last = -1;
   $('btnPoseRandom').addEventListener('click', () => {
-    // 不和上一次的重样
-    let pick = Math.floor(Math.random() * POSE_LIBRARY.length);
-    if (pick === last) pick = (pick + 1) % POSE_LIBRARY.length;
+    // 在现在看的这一类里挑，不和上一次的重样
+    const pool = POSE_LIBRARY.map((preset, i) => (inGroup(preset) ? i : -1)).filter((i) => i >= 0);
+    if (!pool.length) return;
+    let pick = pool[Math.floor(Math.random() * pool.length)];
+    if (pick === last) pick = pool[(pool.indexOf(pick) + 1) % pool.length];
     last = pick;
     const note = applyPreset(POSE_LIBRARY[pick]);
     if (note) setStatus(note, !presetParts.size);
@@ -5241,6 +5417,8 @@ function syncScenePanel() {
   figureName.placeholder = t('角色 {n}', { n: indexOf(scene, me.id) + 1 });
   syncPlaceDials();
   const many = scene.figures.length > 1;
+  // 只有一个角色时这一组一样都没有，小标题也不出
+  $('scenePlaceHead').hidden = !many;
   $('placeField').hidden = !many;
   $('sceneViewRow').hidden = !many;
   ringsBox.closest('label')!.hidden = !many;
@@ -5673,17 +5851,40 @@ function render() {
   syncTorsoEdit(torsoEdit, sides.length >= 2);
   for (const sync of steppers) sync();
   for (const sync of sliders) sync();
+  // 「部件」卡片里的选项：用不上的不出（两个头以上才有头的排法，有兽耳才有兽耳形状……）
   syncHead(spec.headLayout, spec.counts.heads > 1);
+  $('headLayoutField').hidden = most('heads') < 2;
   syncArm(spec.armLayout, spec.counts.armPairs > 1);
+  $('armLayoutField').hidden = most('armPairs') < 2;
   // 围成一圈时腿是每个人几条、并排长在这个人的胯上（见 layout.ts）：排法不起作用
   syncLeg(spec.legLayout, spec.counts.legs > 1 && !ringActive(spec));
+  // 两条腿时排法基本用不上（只有每副胯一条腿的人腿人马、前后串联用得上）：选过别的排法才留着，好改回来
+  $('legLayoutField').hidden = ringActive(spec) || spec.counts.legs < 2 || (spec.counts.legs < 3 && spec.legLayout === 'auto');
   syncHipLegs();
   syncChestRow();
   syncAdult();
   syncEar(spec.earShape, spec.counts.earPairsPerHead > 0);
+  $('earShapeField').hidden = most('earPairsPerHead') === 0;
   const ready = spec.bodyStyle !== 'mannequin';
   const finished = spec.bodyStyle === 'character';
+  // 手的样式只有白模人台能选
   syncHand(spec.hands, spec.counts.armPairs > 0 && !ready);
+  $('handStyleField').hidden = ready || most('armPairs') === 0;
+  $('fingersNote').hidden = finished || most('armPairs') === 0 || (!ready && spec.hands !== 'fingers');
+  $('armEndField').hidden = most('armPairs') === 0;
+  $('legEndField').hidden = !humanLegs();
+  $('legNote').hidden = $('legLayoutField').hidden;
+  // 形态四选一：选了哪种才出它的选项；成品角色不能围
+  const form = formOf(spec);
+  syncForm(form, true);
+  const ringOption = $('segForm').querySelector<HTMLInputElement>('input[value="ring"]')!;
+  ringOption.disabled = finished;
+  ringOption.parentElement!.classList.toggle('off', finished);
+  ringOption.parentElement!.title = finished ? t('成品角色不能围成一圈') : '';
+  $('formNormalNote').hidden = form !== 'normal';
+  $('formTorsos').hidden = form !== 'torsos';
+  $('formConjoin').hidden = form !== 'conjoined';
+  $('formRing').hidden = form !== 'ring';
   syncConjoin(spec.conjoined, true);
   $('conjoinPoseField').hidden = spec.conjoined === 'none';
   syncConjoinPose(spec.conjoinPose, spec.conjoined !== 'none');
@@ -5709,6 +5910,7 @@ function render() {
   syncLegEnd(spec.legEnd, humanLegs());
   syncFingers();
   syncToes();
+  syncCards();
   syncHair();
   syncBody(spec.bodyStyle, true);
   syncCharacter();
@@ -5812,6 +6014,12 @@ const tour = new Tour([
     text: t('写一句身体设定，就能生成能导进 Blender 的多肢体角色模型。下面花半分钟认一认几个地方；不想看就点「跳过」，以后在右上角「⋯」菜单里点「新手引导」可以再看。'),
   },
   {
+    title: t('身体样式'),
+    text: t('三种：白模人台是素白的人台；二次元素体是现成的二次元裸素体；成品角色带头发、衣服和贴图，能换角色、换发型、染发。'),
+    target: () => sections.get('style') ?? null,
+    before: tourShape('style'),
+  },
+  {
     title: t('身体描述'),
     text: t('用中文写想要的身体，比如「三个头，两对手臂，九条尾巴」，写完模型马上跟着变。下面亮起来的小标签是认出来的部件；展开「能认哪些写法」能看到全部说法。'),
     target: () => $('desc'),
@@ -5824,16 +6032,10 @@ const tour = new Tour([
     before: tourShape('presets'),
   },
   {
-    title: t('部件数量'),
-    text: t('用 − 和 + 一样一样地调：头、手臂、胸、腿、尾巴、翅膀、角、眼睛、兽耳。下面的「排布」管多出来的怎么长（比如腿是人马还是蛛形）。'),
+    title: t('部件@@栏目'),
+    text: t('一个部件一张卡片：头、手臂、胸、腿、尾巴、翅膀。标题上用 − 和 + 调数量；展开是它自己的排法、样式和大小（比如腿是人马还是蛛形）。'),
     target: () => sections.get('counts') ?? null,
     before: tourShape('counts'),
-  },
-  {
-    title: t('身体样式'),
-    text: t('三种：白模人台是素白的人台；二次元素体是现成的二次元裸素体；成品角色带头发、衣服和贴图，能换角色、换发型、染发。'),
-    target: () => $('segBody').closest('.field'),
-    before: tourShape('shape'),
   },
   {
     title: t('3D 视图'),

@@ -25,8 +25,8 @@ menu opens it at any time.
 This guide covers the most common things only; the full, up-to-date manual is on the project page:
 https://github.com/LatteMochaMatcha/MultiWS (README.en.md)
 
-The body comes in three styles. Switch them under "Body style" in "Body shape", inside the "Look" group of the
-right-hand panel (on a phone: the "Body" section of the drawer):
+The body comes in three styles. Switch them under "Body style" in the "Start" group at the top of the
+right-hand panel (on a phone: the "Style" section of the drawer):
 
   Mannequin             A colorless, smooth human body: one closed mesh, ready to sculpt right away.
                         Every part can be added and the body shape can be adjusted freely.
@@ -108,7 +108,7 @@ On the left is the 3D view: left-drag to rotate, scroll to zoom, right-drag to p
 switch Front / Side / Back / 3/4 and show the bones.
 On the right is the settings panel. A column of icons runs down its left side; click one and the panel shows that
 group:
-  Body (Body description, Presets, Part counts), Layout, Look (Body shape, Hair), Tweak (Manual tweaks, Mesh),
+  Start (Body style, Body description, Presets), Parts, Form, Look (Body shape, Hair), Tweak (Manual tweaks, Mesh),
   Scene, View (Camera & lighting, Reference images).
 Drag the left edge of the panel to change its width (it is remembered; double-click the edge to reset it). The
 longer notes in each section stay hidden until you click "Notes" at the top right of the panel.
@@ -138,8 +138,9 @@ Section by section:
                      With a Ready-made character, everything above her waist (hair and clothes included) is copied
                      once and bent apart at the waist.
   Presets            12 ready-made combinations; click one to switch to it.
-  Part counts        Adjust them one by one with the plus and minus buttons.
-  Layout             "Multiple heads": "Clustered", "1 head, N faces" (one head with several faces) or "Wide torso";
+  Parts              One card per part (head, arms, breasts, legs, tails, wings): set how many with − and + on
+                     the card header, and click the header to open that part's own layout, style and size
+                     (options that don't apply are hidden). Layouts: "Multiple heads": "Clustered", "1 head, N faces" (one head with several faces) or "Wide torso";
                      "Multiple pairs of arms": "Stacked along the torso" or "Gathered at shoulders" (fanned out from
                      the shoulders);
                      "Three or more legs": "Auto", "Centaur", "Arachne", "Humantaur", "Tandem" (human legs front to
@@ -156,6 +157,8 @@ Section by section:
                      "Tandem" you can also choose how many legs each pelvis carries, with
                      "Legs per pelvis (Humantaur, Tandem)": 6 legs with 3 per pelvis is "three front, three back"
                      (writing "6 legs, humantaur, 3 legs per pelvis" or 「前三后三」 in the description works too).
+  Form               Whether the whole body is Normal, Multi-torso, Conjoined or Ring: pick one of the four,
+                     and only that one shows its options.
   Hair               Hairstyle: long straight, side ponytail, bob, twin tails, all taken from ready-made characters.
                      All three body styles can wear them.
                      The Mannequin and the Anime body are bald by default; once hair is put on, it is a
@@ -170,7 +173,7 @@ Section by section:
                      "Length" controls the part hanging below the face; "Volume" scales the whole hairstyle up or
                      down a little.
                      The first time you pick a certain hairstyle you wait a second or two (the data is being fetched).
-  Body shape         Body style, gender, pose (A-pose / T-pose), and sliders for height, heads tall, bust
+  Body shape         Gender, pose (A-pose / T-pose), and sliders for height, heads tall, bust
                      size, shoulder width, waist width, hip width, limb thickness, arm length, leg length and so on.
                      Pushed to either end they give very exaggerated cartoon proportions (limbs up to 3 times
                      thicker or down to 0.35 times).
@@ -230,7 +233,7 @@ back later, or apply it to another character. Undo / Redo work as usual.
                         The six sliders below let you set how much each finger bends and spreads, one finger at a time.
                         To drag the fingertips directly: turn on "Fingers" under "Show which handles" in the "Pose"
                         section, zoom in on the hand and drag.
-                        The Mannequin has two kinds of hand ("Shape → Layout → Hands"): the default "Separate fingers"
+                        The Mannequin has two kinds of hand ("Hands" under "Shape → Parts → Arm"): the default "Separate fingers"
                         has every finger apart and can make any gesture; with "Joined fingers (mitten)" the four
                         fingers form one sheet, and only gestures like "Fist" and "Spread" look right.
 
@@ -337,7 +340,7 @@ GLB files exported from a Ready-made character carry textures; OBJ and STL have 
   "Separate parts (v1)".
 - The hands of the Mannequin and the Anime body are a ready-made hand (with each finger apart), sewn onto the body
   at the wrist into one piece; a very shallow seam can be seen around the wrist. If the Mannequin in a setting saved
-  earlier is still on "Joined fingers (mitten)", click "Separate fingers" under "Shape → Layout → Hands".
+  earlier is still on "Joined fingers (mitten)", click "Separate fingers" for "Hands" under "Shape → Parts → Arm".
 - The pieces of a Ready-made character overlap each other without being fused, so the seams are fairly stiff; if manual
   tweaks move a part far away, the place that joins it to the body stretches.
   It can't do the number of eyes yet. With legs in tandem, the pelvises are placed overlapping each other and there is a

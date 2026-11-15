@@ -9,7 +9,7 @@
  * - 弹出层三个：「更多」、导出面板、视角小浮层。
  *
  * 电脑（其余所有尺寸，含手机横屏）：顶上一条工具栏，面板左边一竖排栏目图标，面板里显示选中的那一组。
- * - 内容少的几栏并成一组（GROUPS：身体 = 描述 + 预设 + 数量，外观 = 体型 + 头发，微调 = 微调 + 网格，视图 = 镜头 + 参考图），
+ * - 内容少的几栏并成一组（GROUPS：起步 = 身体样式 + 描述 + 预设，外观 = 体型 + 头发，微调 = 微调 + 网格，视图 = 镜头 + 参考图），
  *   一个图标、一次都显示，各栏的标题当小标题。
  * - 造型、摆姿势各记各的上次停在哪一栏（存在浏览器里）。
  * - 点中部件切到「微调」，点中关节切到「姿势」；取消选择回到原来那一栏。
@@ -40,7 +40,7 @@ const SIDE_MAX = 760;
  * 组里第一栏是领头的：图标、组名写在它的按钮上，别的几栏的按钮在电脑上不出现。没写进来的栏自己一组
  */
 const GROUPS: readonly { keys: readonly string[]; label: string; icon?: string }[] = [
-  { keys: ['desc', 'presets', 'counts'], label: t('身体@@栏目'), icon: '<circle cx="12" cy="7" r="3.5"/><path d="M5 20.5c0-4 3-6.5 7-6.5s7 2.5 7 6.5"/>' },
+  { keys: ['style', 'desc', 'presets'], label: t('起步@@栏目'), icon: '<circle cx="12" cy="7" r="3.5"/><path d="M5 20.5c0-4 3-6.5 7-6.5s7 2.5 7 6.5"/>' },
   { keys: ['shape', 'hair'], label: t('外观@@栏目') },
   { keys: ['tweak', 'mesh'], label: t('微调@@栏目') },
   { keys: ['view', 'refs'], label: t('视图@@栏目') },
@@ -49,10 +49,11 @@ const groupOf = (key: string) => GROUPS.find((g) => g.keys.includes(key));
 
 /** 栏目名按钮上用短的（手机一排放得下更多、电脑竖排图标下面两个字），完整的名字放进 title */
 const SHORT: Record<string, string> = {
+  style: t('样式@@栏目'),
   desc: t('描述@@栏目'),
   presets: t('预设@@栏目'),
-  counts: t('数量@@栏目'),
-  layout: t('排布@@栏目'),
+  counts: t('部件@@栏目'),
+  layout: t('形态@@栏目'),
   hair: t('头发@@栏目'),
   shape: t('体型@@栏目'),
   tweak: t('微调@@栏目'),
@@ -68,10 +69,11 @@ const SHORT: Record<string, string> = {
 
 /** 栏目图标（24×24，描边）：电脑的竖排、手机摆姿势时底下那条 */
 const ICON: Record<string, string> = {
+  style: '<circle cx="12" cy="7" r="3.5"/><path d="M5 20.5c0-4 3-6.5 7-6.5s7 2.5 7 6.5"/>',
   desc: '<path d="M6 3.5h9l3 3V20.5H6z"/><path d="M9 10h6M9 13.5h6M9 17h4"/>',
   presets: '<path d="m12 3.5 2.5 5.3 5.8.7-4.3 4 1.1 5.7L12 16.4l-5.1 2.8L8 13.5l-4.3-4 5.8-.7z"/>',
-  counts: '<path d="M4 7h9M4 12h9M4 17h9"/><path d="M18 9.5v5M15.5 12h5"/>',
-  layout: '<circle cx="12" cy="4.5" r="2"/><path d="M12 7v7M5 10l7 2 7-2M8.5 20.5 12 14l3.5 6.5"/><path d="M3.5 7.5 5 10M20.5 7.5 19 10"/>',
+  counts: '<circle cx="12" cy="4.5" r="2"/><path d="M12 7v7M5 10l7 2 7-2M8.5 20.5 12 14l3.5 6.5"/><path d="M3.5 7.5 5 10M20.5 7.5 19 10"/>',
+  layout: '<circle cx="8" cy="5" r="2"/><circle cx="16" cy="5" r="2"/><path d="M8 7.5c0 4 1.5 5.5 4 6.5 2.5-1 4-2.5 4-6.5M12 14v2.5M9 21l3-4.5 3 4.5"/>',
   hair: '<path d="M5 20c0-9.5 2.5-15.5 7-15.5s7 6 7 15.5"/><path d="M8.5 9.5c1.5 2 5 3 7.5 1.5"/>',
   shape: '<path d="M9 3.5h6l1.2 5-2.2 3 1 9H9l1-9-2.2-3z"/>',
   tweak: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',

@@ -156,8 +156,54 @@ textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border
 .seg label.on{background:var(--panel);color:var(--ink);box-shadow:0 1px 2px var(--shade)}
 .seg.off{opacity:.45}
 .seg.off label{cursor:default}
+/* 短选项（两三个短的选项、加减号）：名字在左、按钮在右排成一行；放不下（英文、面板窄）按钮自己折到下一行 */
+.field.inline{flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 12px}
+.field.inline>span{flex:0 1 auto;min-width:0}
+.field.inline>.seg{flex:0 1 auto;min-width:0;max-width:100%;grid-auto-columns:minmax(0,max-content)}
+.field.inline>.seg label{padding-inline:10px}
+.field.inline>.stepper{flex:none}
+/* 四选一里不能选的那一格（成品角色不能围成一圈） */
+.seg label.off{opacity:.45;cursor:default}
+/* 「形态」里选了哪种才出的那一块；「体型」里滑块分的小组和小组的名字 */
+.form-body,.shape-groups{display:flex;flex-direction:column;gap:10px}
+.shape-groups{gap:8px}
+h3.sub{margin:6px 0 -2px;font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.04em}
+h3.sub:first-child{margin-top:0}
+/* 三个按钮一排（姿势栏的左右对称） */
+.actions.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.actions.three .btn{padding-inline:4px}
+/* 平时收成一行的一块（现成姿势的套用选项）：左边名字，右边小字写现在的设定，点开才是里面的选项 */
+.fold-row{border:1px solid var(--line);border-radius:10px}
+.fold-row>summary{display:flex;align-items:baseline;gap:8px;padding:7px 10px;cursor:pointer;font-size:13px;list-style:none}
+.fold-row>summary::-webkit-details-marker{display:none}
+.fold-row>summary::before{content:'';flex:none;width:6px;height:6px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:translateY(-2px) rotate(-45deg)}
+.fold-row[open]>summary::before{transform:translateY(-3px) rotate(45deg)}
+.fold-row>summary small{flex:1;min-width:0;text-align:end;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fold-row>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:10px}
+.fold-body{display:flex;flex-direction:column;gap:10px;padding:8px 10px 10px;border-top:1px solid var(--line)}
+/* 「部件」栏：一个部件一张卡片。标题上是名字、单位、数量的加减；点标题收起、展开，收起时下面一行小字写现在选的 */
+.parts{display:flex;flex-direction:column;gap:8px}
+.part{border:1px solid var(--line);border-radius:10px}
+.part-head{display:flex;align-items:center;gap:6px;padding:3px 4px 3px 0}
+.part-fold{flex:1;min-width:0;display:grid;grid-template-columns:auto auto 1fr;align-items:baseline;column-gap:6px;padding:6px 4px 6px 10px;border:0;background:none;color:var(--ink);font:inherit;text-align:start;cursor:pointer;border-radius:8px}
+.part-fold::before{content:'';grid-row:1;width:6px;height:6px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:translateY(-3px) rotate(-45deg);transition:transform .12s}
+.part.open .part-fold::before{transform:translateY(-4px) rotate(45deg)}
+.part.empty .part-fold{cursor:default}
+.part.empty .part-fold::before{visibility:hidden}
+.part-fold:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.part-name{font-size:14px;font-weight:600}
+.part.per-torso .part-name{color:var(--accent)}
+.part-unit{color:var(--muted);font-size:12px}
+.part-sum{grid-column:2/-1;min-width:0;color:var(--muted);font-size:12px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.part-sum:empty{display:none}
+.part-count .row{display:block;padding:0;border:0}
+.part-count .stepper{gap:0}
+.part-count .stepper button{border:0;background:transparent}
+.part-body{display:none;flex-direction:column;gap:8px;padding:8px 10px 10px;border-top:1px solid var(--line)}
+.part.open .part-body{display:flex}
+.part-body .row{padding-block:2px;border-bottom:0}
 /* 成品角色选哪一个：一格一个，上面头像、下面名字 */
-.roster{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
+.roster{display:grid;grid-template-columns:repeat(auto-fill,minmax(50px,1fr));gap:4px}
 .roster .card{display:flex;flex-direction:column;gap:2px;min-width:0;padding:3px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--muted);font:inherit;font-size:11px;line-height:1.3;cursor:pointer}
 .roster .card img{display:block;width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:5px;background:var(--panel)}
 .roster .card span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
@@ -407,17 +453,6 @@ button,label,summary,select,input{touch-action:manipulation}
   .panel-scroll>section.grouped h2{font-size:13px;font-weight:700;letter-spacing:.04em;color:var(--ink)}
   .note.long{display:none}
   .app.notes .note.long{display:block;padding:10px 12px;border-radius:10px;background:var(--bg)}
-  /* 部件数量：两列小格子（同手机竖屏），「身体」一组的描述、预设、数量一屏放得下；面板拖宽了就排三列、四列 */
-  #counts{display:grid;grid-template-columns:repeat(auto-fill,minmax(136px,1fr));gap:6px}
-  #counts .row{display:flex;justify-content:space-between;gap:4px;min-width:0;padding:2px 3px 2px 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg)}
-  #counts .row:last-child{border-bottom:1px solid var(--line)}
-  #counts .row label{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #counts .row small{display:none}
-  :root:not([data-lang="zh"]) #counts .row label{white-space:normal;line-height:1.15;font-size:12.5px}
-  #counts .stepper{flex:none;gap:0}
-  #counts .stepper button{width:28px;height:30px;border:0;background:transparent}
-  /* 用手指点的屏幕（平板横着拿）：加减号大一点 */
-  @media (pointer:coarse){#counts .stepper button{width:36px;height:38px;font-size:18px}}
 
   /* ---------- 弹出层：「更多」菜单（标题区）、导出面板 ---------- */
   .panel-scroll>header{display:none}
@@ -472,13 +507,6 @@ button,label,summary,select,input{touch-action:manipulation}
   .jump button span{display:none}
   .panel-head{padding-top:8px}
   .panel-scroll{padding-block:8px 16px}
-  /* 部件数量的两列小格子：面板窄，再紧一点 */
-  #counts{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
-  #counts .row{gap:2px;padding:1px 1px 1px 8px}
-  #counts .row label{font-size:13px}
-  :root:not([data-lang="zh"]) #counts .row label{font-size:12px}
-  #counts .stepper button{width:30px;height:34px;font-size:17px}
-  #counts .stepper output{min-width:1.6ch;font-size:14px}
   .app[data-pop="export"] .panel-foot,.app[data-pop="menu"] .panel-scroll>header{max-height:calc(100% - var(--top-h) - 12px);overflow-y:auto}
 }
 
@@ -573,17 +601,14 @@ button,label,summary,select,input{touch-action:manipulation}
   .panel-scroll>section.folded>.body{display:flex}
   .note.long{display:none}
   .app.notes .note.long{display:block;padding:10px 12px;border-radius:10px;background:var(--bg)}
-  /* 部件数量：两列小格子，一屏放得下大半 */
-  #counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
-  #counts .row{display:flex;justify-content:space-between;gap:4px;min-width:0;padding:2px 2px 2px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
-  #counts .row:last-child{border-bottom:1px solid var(--line)}
-  #counts .row label{min-width:0;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #counts .row small{display:none}
-  /* 英文名字长（Upper body）：放不下就折成两行，别截断 */
-  :root:not([data-lang="zh"]) #counts .row label{white-space:normal;line-height:1.15;font-size:13px}
-  #counts .stepper{flex:none;gap:0}
-  #counts .stepper button{width:36px;height:38px;border:0;background:transparent;font-size:19px}
-  #counts .stepper output{min-width:1.8ch;font-size:15px}
+  /* 部件：收着的卡片两个一排（抽屉矮，模型露得多），点开的那张占一整行；收着时不写单位 */
+  .parts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  .part.open,.part.lone{grid-column:1/-1}
+  .part:not(.open) .part-unit{display:none}
+  .part:not(.open) .part-fold{grid-template-columns:auto 1fr;padding-left:8px}
+  .part:not(.open) .part-sum{grid-column:1/-1}
+  .part-count .stepper button{width:34px;height:38px;font-size:19px}
+  .part-count .stepper output{min-width:1.8ch}
   /* 手动微调：选中了部件就不要「选中的部件」那一格（左下角的牌子上写着），数字格子紧一点 */
   section[data-key="tweak"] .body:has(#tweakBody:not([hidden]))>.field:first-child{display:none}
   .triple{grid-template-columns:3.8em repeat(3,minmax(0,1fr));gap:5px}
@@ -647,10 +672,9 @@ button,label,summary,select,input{touch-action:manipulation}
   .app[data-pop="export"] .export .btn.primary::after{color:inherit;opacity:.85}
   .app[data-pop="export"] .panel-foot .status{display:block;position:static}
 }
-/* 很窄的手机（320 宽）：栏目名、两列数量再紧一点 */
+/* 很窄的手机（320 宽）：栏目名再紧一点 */
 @media (max-width:360px){
   .jump button{padding-inline:8px;font-size:13.5px}
-  #counts .stepper button{width:32px}
 }
 /* 平板竖着拿（用的是手机竖屏版面）：屏幕宽，内容限在中间 600 宽，按钮、滑块不拉满整屏；
    摆姿势底下那条和卡片、导出面板也收在中间 */

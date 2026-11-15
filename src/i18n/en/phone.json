@@ -6,8 +6,8 @@
   "显示各栏的长说明": "Show the longer notes in each section",
   "描述@@栏目": "Text",
   "预设@@栏目": "Presets",
-  "数量@@栏目": "Counts",
-  "排布@@栏目": "Layout",
+  "部件@@栏目": "Parts",
+  "形态@@栏目": "Form",
   "头发@@栏目": "Hair",
   "体型@@栏目": "Body",
   "微调@@栏目": "Tweak",
@@ -27,7 +27,8 @@
   "知道了": "Got it",
   "更新日志只有中文。": "The release notes are available in Chinese only.",
   "更早的版本": "Earlier versions",
-  "身体@@栏目": "Body",
   "外观@@栏目": "Look",
-  "视图@@栏目": "View"
+  "视图@@栏目": "View",
+  "起步@@栏目": "Start",
+  "样式@@栏目": "Style"
 }

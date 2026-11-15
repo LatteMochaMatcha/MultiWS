@@ -107,6 +107,21 @@
           <p class="repo">源码和下载：<a href="https://github.com/LatteMochaMatcha/MultiWS" target="_blank" rel="noopener" translate="no">github.com/LatteMochaMatcha/MultiWS</a></p>
         </header>
 
+        <!-- 起步（电脑上和描述、预设并成一组）：最先要定的身体样式、成品角色用哪一个 -->
+        <section data-key="style" data-mode="shape">
+          <h2><button type="button" class="fold">身体样式</button></h2>
+          <div class="body">
+            <div class="seg" id="segBody" role="radiogroup" aria-label="身体样式"></div>
+            <div class="field" id="characterRow" hidden>
+              <span>角色</span>
+              <div class="roster" id="characterPick" role="radiogroup" aria-label="角色"></div>
+              <label class="btn file" for="fileVrm" title="选一个自己的 VRM 文件（VRoid Studio 导出的最好）：文件只存在这台设备的浏览器里">载入自己的 VRM…<input type="file" id="fileVrm" accept=".vrm,.glb,model/gltf-binary" hidden></label>
+            </div>
+            <p class="note" id="characterNote" hidden></p>
+            <p class="note long" id="bodyNote" hidden>头、躯干、手臂、腿的形状来自 VRoid Studio 旧版的女性素体（CC0）。它只有一种体型：性别、体格、肩宽、腰宽、胯宽、四肢粗细、手的样式对它不起作用。</p>
+          </div>
+        </section>
+
         <section data-key="desc" data-mode="shape">
           <h2><button type="button" class="fold">身体描述</button></h2>
           <div class="body">
@@ -133,75 +148,152 @@
           </div>
         </section>
 
+        <!-- 部件：一个部件一张卡片。卡片标题上是数量的加减（main.ts 照 data-count 把加减号插进来），
+             展开是这个部件自己的排法、样式、大小（体型滑块照 data-shape 插进来）。docs/sidebar-plan.md -->
         <section data-key="counts" data-mode="shape">
-          <h2><button type="button" class="fold">部件数量</button></h2>
+          <h2><button type="button" class="fold">部件</button></h2>
           <div class="body">
             <div class="field" id="torsoEditField" title="好几个上半身时，头、手臂、胸、角、眼睛、兽耳可以每个上半身单独设。左右是角色自己的左右：正面看，她的左边在屏幕右边" hidden>
               <span>改哪个上半身</span>
               <div class="seg" id="segTorso" role="radiogroup" aria-label="改哪个上半身"></div>
             </div>
-            <div class="rows" id="counts"></div>
+            <div class="parts" id="counts">
+              <div class="part" data-part="head">
+                <div class="part-head"><button type="button" class="part-fold" aria-expanded="true"></button><div class="part-count" data-count="heads"></div></div>
+                <div class="part-body">
+                  <div class="field" id="headLayoutField">
+                    <span>多个头</span>
+                    <div class="seg" id="segHead" role="radiogroup" aria-label="多个头怎么长"></div>
+                  </div>
+                  <div class="rows" data-count="eyesPerHead hornsPerHead earPairsPerHead"></div>
+                  <div class="field inline" id="earShapeField">
+                    <span>兽耳形状</span>
+                    <div class="seg" id="segEar" role="radiogroup" aria-label="兽耳形状"></div>
+                  </div>
+                  <p class="note long">头选「一个头几张脸」：只有一个头、一根脖子，多出来的脸朝着两边和后面（阿修罗的三面）。</p>
+                </div>
+              </div>
+              <div class="part" data-part="arm">
+                <div class="part-head"><button type="button" class="part-fold" aria-expanded="true"></button><div class="part-count" data-count="armPairs"></div></div>
+                <div class="part-body">
+                  <div class="field inline" id="armLayoutField">
+                    <span>多对手臂</span>
+                    <div class="seg" id="segArm" role="radiogroup" aria-label="多对手臂的排布"></div>
+                  </div>
+                  <div class="field inline" id="handStyleField">
+                    <span>手</span>
+                    <div class="seg" id="segHand" role="radiogroup" aria-label="手的样式"></div>
+                  </div>
+                  <div class="field inline" id="armEndField" title="手脚互换：手臂末端接一只脚。手臂垂下来时脚底朝下、脚趾朝前，像腿上那样，缩到和手腕一样粗">
+                    <span>手臂末端</span>
+                    <div class="seg" id="segArmEnd" role="radiogroup" aria-label="手臂末端接手还是脚"></div>
+                  </div>
+                  <div class="field inline" id="fingersField" hidden title="连拇指一共几根。多出来的是照无名指复制的，排在无名指和小指之间；少了先拿掉无名指，再拿掉中指">
+                    <span>每只手几根手指</span>
+                    <div class="stepper" id="fingers"></div>
+                  </div>
+                  <div class="sliders" data-shape="armLength"></div>
+                  <p class="note long" id="fingersNote">分指的手在预览里会粘在一起，导出以后才分得开。</p>
+                </div>
+              </div>
+              <div class="part" data-part="chest">
+                <div class="part-head"><button type="button" class="part-fold" aria-expanded="true"></button><div class="part-count" data-count="breasts"></div></div>
+                <div class="part-body">
+                  <div class="field inline" id="chestRowField" hidden title="胸一排几个，左右并排：两个就是一对一对的，单数时正中一个；个数不是它的整数倍时，最下面那排少几个">
+                    <span>每排几个胸</span>
+                    <div class="stepper" id="chestRow"></div>
+                  </div>
+                  <div class="sliders" data-shape="bust"></div>
+                </div>
+              </div>
+              <div class="part" data-part="leg">
+                <div class="part-head"><button type="button" class="part-fold" aria-expanded="true"></button><div class="part-count" data-count="legs"></div></div>
+                <div class="part-body">
+                  <div class="field" id="legLayoutField">
+                    <span>三条以上的腿</span>
+                    <div class="seg grid3" id="segLeg" role="radiogroup" aria-label="三条以上的腿怎么排"></div>
+                  </div>
+                  <div class="field inline" id="hipLegsField" hidden title="人腿人马、前后串联每副胯上并排几条腿">
+                    <span>每副胯上几条腿</span>
+                    <div class="stepper" id="hipLegs"></div>
+                  </div>
+                  <div class="field inline" id="legEndField" title="手脚互换：腿末端接一只手。手心朝下贴地、手指朝前，像倒立时撑地的手，放大到和脚踝一样粗；手比脚矮，整个人往下落一点。人马、蛛形的兽腿不变">
+                    <span>腿末端</span>
+                    <div class="seg" id="segLegEnd" role="radiogroup" aria-label="腿末端接脚还是手"></div>
+                  </div>
+                  <div class="field inline" id="toesField" hidden title="二次元素体的脚才有脚趾。多出来的是照第二趾复制的，排在第二趾后面；少了先拿掉第四趾，再拿掉第三趾、第二趾。脚跟、脚踝不变，只有前脚掌跟着变宽变窄">
+                    <span>每只脚几个脚趾</span>
+                    <div class="stepper" id="toes"></div>
+                  </div>
+                  <div class="sliders" data-shape="legLength"></div>
+                  <p class="note long" id="legNote">腿选「自动」：4 条是人马下身，6 条以上是蛛形，单数是左右并排。人马、蛛形的腿只能成对，单数时多补一条。「人腿人马」就是 humantaur：像人马，但身后不是马身，是横着的一截人的腰，接着又一副人的胯和腿；人腿人马和前后串联每副胯上可以并排好几条（比如 6 条腿、每副 3 条就是「前三后三」），总数不够时最后那副少几条。「胯部聚拢」像手臂肩部聚拢：几副胯一副紧贴一副，每副一对腿，腿往下一对比一对往外散开，正面看像一把扇子，胯还是一个人那么宽。单数条人腿的，多出来的那条长在中线上：并排的在正中，前后排、聚拢的在最后那副胯的正中。</p>
+                </div>
+              </div>
+              <div class="part" data-part="tail">
+                <div class="part-head"><button type="button" class="part-fold" aria-expanded="true"></button><div class="part-count" data-count="tails"></div></div>
+                <div class="part-body">
+                  <div class="sliders" data-shape="tailFluff tailLength"></div>
+                </div>
+              </div>
+              <div class="part" data-part="wing">
+                <div class="part-head"><button type="button" class="part-fold" aria-expanded="true"></button><div class="part-count" data-count="wingPairs"></div></div>
+                <div class="part-body"></div>
+              </div>
+              <div class="part" data-part="penis" id="adultPart" hidden>
+                <div class="part-head"><button type="button" class="part-fold" aria-expanded="true"></button><div class="part-count" data-count="penises"></div></div>
+                <div class="part-body">
+                  <div class="field inline" id="penisStateField" hidden title="一键换软硬：几根、排法、大小、微调都照旧，软的小一圈、往前下方垂">
+                    <span>阴茎软硬</span>
+                    <div class="seg" id="segPenisState" role="radiogroup" aria-label="阴茎软硬"></div>
+                  </div>
+                  <div class="field" id="penisLayoutField" hidden>
+                    <span>好几根阴茎</span>
+                    <div class="seg" id="segPenis" role="radiogroup" aria-label="好几根阴茎怎么排"></div>
+                  </div>
+                  <div class="field inline" id="penisRowField" hidden>
+                    <span>每排几根（几乘几）</span>
+                    <div class="stepper" id="penisRow"></div>
+                  </div>
+                  <div class="field inline" id="scrotumField" hidden>
+                    <span>阴囊</span>
+                    <div class="seg" id="segScrotum" role="radiogroup" aria-label="阴囊几根共用一个还是各带一个"></div>
+                  </div>
+                  <div class="sliders" data-shape="penisSize"></div>
+                </div>
+              </div>
+            </div>
             <label class="check" title="这台设备自己记着，不进配置、不进撤销"><input type="checkbox" id="adultOn"> 显示成人部件</label>
           </div>
         </section>
 
+        <!-- 形态：整个身体是哪一种（几个上半身、连体、围成一圈）。section 的 data-key 还叫 layout（存过的「上次停在哪一栏」认它） -->
         <section data-key="layout" data-mode="shape">
-          <h2><button type="button" class="fold">排布</button></h2>
+          <h2><button type="button" class="fold">形态</button></h2>
           <div class="body">
-            <div class="field">
-              <span>多个头</span>
-              <div class="seg" id="segHead" role="radiogroup" aria-label="多个头怎么长"></div>
+            <!-- 四选一：界面上的说法；存进配置的还是上半身个数、连体、围成一圈那几项（main.ts 的 formOf） -->
+            <div class="seg" id="segForm" role="radiogroup" aria-label="整个身体的形态"></div>
+            <p class="note" id="formNormalNote">一个上半身，头、手臂、胸、腿照「部件」里的数量长。</p>
+            <div class="form-body" id="formTorsos" hidden>
+              <div class="rows" data-count="torsos"></div>
+              <div class="field" id="torsoCharRow" title="好几个上半身时，每个上半身可以换成别的角色（比如一个男生、一个女生）；胯和腿照上面选的角色。左右是角色自己的左右：正面看，她的左边在屏幕右边" hidden>
+                <span>每个上半身的角色</span>
+                <div class="torso-chars" id="torsoChars"></div>
+              </div>
+              <p class="note">头、手臂、胸、角、眼睛、兽耳可以每个上半身单独设：到「部件」栏最上面选「改哪个上半身」。</p>
             </div>
-            <div class="field">
-              <span>多对手臂</span>
-              <div class="seg" id="segArm" role="radiogroup" aria-label="多对手臂的排布"></div>
-            </div>
-            <div class="field" id="chestRowField" hidden title="胸一排几个，左右并排：两个就是一对一对的，单数时正中一个；个数不是它的整数倍时，最下面那排少几个">
-              <span>每排几个胸</span>
-              <div class="stepper" id="chestRow"></div>
-            </div>
-            <div class="field">
-              <span>三条以上的腿</span>
-              <div class="seg grid3" id="segLeg" role="radiogroup" aria-label="三条以上的腿怎么排"></div>
-            </div>
-            <div class="field" id="hipLegsField" hidden>
-              <span>每副胯上几条腿（人腿人马、前后串联）</span>
-              <div class="stepper" id="hipLegs"></div>
-            </div>
-            <div class="field" id="penisStateField" hidden title="一键换软硬：几根、排法、大小、微调都照旧，软的小一圈、往前下方垂">
-              <span>阴茎软硬</span>
-              <div class="seg" id="segPenisState" role="radiogroup" aria-label="阴茎软硬"></div>
-            </div>
-            <div class="field" id="penisLayoutField" hidden>
-              <span>好几根阴茎</span>
-              <div class="seg" id="segPenis" role="radiogroup" aria-label="好几根阴茎怎么排"></div>
-            </div>
-            <div class="field" id="penisRowField" hidden>
-              <span>每排几根（几乘几）</span>
-              <div class="stepper" id="penisRow"></div>
-            </div>
-            <div class="field" id="scrotumField" hidden>
-              <span>阴囊</span>
-              <div class="seg" id="segScrotum" role="radiogroup" aria-label="阴囊几根共用一个还是各带一个"></div>
-            </div>
-            <div class="field">
-              <span>兽耳形状</span>
-              <div class="seg" id="segEar" role="radiogroup" aria-label="兽耳形状"></div>
-            </div>
-            <div class="field">
-              <span>手</span>
-              <div class="seg" id="segHand" role="radiogroup" aria-label="手的样式"></div>
-            </div>
-            <div class="field" title="queen conjoined：两个上半身在腰上对接，连成一条横着的身子，四条手臂撑在地上，没有胯和腿。同向是两个都胸口朝下；反向是另一个仰面朝上、手臂往身后撑地。选了以后腿、尾巴、阴茎、几个上半身都不管">
-              <span>连体</span>
+            <div class="form-body" id="formConjoin" hidden>
+            <div class="field inline" title="queen conjoined：两个上半身在腰上对接，连成一条横着的身子，四条手臂撑在地上，没有胯和腿。同向是两个都胸口朝下；反向是另一个仰面朝上、手臂往身后撑地。选了以后腿、尾巴、阴茎、几个上半身都不管">
+              <span>方向</span>
               <div class="seg" id="segConjoin" role="radiogroup" aria-label="两个上半身在腰上对接的连体形式"></div>
             </div>
             <div class="field" id="conjoinPoseField" hidden title="连体静止时的姿态：趴着是四只手撑地；侧躺是两个上半身侧着躺在同一条轴上，靠地那只手臂朝前贴地、上面那只手撑在胸前；平躺是仰面躺平、手臂放在身子两边（反向的那个趴着）；站着是下面那个倒立、两只手撑地，上面那个照常站着">
               <span>连体姿态</span>
               <div class="seg" id="segConjoinPose" role="radiogroup" aria-label="连体静止时是趴着、侧躺、平躺还是站着"></div>
             </div>
+            </div>
+            <div class="form-body" id="formRing" hidden>
             <div class="field" title="围成一圈：几个人背靠背站成一圈、脸朝外，融合成一个身子。头成一圈，胸环绕身体一周，腿往四周排开。各有各的胯是每个人自己的腰、胯都看得出来；并胯融合是腰胯并成一个圆桶。头、胸、腿、阴茎是每个人各长这么多（腿每人最多 6 条）；手臂只长在整个身子的左右两侧，「手臂」几对就是每侧几条；翅膀、尾巴、几个上半身、腿的排法都不管（成品角色、连体时不围）。前后排是另一种排法：几个人分成前后两排、背靠背，上身挤在一起（单数时前排多一个）；底下的胯一排排分开，前后两排中间还有没有头的胯，腿都朝正前；胸照「每排几个胸」排在每个人身上，隔一排错开半只（错开的那排少一只），手臂每侧前后两组">
-              <span>围成一圈</span>
+              <span>围法</span>
               <div class="seg" id="segRing" role="radiogroup" aria-label="几个人背靠背围成一圈的形式"></div>
             </div>
             <div class="field" id="ringCountField" hidden>
@@ -213,7 +305,7 @@
               <input type="range" id="s-ringSpread">
               <output id="o-ringSpread" for="s-ringSpread"></output>
             </div>
-            <div class="field" id="ringHipRowsField" hidden title="前后排：胯从前往后排几排。2 是只有前排、后排有头的人；3 排以上多出来的都夹在中间，没有头">
+            <div class="field inline" id="ringHipRowsField" hidden title="前后排：胯从前往后排几排。2 是只有前排、后排有头的人；3 排以上多出来的都夹在中间，没有头">
               <span>胯几排</span>
               <div class="seg" id="segRingHipRows" role="radiogroup" aria-label="前后排的胯排几排"></div>
             </div>
@@ -225,61 +317,41 @@
               <span>环绕的胸</span>
               <div class="seg" id="segRingChest" role="radiogroup" aria-label="围成一圈时胸怎么排"></div>
             </div>
-            <div class="field" id="ringLegsField" hidden title="围成一圈时腿长在哪：中间也有是外圈每个人自己的腿以外，圈心底下也一圈圈排满腿；只在外圈是只有每个人自己的那几条。「腿」几条就是每个人几条（最多 6 条），腿多了圈跟着变大，少了跟着变小">
+            <div class="field inline" id="ringLegsField" hidden title="围成一圈时腿长在哪：中间也有是外圈每个人自己的腿以外，圈心底下也一圈圈排满腿；只在外圈是只有每个人自己的那几条。「腿」几条就是每个人几条（最多 6 条），腿多了圈跟着变大，少了跟着变小">
               <span>中间的腿</span>
               <div class="seg" id="segRingLegs" role="radiogroup" aria-label="围成一圈时腿长在哪"></div>
             </div>
-            <div class="field" id="ringLegFacingField" hidden title="围成一圈时腿朝哪：绕圈朝外是每条腿跟着它所在的那个人，脚尖朝外；统一朝前是腿长在哪不变，脚尖都朝正前，套走路这类姿势时所有的腿朝一个方向迈">
+            <div class="field inline" id="ringLegFacingField" hidden title="围成一圈时腿朝哪：绕圈朝外是每条腿跟着它所在的那个人，脚尖朝外；统一朝前是腿长在哪不变，脚尖都朝正前，套走路这类姿势时所有的腿朝一个方向迈">
               <span>腿的朝向</span>
               <div class="seg" id="segRingLegFacing" role="radiogroup" aria-label="围成一圈时腿朝哪"></div>
             </div>
-            <div class="field" title="手脚互换：手臂末端接一只脚。手臂垂下来时脚底朝下、脚趾朝前，像腿上那样，缩到和手腕一样粗">
-              <span>手臂末端</span>
-              <div class="seg" id="segArmEnd" role="radiogroup" aria-label="手臂末端接手还是脚"></div>
             </div>
-            <div class="field" title="手脚互换：腿末端接一只手。手心朝下贴地、手指朝前，像倒立时撑地的手，放大到和脚踝一样粗；手比脚矮，整个人往下落一点。人马、蛛形的兽腿不变">
-              <span>腿末端</span>
-              <div class="seg" id="segLegEnd" role="radiogroup" aria-label="腿末端接脚还是手"></div>
-            </div>
-            <div class="field" id="fingersField" hidden title="连拇指一共几根。多出来的是照无名指复制的，排在无名指和小指之间；少了先拿掉无名指，再拿掉中指">
-              <span>每只手几根手指</span>
-              <div class="stepper" id="fingers"></div>
-            </div>
-            <div class="field" id="toesField" hidden title="二次元素体的脚才有脚趾。多出来的是照第二趾复制的，排在第二趾后面；少了先拿掉第四趾，再拿掉第三趾、第二趾。脚跟、脚踝不变，只有前脚掌跟着变宽变窄">
-              <span>每只脚几个脚趾</span>
-              <div class="stepper" id="toes"></div>
-            </div>
-            <p class="note">头选「一个头几张脸」：只有一个头、一根脖子，多出来的脸朝着两边和后面（阿修罗的三面）。腿选「自动」：4 条是人马下身，6 条以上是蛛形，单数是左右并排。人马、蛛形的腿只能成对，单数时多补一条。「人腿人马」就是 humantaur：像人马，但身后不是马身，是横着的一截人的腰，接着又一副人的胯和腿；人腿人马和前后串联每副胯上可以并排好几条（比如 6 条腿、每副 3 条就是「前三后三」），总数不够时最后那副少几条。「胯部聚拢」像手臂肩部聚拢：几副胯一副紧贴一副，每副一对腿，腿往下一对比一对往外散开，正面看像一把扇子，胯还是一个人那么宽。单数条人腿的，多出来的那条长在中线上：并排的在正中，前后排、聚拢的在最后那副胯的正中。分指的手在预览里会粘在一起，导出以后才分得开。</p>
           </div>
         </section>
 
         <section data-key="shape" data-mode="shape">
           <h2><button type="button" class="fold">体型</button></h2>
           <div class="body">
-            <div class="field">
-              <span>身体样式</span>
-              <div class="seg" id="segBody" role="radiogroup" aria-label="身体样式"></div>
-            </div>
-            <div class="field" id="characterRow" hidden>
-              <span>角色</span>
-              <div class="roster" id="characterPick" role="radiogroup" aria-label="角色"></div>
-              <label class="btn file" for="fileVrm" title="选一个自己的 VRM 文件（VRoid Studio 导出的最好）：文件只存在这台设备的浏览器里">载入自己的 VRM…<input type="file" id="fileVrm" accept=".vrm,.glb,model/gltf-binary" hidden></label>
-            </div>
-            <p class="note" id="characterNote" hidden></p>
-            <div class="field" id="torsoCharRow" title="好几个上半身时，每个上半身可以换成别的角色（比如一个男生、一个女生）；胯和腿照上面选的角色。左右是角色自己的左右：正面看，她的左边在屏幕右边" hidden>
-              <span>每个上半身的角色</span>
-              <div class="torso-chars" id="torsoChars"></div>
-            </div>
-            <p class="note" id="bodyNote" hidden>头、躯干、手臂、腿的形状来自 VRoid Studio 旧版的女性素体（CC0）。它只有一种体型：性别、体格、肩宽、腰宽、胯宽、四肢粗细、手的样式对它不起作用。</p>
-            <div class="field">
+            <div class="field inline">
               <span>性别</span>
               <div class="seg" id="segGender" role="radiogroup" aria-label="性别"></div>
             </div>
-            <div class="field">
+            <div class="field inline">
               <span>姿势</span>
               <div class="seg" id="segPose" role="radiogroup" aria-label="姿势"></div>
             </div>
-            <div class="sliders" id="shapes"></div>
+            <!-- 滑块由 main.ts 照 data-shape-main 插进各小组；只管一个部件的那几个在「部件」的卡片里还有一份 -->
+            <div class="shape-groups" id="shapes">
+              <h3 class="sub">整体</h3>
+              <div class="sliders" data-shape-main="height headRatio build"></div>
+              <h3 class="sub">躯干</h3>
+              <div class="sliders" data-shape-main="shoulders bust waist hips"></div>
+              <h3 class="sub">四肢</h3>
+              <div class="sliders" data-shape-main="limbs armLength legLength"></div>
+              <h3 class="sub">尾巴</h3>
+              <div class="sliders" data-shape-main="tailFluff tailLength"></div>
+              <div class="sliders" data-shape-main="penisSize"></div>
+            </div>
             <p class="note">身高、头身比按标准人形算；多排手臂、人马、蛛形会更高，以顶上的读数为准。</p>
           </div>
         </section>
@@ -326,7 +398,7 @@
               <label class="check"><input type="checkbox" id="tweakLock"> 大小锁定比例</label>
               <label class="check" id="tweakMirrorRow"><input type="checkbox" id="tweakMirror"> <span id="tweakMirrorText"></span></label>
               <div id="limbTip" hidden>
-                <div class="field" title="只改这一条：末端接手还是脚。「跟着全部」就是照「造型 → 排布」里统一的那一项">
+                <div class="field" title="只改这一条：末端接手还是脚。「跟着全部」就是照「造型 → 部件」里统一的那一项">
                   <span>这一条的末端</span>
                   <div class="seg" id="segLimbEnd" role="radiogroup" aria-label="这一条手臂或腿末端接什么"></div>
                 </div>
@@ -389,21 +461,41 @@
                 <label class="check"><input type="checkbox" id="posePinHands"> 手</label>
               </div>
             </div>
-            <div class="field" id="poseFollowRow" hidden title="选「一起动」以后，拖哪一对手臂，别的几对就照它摆（左右各算各的）；同一个上半身上的还是原来那样错开、散开着">
+            <div class="field inline" id="poseFollowRow" hidden title="选「一起动」以后，拖哪一对手臂，别的几对就照它摆（左右各算各的）；同一个上半身上的还是原来那样错开、散开着">
               <span>几对手臂</span>
               <div class="seg" id="segPoseFollow" role="radiogroup" aria-label="几对手臂"></div>
             </div>
+            <div class="field">
+              <span>左右对称</span>
+              <div class="actions three">
+                <button type="button" class="btn" id="btnPoseL2R" title="把左半边的姿势照到右半边">左边 → 右边</button>
+                <button type="button" class="btn" id="btnPoseR2L" title="把右半边的姿势照到左半边">右边 → 左边</button>
+                <button type="button" class="btn" id="btnPoseFlip" title="整个姿势照镜子">左右翻转</button>
+              </div>
+            </div>
+            <div class="field">
+              <span>贴地</span>
+              <div class="actions">
+                <button type="button" class="btn" id="btnPoseGround" title="整个人上下挪一下，最低的地方正好贴着地面">落到地面</button>
+                <button type="button" class="btn" id="btnPosePlant" title="每只脚原地落到地面、脚掌放平，腿跟着弯；有腿够不着地面时整个人往下落。上半身不动">脚踩到地上</button>
+              </div>
+            </div>
+            <div class="field">
+              <span>下垂</span>
+              <div class="actions">
+                <button type="button" class="btn" id="btnPoseDrape" title="头发、裙摆、衣摆、袖子照重力垂下来，碰到身体、地面就停在外面">自然下垂</button>
+                <label class="check" title="尾巴本来是翘着的；勾上以后「自然下垂」也让尾巴往下垂一些"><input type="checkbox" id="poseDrapeTails"> 尾巴也垂</label>
+              </div>
+            </div>
             <div class="actions">
-              <button type="button" class="btn" id="btnPoseL2R" title="把左半边的姿势照到右半边">左边 → 右边</button>
-              <button type="button" class="btn" id="btnPoseR2L" title="把右半边的姿势照到左半边">右边 → 左边</button>
-              <button type="button" class="btn" id="btnPoseFlip" title="整个姿势照镜子">左右翻转</button>
-              <button type="button" class="btn" id="btnPoseGround" title="整个人上下挪一下，最低的地方正好贴着地面">落到地面</button>
-              <button type="button" class="btn wide" id="btnPosePlant" title="每只脚原地落到地面、脚掌放平，腿跟着弯；有腿够不着地面时整个人往下落。上半身不动">脚踩到地上</button>
-              <button type="button" class="btn" id="btnPoseDrape" title="头发、裙摆、衣摆、袖子照重力垂下来，碰到身体、地面就停在外面">自然下垂</button>
-              <label class="check" title="尾巴本来是翘着的；勾上以后「自然下垂」也让尾巴往下垂一些"><input type="checkbox" id="poseDrapeTails"> 尾巴也垂</label>
               <button type="button" class="btn wide" id="btnPoseReset">还原成静止姿势</button>
-              <button type="button" class="btn" id="btnPoseSave" title="把现在的姿势（连同看的角度）存成一个文件">保存姿势</button>
-              <label class="btn file" for="filePose" title="读一个姿势文件，套到现在这个角色身上">载入姿势…<input type="file" id="filePose" accept=".json,application/json" hidden></label>
+            </div>
+            <div class="field">
+              <span>姿势文件</span>
+              <div class="actions">
+                <button type="button" class="btn" id="btnPoseSave" title="把现在的姿势（连同看的角度）存成一个文件">保存姿势</button>
+                <label class="btn file" for="filePose" title="读一个姿势文件，套到现在这个角色身上">载入姿势…<input type="file" id="filePose" accept=".json,application/json" hidden></label>
+              </div>
             </div>
             <p class="note">在这一页里，导出和截图出来的是摆好的样子；切回「造型」导出的是静止姿势。姿势跟着配置一起存；「保存姿势」单独存成一个文件，可以套到别的角色身上，对不上的骨骼跳过。</p>
           </div>
@@ -463,31 +555,40 @@
         <section data-key="poses" data-mode="pose">
           <h2><button type="button" class="fold">现成的姿势</button></h2>
           <div class="body">
-            <div class="field">
-              <span>套到哪些部位</span>
-              <div class="checks" id="posePartChecks"></div>
-            </div>
-            <div class="field" id="posePairRow" hidden>
-              <span>手臂套给哪一对</span>
-              <div class="seg" id="segPosePair" role="radiogroup" aria-label="手臂套给哪一对"></div>
-            </div>
-            <div class="slider">
-              <label for="s-poseAmount">强度</label>
-              <input type="range" id="s-poseAmount" min="10" max="100" step="5" value="100">
-              <output id="o-poseAmount" for="s-poseAmount">100%</output>
-            </div>
-            <p class="note">点了姿势以后接着拖「强度」、改部位，刚点的那个姿势跟着重新套；拖了圆点、撤销过以后再改，就只管下一次点的（只想给下一个换强度：改完按一次撤销）。</p>
+            <!-- 分类：一次只看一类（main.ts 记在浏览器里） -->
+            <div class="seg grid3" id="segPoseGroup" role="radiogroup" aria-label="看哪一类姿势"></div>
+            <!-- 套用选项平时收成一行，右边写现在的设定；点开才是部位、哪一对手臂、强度 -->
+            <details class="fold-row" id="poseApply">
+              <summary><span>套用选项</span><small id="poseApplyNow"></small></summary>
+              <div class="fold-body">
+                <div class="field">
+                  <span>套到哪些部位</span>
+                  <div class="checks" id="posePartChecks"></div>
+                </div>
+                <div class="field" id="posePairRow" hidden>
+                  <span>手臂套给哪一对</span>
+                  <div class="seg" id="segPosePair" role="radiogroup" aria-label="手臂套给哪一对"></div>
+                </div>
+                <div class="slider">
+                  <label for="s-poseAmount">强度</label>
+                  <input type="range" id="s-poseAmount" min="10" max="100" step="5" value="100">
+                  <output id="o-poseAmount" for="s-poseAmount">100%</output>
+                </div>
+                <p class="note">点了姿势以后接着拖「强度」、改部位，刚点的那个姿势跟着重新套；拖了圆点、撤销过以后再改，就只管下一次点的（只想给下一个换强度：改完按一次撤销）。</p>
+              </div>
+            </details>
             <div class="presets" id="poseLibrary"></div>
             <div class="actions">
               <button type="button" class="btn wide" id="btnPoseRandom">随便来一个</button>
             </div>
-            <p class="note" id="poseLibraryNote"></p>
+            <p class="note long" id="poseLibraryNote"></p>
           </div>
         </section>
 
         <section data-key="scene">
           <h2><button type="button" class="fold">场景里的角色</button></h2>
           <div class="body">
+            <h3 class="sub">角色</h3>
             <div class="figure-list" id="figureList"></div>
             <div class="actions">
               <button type="button" class="btn" id="btnFigureNew" title="加一个默认的白模，站在右手边">新建角色</button>
@@ -497,6 +598,7 @@
               <button type="button" class="btn wide" id="btnFigureRestore" hidden></button>
             </div>
             <label class="field"><span>名字</span><input id="figureName" maxlength="40" autocomplete="off" spellcheck="false"></label>
+            <h3 class="sub" id="scenePlaceHead" hidden>位置和显示</h3>
             <div class="tweak" id="placeField" hidden>
               <div class="sliders">
                 <div class="slider">
@@ -528,6 +630,7 @@
               <p class="clash-note" id="sceneClash"></p>
               <button type="button" class="btn" id="btnStepAway" title="现在这个角色往外挪，挪到和那个人不穿插为止">挪开到不穿插</button>
             </div>
+            <h3 class="sub">互动</h3>
             <div class="field" id="pairField" hidden>
               <span>双人动作</span>
               <label class="pair-with">和谁一起 <select id="pairPartner" aria-label="和谁一起摆"></select></label>
@@ -535,6 +638,7 @@
               <p class="note">现在这个角色站着不动，选的那个人走到旁边，两人一起换姿势，手会伸过去碰到对方。两人各能撤销一步。</p>
             </div>
             <label class="check" title="这台设备自己记着"><input type="checkbox" id="sceneTouch"> 摆姿势时手脚碰到别人就停在表面</label>
+            <h3 class="sub">场景文件</h3>
             <div class="actions">
               <button type="button" class="btn" id="btnSceneSave" title="场景里所有的角色、各站在哪，存成一个文件">保存场景</button>
               <label class="btn file" for="fileScene" title="场景文件换掉现在的全部角色；一个角色的配置文件加进场景">打开场景…<input type="file" id="fileScene" accept=".json,application/json" hidden></label>
