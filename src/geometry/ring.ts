@@ -163,6 +163,9 @@ const spreadOf = (spread: number): { radius: number; head: number } => ({
  *   整片垫在胸根后面的话小胸被盖住，所以只垫空的地方；
  * - stump：拿掉手臂的肩膀上垫的圆肩头（STUMP）多大、往里收多少（米）；
  * - coreTop：有胸的那一段芯子粗到差一点到肚皮，往上只到最上面一排胸的中心再往上这么多（米），再往上渐渐变细；
+ * - nape：前后两排脖子之间填的「后颈」：一块扁的放样体，从脖子根往下 below 到最低的那个头的原点以下 under（米；后脑勺从那儿往上并在一起。顶上的圆顶是芯子圆顶的 dome 成那么高），左右到最外面的脖子再多出 side（每排最多到它自己最外面的脖子再往外 reach），
+ *   前后填在两排脖子的中线之间再各收 inset（最薄 least；脖子的前半边露在外面，看得出是一根根脖子），每隔 step 一圈。参考图侧面前后两个人的后颈是长在一起的；
+ *   不填的话头后脑勺并在一起、脖子各是各的，正面从脖子和脖子之间能看穿到背景（11-15「脖子下方还有莫名其妙的空洞」）；
  * - coreNeck：芯子的顶比脖子根再低这么多（米）。围成一圈时芯子顶到脖子根、圆顶再高出五六厘米，埋在一圈头中间看不见；
  *   前后排两排脖子之间是敞着的，那个圆顶就是脖子后面鼓着的一个包（11-15「脖子后面为什么有个隆起」）；
  *   span：跨在沟上的那几只最多比它那么宽的范围里最鼓的身体表面高出胸厚的多少（小胸跨不过沟，再高就和身子分开了）
@@ -188,6 +191,7 @@ const ROWS = {
   chestFloor: 0.05,
   chestTight: 0.5,
   fill: { least: 0.01, into: 0.6, tall: 0.16, deep: 0.62, lift: 0.01, soft: 0.02 },
+  nape: { below: 0.06, under: 0.03, side: 0.02, reach: 0.06, inset: 0.01, least: 0.015, step: 0.02, dome: 0.35 },
   coreWaist: 0.04,
   lean: 6 * (Math.PI / 180),
   waist: [0.1, 0.34] as [number, number],
@@ -1890,7 +1894,70 @@ export function ringBuild(
     if (!fills.length) return [];
     return [{ name: 'RowFill', type: 'lower', side: 0, ...(hipsInCore ? { parent: 'Core' } : {}), pos: [0, 0, 0], quat: [0, 0, 0, 1], material: 'clay', fuseAs: 'lower', rootFree: EMBEDDED, prims: fills }];
   };
-  let out = [...parts.flat(), ...innerLegParts(), ...faceChests(), ...rowFill()];
+  /**
+   * 前后排：两排脖子之间的「后颈」（见 ROWS.nape）。挂在第一个人的躯干上（没有骨骼，跟着他的上身），和芯子、胸一类
+   */
+  const napeFill = (): Part[] => {
+    if (!rowsMode) return [];
+    const stems: { base: V3; top: V3 }[] = [];
+    for (const own of parts) {
+      for (const neck of own) {
+        if (neck.type !== 'neck') continue;
+        const body = own.find((p) => p.name === neck.parent);
+        if (!body || body.parent) continue;
+        const head = own.find((p) => p.type === 'head' && p.parent === body.name);
+        const base = add(body.pos, rotate(body.quat, neck.pos));
+        // 脖子顶在哪：沿脖子自己的方向到头的原点以下 under 那么高。头的原点在头的正中附近、比脖子的中线靠前：
+        // 照原点量的话越往上越厚、把脖子盖平；一直填到原点以上的话，头没贴在一起时从两个头之间冒出一根柱子
+        const along = rotate(quatMul(body.quat, neck.quat), [0, 1, 0]);
+        const rise = head ? add(body.pos, rotate(body.quat, head.pos))[1] - ROWS.nape.under - base[1] : 0.12;
+        const k = rise / Math.max(0.3, along[1]);
+        stems.push({ base, top: [base[0] + along[0] * k, base[1] + along[1] * k, base[2] + along[2] * k] });
+      }
+    }
+    const first = parts[0].find((p) => p.name === 'Torso');
+    const mid = stems.reduce((sum, s) => sum + s.base[2], 0) / Math.max(1, stems.length);
+    const rows = [stems.filter((s) => s.base[2] > mid), stems.filter((s) => s.base[2] <= mid)];
+    if (!first || first.parent || !rows[0].length || !rows[1].length) return [];
+    // 每排的脖子在这个高度的中线离圈心多远（各根脖子的平均；脖子根以下、头根以上照两头的算）
+    const at = (row: { base: V3; top: V3 }[], y: number) =>
+      row.reduce((sum, s) => {
+        const t = Math.max(0, Math.min(1, (y - s.base[1]) / Math.max(1e-6, s.top[1] - s.base[1])));
+        return sum + s.base[2] + (s.top[2] - s.base[2]) * t;
+      }, 0) / row.length;
+    // 左右：最宽到最外面的脖子再多出 side，但每一排只算到它自己最外面的脖子再往外 reach（藏在那个头底下）——
+    // 单数个人时前排比后排宽，填到前排那么宽的话从背面看两头各露出一截方角；只填到后排的脖子那么宽的话前排脖子之间还透
+    const span = rows.map((row) => row.flatMap((s) => [s.base[0], s.top[0]]));
+    const all = span.flat();
+    const left = Math.max(Math.min(...all) - ROWS.nape.side, ...span.map((xs) => Math.min(...xs) - ROWS.nape.reach));
+    const right = Math.min(Math.max(...all) + ROWS.nape.side, ...span.map((xs) => Math.max(...xs) + ROWS.nape.reach));
+    const from = Math.min(...stems.map((s) => s.base[1])) - ROWS.nape.below;
+    const to = Math.min(...stems.map((s) => s.top[1]));
+    const wide = (right - left) / 2;
+    const rings: Ring[] = [];
+    for (let y = from; y <= to + 1e-6; y += ROWS.nape.step) {
+      const [f, b] = [at(rows[0], y), at(rows[1], y)];
+      rings.push({ y, w: wide, d: Math.max(ROWS.nape.least, (f - b) / 2 - ROWS.nape.inset), z: (f + b) / 2 });
+    }
+    if (rings.length < 2) return [];
+    const high = rings[rings.length - 1];
+    const upright = quatConj(first.quat);
+    return [
+      {
+        name: 'Nape',
+        type: 'lower',
+        side: 0,
+        parent: 'Torso',
+        pos: rotate(upright, sub([(left + right) / 2, 0, 0], first.pos)),
+        quat: upright,
+        material: 'clay',
+        fuseAs: 'lower',
+        rootFree: EMBEDDED,
+        prims: [{ kind: 'loft', name: 'Nape', rings: [...rings, ...CORE_DOME.map(([dy, k]): Ring => ({ y: high.y + dy * ROWS.nape.dome, w: high.w * k, d: high.d * k, z: high.z }))] }],
+      },
+    ];
+  };
+  let out = [...parts.flat(), ...innerLegParts(), ...faceChests(), ...rowFill(), ...napeFill()];
   const ground = lowest(out);
   out = out.map((p) => (p.parent ? p : { ...p, pos: [p.pos[0], p.pos[1] - ground, p.pos[2]] as V3 }));
   const height = highest(out) * figure.scale;

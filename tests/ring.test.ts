@@ -587,6 +587,37 @@ describe('围成一圈', () => {
     }
   });
 
+  it('前后排：两排脖子之间填着后颈，脖子和脖子之间不透；填充不高过头的正中、不比最外面的脖子宽出一个头', () => {
+    useAnimeBody();
+    const d = defaultSpec();
+    for (const bodyStyle of ['anime', 'mannequin'] as const) {
+      for (const ringCount of [3, 5, 6]) {
+        const figure = buildFigure(specOf({ bodyStyle, ring: 'rows', ringCount, counts: { ...d.counts, breasts: 2, armPairs: 1 } }));
+        const flat = { parts: figure.parts, scale: 1 };
+        const xfs = worldTransforms(flat);
+        const necks = figure.parts.filter((p) => p.type === 'neck').map((p) => xfs.get(p.name)!.pos);
+        const heads = figure.parts.filter((p) => p.type === 'head').map((p) => xfs.get(p.name)!.pos);
+        const nape = figure.parts.find((p) => p.name === 'Nape')!;
+        expect(nape, `${bodyStyle} ${ringCount} 人`).toBeDefined();
+        const at = xfs.get('Nape')!.pos;
+        const loft = nape.prims[0];
+        if (loft.kind !== 'loft') throw new Error('后颈该是一块放样体');
+        expect(Math.max(...loft.rings.map((ring) => ring.y)) + at[1]).toBeLessThan(Math.min(...heads.map((p) => p[1])));
+        expect(Math.max(...loft.rings.map((ring) => ring.w))).toBeLessThan(Math.max(...necks.map((p) => Math.abs(p[0]))) + 0.03);
+        // 前排相邻两根脖子的正中间、脖子半高处、两排之间：是实心的
+        const front = necks.filter((p) => p[2] > 0).sort((a, b) => a[0] - b[0]);
+        const field = compileField(flat, { blend: 0 });
+        const midY = (Math.max(...necks.map((p) => p[1])) + Math.min(...heads.map((p) => p[1]))) / 2;
+        for (let i = 1; i < front.length; i++) {
+          expect(fieldAt(field, (front[i - 1][0] + front[i][0]) / 2, midY, 0), `${bodyStyle} ${ringCount} 人 第 ${i} 个空当`).toBeLessThan(0);
+        }
+      }
+    }
+    for (const ring of ['fused', 'hips'] as const) {
+      expect(buildFigure(specOf({ bodyStyle: 'anime', ring, ringCount: 6 })).parts.some((p) => p.name === 'Nape')).toBe(false);
+    }
+  });
+
   it('松紧到 30%：前后排的腿只贴着、不叠着（左右不再往里挤，靠胯收窄变窄），围成一圈的到 50% 为止', () => {
     useAnimeBody();
     const d = defaultSpec();
