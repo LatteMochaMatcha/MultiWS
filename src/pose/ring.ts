@@ -6,7 +6,10 @@
  * 所以这里和连体（pose/conjoined.ts）一样，换到各自的朝向里去套：
  * - 背不弯：每个人的脊柱（Spine、Chest、UpperChest）不照姿势转。几个人的背是并在一起的，一弯就各自从圈心掰开、露出里面的芯子
  *   （他看了说「在这种情况下就不让背部进行弯曲了」）。摆姿势时腰、胸的圆点也不给，拖手时脊柱不帮着够（见 isRingRig）。
- * - 每个人的脖子、头：照这个人自己的朝向 B（Y 是从腰到头，Z 是从圈心朝外，X 是他的左手边），转法是 B·q·B⁻¹。仰头是都往外仰。
+ * - 每个人的脖子、头：照这个人自己的朝向 B（Y 是从腰到头，Z 是他脸朝的方向，X 是他的左手边），转法是 B·q·B⁻¹。仰头是都往外仰。
+ *   脸朝哪：脊柱（腰 → 脖子根）和脖子这两根线都在这个人的正中面里（脊柱往背后靠，脖子往前歪回来），和它们都垂直的就是他的左右方向，
+ *   再和脊柱垂直的就是脸朝的方向。围成一圈时和「从圈心朝外」是一回事；前后排（geometry/ring.ts 的 rows）两边的人斜着朝外、
+ *   上身还往中间歪，不是从圈心朝外。两根线几乎平行、看不出来的照从圈心朝外。
  * - 每条腿（外圈每人两条、圈心底下的）：照这条腿自己从圈心朝外的方向（只绕竖轴转），左腿套姿势里的左腿、右腿套右腿，
  *   中线上的套左右两条的平均；正中那条没有朝向，照原样。迈步是每条腿都往外迈，蹲下是膝盖都朝外。
  *   腿统一朝前的（geometry/ring.ts 的 legFacing，见 legsFront）不换朝向，照原样套；左右照这条腿长在整个身子的哪一边分
@@ -15,7 +18,8 @@
  * - 两侧的手臂：照整个身子的左右套，不照它长在谁身上。左手形状的手臂长在整个身子左边（+X）、右手形状的长在右边时照原样
  *   （B 是不转）；形状和所在的一边相反的当成一个脸朝后的人的手臂（B 是绕竖轴转半圈）。
  *   上臂、前臂、手、手指是从 T-pose 算起的，转法是 B·q；锁骨是 B·q·B⁻¹。
- *   一侧有好几条时（都长在同一个人身上：上下排的沿着身侧往下排，肩部扇形聚拢的挤在一个肩膀上扇开）：这个姿势里上臂的方向
+ *   一侧有好几条时（长在同一个人身上的算一组：上下排的沿着身侧往下排，肩部扇形聚拢的挤在一个肩膀上扇开；
+ *   前后排每侧有前后两组，各算各的）：这个姿势里上臂的方向
  *   和哪一条静止时的方向最接近，那一条正好摆成这个姿势，别的几条相对自己静止时转同样多——静止时几条是错开着的，这样还是错开着；
  *   都写成一模一样的朝向的话几条叠在一条线上，手压在别的手臂上。
  *   围成一圈的手臂都在这里写好了，pose/fit.ts 的 fitArms（同一个肩膀上挤着几条时怎么分）不再管：围成一圈时手臂静止是平伸的，
@@ -40,6 +44,8 @@ const LEG_PART = /^(UpperLeg|LowerLeg|Foot|Toes)(?:_([LR]))?$/;
 const SPINE_PART = /^(Spine|Chest|UpperChest)$/;
 /** 离圈心不到这么远的腿（正中那条）没有朝向 */
 const CENTER = 0.03;
+/** 脊柱和脖子这两根线的夹角的正弦不到这么多的，看不出这个人脸朝哪：照从圈心朝外 */
+const FACING = 0.05;
 
 const baseName = (name: string) => name.replace(/\.\d{3}$/, '');
 const aboutY = (angle: number): Quat => [0, Math.sin(angle / 2), 0, Math.cos(angle / 2)];
@@ -129,8 +135,23 @@ export function fitRing(solver: Solver, posing: Posing): Posing {
     const out = outward(head[root]);
     if (!out) return null;
     const y = top >= 0 ? norm(sub(head[top], head[root])) : ([0, 1, 0] as V3);
-    const k = out[0] * y[0] + out[1] * y[1] + out[2] * y[2];
-    const z = norm([out[0] - y[0] * k, out[1] - y[1] * k, out[2] - y[2] * k]);
+    // 脸朝哪：脊柱、脖子两根线定出这个人的正中面（见文件开头）；和从圈心朝外差着半圈以上的是量反了，翻过来
+    const neck = names.findIndex((name, j) => /^Neck/.test(name) && topOf(j) === root);
+    let face = out;
+    if (neck >= 0) {
+      const spine = norm(sub(head[neck], head[root]));
+      const side = cross(spine, norm(sub(solver.rig.tail[neck], head[neck])));
+      if (Math.hypot(side[0], side[1], side[2]) > FACING) {
+        const ahead = cross(norm(side), spine);
+        const flat = Math.hypot(ahead[0], ahead[2]);
+        if (flat > 1e-6) {
+          const sign = ahead[0] * out[0] + ahead[2] * out[2] >= 0 ? 1 : -1;
+          face = [(sign * ahead[0]) / flat, 0, (sign * ahead[2]) / flat];
+        }
+      }
+    }
+    const k = face[0] * y[0] + face[1] * y[1] + face[2] * y[2];
+    const z = norm([face[0] - y[0] * k, face[1] - y[1] * k, face[2] - y[2] * k]);
     return basisQuat(cross(y, z), y, z);
   });
   const turned = (B: Quat | null, q: Quat, fromT: boolean): Quat => (B ? quatUnit(fromT ? quatMul(B, q) : quatMul(quatMul(B, q), quatConj(B))) : q);
@@ -163,10 +184,7 @@ export function fitRing(solver: Solver, posing: Posing): Posing {
     if (!told) return;
     const arm = ARM_PART.exec(base);
     if (arm) {
-      // 和第一对长在同一个人身上的另外几条：下面一起算（见 together）
-      const lead = solver.rig.index.get(base);
-      if (name !== base && lead !== undefined && topOf(lead) === top) return;
-      // 手臂：照整个身子的左右。从这根骨骼往上找到上臂，看它在哪一边
+      // 手臂：照整个身子的左右（同一个人身上有好几条的，下面再照组分开）。从这根骨骼往上找到上臂，看它在哪一边
       let upper = j;
       while (upper >= 0 && !/^(Shoulder|UpperArm)_/.test(names[upper])) upper = parent[upper];
       const at = upper >= 0 ? head[upper] : head[j];
@@ -183,29 +201,37 @@ export function fitRing(solver: Solver, posing: Posing): Posing {
   const way = (from: number, to: number): V3 => norm(sub(head[to], head[from]));
   const lowerOf = (upper: number) => index.get(names[upper].replace(/^UpperArm/, 'LowerArm'));
   const suffixOf = (bone: number) => /\.\d{3}$/.exec(names[bone])?.[0] ?? '';
+  const suffixOf2 = (name: string) => /\.\d{3}$/.exec(name)?.[0] ?? '';
   for (const tag of ['L', 'R']) {
-    const first = index.get(`UpperArm_${tag}`);
-    const firstLower = first === undefined ? undefined : lowerOf(first);
-    if (first === undefined || firstLower === undefined || !bones[`UpperArm_${tag}`]) continue;
-    const top = topOf(first);
-    const column = names.flatMap((name, j) => (baseName(name) === `UpperArm_${tag}` && topOf(j) === top && lowerOf(j) !== undefined ? [j] : []));
-    if (column.length < 2) continue;
-    // 这个姿势里上臂朝哪（第一对摆成这样时）；每一条静止时朝哪（围成一圈时背不弯、胯不转，带着它的骨骼都没动）
-    const posed = forward(solver.rig, stateOf(solver, { version: posing.version, bones } as Posing));
-    const want = rotate(posed.rot[first], way(first, firstLower));
-    const off = (upper: number) => {
-      const rest = way(upper, lowerOf(upper)!);
-      return Math.acos(Math.max(-1, Math.min(1, rest[0] * want[0] + rest[1] * want[1] + rest[2] * want[2])));
-    };
-    const lead = column.reduce((a, b) => (off(b) < off(a) ? b : a));
-    for (const [name, told] of Object.entries(bones)) {
-      if (ARM_PART.exec(name)?.[3] !== tag) continue;
-      const leading = index.get(name + suffixOf(lead));
-      if (leading === undefined) continue;
-      const turnedBy = quatMul(told, quatConj(frames[leading]));
-      for (const upper of column) {
-        const own = index.get(name + suffixOf(upper));
-        if (own !== undefined) bones[name + suffixOf(upper)] = upper === lead ? told : quatUnit(quatMul(turnedBy, frames[own]));
+    // 这种形状的手臂照长在谁身上分组（围成一圈每侧一组，前后排每侧两组）
+    const groups = new Map<number, number[]>();
+    names.forEach((name, j) => {
+      if (baseName(name) !== `UpperArm_${tag}` || lowerOf(j) === undefined || !bones[name]) return;
+      const top = topOf(j);
+      groups.set(top, [...(groups.get(top) ?? []), j]);
+    });
+    for (const column of groups.values()) {
+      if (column.length < 2) continue;
+      const first = column[0];
+      // 这个姿势里上臂朝哪（这一组的第一条摆成这样时）；每一条静止时朝哪（围成一圈时背不弯、胯不转，带着它的骨骼都没动）
+      const posed = forward(solver.rig, stateOf(solver, { version: posing.version, bones } as Posing));
+      const want = rotate(posed.rot[first], way(first, lowerOf(first)!));
+      const off = (upper: number) => {
+        const rest = way(upper, lowerOf(upper)!);
+        return Math.acos(Math.max(-1, Math.min(1, rest[0] * want[0] + rest[1] * want[1] + rest[2] * want[2])));
+      };
+      const lead = column.reduce((a, b) => (off(b) < off(a) ? b : a));
+      // 这一组第一条上的每根骨骼：最接近的那条正好摆成这样，别的相对自己静止时转同样多
+      const told = Object.entries(bones).filter(([name]) => ARM_PART.exec(baseName(name))?.[3] === tag && suffixOf2(name) === suffixOf(first));
+      for (const [name, pose] of told) {
+        const base = baseName(name);
+        const leading = index.get(base + suffixOf(lead));
+        if (leading === undefined) continue;
+        const turnedBy = quatMul(pose, quatConj(frames[leading]));
+        for (const upper of column) {
+          const own = index.get(base + suffixOf(upper));
+          if (own !== undefined) bones[base + suffixOf(upper)] = upper === lead ? pose : quatUnit(quatMul(turnedBy, frames[own]));
+        }
       }
     }
   }

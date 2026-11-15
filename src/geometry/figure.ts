@@ -44,6 +44,11 @@ interface Mass {
   fade?: [from: number, to: number, rest?: number];
   /** fade 的范围以部件里的这一点为中心（部件自己的坐标），不给就是部件的原点（关节） */
   fadeAt?: V3;
+  /**
+   * 只给 cut 的扁椭球：这一刀把挨着的两条腿分开（围成一圈前后排大腿之间的缝，见 geometry/ring.ts 的 slits）。
+   * 分蒙皮权重时，刀面范围里的点不分刀另一边的腿的份额（见 rig/skin.ts 的 PARTING）
+   */
+  parting?: boolean;
 }
 
 /** 椭球 */

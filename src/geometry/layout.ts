@@ -21,6 +21,15 @@ import { SLOT_SIDE, refork, splitTorsos, torsoSlots } from './torsos';
 import { conjoin } from './conjoined';
 import { ringBuild, ringRows } from './ring';
 
+/**
+ * 前后排（ring.ts 的 rows）的下半截比滑块设的再宽、再粗多少倍：胯宽、四肢粗细（只用到腿）。不超过滑块自己的上限。
+ * 四肢粗细不再加：它是整条腿一样粗，大腿只加粗在 ring.ts 里做（ROWS.thigh）。
+ * 白模的胯只加宽一点（hipsMannequin）：白模的两条腿跟着胯宽分开，加宽多了几个人隔得远，头凑不到一起；素体的腿不跟着挪。
+ * 参考图（refs/rows-front-side.jpg）是宽胯、粗大腿，三副胯互相贴着；照滑块原样的话素体瘦，胯和胯之间空着
+ */
+const ROWS_LOWER = { hips: 1.55, hipsMannequin: 1.2, limbs: 1 };
+const HIPS_MOST = 1.8;
+const LIMBS_MOST = 2;
 /** 围成一圈时每个人最多几条腿：再多的话外圈、圈心底下的腿加起来上百条，融合一次要很久 */
 export const RING_PERSON_LEGS = 6;
 /** 摆好的一个人两条腿隔多远 */
@@ -919,9 +928,16 @@ function layoutEnds(given: BodySpec): Figure {
     // 腿：「腿」几条就是每个人几条（最多 RING_PERSON_LEGS），并排长在这个人的胯上，圈照所有的腿隔得一样远跟着变大变小；
     // 阴茎是每副胯几根，每个人的胯上各长一套、跟着这个人朝外
     const legs = Math.min(given.counts.legs, RING_PERSON_LEGS);
-    const person = (rows: number, own = legs) =>
+    // 照着复制的那个人不带胸的手动微调：围出来的胸另外编号（Chest_01 是整个身子上的第一只），微调是套在围好的身子上的。
+    // 带着的话挪 Chest_01 改的是这个人胸口上那一只，照它搬出来的整团胸都跟着乱
+    // （上下对齐的、每人只有一两只的胸还长在各人自己的胸口上，照旧）
+    const strung = given.ringChest !== 'aligned' && given.counts.breasts > (given.ring === 'rows' ? 0 : 2);
+    const overrides = strung ? Object.fromEntries(Object.entries(given.overrides ?? {}).filter(([name]) => !/^Chest_/.test(name))) : given.overrides;
+    const person = (rows: number, own = legs, shape = given.shape) =>
       layoutEnds({
         ...given,
+        overrides,
+        shape,
         ring: 'none',
         counts: { ...given.counts, legs: own, tails: 0, torsos: 1, armPairs: Math.max(1, given.counts.armPairs), wingPairs: 0, breasts: 2 * rows },
         chestRow: 2,
@@ -938,15 +954,29 @@ function layoutEnds(given: BodySpec): Figure {
       tPose: given.pose === 'T',
       chest: given.ringChest,
       breasts: given.ringChest === 'aligned' ? 2 * pairs : given.counts.breasts,
+      chestRow: given.chestRow,
+      hipRows: given.ringHipRows,
+      hipsPerRow: given.ringHipsPerRow,
       innerLegs: given.ringLegs === 'fill',
       spread: given.ringSpread,
       legFacing: given.ringLegFacing,
       // 一个人只有一条腿：圈的大小照平常两条腿的人两条腿隔多远算（摆一个两条腿的量）
       ...(legs === 1 ? { legGap: legGapOf(person(1, 2)) } : {}),
+      // 前后排：下半截另摆一份胯宽、腿粗的（参考图是宽胯、粗大腿互相贴着；见 ROWS_LOWER）。腰宽不动：上下两截是在腰上接的
+      ...(given.ring === 'rows'
+        ? {
+            lower: person(0, legs, {
+              ...given.shape,
+              hips: Math.min(HIPS_MOST, given.shape.hips * (given.bodyStyle === 'mannequin' ? ROWS_LOWER.hipsMannequin : ROWS_LOWER.hips)),
+              limbs: Math.min(LIMBS_MOST, given.shape.limbs * ROWS_LOWER.limbs),
+            }),
+          }
+        : {}),
     };
     // 交错的圈占多高要排了才知道（照胸的大小排，见 ring.ts 的 packChest）：先照老办法估的排数摆一遍、排出来，
     // 排数不一样的话照排出来的排数再摆一遍，每圈几只照第一遍的定死（不然两遍的躯干长短不一样，排出来的可能又差一圈），胸多大也不用再量
-    const rows = ringRows(pairs, given.ringChest);
+    // 前后排不加长躯干（胸是放大了盖满整个上身的，见 ring.ts 的 ROWS.grow）：照一排胸摆
+    const rows = given.ring === 'rows' && given.ringChest !== 'aligned' ? Math.min(1, pairs) : ringRows(pairs, given.ringChest);
     const first = ringBuild(person(rows), options);
     if (!first.chest || first.chest.rows === rows) return first.figure;
     return ringBuild(person(first.chest.rows), { ...options, chestPack: first.chest }).figure;

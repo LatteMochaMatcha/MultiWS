@@ -70,7 +70,7 @@ export const ADULT_CHOICES = { penisLayout: PENIS_LAYOUTS, scrotum: SCROTUM_MODE
 type ChoiceKey = keyof typeof CHOICES;
 type AdultChoiceKey = keyof typeof ADULT_CHOICES;
 /** 几个单独的整数、小数 */
-const NUMBERS = ['hipLegs', 'chestRow', 'ringCount', 'ringSpread', 'fingers', 'toes', 'blend'] as const;
+const NUMBERS = ['hipLegs', 'chestRow', 'ringCount', 'ringSpread', 'ringHipRows', 'ringHipsPerRow', 'fingers', 'toes', 'blend'] as const;
 const ADULT_NUMBERS = ['penisRow'] as const;
 
 /** 模型要的改动：只写要改的那几项，别的照旧 */
@@ -104,6 +104,8 @@ export interface BodyPatch {
   chestRow?: number;
   ringCount?: number;
   ringSpread?: number;
+  ringHipRows?: number;
+  ringHipsPerRow?: number;
   fingers?: number;
   toes?: number;
   blend?: number;
@@ -248,7 +250,7 @@ const CHOICE_LABEL: Record<string, Record<string, string>> = {
   legEnd: { hand: t('手'), foot: t('脚') },
   conjoined: { none: t('不连'), same: t('同向'), opposite: t('反向') },
   conjoinPose: { prone: t('趴着'), lie: t('侧躺'), flat: t('平躺'), stand: t('站着') },
-  ring: { none: t('不围'), hips: t('各有各的胯'), fused: t('并胯融合') },
+  ring: { none: t('不围'), hips: t('各有各的胯'), fused: t('并胯融合'), rows: t('前后排') },
   ringChest: { stagger: t('交错成串'), taper: t('交错渐小'), aligned: t('上下对齐') },
   ringLegs: { fill: t('中间也有'), rim: t('只在外圈') },
   ringLegFacing: { out: t('绕圈朝外'), front: t('统一朝前') },
@@ -275,6 +277,8 @@ const FIELD_LABEL: Record<string, string> = {
   ring: t('围成一圈'),
   ringCount: t('围几个人'),
   ringSpread: t('圈的松紧'),
+  ringHipRows: t('胯几排'),
+  ringHipsPerRow: t('每排几个胯'),
   ringChest: t('环绕的胸'),
   ringLegs: t('中间的腿'),
   ringLegFacing: t('腿的朝向'),
@@ -363,7 +367,7 @@ export function diffSpec(a: BodySpec, b: BodySpec): Change[] {
       push(`torsoCounts.${side}.${key}`, label, from, to, (v) => (v === undefined ? t('跟着全部') : String(v)));
     }
   }
-  for (const field of ['headLayout', 'armLayout', 'legLayout', 'hipLegs', 'chestRow', 'ring', 'ringCount', 'ringSpread', 'ringChest', 'ringLegs', 'ringLegFacing', 'pose', 'earShape', 'hands', 'fingers', 'toes', 'armEnd', 'legEnd', 'conjoined', 'conjoinPose', 'meshMode', 'blend', 'penisLayout', 'scrotum', 'penisRow', 'penisSoft'] as const) {
+  for (const field of ['headLayout', 'armLayout', 'legLayout', 'hipLegs', 'chestRow', 'ring', 'ringCount', 'ringSpread', 'ringHipRows', 'ringHipsPerRow', 'ringChest', 'ringLegs', 'ringLegFacing', 'pose', 'earShape', 'hands', 'fingers', 'toes', 'armEnd', 'legEnd', 'conjoined', 'conjoinPose', 'meshMode', 'blend', 'penisLayout', 'scrotum', 'penisRow', 'penisSoft'] as const) {
     scalar(field);
   }
   for (const d of SHAPE_DEFS) {
@@ -413,6 +417,7 @@ export function stateForModel(spec: BodySpec, adult: boolean): Record<string, un
     conjoinPose: spec.conjoinPose,
     ring: spec.ring,
     ...(spec.ring !== 'none' ? { ringCount: spec.ringCount, ringSpread: spec.ringSpread, ringChest: spec.ringChest, ringLegs: spec.ringLegs, ringLegFacing: spec.ringLegFacing } : {}),
+    ...(spec.ring === 'rows' ? { ringHipRows: spec.ringHipRows, ringHipsPerRow: spec.ringHipsPerRow } : {}),
     shape,
     hair: { style: spec.hair.style, color: spec.hair.color, length: spec.hair.length, volume: spec.hair.volume },
     meshMode: spec.meshMode,

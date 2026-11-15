@@ -233,7 +233,7 @@ export type ConjoinPose = (typeof CONJOIN_POSES)[number];
  * 围成一圈：几个人背靠背站成一圈、脸朝外，融合成一个身子（见 geometry/ring.ts）。不围、各有各的胯（每个人自己的腰、胯都看得出来）、
  * 并胯融合（整个身子是一个圆桶，胯并成一圈）
  */
-export const RINGS = ['none', 'hips', 'fused'] as const;
+export const RINGS = ['none', 'hips', 'fused', 'rows'] as const;
 export type RingMode = (typeof RINGS)[number];
 /** 围成一圈时胸怎么排：交错成串（隔一圈错开半个，每圈一样大）、交错渐小（错开，越往下越小）、上下对齐（每个人各自的几排，一样大） */
 export const RING_CHESTS = ['stagger', 'taper', 'aligned'] as const;
@@ -260,6 +260,12 @@ export const clampRingSpread = (v: unknown): number => {
 /** 围成一圈的有几个人 */
 export const RING_COUNT = { min: 3, max: 8, def: 6 } as const;
 const clampRingCount = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(RING_COUNT.min, Math.min(RING_COUNT.max, Math.round(v))) : RING_COUNT.def);
+/** 前后排：胯几排（前排、后排之间夹着几排没头的；2 是只有前后两排） */
+export const RING_HIP_ROWS = { min: 2, max: 5, def: 3 } as const;
+/** 前后排：每排几个胯（0 是自动：跟着前排、后排的人数，中间的排跟着前排） */
+export const RING_HIPS_PER_ROW = { min: 0, max: 6, def: 0 } as const;
+const clampInt = (v: unknown, range: { min: number; max: number; def: number }) =>
+  typeof v === 'number' && Number.isFinite(v) ? Math.max(range.min, Math.min(range.max, Math.round(v))) : range.def;
 
 /** 一条手臂、腿单独的设法：末端接什么、手指几根、脚趾几个；不写的跟着 BodySpec 里统一的 */
 export interface LimbSetting {
@@ -494,6 +500,10 @@ export interface BodySpec {
   ringLegFacing: RingLegFacingMode;
   /** 围成一圈的松紧，见 RING_SPREAD */
   ringSpread: number;
+  /** 前后排：胯几排，见 RING_HIP_ROWS */
+  ringHipRows: number;
+  /** 前后排：每排几个胯，见 RING_HIPS_PER_ROW（0 是自动） */
+  ringHipsPerRow: number;
   hair: HairSpec;
   meshMode: MeshMode;
   /** 融合圆角的半径，见 BLEND */
@@ -576,6 +586,8 @@ export function defaultSpec(): BodySpec {
     ringLegs: 'fill',
     ringLegFacing: 'out',
     ringSpread: RING_SPREAD.def,
+    ringHipRows: RING_HIP_ROWS.def,
+    ringHipsPerRow: RING_HIPS_PER_ROW.def,
     hair: defaultHair(),
     meshMode: 'fused',
     blend: BLEND.def,
@@ -882,6 +894,8 @@ export function normalizeSpec(input: unknown): BodySpec {
     ringLegs: pick(RING_LEGS, src.ringLegs, 'fill'),
     ringLegFacing: pick(RING_LEG_FACINGS, src.ringLegFacing, 'out'),
     ringSpread: clampRingSpread(src.ringSpread),
+    ringHipRows: clampInt(src.ringHipRows, RING_HIP_ROWS),
+    ringHipsPerRow: clampInt(src.ringHipsPerRow, RING_HIPS_PER_ROW),
     hair: clampHair(src.hair),
     meshMode: pick(MESH_MODES, src.meshMode, 'fused'),
     blend: clampBlend(src.blend),

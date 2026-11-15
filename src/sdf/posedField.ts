@@ -783,7 +783,7 @@ const sampledBodies = new WeakMap<object, { bones: number; sampled: boolean; cro
 /** 好几个上半身（UpperBody、UpperBody_L …，见 geometry/torsos.ts） */
 const severalBodies = (parts: Part[]): boolean => parts.filter((part) => /^UpperBody/.test(part.name)).length > 1;
 /** 围成一圈（geometry/ring.ts）的每个人的躯干，照圈上的顺序：Torso、Torso_B、Torso_C …（至少三个；连体只到 Torso_B，不算）。不是围成一圈的是空的 */
-const ringBodies = (parts: Part[]): Part[] => (parts.some((part) => part.name === 'Torso_C') ? parts.filter((part) => part.type === 'torso' && /^Torso(_[A-Z])?$/.test(part.name)) : []);
+const ringBodies = (parts: Part[]): Part[] => (parts.some((part) => part.name === 'Torso_C') ? parts.filter((part) => part.type === 'torso' && /^Torso(_[A-Z]+)?$/.test(part.name)) : []);
 
 /** 挖开的边上圆角多大（几个 margin，见 Room.soft） */
 const CARVE_SOFT = 1.5;

@@ -1,7 +1,7 @@
 // 围成一圈（src/geometry/ring.ts）：几个人背靠背站成一圈，融合成一个身子
 import { describe, expect, it } from 'vitest';
 import { worldTransforms } from '../src/geometry/figure';
-import { rotate, sub } from '../src/geometry/vec';
+import { add, rotate, sub } from '../src/geometry/vec';
 import { RING_PERSON_LEGS, buildFigure } from '../src/geometry/layout';
 import { PRESETS, applyPreset } from '../src/model/presets';
 import { type BodySpec, RING_COUNT, RING_SPREAD, defaultSpec, normalizeSpec, ringActive } from '../src/model/spec';
@@ -11,6 +11,7 @@ import { ringHumanoid } from '../src/io/vrmRig';
 import { fitArms, followArms } from '../src/pose/fit';
 import { POSE_LIBRARY } from '../src/pose/library';
 import { buildHandles } from '../src/pose/handles';
+import type { Posing } from '../src/pose/posing';
 import { fitRing, isRingRig } from '../src/pose/ring';
 import { forward, poseMatrices } from '../src/pose/rig';
 import { makeSolver, stateOf } from '../src/pose/solver';
@@ -510,6 +511,289 @@ describe('围成一圈', () => {
     }
     // 没有阴茎时一个也不长
     expect(buildFigure(specOf({ bodyStyle: 'anime', ring: 'fused', ringCount: 4 })).parts.some((p) => p.type === 'genital')).toBe(false);
+  });
+
+  it('前后排：胯几排、每排几个胯单独设；部件、骨骼不重名，腿数是排数 × 每排几个 × 两条，头还照人数；中间几排的上身只在人底下；两头多出来的胯不带脊柱', () => {
+    useAnimeBody();
+    const d = defaultSpec();
+    for (const [rows, per] of [
+      [2, 0],
+      [5, 6],
+      [4, 2],
+      [3, 1],
+    ] as const) {
+      const f = buildFigure(specOf({ bodyStyle: 'anime', ring: 'rows', ringCount: 6, ringHipRows: rows, ringHipsPerRow: per, counts: { ...d.counts, breasts: 4, armPairs: 2 } }));
+      const label = `${rows} 排 × ${per}`;
+      expect(new Set(f.parts.map((p) => p.name)).size, label).toBe(f.parts.length);
+      const bones = buildSkeleton(f).bones.map((b) => b.name);
+      expect(new Set(bones).size, label).toBe(bones.length);
+      const hips = per || 3;
+      expect(f.parts.filter((p) => p.type === 'leg' && !p.parent).length, label).toBe(rows * hips * 2);
+      expect(f.parts.filter((p) => p.type === 'head').length, label).toBe(6);
+      // 一排三个人站多宽：最外面的人的中心再往外半个人；胯比人多时，这以外的胯上面没有人
+      const under = Array.from({ length: hips }, (_, i) => i - (hips - 1) / 2).filter((t) => hips < 3 || Math.abs(t) <= 1.5 + 1e-6).length;
+      expect(f.parts.filter((p) => /^Torso/.test(p.name) && p.fuseAs === 'tail').length, label).toBe((rows - 2) * under);
+      const bare = f.parts.filter((p) => /^Torso/.test(p.name) && p.fuseAs === 'wing' && !p.bones?.length).length;
+      expect(bare, label).toBe(rows * (hips - under));
+    }
+  });
+
+  it('前后排的胸：隔一排错开半只、少一只，每一列左右照最上面一排对齐（前后两面都是）', () => {
+    useAnimeBody();
+    const d = defaultSpec();
+    const figure = buildFigure(specOf({ bodyStyle: 'anime', ring: 'rows', ringCount: 6, ringSpread: 0.5, armLayout: 'fan', chestRow: 2, counts: { ...d.counts, breasts: 6, armPairs: 3 }, shape: { ...d.shape, bust: 1.87 } }));
+    const xfs = worldTransforms({ parts: figure.parts, scale: 1 });
+    const chests = figure.parts.filter((p) => p.type === 'chest').map((p) => xfs.get(p.name)!.pos);
+    // 每面三排：6、5、6
+    expect(chests.length).toBe(2 * (6 + 5 + 6));
+    for (const side of [1, -1]) {
+      const face = chests.filter((p) => p[2] * side > 0);
+      const heights = [...new Set(face.map((p) => Math.round(p[1] * 100)))].sort((a, b) => b - a);
+      expect(heights.length).toBe(3);
+      const rows = heights.map((y) => face.filter((p) => Math.round(p[1] * 100) === y).map((p) => p[0]).sort((a, b) => a - b));
+      expect(rows.map((row) => row.length)).toEqual([6, 5, 6]);
+      // 第三排和第一排一列对一列；第二排的每一只在第一排相邻两只的正中间（差不到 1.5 cm）
+      rows[2].forEach((x, i) => expect(Math.abs(x - rows[0][i])).toBeLessThan(0.015));
+      rows[1].forEach((x, i) => expect(Math.abs(x - (rows[0][i] + rows[0][i + 1]) / 2)).toBeLessThan(0.015));
+    }
+  });
+
+  it('围出来的胸能手动微调：挪哪只动哪只，别的不动（前后排、围成一圈交错成串的都是）', () => {
+    useAnimeBody();
+    const d = defaultSpec();
+    for (const ring of ['rows', 'fused', 'hips'] as const) {
+      const spec = { bodyStyle: 'anime', ring, ringCount: 6, armLayout: 'fan', chestRow: 2, counts: { ...d.counts, breasts: 6, armPairs: 3 }, shape: { ...d.shape, bust: 1.6 } } as const;
+      const at = (overrides: BodySpec['overrides']) => {
+        const figure = buildFigure(specOf({ ...spec, overrides }));
+        const xfs = worldTransforms({ parts: figure.parts, scale: 1 });
+        return new Map(figure.parts.filter((p) => p.type === 'chest').map((p) => [p.name, xfs.get(p.name)!.pos]));
+      };
+      const base = at({});
+      const moved = at({ Chest_01_L: { position: [0, 0.1, 0] }, Chest_05_L: { position: [0.05, 0, 0.05] } });
+      expect(moved.size, ring).toBe(base.size);
+      expect(base.has('Chest_05_L'), ring).toBe(true);
+      for (const [name, was] of base) {
+        const now = moved.get(name)!;
+        const by = [now[0] - was[0], now[1] - was[1], now[2] - was[2]];
+        const want = name === 'Chest_01_L' ? [0, 0.1, 0] : name === 'Chest_05_L' ? [0.05, 0, 0.05] : [0, 0, 0];
+        by.forEach((v, k) => expect(Math.abs(v - want[k]), `${ring} ${name}`).toBeLessThan(1e-6));
+      }
+    }
+  });
+
+  it('前后排：前后两排背靠背（单数时前排多一个），每个人腰以下朝正前、腰以上转过去，头凑在一起；中间多一排没有头的；三排胯分开、腿都朝前；每侧前后两组手臂，前后各一团胸', () => {
+    useAnimeBody();
+    const d = defaultSpec();
+    for (const style of ['anime', 'mannequin'] as const) {
+      const build = (ringCount: number, counts: Partial<BodySpec['counts']> = {}) =>
+        buildFigure(specOf({ bodyStyle: style, ring: 'rows', ringCount, armLayout: 'fan', counts: { ...d.counts, breasts: 5, armPairs: 3, ...counts }, shape: { ...d.shape, bust: 2.3 } }));
+      const at = (figure: ReturnType<typeof build>) => worldTransforms({ parts: figure.parts, scale: 1 });
+      const headsAhead = (figure: ReturnType<typeof build>) => {
+        const xfs = at(figure);
+        const heads = figure.parts.filter((p) => p.type === 'head').map((p) => xfs.get(p.name)!.pos[2]);
+        return [heads.filter((z) => z > 0).length, heads.filter((z) => z < 0).length];
+      };
+      // 人数跟着「围几个人」走，单数时前排多一个
+      expect(headsAhead(build(6)), style).toEqual([3, 3]);
+      expect(headsAhead(build(5))).toEqual([3, 2]);
+      expect(headsAhead(build(3))).toEqual([2, 1]);
+      expect(headsAhead(build(8))).toEqual([4, 4]);
+      const six = build(6);
+      const xfs = at(six);
+      expect(new Set(six.parts.map((p) => p.name)).size).toBe(six.parts.length);
+      const bones = buildSkeleton(six).bones.map((b) => b.name);
+      expect(new Set(bones).size).toBe(bones.length);
+      const legs = six.parts.filter((p) => p.type === 'leg' && !p.parent);
+      const legY = Math.max(...legs.map((p) => p.pos[1]));
+      // 躯干：每个人的上身（只留腰以上，照有没有头认）、九份下身（只留腰以下：前排三个人的、中间一排、后排三个人的），
+      // 加上中间一排没有头的上身
+      const necked = new Set(six.parts.filter((p) => p.type === 'head').map((p) => p.parent));
+      const hollow = six.parts.filter((p) => /^Torso/.test(p.name) && p.fuseAs === 'tail');
+      expect(hollow.length).toBe(3);
+      const torsos = six.parts
+        .filter((p) => /^Torso/.test(p.name))
+        .map((p) => {
+          const way = rotate(xfs.get(p.name)!.quat, [0, 0, 1]);
+          const right = rotate(xfs.get(p.name)!.quat, [1, 0, 0]);
+          const up = rotate(xfs.get(p.name)!.quat, [0, 1, 0]);
+          // 髋关节那么高的地方它在哪（躯干的原点在脚底那么低）
+          const rise = (legY - xfs.get(p.name)!.pos[1]) / up[1];
+          // 摆位先转朝向，再前后靠、左右歪。用两根轴的 Z 分量还原第一步的朝向。
+          const yaw = (Math.atan2(-right[2], way[2]) * 180) / Math.PI;
+          return { upper: necked.has(p.name), x: xfs.get(p.name)!.pos[0] + up[0] * rise, z: xfs.get(p.name)!.pos[2] + up[2] * rise, yaw, up, part: p };
+        });
+      const uppers = torsos.filter((t) => t.upper);
+      const lowers = torsos.filter((t) => !t.upper && t.part.fuseAs === 'wing');
+      expect(uppers.length).toBe(6);
+      expect(lowers.length).toBe(9);
+      const waistCut = (part: (typeof uppers)[number]['part']) => {
+        const cut = part.prims.find((q) => q.name === 'Half');
+        if (cut?.kind !== 'ellipsoid' || !cut.cut) throw new Error(`${part.name} 没有腰部切面`);
+        const { pos, quat } = xfs.get(part.name)!;
+        return add(pos, rotate(quat, cut.center));
+      };
+      // 上身：从自己那副胯上长出来（腰上拧了一下）；每排正中的朝正前（正后），最外面的往外转 45° 上下；都往自己背后靠
+      const wide = (2 * 0.4 * six.metrics.headHeight) / six.scale;
+      for (const one of uppers) {
+        const ahead = one.z > 0;
+        const turned = ahead ? one.yaw : 180 - Math.abs(one.yaw);
+        // 两截在腰上接。切面中心的 X、Z 相同，不能把上身的轴往下延长到髋关节来量。
+        const [x, , z] = waistCut(one.part);
+        expect(lowers.some((t) => {
+          const [lx, , lz] = waistCut(t.part);
+          return Math.hypot(lx - x, lz - z) < 1e-6;
+        }), style).toBe(true);
+        if (Math.abs(one.x) < 0.02) expect(Math.abs(turned)).toBeLessThan(1);
+        else {
+          expect(Math.sign(Math.sin((one.yaw * Math.PI) / 180))).toBe(Math.sign(one.x));
+          expect(Math.abs(turned)).toBeGreaterThan(35);
+          expect(Math.abs(turned)).toBeLessThan(55);
+        }
+        expect(one.up[2] * (ahead ? 1 : -1)).toBeLessThan(-0.05);
+        // 削掉了腰以下
+        expect(one.part.prims.some((q) => q.name === 'Half' && q.kind === 'ellipsoid' && q.cut)).toBe(true);
+      }
+      // 下身：三排三列的方阵，都朝正前、直着站；每副带着自己的腿（一共 18 条），三排前后隔开
+      // （前排、后排的骨盆跟着上身一起往正中靠：前排往后、后排往前，中间一排直着；左右不歪）
+      for (const one of lowers) {
+        expect(Math.abs(one.yaw)).toBeLessThan(1);
+        expect(Math.abs(one.up[0])).toBeLessThan(1e-6);
+        expect(one.up[1]).toBeGreaterThan(0.95);
+        const row = one.z > 0.1 ? 1 : one.z < -0.1 ? -1 : 0;
+        if (row) expect(one.up[2] * row).toBeLessThan(-0.05);
+        else expect(Math.abs(one.up[2])).toBeLessThan(1e-6);
+        expect(one.part.fuseAs).toBe('wing');
+      }
+      // 上下两截在腰上接、靠得一样多：每个人的上身和他的下身往前后靠的角度一样（腰上只拧不折）
+      for (const one of uppers) {
+        const own = lowers.reduce((a, b) => (Math.hypot(b.x - one.x, b.z - one.z) < Math.hypot(a.x - one.x, a.z - one.z) ? b : a));
+        if (Math.abs(one.x) < 0.02) expect(one.up[2]).toBeCloseTo(own.up[2], 5);
+      }
+      const rowOf = (z: number) => (z > 0.1 ? 1 : z < -0.1 ? -1 : 0);
+      for (const row of [1, 0, -1]) {
+        const mine = lowers.filter((t) => rowOf(t.z) === row).sort((a, b) => a.x - b.x);
+        expect(mine.length, String(row)).toBe(3);
+        expect(mine[1].x - mine[0].x).toBeGreaterThan(wide);
+        expect(mine[2].x - mine[1].x).toBeCloseTo(mine[1].x - mine[0].x, 5);
+      }
+      expect(legs.length).toBe(18);
+      for (const row of [1, 0, -1]) expect(legs.filter((p) => rowOf(p.pos[2]) === row).length, String(row)).toBe(6);
+      for (const leg of legs) {
+        const own = lowers.reduce((a, b) => (Math.hypot(b.x - leg.pos[0], b.z - leg.pos[2]) < Math.hypot(a.x - leg.pos[0], a.z - leg.pos[2]) ? b : a));
+        // （下半截的胯加宽了，白模的两条腿跟着分开）
+        expect(Math.hypot(own.x - leg.pos[0], own.z - leg.pos[2]), leg.name).toBeLessThan(0.16);
+      }
+      // 腿的名字、骨骼从头编（上身没有腿）：第一副是 Leg_01_L、UpperLeg_L，带骨骼导出、VRM 都认它
+      expect(legs.some((p) => p.name === 'Leg_01_L')).toBe(true);
+      expect(bones).toContain('UpperLeg_L');
+      expect(bones).toContain('UpperLeg_R');
+      const rig = makeSolver(buildSkeleton(six).bones).rig;
+      expect(isRingRig(rig)).toBe(true);
+      rig.names.forEach((name, j) => {
+        if (!/^Foot/.test(name)) return;
+        const toe = sub(rig.tail[j], rig.head[j]);
+        const flat = Math.hypot(toe[0], toe[2]);
+        if (flat > 1e-3) expect(toe[2] / flat, name).toBeGreaterThan(0.94);
+      });
+      // 头：一排三个挨着，前排、后排分在前后两边
+      const heads = six.parts.filter((p) => p.type === 'head').map((p) => xfs.get(p.name)!.pos);
+      for (const side of [1, -1]) {
+        const row = heads.filter((h) => h[2] * side > 0).sort((a, b) => a[0] - b[0]);
+        expect(row.length).toBe(3);
+        for (let i = 1; i < row.length; i++) expect(row[i][0] - row[i - 1][0], style).toBeLessThan(wide * 1.2);
+        const heights = row.map((h) => h[1]);
+        expect(Math.max(...heights) - Math.min(...heights), style).toBeLessThan(wide * 0.32);
+      }
+      // 手臂：每侧六条，长在前排、后排最外面那两个人身上（两组）
+      const arms = six.parts.filter((p) => p.type === 'arm');
+      expect(arms.length).toBe(12);
+      for (const side of [1, -1]) {
+        const mine = arms.filter((p) => xfs.get(p.name)!.pos[0] * side > 0);
+        expect(mine.length).toBe(6);
+        const parents = new Set(mine.map((p) => p.parent));
+        expect(parents.size).toBe(2);
+        for (const parent of parents) {
+          const slopes = mine.filter((p) => p.parent === parent).map((p) => {
+            const shoulder = p.bones!.find((b) => /^UpperArm/.test(b.name))!.head;
+            const wrist = p.bones!.find((b) => /^LowerArm/.test(b.name))!.tail;
+            const [x, y, z] = rotate(xfs.get(p.name)!.quat, sub(wrist, shoulder));
+            return Math.atan2(y, Math.hypot(x, z));
+          });
+          expect(Math.max(...slopes)).toBeGreaterThan(Math.PI / 7);
+          expect(Math.min(...slopes)).toBeLessThan(-Math.PI / 7);
+        }
+      }
+      // 胸：前后两面一样多，每只一样大
+      const chests = six.parts.filter((p) => p.type === 'chest');
+      expect(chests.length).toBeGreaterThanOrEqual(24);
+      expect(chests.length % 2).toBe(0);
+      expect(chests.every((p) => p.fuseAs === 'lower')).toBe(true);
+      const sizes = chests.map((p) => {
+        const prim = p.prims.find((q) => q.kind === 'chest');
+        return prim?.kind === 'chest' ? (prim.scale?.[0] ?? 1) : (p.scale ?? 1);
+      });
+      expect(new Set(sizes.map((v) => v.toFixed(4))).size).toBe(1);
+      // 都是一整块；没有胸、没有手臂、每人一条或三条腿也是
+      expect(runJob({ parts: six.parts, voxel: VOXEL.preview, blend: 0.02 }).mesh.info.components, style).toBe(1);
+      for (const counts of [{ breasts: 0, armPairs: 0 }, { legs: 1 }, { legs: 3 }]) {
+        const figure = build(5, counts);
+        expect(new Set(figure.parts.map((p) => p.name)).size).toBe(figure.parts.length);
+        expect(runJob({ parts: figure.parts, voxel: VOXEL.preview, blend: 0.02 }).mesh.info.components, `${style} ${JSON.stringify(counts)}`).toBe(1);
+      }
+    }
+  }, 180_000);
+
+  it('前后排套现成姿势：所有的腿朝一个方向迈，斜着的人的头照他自己的朝向转，每侧两组手臂各摆各的；重新融合还是一整块', () => {
+    useAnimeBody();
+    const d = defaultSpec();
+    const spec = specOf({ bodyStyle: 'anime', ring: 'rows', ringCount: 6, counts: { ...d.counts, breasts: 4, armPairs: 2 }, shape: { ...d.shape, bust: 2.3 } });
+    const figure = buildFigure(spec);
+    const solver = makeSolver(buildSkeleton(figure).bones);
+    const { rig } = solver;
+    const walk = POSE_LIBRARY.find((p) => p.name === '走')!.posing;
+    const own = fitRing(solver, walk);
+    // 腿：照原样套，左右照长在整个身子的哪一边
+    let sided = 0;
+    rig.names.forEach((name, j) => {
+      if (!/^UpperLeg/.test(name)) return;
+      const x = rig.head[j][0];
+      if (Math.abs(x) < 0.03) return;
+      expect(own.bones[name], name).toEqual(walk.bones[x > 0 ? 'UpperLeg_L' : 'UpperLeg_R']);
+      sided++;
+    });
+    expect(sided).toBe(18);
+    // 背不弯
+    for (const name of Object.keys(own.bones)) expect(/^(Spine|Chest|UpperChest)/.test(name), name).toBe(false);
+    // 头：六个都写了。低头（绕自己的左右轴往前转）以后每个头都是朝自己脸的方向低下去的——斜着的那个朝斜外
+    const nod: Posing = { version: 3, bones: { Head: [Math.sin(0.25), 0, 0, Math.cos(0.25)] } };
+    const nodded = fitRing(solver, nod);
+    const before = forward(rig, stateOf(solver, { version: 3, bones: {} }));
+    const after = forward(rig, stateOf(solver, nodded));
+    const heads = rig.names.flatMap((name, j) => (/^Head(\.\d{3})?$/.test(name) ? [j] : []));
+    expect(heads.length).toBe(6);
+    for (const j of heads) {
+      const tip = (frame: typeof before) => rotate(frame.rot[j], sub(rig.tail[j], rig.head[j]));
+      const moved = sub(tip(after), tip(before));
+      const flat = Math.hypot(moved[0], moved[2]);
+      expect(flat, rig.names[j]).toBeGreaterThan(0.01);
+      // 头顶往哪边倒：就是这个人脸朝的方向。从上面看和「从正中朝外」差不到 40°，正中的两个正好朝正前、正后
+      const out = Math.hypot(rig.head[j][0], rig.head[j][2]);
+      const cos = (moved[0] * rig.head[j][0] + moved[2] * rig.head[j][2]) / (flat * out);
+      expect(cos, rig.names[j]).toBeGreaterThan(0.75);
+      if (Math.abs(rig.head[j][0]) < 0.02) expect(Math.abs(moved[0]) / flat).toBeLessThan(0.05);
+      // 斜着的人：朝斜外 45° 上下，不是正对着从正中朝外的方向（那个方向偏得更多）
+      else expect(Math.abs(Math.atan2(Math.abs(moved[0]), Math.abs(moved[2])) - Math.PI / 4)).toBeLessThan(0.2);
+    }
+    // 手臂：每侧两组（前排、后排最外面的人身上各一组），四组都写了，都登记成「跟着动的」
+    const posed = followArms(solver, fitArms(solver, own));
+    expect(posed.followers.length).toBe(8);
+    for (const name of ['UpperArm_L', 'UpperArm_L.002', 'UpperArm_R.003', 'UpperArm_R.004', 'UpperArm_L.003', 'UpperArm_R']) expect(own.bones[name], name).toBeDefined();
+    // 重新融合还是一整块（这里不走「手臂让开身体」那一步，手臂不摆）
+    const still: Posing = { ...own, bones: Object.fromEntries(Object.entries(own.bones).filter(([name]) => !/^(Shoulder|UpperArm|LowerArm|Hand|Thumb|Index|Middle|Ring|Little|Finger)/.test(name))) };
+    const frame = forward(rig, stateOf(solver, still));
+    const exact = poseMatrices(rig, frame, figure.scale);
+    expect(refusable(figure, exact)).toBe(true);
+    expect(runJob({ parts: figure.parts, voxel: VOXEL.preview, blend: spec.blend, pose: exact }).mesh.info.components).toBe(1);
   });
 
   it('圈的松紧到 50%：整圈跟着缩，腿还长在自己的胯上；腿比平常往外叉开得多、一前一后错开，摆姿势时腿之间不扯蹼', () => {

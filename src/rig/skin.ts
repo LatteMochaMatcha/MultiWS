@@ -26,6 +26,7 @@
 import { t } from '../i18n';
 import { graftMeshOf } from '../anime/grafts';
 import { type Figure, type Part, worldTransforms } from '../geometry/figure';
+import { quatMul, rotate } from '../geometry/vec';
 import { type CompiledField, compilePartField, fieldAt } from '../sdf/field';
 import type { FusedMesh } from '../sdf/surfaceNets';
 import type { Skeleton } from './skeleton';
@@ -66,6 +67,13 @@ const APART: [near: number, far: number] = [0.005, 0.02];
  * 髋关节往下 below 以下（按标准人台的尺寸）不让，两条大腿各跟各的；往上照旧（屁股那里的缝跟着胯）
  */
 const SEAM = { wide: [0.5, 1] as [full: number, none: number], below: [0, 0.05] as [from: number, full: number] };
+/**
+ * 把两条腿分开的刀（Mass.parting，围成一圈前后排大腿之间的缝）：刀面（扁椭球最宽的两个方向围的那个椭圆）范围里的点，
+ * 和刀另一边的腿（看它的髋关节在哪一边）不分份额。加粗的大腿静止时互相叠着，切开以后左腿切出来的那一面还在右腿原来的体积里，
+ * 照离部件多近分，那一面有两三成跟着右腿；一摆姿势两条腿分开，那一面被拽成一片蹼。
+ * 扁到最薄的半径不到另两个里小的那个的 thin 倍才算一刀
+ */
+const PARTING = { thin: 0.25 };
 /**
  * 骨盆不跟着脊柱拧：躯干里按离哪节骨骼近分权重，胯那节骨骼又短又在正中，屁股、大腿根离腰、胸那几节也不远，
  * 会分到一两成腰、胸的份额。扭身子（腰、胸绕脊柱拧，见 pose/solve.ts 的 turnSpine）时那里跟着转几度，
@@ -211,6 +219,10 @@ export interface SkinPlan {
   boneDist2: (i: number, x: number, y: number, z: number) => number;
   /** 横排多胯两副胯挨着的缝（见 SEAM）：缝在哪（x）、两条里侧的髋关节离它多远、多高，两条腿接在哪根骨骼上 */
   seams: { x: number; half: number; hip: number; parent: number }[];
+  /** 把腿分开的刀（见 PARTING）：中心、刀的法向、刀面的两个方向和半径 */
+  partings: { c: number[]; n: number[]; u: number[]; w: number[]; ru: number; rw: number }[];
+  /** 每一伙最靠根的那节骨骼的根（腿就是髋关节），看它在刀的哪一边 */
+  rootAt: Float64Array;
   /** 骨盆（见 PELVIS）：髋关节多高、胯是哪根骨骼、哪些是脊柱（1 是）。腿不直接接在胯上的（人马、蛛形）、不是站着的没有 */
   pelvis: { hip: number; hips: number; spine: Uint8Array } | null;
 }
@@ -370,7 +382,7 @@ export function planSkin(
   const ringed = figure.parts.some((part) => part.name === 'Torso_C');
   const bodyOf = (part: Part): number => {
     for (let p: Part | undefined = part; p; p = p.parent ? byName.get(p.parent) : undefined) {
-      if (/^UpperBody/.test(p.name) || (ringed && /^Torso(_[A-Z])?$/.test(p.name))) return figure.parts.indexOf(p);
+      if (/^UpperBody/.test(p.name) || (ringed && /^Torso(_[A-Z]+)?$/.test(p.name))) return figure.parts.indexOf(p);
     }
     return -1;
   };
@@ -393,6 +405,30 @@ export function planSkin(
       if (a.side === 'L' && b.side === 'R' && a.parent === b.parent && b.x > a.x) seams.push({ x: (a.x + b.x) / 2, half: (b.x - a.x) / 2, hip: Math.min(a.y, b.y), parent: a.parent });
     }
   }
+  // 把腿分开的刀（见 PARTING）
+  const partings: SkinPlan['partings'] = [];
+  for (const part of figure.parts) {
+    const xf = xfs.get(part.name);
+    if (!xf || part.resize) continue;
+    for (const p of part.prims) {
+      if (p.kind !== 'ellipsoid' || !p.cut || !p.parting) continue;
+      const order = [0, 1, 2].sort((a, b) => p.radii[a] - p.radii[b]);
+      if (p.radii[order[0]] > PARTING.thin * p.radii[order[1]]) continue;
+      const q = quatMul(xf.quat, p.quat ?? [0, 0, 0, 1]);
+      const axis = (i: number) => rotate(q, [i === 0 ? 1 : 0, i === 1 ? 1 : 0, i === 2 ? 1 : 0]);
+      const c = rotate(xf.quat, p.center);
+      partings.push({
+        c: [xf.pos[0] + c[0] * xf.scale, xf.pos[1] + c[1] * xf.scale, xf.pos[2] + c[2] * xf.scale],
+        n: axis(order[0]),
+        u: axis(order[1]),
+        w: axis(order[2]),
+        ru: p.radii[order[1]] * xf.scale,
+        rw: p.radii[order[2]] * xf.scale,
+      });
+    }
+  }
+  const rootAt = new Float64Array(groups * 3);
+  for (let g = 0; g < groups; g++) rootAt.set(skeleton.bones[entries[sample[g]].bones[0]].head, g * 3);
   // 骨盆（见 PELVIS）：直接接在胯上的那几条腿的髋关节
   let pelvis: SkinPlan['pelvis'] = null;
   {
@@ -431,6 +467,8 @@ export function planSkin(
     mostStrands,
     boneDist2,
     seams,
+    partings,
+    rootAt,
     pelvis,
   };
 }
@@ -565,7 +603,18 @@ export function weighVertices(
   joints: Uint16Array,
   weights: Float32Array,
 ) {
-  const { positions, entries, rep, band, soft, groups, parentBone, kind, sample, home, socket, lead, groupOf, body, torso, seams, pelvis } = plan;
+  const { positions, entries, rep, band, soft, groups, parentBone, kind, sample, home, socket, lead, groupOf, body, torso, seams, partings, rootAt, pelvis } = plan;
+  /** 这个顶点在哪几刀的刀面范围里、在刀的哪一边（见 PARTING）：刀的下标、正负号 */
+  const cutBy: number[] = [];
+  /** g 这一伙的根在不在这个顶点隔着的哪一刀的另一边 */
+  const across = (g: number) => {
+    for (let i = 0; i < cutBy.length; i += 2) {
+      const { c, n } = partings[cutBy[i]];
+      const side = (rootAt[g * 3] - c[0]) * n[0] + (rootAt[g * 3 + 1] - c[1]) * n[1] + (rootAt[g * 3 + 2] - c[2]) * n[2];
+      if (side * cutBy[i + 1] < 0) return true;
+    }
+    return false;
+  };
   const seamBelow = SEAM.below.map((v) => v * (band / BAND));
   const pelvisRamp = PELVIS.ramp * (band / BAND);
   const apartNear = APART[0] * (band / BAND);
@@ -610,6 +659,19 @@ export function weighVertices(
       apart = t <= 0 ? 1 : t >= 1 ? 0 : 1 - t * t * (3 - 2 * t);
     }
 
+    // 这个顶点被哪几刀隔着（见 PARTING）
+    cutBy.length = 0;
+    for (let i = 0; i < partings.length; i++) {
+      const { c, n, u, w, ru, rw } = partings[i];
+      const dx = x - c[0];
+      const dy = y - c[1];
+      const dz = z - c[2];
+      const a = (dx * u[0] + dy * u[1] + dz * u[2]) / ru;
+      const b = (dx * w[0] + dy * w[1] + dz * w[2]) / rw;
+      if (a * a + b * b >= 1) continue;
+      cutBy.push(i, dx * n[0] + dy * n[1] + dz * n[2] < 0 ? -1 : 1);
+    }
+
     // 每一伙占多少：它的各个部件的份额加起来。阴茎、阴囊和别的之间的过渡带窄一些（见 GENITAL_BAND）
     here.length = 0;
     const genital = first >= 0 && kind[groupOf[nearEntry[first]]] === 'genital';
@@ -621,6 +683,7 @@ export function weighVertices(
       const part = (1 - gap / width) ** 2 * (gate ? gate[k] : 1) * (other ? apart : 1);
       if (part <= 0) continue;
       const group = groupOf[nearEntry[k]];
+      if (cutBy.length && kind[group] === 'leg' && across(group)) continue;
       if (groupShare[group] === 0) here.push(group);
       groupShare[group] += part;
     }

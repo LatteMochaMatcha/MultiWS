@@ -75,6 +75,8 @@ function patchSchema(adult: boolean) {
     chestRow: opt(int()),
     ringCount: opt(int()),
     ringSpread: opt(num()),
+    ringHipRows: opt(int()),
+    ringHipsPerRow: opt(int()),
     fingers: opt(int()),
     toes: opt(int()),
     blend: opt(num()),

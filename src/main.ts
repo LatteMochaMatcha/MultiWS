@@ -120,6 +120,8 @@ import {
   RINGS,
   RING_CHESTS,
   RING_COUNT,
+  RING_HIP_ROWS,
+  RING_HIPS_PER_ROW,
   RING_LEGS,
   RING_LEG_FACINGS,
   RING_SPREAD,
@@ -951,7 +953,7 @@ const syncConjoin = buildSeg($('segConjoin'), CONJOINS, (v) => CONJOIN_LABEL[v],
 });
 
 /** 围成一圈：不围 / 各有各的胯 / 并胯融合（见 geometry/ring.ts） */
-const RING_LABEL: Record<RingMode, string> = { none: t('不围'), hips: t('各有各的胯'), fused: t('并胯融合') };
+const RING_LABEL: Record<RingMode, string> = { none: t('不围'), hips: t('各有各的胯'), fused: t('并胯融合'), rows: t('前后排') };
 const syncRing = buildSeg($('segRing'), RINGS, (v) => RING_LABEL[v], (ring) => {
   spec = { ...spec, ring };
   commit();
@@ -985,6 +987,17 @@ const syncRingLegFacing = buildSeg($('segRingLegFacing'), RING_LEG_FACINGS, (v) 
 });
 const syncRingChest = buildSeg($('segRingChest'), RING_CHESTS, (v) => RING_CHEST_LABEL[v], (ringChest) => {
   spec = { ...spec, ringChest };
+  commit();
+});
+/** 前后排：胯几排、每排几个胯（0 是自动，跟着这一排的人数） */
+const RING_HIP_ROW_CHOICES = Array.from({ length: RING_HIP_ROWS.max - RING_HIP_ROWS.min + 1 }, (_, i) => String(RING_HIP_ROWS.min + i));
+const syncRingHipRows = buildSeg($('segRingHipRows'), RING_HIP_ROW_CHOICES, (v) => v, (n) => {
+  spec = { ...spec, ringHipRows: Number(n) };
+  commit();
+});
+const RING_HIPS_PER_ROW_CHOICES = Array.from({ length: RING_HIPS_PER_ROW.max - RING_HIPS_PER_ROW.min + 1 }, (_, i) => String(RING_HIPS_PER_ROW.min + i));
+const syncRingHipsPerRow = buildSeg($('segRingHipsPerRow'), RING_HIPS_PER_ROW_CHOICES, (v) => (v === '0' ? t('自动') : v), (n) => {
+  spec = { ...spec, ringHipsPerRow: Number(n) };
   commit();
 });
 const RING_COUNTS = Array.from({ length: RING_COUNT.max - RING_COUNT.min + 1 }, (_, i) => String(RING_COUNT.min + i));
@@ -5680,13 +5693,18 @@ function render() {
   $('ringCountField').hidden = spec.ring === 'none';
   syncRingCount(String(spec.ringCount), ringable && spec.ring !== 'none');
   $('ringChestField').hidden = spec.ring === 'none';
-  syncRingChest(spec.ringChest, ringable && spec.ring !== 'none' && spec.counts.breasts > 2);
+  syncRingChest(spec.ringChest, ringable && spec.ring !== 'none' && (spec.ring === 'rows' ? spec.counts.breasts > 0 : spec.counts.breasts > 2));
   $('ringLegsField').hidden = spec.ring === 'none';
   $('ringSpreadField').hidden = spec.ring === 'none';
   syncRingSpread(spec.ringSpread, ringable && spec.ring !== 'none');
-  syncRingLegs(spec.ringLegs, ringable && spec.ring !== 'none');
+  $('ringHipRowsField').hidden = spec.ring !== 'rows';
+  syncRingHipRows(String(spec.ringHipRows), ringable && spec.ring === 'rows');
+  $('ringHipsPerRowField').hidden = spec.ring !== 'rows';
+  syncRingHipsPerRow(String(spec.ringHipsPerRow), ringable && spec.ring === 'rows');
+  // 前后排的腿都在前后两排上、都朝正前：「中间的腿」「腿的朝向」不起作用
+  syncRingLegs(spec.ringLegs, ringable && spec.ring !== 'none' && spec.ring !== 'rows');
   $('ringLegFacingField').hidden = spec.ring === 'none';
-  syncRingLegFacing(spec.ringLegFacing, ringable && spec.ring !== 'none');
+  syncRingLegFacing(spec.ringLegFacing, ringable && spec.ring !== 'none' && spec.ring !== 'rows');
   syncArmEnd(spec.armEnd, spec.counts.armPairs > 0);
   syncLegEnd(spec.legEnd, humanLegs());
   syncFingers();
