@@ -136,7 +136,7 @@ export interface ShapeDef {
   safe?: [min: number, max: number];
 }
 
-/** 胸部大小滑块 2.2 以上（到 4）只有二次元素体照着变大，2.3 以上还往下垂（见 anime/chest.ts 的 SAG_FROM）；白模人台、成品角色到 2.2 为止 */
+/** 胸部大小滑块 2.2 以上（到 3.4）只有二次元素体照着变大，2.3 以上还往下垂（见 anime/chest.ts 的 SAG_FROM）；白模人台、成品角色到 2.2 为止 */
 export const BUST_MAX_OTHER = 2.2;
 
 export const SHAPE_DEFS: readonly ShapeDef[] = [
@@ -144,7 +144,7 @@ export const SHAPE_DEFS: readonly ShapeDef[] = [
   { key: 'headRatio', label: t('头身比'), min: 6, max: 9, step: 0.1, def: 7.5 },
   { key: 'build', label: t('体格'), min: 0.7, max: 1.5, step: 0.01, def: 1, safe: [0.8, 1.3] },
   { key: 'shoulders', label: t('肩宽'), min: 0.75, max: 1.6, step: 0.01, def: 1, safe: [0.85, 1.3] },
-  { key: 'bust', label: t('胸部大小'), min: 0.3, max: 4, step: 0.01, def: 1, safe: [0.3, 1.6] },
+  { key: 'bust', label: t('胸部大小'), min: 0.3, max: 3.4, step: 0.01, def: 1, safe: [0.3, 1.6] },
   { key: 'waist', label: t('腰宽'), min: 0.7, max: 1.6, step: 0.01, def: 1, safe: [0.8, 1.3] },
   { key: 'hips', label: t('胯宽'), min: 0.7, max: 1.8, step: 0.01, def: 1, safe: [0.8, 1.4] },
   { key: 'limbs', label: t('四肢粗细'), min: 0.5, max: 2, step: 0.01, def: 1, safe: [0.8, 1.3] },

@@ -1,6 +1,6 @@
 // 二次元素体的胸：贴在平胸躯干表面上的一层（anime/chest.ts、ChestShape；tools/build-chest.ts 从 CC0 参考模型上采的胸型）
 import { describe, expect, it } from 'vitest';
-import { chestFrame, chestLayers, chestRound, chestSkin, registerChestRound, shell, surfacePoint, zcOf } from '../src/anime/chest';
+import { chestFrame, chestLayers, chestReach, chestRound, chestSkin, registerChestRound, shell, surfacePoint, zcOf } from '../src/anime/chest';
 import { animeGrid } from '../src/anime/body';
 import type { ChestShape, Figure, Part } from '../src/geometry/figure';
 import { buildFigure } from '../src/geometry/layout';
@@ -339,7 +339,7 @@ describe('二次元素体的胸', () => {
   }, 60_000);
 });
 
-describe('胸部大小 2.3 往上（滑块最大 4）：往下垂', () => {
+describe('胸部大小 2.3 往上（滑块最大 3.4）：往下垂', () => {
   useAnimeBody();
   const flat = () => gridDist(getGrid(animeGrid('torsoFlat'))).fn;
   /** 一边的胸比平胸躯干多出来的那一块：体积（升，两边加起来）、上下范围、重心多高；顺便看有没有碰到算胸的范围的边（碰到就是被切掉了） */
@@ -370,28 +370,28 @@ describe('胸部大小 2.3 往上（滑块最大 4）：往下垂', () => {
   };
 
   it('体积接着变大，在 2.3 那里接得上（2.3 以下的样子不变，见上面几项）', () => {
-    const sizes = [2.3, 2.32, 2.6, 3, 3.5, 4];
+    const sizes = [2.3, 2.32, 2.6, 3, 3.4];
     const v = sizes.map((s) => measure(s).liters);
     for (let k = 1; k < v.length; k++) expect(v[k], `胸 ${sizes[k]} 比 ${sizes[k - 1]} 大`).toBeGreaterThan(v[k - 1]);
     // 2.3 到 2.32 只多一点点（体积照三次方长大约多 2.6%）
     expect(v[1] / v[0]).toBeLessThan(1.06);
-    // 4 大约是 2.3 的 (4 / 2.3)³ ≈ 5.3 倍，竖着长得少一点、往下拉长又多一些（量出来 8 倍上下）
-    expect(v[5] / v[0]).toBeGreaterThan(5);
-    expect(v[5] / v[0]).toBeLessThan(10);
+    // 3.4 大约是 2.3 的 (3.4 / 2.3)³ ≈ 3.2 倍，竖着长得少一点、往下拉长又多一些
+    expect(v[4] / v[0]).toBeGreaterThan(3);
+    expect(v[4] / v[0]).toBeLessThan(6);
   }, 120_000);
 
-  it('越大越往下垂：胸底比胸根的下沿垂下去得越多（占整个胸高的比例）；没被算胸的范围切掉', () => {
-    const drop = [2.3, 3.2, 4].map((s) => {
-      const m = measure(s);
-      expect(m.touches, `胸 ${s} 碰到了范围的边`).toBe(false);
-      return (m.rootLo - m.lo) / (m.hi - m.lo);
+  it('越大越往下垂：胸从中心往下伸得比往上多，越大多得越多；没被算胸的范围切掉', () => {
+    const ratio = [2.3, 3, 3.4].map((s) => {
+      expect(measure(s).touches, `胸 ${s} 碰到了范围的边`).toBe(false);
+      const [up, down] = chestReach(s);
+      return down / up;
     });
-    expect(drop[1]).toBeGreaterThan(drop[0] + 0.02);
-    expect(drop[2]).toBeGreaterThan(drop[1]);
+    expect(ratio[1]).toBeGreaterThan(ratio[0] + 0.1);
+    expect(ratio[2]).toBeGreaterThan(ratio[1] + 0.05);
   }, 120_000);
 
   it('左右对称', () => {
-    for (const size of [3, 4]) {
+    for (const size of [3, 3.4]) {
       const left = chestSkin(nativeChest(size));
       const right = chestSkin(nativeChest(size, -1));
       for (let i = 0; i < 200; i++) {
