@@ -163,6 +163,8 @@ const spreadOf = (spread: number): { radius: number; head: number } => ({
  *   整片垫在胸根后面的话小胸被盖住，所以只垫空的地方；
  * - stump：拿掉手臂的肩膀上垫的圆肩头（STUMP）多大、往里收多少（米）；
  * - coreTop：有胸的那一段芯子粗到差一点到肚皮，往上只到最上面一排胸的中心再往上这么多（米），再往上渐渐变细；
+ * - coreNeck：芯子的顶比脖子根再低这么多（米）。围成一圈时芯子顶到脖子根、圆顶再高出五六厘米，埋在一圈头中间看不见；
+ *   前后排两排脖子之间是敞着的，那个圆顶就是脖子后面鼓着的一个包（11-15「脖子后面为什么有个隆起」）；
  *   span：跨在沟上的那几只最多比它那么宽的范围里最鼓的身体表面高出胸厚的多少（小胸跨不过沟，再高就和身子分开了）
  *
  * 试过又退掉的：
@@ -219,6 +221,7 @@ const ROWS = {
   tuck: 0.022,
   span: 0.4,
   coreTop: 0.02,
+  coreNeck: 0.06,
   stump: { size: 0.88, inset: 0.02 },
   profile: { out: 0.045, back: 0.015, show: 0.05, bury: 0.7 },
   pad: { wide: 0.55, tall: 0.6, behind: 0.006, into: 0.03, least: 0.008, most: 0.07, rampTop: 0.3, rampInto: 0.015, rampThick: 0.022, soft: 0.015 },
@@ -1430,7 +1433,7 @@ export function ringBuild(
 
   /* ---- 圈心的芯子：照一个人的后背、肚皮各离圈心多远量 ---- */
   const necks = base.filter((p) => p.type === 'neck' && p.parent === 'Torso');
-  const top = torso.pos[1] + (necks.length ? Math.min(...necks.map((p) => p.pos[1])) : headY - hipY) - 0.02;
+  const top = torso.pos[1] + (necks.length ? Math.min(...necks.map((p) => p.pos[1])) : headY - hipY) - 0.02 - (rowsMode ? ROWS.coreNeck : 0);
   const rings: Ring[] = [];
   // 前后排：芯子从腰往上才有（腰上那条接缝再高 ROWS.coreWaist）。排与排之间的缝切到腰以后，伸到腰以下的那一截从缝里露出来，
   // 侧面看是腰底下挂着的一块方板、一条小舌头
