@@ -85,6 +85,12 @@ const CASES: Record<string, (spec: BodySpec) => BodySpec> = {
     const out = addBlock(setSplitTorso(spec, true), [{ from: 'UpperBody', shift: copyShiftOf(spec, 'UpperBody') }]).spec;
     return addBlock(out, [{ from: 'UpperBody', shift: copyShiftOf(spec, 'UpperBody') }]).spec;
   },
+  // 四个胸腔（程序排的「几个上半身」最多三个）
+  copy4: (spec) => {
+    let out = setSplitTorso(spec, true);
+    for (let i = 0; i < 3; i++) out = addBlock(out, [{ from: 'UpperBody' }]).spec;
+    return out;
+  },
   // 第 4 期：三个胸腔、两副胯
   both: (spec) => {
     let out = addBlock(setSplitTorso(spec, true), [{ from: 'UpperBody' }]).spec;

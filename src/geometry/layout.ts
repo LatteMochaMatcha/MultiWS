@@ -929,6 +929,13 @@ export const UPRIGHT_HIPS_THREE = 1.5;
 /** 体块：胯上站着四个以上胸腔时，每多一个胯再宽多少倍、最多宽到多少倍（三个以内照 UPRIGHT_HIPS、UPRIGHT_HIPS_THREE） */
 const RIBS_HIPS_MORE = 0.2;
 const RIBS_HIPS_MOST = 2.1;
+/**
+ * 体块：白模人台的胯上站着三个以上胸腔时胯再宽多少倍（两个时照 UPRIGHT_HIPS）。白模人台的胯本来比腰宽不了多少，
+ * 照二次元素体的 1.5 倍的话三个腰比胯宽出一截，两边的悬在胯外面；照两个胸腔时胯和几个腰差不多一样宽的样子定
+ */
+const LOFT_RIBS_HIPS_THREE = 1.75;
+const LOFT_RIBS_HIPS_MORE = 0.45;
+const LOFT_RIBS_HIPS_MOST = 3.1;
 
 /**
  * 体块：躯干分成胸腔和胯两块的身体上，原来那副胯上站着几个胸腔——原来那一个，加上复制出来、没有接到别的部件上的那些（见 clone.ts、attach.ts）。
@@ -1036,7 +1043,14 @@ function layoutEnds(given: BodySpec): Figure {
   const three = anime && given.counts.torsos === 3;
   // 躯干分成两块以后复制出来的胸腔（体块，见 clone.ts）也算：胯上站着几个胸腔，胯就照几个上半身那样宽
   const ribs = looseRibs(given);
-  const wider = ribs < 2 ? 1 : !anime ? MULTI_HIPS : ribs === 2 ? UPRIGHT_HIPS : Math.min(RIBS_HIPS_MOST, UPRIGHT_HIPS_THREE + RIBS_HIPS_MORE * (ribs - 3));
+  const wider =
+    ribs < 2
+      ? 1
+      : ribs === 2
+        ? UPRIGHT_HIPS
+        : anime
+          ? Math.min(RIBS_HIPS_MOST, UPRIGHT_HIPS_THREE + RIBS_HIPS_MORE * (ribs - 3))
+          : Math.min(LOFT_RIBS_HIPS_MOST, LOFT_RIBS_HIPS_THREE + LOFT_RIBS_HIPS_MORE * (ribs - 3));
   const spec =
     given.counts.torsos > 1
       ? { ...given, shape: { ...given.shape, hips: given.shape.hips * (upright ? UPRIGHT_HIPS : three ? UPRIGHT_HIPS_THREE : MULTI_HIPS) } }

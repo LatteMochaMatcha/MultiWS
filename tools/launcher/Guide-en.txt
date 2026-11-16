@@ -187,6 +187,16 @@ Section by section:
   Manual tweaks      Click a part on the model (a particular arm, head or tail) and you can move, rotate and scale
                      it on its own (move up to 3 m, rotate ±180°, size 0.05-10 times).
                      With many legs, moving an outer leg makes the pelvis widen or narrow along with it.
+                     "Duplicate" makes one more of the selected part (head, arm, leg, breast, tail, wing, horn, ear,
+                     eye), which you can then move anywhere.
+                     With the torso selected, "Split into ribcage and pelvis" turns it into two blocks that move,
+                     rotate and scale on their own while the waist stays joined; once split, the ribcage and the
+                     pelvis can be duplicated too.
+                     "Attach to…" attaches the selected part to another part so that it follows that part (also
+                     when posing); "Detach" puts it back. With "Snap to connection points" ticked, click near one
+                     of the small dots on the model (shoulder, hip, neck base, joints) and the root of the part
+                     snaps onto it.
+                     These are not available on ready-made characters.
                      Ready-made characters can be tweaked too: the parts follow the bones, and where they join the
                      body (shoulder, hip joint, neck) they stretch along; copied arms, tails, wings and horns move
                      as a whole piece; when a leg is moved, the piece of pelvis near that leg moves with it.

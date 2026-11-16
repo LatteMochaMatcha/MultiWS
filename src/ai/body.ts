@@ -444,5 +444,11 @@ export function stateForModel(spec: BodySpec, adult: boolean): Record<string, un
     hasPosing: Object.keys(spec.posing.bones ?? {}).length > 0,
   };
   if (adult) Object.assign(out, { penisLayout: spec.penisLayout, scrotum: spec.scrotum, penisRow: spec.penisRow, penisSoft: spec.penisSoft });
+  // 体块（手工复制的部件、接到别处的部件、躯干分没分开）：有的话写出来，没有就不占地方
+  const copied = [...blockRoots(spec).entries()].map(([name, block]) => ({ name, copyOf: block.from }));
+  const attached = Object.entries(spec.blocks?.attach ?? {}).map(([name, a]) => ({ name, to: a.to, ...(a.socket ? { snapped: true } : {}) }));
+  if (spec.blocks?.splitTorso || copied.length || attached.length) {
+    out.blocks = { ...(spec.blocks?.splitTorso ? { torsoSplit: true } : {}), ...(copied.length ? { copied } : {}), ...(attached.length ? { attached } : {}) };
+  }
   return out;
 }

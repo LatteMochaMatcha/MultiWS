@@ -14,7 +14,10 @@ import { type BodySpec, defaultSpec, normalizeSpec } from '../src/model/spec';
 import { emptyPosing } from '../src/pose/posing';
 import { isRingRig } from '../src/pose/ring';
 import { makeSolver, stateOf } from '../src/pose/solver';
+import { writeGlb } from '../src/io/glb';
 import { buildSkeleton } from '../src/rig/skeleton';
+import { skinVertices } from '../src/rig/skin';
+import { VOXEL, fuseParts } from '../src/sdf/fuse';
 import { useAnimeBody } from './animeBody';
 
 useAnimeBody();
@@ -146,12 +149,25 @@ describe.each(STYLES)('复制胸腔、胯（%s）', (bodyStyle) => {
     expect(waistX(figure, 'UpperBody_101')).toBeGreaterThan(0.05);
     expect(waistX(figure, 'UpperBody_201')).toBeCloseTo(-waistX(figure, 'UpperBody_101'), 6);
     expect(() => buildSkeleton(figure)).not.toThrow();
-    // 素体里侧的手臂（旁边还有别的胸腔的那一边）改成往前伸：正中那个两边都是，两边的各一条
-    if (bodyStyle === 'anime') {
-      const turned = (name: string) => JSON.stringify(part(figure, name).quat) !== JSON.stringify(part(split, 'Arm_01_' + name.slice(-1)).quat);
-      expect(['Arm_01_L', 'Arm_01_R', 'Arm_101_R', 'Arm_201_L'].every(turned)).toBe(true);
-      expect(['Arm_101_L', 'Arm_201_R'].some(turned)).toBe(false);
-    }
+    // 里侧的手臂（旁边还有别的胸腔的那一边）改成往前伸：正中那个两边都是，两边的各一条。两种白模都是
+    const turned = (name: string) => JSON.stringify(part(figure, name).quat) !== JSON.stringify(part(split, 'Arm_01_' + name.slice(-1)).quat);
+    expect(['Arm_01_L', 'Arm_01_R', 'Arm_101_R', 'Arm_201_L'].every(turned)).toBe(true);
+    expect(['Arm_101_L', 'Arm_201_R'].some(turned)).toBe(false);
+    // 两种白模都是直立并排、各有各的腰（不是从细腰上斜着岔出去）：往两边挪的那一份在胯顶上下一小段里就挪足，往外歪不到 15 度
+    const fork = part(figure, 'UpperBody_101')
+      .prims.map((q) => (q.kind === 'grid' || q.kind === 'loft' ? q.fork : undefined))
+      .find((f) => f !== undefined)!;
+    expect(fork.shiftFrom).toBeDefined();
+    expect(fork.shiftTo! - fork.shiftFrom!).toBeLessThan(0.2);
+    const lean = 2 * Math.acos(Math.min(1, Math.abs(part(figure, 'UpperBody_101').quat[3])));
+    expect(lean).toBeGreaterThan(0.05);
+    expect(lean).toBeLessThan((15 * Math.PI) / 180);
+    // 白模人台的胯是一摞椭圆截面：最上面那一圈跟着加宽，托得住三个腰
+    const topRing = (f: Figure) => {
+      const loft = part(f, 'Torso').prims.find((q) => q.kind === 'loft');
+      return loft?.kind === 'loft' ? loft.rings[loft.rings.length - 1].w : undefined;
+    };
+    if (topRing(split) !== undefined) expect(topRing(figure)!).toBeGreaterThan(topRing(split)! + 0.05);
     // 拿掉一个：剩下两个重新左右排开
     const back = buildFigure(removeBlock(three, 'UpperBody_201', blockNames(figure, 'UpperBody_201')));
     expect(waistX(back, 'UpperBody')).toBeCloseTo(-waistX(back, 'UpperBody_101'), 6);
@@ -275,6 +291,40 @@ describe.each(STYLES)('复制胸腔、胯（%s）', (bodyStyle) => {
     const gone = removeBlock(removeBlock(more, 'UpperBody_101', blockNames(figure, 'UpperBody_101')), 'Torso_201', blockNames(figure, 'Torso_201'));
     expect(gone.blocks!.added).toEqual([]);
     expect(buildFigure(gone).parts.map((p) => p.name).sort()).toEqual(split.parts.map((p) => p.name).sort());
+  });
+
+  it('带骨骼导出：复制出来的胸腔、胯、接到别处的胸都在文件里，骨骼一根接一根、权重加起来是 1', () => {
+    let more = addBlock(spec, [{ from: 'UpperBody' }]).spec;
+    more = addBlock(more, [{ from: 'Torso', shift: [0, 0, -0.2] }]).spec;
+    more = addBlock(more, [{ from: 'Chest_01_L', shift: [0, -0.2, -0.02], plain: bodyStyle === 'anime' }]).spec;
+    more = attachParts(more, ['Chest_301_L'], 'Leg_01_L').spec;
+    const figure = buildFigure(more);
+    const unit = { parts: figure.parts, scale: 1 };
+    const fused = fuseParts(unit.parts, { voxel: VOXEL.draft, blend: more.blend });
+    const skeleton = buildSkeleton(figure);
+    const skin = skinVertices(unit, buildSkeleton(unit), fused.positions);
+    const glb = writeGlb(
+      [{ name: 'OC_BaseMesh', positions: fused.positions.map((v) => v * figure.scale), normals: fused.normals, indices: fused.triangles, joints: skin.joints, weights: skin.weights }],
+      { skeleton, rigName: 'OC_Rig' },
+    );
+    // 拆开 GLB：JSON 那一块
+    const view = new DataView(glb);
+    const json = JSON.parse(new TextDecoder().decode(new Uint8Array(glb, 20, view.getUint32(12, true))));
+    const names: string[] = json.skins[0].joints.map((j: number) => json.nodes[j].name);
+    expect(names).toHaveLength(skeleton.bones.length);
+    expect(new Set(names).size).toBe(names.length);
+    for (const name of ['Hips', 'Spine', 'Spine.101', 'UpperChest.101', 'Head.101', 'Hips.121', 'UpperLeg_L.121']) expect(names).toContain(name);
+    expect(names.some((n) => /^Bust_L\.\d{3}$/.test(n))).toBe(true);
+    // 每根骨骼除了 Hips 都挂在另一根骨骼底下（节点树是一棵树）
+    const childOf = new Map<number, number>();
+    json.nodes.forEach((node: { children?: number[] }, i: number) => (node.children ?? []).forEach((c) => childOf.set(c, i)));
+    const rootless = json.skins[0].joints.filter((j: number) => !childOf.has(j) || !json.skins[0].joints.includes(childOf.get(j)));
+    expect(rootless.map((j: number) => json.nodes[j].name)).toEqual(['Hips']);
+    // 权重：每个顶点四个加起来是 1，骨骼下标都在范围里
+    for (let v = 0; v < skin.weights.length; v += 4) {
+      expect(skin.weights[v] + skin.weights[v + 1] + skin.weights[v + 2] + skin.weights[v + 3]).toBeCloseTo(1, 4);
+      for (let k = 0; k < 4; k++) expect(skin.joints[v + k]).toBeLessThan(names.length);
+    }
   });
 
   it('套姿势：复制出来的脊柱、胯、腿没记的跟着原来那根；三根脊柱不当成围成一圈', () => {

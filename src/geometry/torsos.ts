@@ -17,7 +17,7 @@
 import { castRay, compileField } from '../sdf/field';
 import { getGrid, spreadAt } from '../sdf/grids';
 import type { TorsoSide } from '../model/spec';
-import { type BoneHint, type Figure, type Fork, type Graft, type GridShape, type Part, type Prim, type Tile, type WidenBand, nthName, shapeMatrix } from './figure';
+import { type BoneHint, type Figure, type Fork, type Graft, type GridShape, type Part, type Prim, type Ring, type Tile, type WidenBand, nthName, shapeMatrix } from './figure';
 import { HEAD_HALF_WIDTH } from './head';
 import { ringAt } from './torso';
 import { type Mat3, type Quat, type V3, Q_ID, add, len, mat3Apply, norm, quatBetween, quatConj, quatEuler, quatMul, rotate, sub } from './vec';
@@ -893,12 +893,20 @@ function seatSlot(i: number, count: number): number {
   return count % 2 ? step : i % 2 ? (i + 1) / 2 - 0.5 : -(i / 2) - 0.5;
 }
 
-/** 体块：白模人台并排着的胸腔相邻两个隔多远的一半、每往外一格多歪多少（照 SHIFT、LEAN_MIN 的意思；白模的腰很细，挪得少、歪得多） */
-const SEAT_LEAN = 22 * (Math.PI / 180);
+/**
+ * 体块：白模人台并排着的胸腔也和二次元素体一样直立并排、各有各的腰，坐在加宽的胯上（以前是从一个人那么宽的胯的细腰上斜着岔出去，
+ * 每格歪 22°，左右两个像从中间那个的腰侧长出来的树杈）。相邻两个隔多远照腰最细那里的半宽算：两个时 SEAT_PAIR 倍，三个以上 SEAT_SPREAD 倍；
+ * 每往外一格多歪 SEAT_LEAN。白模的腰比肋骨细得多，照二次元素体的倍数的话几个胸腔的肋骨并成一块
+ */
+const SEAT_PAIR = 1.8;
+const SEAT_SPREAD = 2.3;
+const SEAT_LEAN = 12 * (Math.PI / 180);
+/** 和 sdf/fork.ts 里往两边挪的那一段同一条曲线 */
+const easeIn = (u: number) => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * u * (u * (6 * u - 15) + 10));
 
 /**
  * 体块：躯干分成胸腔和胯两块以后（见 splitTorsos 的 one），胸腔可以复制（clone.ts）。胯上有两个以上不挂在别的部件上的胸腔时，
- * 把它们照「好几个上半身」那样摆：左右并排、往外歪开一点，二次元素体的直立着、各有各的腰，胯的上半截跟着加宽
+ * 把它们照二次元素体「好几个上半身」那样摆：左右并排、往外歪开一点，直立着、各有各的腰，胯的上半截跟着加宽（白模人台也是，见 SEAT_PAIR）
  * （转从分开的地方渐渐加到腋下，往两边挪的那一份在分开的地方上下一小段里就挪足，见 SPLIT_HALF）；里侧的手臂往前伸（见 besideArms）。
  * 不这样的话几个胸腔都从一个人那么宽的胯正中斜着岔出去，腰是几根细长的杈。
  * 在套手动微调之前做：之后再手动挪、转某一个，腰照样由 refork 接顺。只有一个胸腔、没有这样的胸腔时原样返回
@@ -917,12 +925,14 @@ export function seatRibcages(figure: Figure): Figure {
 
   /* ---- 相邻两个隔多远 ---- */
   let unit = ribs.length === 2 ? 2 * SHIFT : SHIFT * SHIFT_THREE;
-  if (sampled) {
-    // 腰最细那里多宽（分开的那一段里，从正中往两边量）：两个时里侧挤进去一点，三个以上分得开（见 UPRIGHT_OVERLAP、UPRIGHT_SPREAD_THREE）
+  {
+    // 腰最细那里多宽（分开的那一段里，从正中往两边量）：两个时里侧挤进去一点，三个以上分得开（见 UPRIGHT_OVERLAP、UPRIGHT_SPREAD_THREE、SEAT_PAIR）
     const whole = compileField({ scale: 1, parts: [{ ...ribs[0], parent: undefined, pos: [0, 0, 0], quat: Q_ID, scale: 1 }] }, { blend: 0 });
     let waist = Infinity;
-    for (let y = first.from; y <= first.to; y += 0.005) waist = Math.min(waist, 0.6 - castRay(whole, [0.6, y, 0], [-1, 0, 0], 0.6));
-    if (Number.isFinite(waist) && waist > 0.01) unit = waist * (ribs.length === 2 ? 2 * UPRIGHT_OVERLAP : UPRIGHT_SPREAD_THREE);
+    for (let y = first.from; y <= first.to; y += 0.005) waist = Math.min(waist, 0.6 - castRay(whole, [0.6, y, first.pivot[2]], [-1, 0, 0], 0.6));
+    const pair = sampled ? 2 * UPRIGHT_OVERLAP : SEAT_PAIR;
+    const spread = sampled ? UPRIGHT_SPREAD_THREE : SEAT_SPREAD;
+    if (Number.isFinite(waist) && waist > 0.01) unit = waist * (ribs.length === 2 ? pair : spread);
   }
   const slots = new Map(ribs.map((p, i) => [p.name, seatSlot(i, ribs.length)]));
   const most = Math.max(...[...slots.values()].map(Math.abs)) * unit;
@@ -942,9 +952,9 @@ export function seatRibcages(figure: Figure): Figure {
     placed.set(p.name, { q, pos: add(p.pos, rotate(pelvis.quat, local.map((v) => v * k) as V3)) });
   }
 
-  /* ---- 里侧的手臂（旁边还有别的胸腔的那一边）：二次元素体的往前伸 ---- */
+  /* ---- 里侧的手臂（旁边还有别的胸腔的那一边）：往前伸（垂着、平举着都会插进旁边那个身子里） ---- */
   const arms = new Map<string, Part>();
-  if (sampled) {
+  {
     for (const p of ribs) {
       const slot = slots.get(p.name)!;
       const { q, pos } = placed.get(p.name)!;
@@ -954,9 +964,10 @@ export function seatRibcages(figure: Figure): Figure {
         for (const arm of mine) {
           // 歪过以后肩关节离它和旁边那个胸腔正中间那道线不到 BESIDE_ROOT 的，沿胸腔的左右挪回自己这边
           // （不然伸到旁边那个身子里，两边的交叉着长出来，见 BESIDE_ROOT）
+          // 白模人台的不挪：肩膀比腰宽得多，挪回来的话手臂根蹭到自己的胸
           const joint = add(sub(pos, p.pos), rotate(q, arm.pos))[0];
           const room = ((slot + side * 0.5) * unit - joint) * side;
-          if (room < BESIDE_ROOT) arm.pos = [arm.pos[0] - (side * (BESIDE_ROOT - room)) / Math.cos(leanOf(slot)), arm.pos[1], arm.pos[2]];
+          if (sampled && room < BESIDE_ROOT) arm.pos = [arm.pos[0] - (side * (BESIDE_ROOT - room)) / Math.cos(leanOf(slot)), arm.pos[1], arm.pos[2]];
           arms.set(arm.name, arm);
         }
         besideArms(
@@ -974,14 +985,19 @@ export function seatRibcages(figure: Figure): Figure {
     if (at) {
       const prims = p.prims.map((q): Prim => {
         if ((q.kind !== 'grid' && q.kind !== 'loft') || !q.fork) return q;
-        // 往两边挪的那一份在分开的地方上下一小段里挪足（采样好的躯干）：往上各有各的腰，直立着
-        return { ...q, fork: sampled ? { ...q.fork, shiftFrom: forkFrom - SPLIT_HALF, shiftTo: forkFrom + SPLIT_HALF } : q.fork };
+        // 往两边挪的那一份在分开的地方上下一小段里挪足：往上各有各的腰，直立着
+        return { ...q, fork: { ...q.fork, shiftFrom: forkFrom - SPLIT_HALF, shiftTo: forkFrom + SPLIT_HALF } };
       });
       return { ...p, pos: at.pos, quat: quatMul(pelvis.quat, at.q), prims };
     }
-    if (p === pelvis && sampled) {
-      // 胯的上半截跟着往两边加宽（之后手动挪过胸腔的话 refork 照实际的改）
+    if (p === pelvis) {
+      // 胯的上半截跟着往两边加宽（二次元素体的，之后手动挪过胸腔的话 refork 照实际的改）
       const prims = p.prims.map((q): Prim => {
+        // 白模人台的胯是一摞椭圆截面：同一段里每一圈照同一条曲线加宽，切口那里正好和挪了一半的最外面那个胸腔对上
+        if (q.kind === 'loft') {
+          const wider = (r: Ring): Ring => ({ ...r, w: r.w + most * easeIn((r.y - (forkFrom - SPLIT_HALF)) / (2 * SPLIT_HALF)) });
+          return { ...q, rings: q.rings.map(wider) };
+        }
         if (q.kind !== 'grid' || q.tile) return q;
         const f = q.spreadX ? spreadAt(q.spreadX, forkFrom) : 1;
         return { ...q, widenX: [...(q.widenX ?? []), [most / f, forkFrom - SPLIT_HALF, forkFrom + SPLIT_HALF, SPLIT_CORE] as WidenBand] };
