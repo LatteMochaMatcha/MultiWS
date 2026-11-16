@@ -465,6 +465,20 @@ export interface Blocks {
    * 只管一个上半身的白模人台、二次元素体：几个上半身本来就是分开的，连体、围成一圈不分
    */
   splitTorso?: boolean;
+  /** 缝合：部件名 → 它接在哪个部件上（见 Attached、geometry/attach.ts）。没有接过的不在里面 */
+  attach?: Record<string, Attached>;
+}
+
+/**
+ * 一个部件接到了另一个部件上（缝合）：它（连同长在它上面的）改挂到 to 上，挪、转、缩放 to 的时候跟着走，骨骼也改接到 to 的骨骼上。
+ * pos、quat、scale 是接上去那一刻它在 to 自己的坐标里的摆放（和 Part 的 pos、quat、scale 一个意思）：以后 to 因为体型、数量变了挪了位置，
+ * 它还在 to 身上的老地方。之后它自己的手动微调是在这个摆放上再改的
+ */
+export interface Attached {
+  to: string;
+  pos: Vec3;
+  quat: [number, number, number, number];
+  scale: number;
 }
 
 export function cleanBlocks(value: unknown): Blocks {
@@ -476,7 +490,20 @@ export function cleanBlocks(value: unknown): Blocks {
     const shift = readVec3(raw.shift);
     added.push({ id: raw.id, from: raw.from, ...(shift && { shift }) });
   }
-  return { added, ...(isRecord(value) && value.splitTorso === true && { splitTorso: true }) };
+  const attach: Record<string, Attached> = {};
+  for (const [name, raw] of Object.entries(isRecord(value) && isRecord(value.attach) ? value.attach : {})) {
+    if (!isRecord(raw) || typeof raw.to !== 'string' || !raw.to || raw.to === name) continue;
+    const pos = readVec3(raw.pos);
+    const quat = Array.isArray(raw.quat) && raw.quat.length === 4 && raw.quat.every((n) => typeof n === 'number' && Number.isFinite(n)) ? raw.quat : undefined;
+    const norm = quat ? Math.hypot(quat[0], quat[1], quat[2], quat[3]) : 0;
+    if (!pos || !quat || norm < 1e-9 || typeof raw.scale !== 'number' || !(raw.scale > 0) || !Number.isFinite(raw.scale)) continue;
+    attach[name] = { to: raw.to, pos, quat: [quat[0] / norm, quat[1] / norm, quat[2] / norm, quat[3] / norm], scale: raw.scale };
+  }
+  return {
+    added,
+    ...(isRecord(value) && value.splitTorso === true && { splitTorso: true }),
+    ...(Object.keys(attach).length > 0 && { attach }),
+  };
 }
 
 /* ---------------- BodySpec ---------------- */
@@ -959,7 +986,7 @@ export function serializeSpec(spec: BodySpec, text?: string): string {
 
 /** 没有手工加的体块：存的时候不写 blocks 这个键（读的时候 normalizeSpec 会补上） */
 function withoutEmptyBlocks(spec: BodySpec): BodySpec {
-  if (spec.blocks?.added.length || spec.blocks?.splitTorso) return spec;
+  if (spec.blocks?.added.length || spec.blocks?.splitTorso || Object.keys(spec.blocks?.attach ?? {}).length) return spec;
   const { blocks: _blocks, ...rest } = spec;
   return rest;
 }

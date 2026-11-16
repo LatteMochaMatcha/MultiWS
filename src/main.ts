@@ -71,12 +71,14 @@ import {
   mirrorDelta,
   mirrorName,
   nudgeOverride,
+  rigidDelta,
   setOverride,
   showPart,
   sideOf,
   topMost,
 } from './model/overrides';
-import { PELVIS, RIBCAGE, addBlock, canSplitTorso, isBlockRoot, removeBlock, setSplitTorso, torsoSplit } from './model/blocks';
+import { ATTACHABLE, attachParts, attachedTo, detachParts } from './model/attach';
+import { COPYABLE, COPY_SHIFT, PELVIS, RIBCAGE, addBlock, canSplitTorso, isBlockRoot, removeBlock, setSplitTorso, torsoSplit } from './model/blocks';
 import { labelSplitTorso, partLabel } from './model/partLabel';
 import { PRESETS, applyPreset } from './model/presets';
 import {
@@ -2442,6 +2444,12 @@ let picks: string[] = [];
 let multiPick = false;
 /** 刚复制出来的部件（见 btnTweakCopy）：等模型重建好、它们出现了再选中（见 syncTweak） */
 let pendingPicks: string[] | null = null;
+/** 正在等着点「接到哪个部件上」（见 btnTweakAttach）：要接的那几个部件；没在等是 null */
+let attaching: string[] | null = null;
+/** 上一次「接到…」没接上的原因，显示在面板的说明里，换了选中的部件就清掉 */
+let attachNote = '';
+/** 多选时一起转、一起缩放是不是像一整块（都绕操纵杆所在的那个部件）；不是的话各自绕自己的关节 */
+let rigidGroup = false;
 /** 多选时正拖着操纵杆：按下那一刻各个部件的微调和操作坐标，拖动中都从它算起 */
 let dragFrom: Map<string, { override: PartOverride | undefined; frame: PartFrame }> | null = null;
 /** 左右成对的部件：改一侧时对侧同时改成镜像的样子 */
@@ -2521,7 +2529,10 @@ function applyTweak(patch: PartOverride, key?: string, delta?: TweakDelta, from?
       const frame = base?.frame ?? frameOfPart(name);
       if (!frame) continue;
       const other = side !== null && sideOf(name) !== null && sideOf(name) !== side;
-      spec = setOverride(spec, name, nudgeOverride(base ? base.override : activeOverrides(spec)[name], frame, other ? flipped : delta), mirrorFor(name));
+      // 像一整块那样：别的部件除了自己转、缩放，还绕着操纵杆所在的那个部件的支点挪过去
+      const anchor = rigidGroup ? (from?.get(selected)?.frame ?? frameOfPart(selected)) : null;
+      const own = anchor ? rigidDelta(delta, anchor.pivot, frame.pivot) : other ? flipped : delta;
+      spec = setOverride(spec, name, nudgeOverride(base ? base.override : activeOverrides(spec)[name], frame, own), mirrorFor(name));
     }
   }
   commit(key);
@@ -2539,6 +2550,8 @@ function anchorOf(names: readonly string[]): string | null {
 /** 换选中的部件（一个或好几个） */
 function setPicks(next: string[]) {
   pendingPicks = null;
+  attaching = null;
+  attachNote = '';
   const anchor = anchorOf(next);
   if (anchor === selected && next.length === picks.length && next.every((n, i) => n === picks[i])) return;
   picks = next;
@@ -2602,6 +2615,12 @@ function focusPicked() {
 
 const tweakPart = $<HTMLSelectElement>('tweakPart');
 tweakPart.addEventListener('change', () => {
+  // 正等着点「接到哪个部件上」：在这里选也算
+  if (attaching) {
+    finishAttach(tweakPart.value || null);
+    tweakPart.value = selected ?? '';
+    return;
+  }
   pickPartName(tweakPart.value || null);
   // 多选时下拉框回到操纵杆所在的那个部件上
   tweakPart.value = selected ?? '';
@@ -2705,6 +2724,67 @@ btnTweakDelete.addEventListener('click', () => {
   commit();
 });
 
+/* ---- 缝合：把选中的部件接到另一个部件上、解开（BodySpec.blocks.attach，见 model/attach.ts）；成品角色不支持 ---- */
+const btnTweakAttach = $<HTMLButtonElement>('btnTweakAttach');
+const btnTweakDetach = $<HTMLButtonElement>('btnTweakDetach');
+/** 选中的里面能接到别的部件上的（多选时父部件也选中了的不算：它跟着父部件一起接过去） */
+const attachablePicks = (): string[] => (character || !figure ? [] : tweakTargets().filter((n) => figure!.parts.some((p) => p.name === n && ATTACHABLE.has(p.type))));
+/** 选中的里面现在接着别的部件的 */
+const attachedPicks = (): string[] => (character ? [] : picks.filter((n) => attachedTo(spec, n) !== undefined));
+btnTweakAttach.addEventListener('click', () => {
+  // 再点一次是不接了
+  if (attaching) {
+    finishAttach(null);
+    return;
+  }
+  const names = attachablePicks();
+  if (!names.length) return;
+  attaching = names;
+  attachNote = '';
+  renderTweak();
+});
+/** 点了要接到的那个部件（target 是 null 就是不接了） */
+function finishAttach(target: string | null) {
+  const names = attaching;
+  attaching = null;
+  if (!names || !target || !figure) {
+    renderTweak();
+    return;
+  }
+  let next = spec;
+  const done: string[] = [];
+  for (const name of names) {
+    const out = attachParts(next, [name], target);
+    next = out.spec;
+    if (!out.attached.length) continue;
+    done.push(name);
+    // 勾着「同时调整对侧」：对侧那个接到对面对应的部件上（目标不分左右的话就是同一个）
+    const twin = mirror ? mirrorName(name) : null;
+    if (twin === null || names.includes(twin) || !figure.parts.some((p) => p.name === twin)) continue;
+    const across = mirrorName(target);
+    next = attachParts(next, [twin], across !== null && figure.parts.some((p) => p.name === across) ? across : target).spec;
+  }
+  if (!done.length) {
+    attachNote = t('接不上「{name}」：不能接到自己、或者长在自己上面的部件上。', { name: partLabel(target) });
+    renderTweak();
+    return;
+  }
+  spec = next;
+  commit();
+}
+btnTweakDetach.addEventListener('click', () => {
+  const names = attachedPicks();
+  if (!names.length) return;
+  const twins = mirror ? names.map(mirrorName).filter((n): n is string => n !== null && !names.includes(n) && attachedTo(spec, n) !== undefined) : [];
+  spec = detachParts(spec, [...names, ...twins]);
+  commit();
+});
+const rigidInput = $<HTMLInputElement>('tweakRigid');
+rigidInput.addEventListener('change', () => {
+  rigidGroup = rigidInput.checked;
+  renderTweak();
+});
+
 /* ---- 躯干分成胸腔和胯两块、合回一整块（BodySpec.blocks.splitTorso） ---- */
 const btnTweakSplit = $<HTMLButtonElement>('btnTweakSplit');
 btnTweakSplit.addEventListener('click', () => {
@@ -2719,20 +2799,6 @@ btnTweakSplit.addEventListener('click', () => {
 
 /* ---- 复制部件：手工加一块（BodySpec.blocks，见 docs/blocks-plan.md）；成品角色不支持 ---- */
 const btnTweakCopy = $<HTMLButtonElement>('btnTweakCopy');
-/** 能复制的那几类。躯干、下身还不能；脖子跟着头走；头发、成人部件不在里面 */
-const COPYABLE: ReadonlySet<PartType> = new Set<PartType>(['head', 'arm', 'leg', 'chest', 'tail', 'wing', 'horn', 'ear', 'eye']);
-/** 复制出来先往哪挪开多少（沿父部件的轴，摆位用的米），免得和原来那个叠在一起看不见 */
-const COPY_SHIFT: Partial<Record<PartType, Vec3>> = {
-  head: [0.17, 0, 0],
-  arm: [0, -0.11, 0],
-  leg: [0, 0, -0.15],
-  chest: [0, -0.12, -0.015],
-  tail: [0.07, 0, 0],
-  wing: [0, -0.13, 0],
-  horn: [0, 0, -0.035],
-  ear: [0, 0, -0.035],
-  eye: [0, 0.034, 0],
-};
 /** 选中的里面能复制的（多选时父部件也选中了的不算：它跟着父部件一起复制） */
 const copyablePicks = (): Part[] => (character || !figure ? [] : tweakTargets().flatMap((n) => figure!.parts.filter((p) => p.name === n && COPYABLE.has(p.type))));
 btnTweakCopy.addEventListener('click', () => {
@@ -2893,14 +2959,25 @@ function renderTweak() {
     const splittable = !character && !many && canSplitTorso(spec) && (part.name === PELVIS || part.name === RIBCAGE);
     btnTweakSplit.hidden = !splittable;
     if (splittable) btnTweakSplit.textContent = torsoSplit(spec) ? t('合回一整块躯干') : t('分成胸腔和胯');
+    btnTweakAttach.textContent = attaching ? t('取消（不接了）') : t('接到…');
+    btnTweakAttach.disabled = !attaching && attachablePicks().length === 0;
+    btnTweakDetach.hidden = attachedPicks().length === 0;
+    $('tweakRigidRow').hidden = !many || !!character;
+    rigidInput.checked = rigidGroup;
     btnTweakCopy.textContent = many ? t('复制选中的部件') : t('复制一份');
     btnTweakCopy.disabled = copyablePicks().length === 0;
     $<HTMLButtonElement>('btnTweakKind').disabled = !tweakable().some((p) => p.type === part.type && !picks.includes(p.name));
     // 这一条的末端、手指数只对单独选中的一条说得通；手工复制出来的照着原来那条，不单独设
     syncLimbTip(many || isBlockRoot(spec, part.name) ? undefined : part);
     const frame = part.type === 'eye' || part.type === 'horn' || part.type === 'ear' ? t('这个头的') : t('角色的');
+    const host = many ? undefined : attachedTo(spec, part.name);
     $('tweakNote').textContent = joinSentences([
-      many
+      attaching ? t('现在在模型上点一下要接到的那个部件（也可以在上面的列表里选）；点空白处、按 Esc 或者再点一次按钮是不接了。') : '',
+      attachNote,
+      host !== undefined ? t('它接在「{name}」上：挪、转、缩放「{name}」的时候它跟着走，摆姿势时也跟着。', { name: partLabel(host) }) : '',
+      many && rigidGroup
+        ? t('选中的 {n} 个部件像一整块那样改：转动、等比缩放都绕着「{name}」的支点，互相之间的位置不变。', { n: picks.length, name: partLabel(part.name) })
+        : many
         ? t('选中的 {n} 个部件一起改：各自绕自己的关节移动、转动、缩放；操纵杆和数字是「{name}」的，别的照同样的量跟着改。', {
             n: picks.length,
             name: partLabel(part.name),
@@ -3037,6 +3114,11 @@ $('pickedClear').addEventListener('click', () => {
 if (gizmo) {
   gizmo.pick = pickPart;
   gizmo.onPick = (name, add) => {
+    // 正等着点「接到哪个部件上」：这一下点的是目标（点在空白处就是不接了）
+    if (attaching) {
+      finishAttach(name);
+      return;
+    }
     // 多选（开着开关，或者按着 Ctrl、Shift）：点中的加进来、再点去掉；点在空白处不动，免得一下全丢了
     if (add || multiPick) {
       if (name) togglePick(name);
@@ -3089,7 +3171,8 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (e.key === 'Escape') {
-    if (selected) select(null);
+    if (attaching) finishAttach(null);
+    else if (selected) select(null);
     else if (joint) selectJoint(null);
   }
   // W 移动、E 旋转（R 缩放，只有造型时有）：和 Blender、Unity 的习惯一样

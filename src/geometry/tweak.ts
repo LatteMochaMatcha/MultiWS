@@ -296,8 +296,9 @@ function applyAll(figure: Figure, overrides: Overrides): Figure {
  * 只看腿根左右挪了没有：腿只是转、缩放（腿根不动）时不变
  */
 function refitHips(parts: Part[], original: readonly Part[]): Part[] {
-  const now = new Map(parts.filter((p) => p.type === 'leg').map((p) => [p.name, p.pos]));
-  const legs = original.filter((p) => p.type === 'leg' && now.has(p.name));
+  const now = new Map(parts.filter((p) => p.type === 'leg' && p.parent === undefined).map((p) => [p.name, p.pos]));
+  // 接到别的部件上的腿（体块的缝合，见 attach.ts）不在胯上，位置也不是世界里的：不算
+  const legs = original.filter((p) => p.type === 'leg' && p.parent === undefined && now.has(p.name));
   const moved = new Set(legs.filter((p) => Math.abs(now.get(p.name)![0] - p.pos[0]) > 1e-9).map((p) => p.name));
   if (!moved.size) return parts;
   return parts.map((part) => {

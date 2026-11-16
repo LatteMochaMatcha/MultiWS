@@ -8,8 +8,9 @@
 import type { AddedBlock } from '../model/spec';
 import { chestBulk } from '../anime/chest';
 import { plainNeck } from './animeLayout';
-import { type BoneHint, type ChestShape, type Figure, type Graft, type Part, type Prim, nthName } from './figure';
-import { add, dot, len, mul, sub } from './vec';
+import { type BoneHint, type ChestShape, type Figure, type Graft, type Part, type Prim, nthName, worldTransforms } from './figure';
+import { hostBoneAt } from './hostBone';
+import { add } from './vec';
 
 /**
  * 复制出来的部件用的号：第 id 块是 100·id 加上原来的号（Arm_02_L 的第 1 份是 Arm_102_L）。
@@ -73,7 +74,7 @@ function mound(q: ChestShape): Prim {
  * - 素体上从同一个模型切下来、还在原位的那几块（头、脖子、手臂、腿）是当成躯干的一部分直接拼的（fuseAs）：
  *   挪开以后对不上原来的切口，改回圆滑地融进去
  */
-function loose(part: Part): Part {
+export function loose(part: Part): Part {
   const { fuseAs, ...rest } = part;
   const free: Part = fuseAs === 'torso' && part.type !== 'torso' ? rest : part;
   if (free.surface) return { ...free, surface: false, prims: free.prims.map((q) => (q.kind === 'chest' ? mound(q) : q)) };
@@ -139,6 +140,7 @@ function cloneBlock(figure: Figure, block: AddedBlock): Figure {
     }
   }
   const bone = (name: string) => boneName.get(name) ?? name;
+  const xfs = worldTransforms({ parts: figure.parts, scale: 1 });
 
   const clones = sources.map((p): Part => {
     const out: Part = { ...loose(p), name: partName.get(p.name)! };
@@ -152,18 +154,7 @@ function cloneBlock(figure: Figure, block: AddedBlock): Figure {
       );
     }
     // 复制出来的胸自己带一根骨骼（见 MOUND_BONE）
-    const host = out.type === 'chest' && !out.bones?.length ? hostBone(figure.parts, out) : undefined;
-    if (host !== undefined) {
-      const base = out.side > 0 ? `${MOUND_BONE}_L` : out.side < 0 ? `${MOUND_BONE}_R` : MOUND_BONE;
-      for (let at = first; at <= BONE_LAST; at++) {
-        const name = nthName(base, at);
-        if (boneTaken.has(name)) continue;
-        boneTaken.add(name);
-        out.bones = [{ name, parent: host, head: [0, 0, 0], tail: [0, 0, moundReach(out)] }];
-        break;
-      }
-    }
-    return out;
+    return withMoundBone(out, hostBoneAt(figure.parts, xfs, out.parent, out.pos), boneTaken, first);
   });
   // 排在最后：父部件（原来就有的、或者这一块里排在前面的）都在它们前面
   return { ...figure, parts: [...figure.parts, ...clones] };
@@ -176,7 +167,7 @@ function cloneBlock(figure: Figure, block: AddedBlock): Figure {
  * 有了自己的骨骼，整只胸跟着一根骨骼走，不变形；摆姿势时还能单独转它
  */
 const MOUND_BONE = 'Bust';
-const isMoundBone = (name: string) => /^Bust(_[LR])?\.\d{3}$/.test(name);
+export const isMoundBone = (name: string) => /^Bust(_[LR])?\.\d{3}$/.test(name);
 
 /** 胸鼓出来多高（它自己的 +Z 方向）：骨骼就伸这么长 */
 function moundReach(part: Part): number {
@@ -184,40 +175,20 @@ function moundReach(part: Part): number {
   return q?.kind === 'ellipsoid' ? Math.max(q.radii[2], MOUND_LEAST) : 0.03;
 }
 
-/** 部件底下那块身体（父部件）里离它最近的那根骨骼；父部件不在、没有骨骼时没有 */
-function hostBone(parts: readonly Part[], part: Part): string | undefined {
-  const parent = part.parent === undefined ? undefined : parts.find((p) => p.name === part.parent);
-  let best: string | undefined;
-  let least = Infinity;
-  for (const b of parent?.bones ?? []) {
-    // 点到骨骼那一段的距离
-    const along = sub(b.tail, b.head);
-    const span = dot(along, along);
-    const t = span > 1e-12 ? Math.max(0, Math.min(1, dot(sub(part.pos, b.head), along) / span)) : 0;
-    const far = len(sub(part.pos, add(b.head, mul(along, t))));
-    if (far < least) {
-      least = far;
-      best = b.name;
-    }
-  }
-  return best;
-}
-
 /**
- * 套完手动微调以后：复制出来的胸被挪到了别处（从胸口挪到肚子上），它的骨骼改接到现在离它最近的那根上。
- * 没有这样的胸时原样返回传进来的那个 Figure
+ * 没有骨骼的胸带上自己的那根骨骼（接在 host 这根上；host 没有就不带）。名字从这一类骨骼的第 from 个起找没被占的，占上记进 taken。
+ * 之后套完手动微调，它被挪到了别处的话骨骼会改接到现在离它最近的那根上（见 attach.ts 的 rehost）
  */
-export function hostMounds(figure: Figure): Figure {
-  let changed = false;
-  const parts = figure.parts.map((part) => {
-    const own = part.bones?.length === 1 && part.type === 'chest' ? part.bones[0] : undefined;
-    if (!own || !isMoundBone(own.name)) return part;
-    const host = hostBone(figure.parts, part);
-    if (host === undefined || host === own.parent) return part;
-    changed = true;
-    return { ...part, bones: [{ ...own, parent: host }] };
-  });
-  return changed ? { ...figure, parts } : figure;
+export function withMoundBone(part: Part, host: string | undefined, taken: Set<string>, from = BONE_FIRST): Part {
+  if (part.type !== 'chest' || part.bones?.length || host === undefined) return part;
+  const base = part.side > 0 ? `${MOUND_BONE}_L` : part.side < 0 ? `${MOUND_BONE}_R` : MOUND_BONE;
+  for (let at = from; at <= BONE_LAST; at++) {
+    const name = nthName(base, at);
+    if (taken.has(name)) continue;
+    taken.add(name);
+    return { ...part, bones: [{ name, parent: host, head: [0, 0, 0], tail: [0, 0, moundReach(part)] }] };
+  }
+  return part;
 }
 
 /**

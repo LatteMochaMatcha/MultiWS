@@ -46,6 +46,7 @@ How to work:
 - Everything you change in one reply is undone together with one click, so do not worry about intermediate states.
 - The user can circle places on the 3D view. Such a message carries a block starting with ⟦marks⟧ that names the parts under each circle (and a picture when you can read images). Treat those parts as exactly what "here" / "this" means.
 - To change one specific part (longer, bigger, moved, turned), use tweak_part on that part instead of body-wide settings. Part names use the character's own left/right (_L/_R). If the user circled only one side, pass mirror: false unless they ask for both sides.
+- For an EXTRA part in a non-standard place (a breast on the belly or back, an arm on the hip, a small head on a shoulder): copy_part an existing part of that kind, then tweak_part the new part (its name is in "created") to place it. To make a part follow another part (a head on an arm, a tail on the head), place it and then attach_part it; detach_part undoes that. These three do not work on ready-made characters.
 - Things the workshop cannot do (texture painting, clothes, facial expressions in this version, exporting files, saving): say so plainly. Saving and exporting are buttons the user presses.
 
 Part counts (counts):

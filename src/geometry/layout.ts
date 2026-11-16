@@ -19,7 +19,8 @@ import { WING_OUTLINE, sampleTube } from './shapes';
 import { ringAt, smoothRings } from './torso';
 import { SLOT_SIDE, refork, splitTorsos, torsoSlots } from './torsos';
 import { conjoin } from './conjoined';
-import { hostMounds, withBlocks } from './clone';
+import { liveAttach, rehost, withAttach } from './attach';
+import { withBlocks } from './clone';
 import { ringBuild, ringRows } from './ring';
 
 /**
@@ -800,12 +801,20 @@ export function beastLift(form: LegForm): V3 {
   return form === 'taur' ? [0, 0.14, 0.14] : form === 'spider' ? [0, 0.3, 0.06] : [0, 0, 0];
 }
 
+/**
+ * 套手动微调之前的样子：自动摆位，加上体块的那几样（见 docs/blocks-plan.md）——手工加的体块复制进去，缝合的部件改挂到它接的那个部件上。
+ * 之后它们和别的部件一样挪、转、缩放、删
+ */
+export function planFigure(spec: BodySpec): Figure {
+  return withAttach(withBlocks(layoutFigure(spec), spec.blocks?.added), spec.blocks?.attach);
+}
+
 /** 摆位，再套上手动微调：界面、网格、导出用的都是这个结果 */
 export function buildFigure(spec: BodySpec): Figure {
-  // 手工加的体块：在套微调之前复制进去，之后和别的部件一样挪、转、缩放、删
-  const figure = withBlocks(layoutFigure(spec), spec.blocks?.added);
-  // 手动挪过、转过的上半身：从胯上分出去的那一段跟着改（见 torsos.ts）
-  const fitted = hostMounds(refork(applyOverrides(figure, palmReach(figure, limbLength(figure, spec)))));
+  const figure = planFigure(spec);
+  // 手动挪过、转过的上半身：从胯上分出去的那一段跟着改（见 torsos.ts）；接出去的部件、复制出来的胸照最后的位置定骨骼接在哪
+  const attached = new Set(liveAttach(figure, spec.blocks?.attach).keys());
+  const fitted = rehost(refork(applyOverrides(figure, palmReach(figure, limbLength(figure, spec)))), attached);
   if (Math.abs(spec.shape.legLength - 1) < 1e-6) return fitted;
   // 腿拉长、缩短以后身高还是设定的那么高（和成品角色一样）：整个人照比例缩放，身体、头跟着变小、变大
   const plain = applyOverrides(figure, spec.overrides);

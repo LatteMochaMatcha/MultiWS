@@ -458,6 +458,58 @@ describe('单独微调部件', () => {
   });
 });
 
+describe('体块：复制、接到、解开', () => {
+  it('copy_part：多出一个部件（默认左右一对），名字回给模型；能整轮撤回', async () => {
+    const { shop, faux, session } = fakeSession();
+    faux.setResponses([fauxAssistantMessage([fauxToolCall('copy_part', { part: 'Arm_01_L' })], { stopReason: 'toolUse' }), fauxAssistantMessage([fauxText('多了一对手臂')])]);
+    await session.send('再加一对手臂');
+    expect(shop.spec.blocks!.added.map((b) => b.from)).toEqual(['Arm_01_L', 'Arm_01_R']);
+    expect(new Set(shop.spec.blocks!.added.map((b) => b.id)).size).toBe(1);
+    const [turn] = turnsOf(session.messages, session.starts);
+    expect(turn.changes.map((c) => c.field).sort()).toEqual(['blocks.added.Arm_101_L', 'blocks.added.Arm_101_R']);
+    const call = turn.steps.find((st) => st.kind === 'tool' && !st.isError);
+    expect(call && call.kind === 'tool' && call.result).toContain('Arm_101_L');
+    session.undoTurn();
+    expect(shop.spec.blocks!.added).toEqual([]);
+  });
+
+  it('copy_part：mirror false 只复制这一个；躯干复制不了，报错给模型', async () => {
+    const { shop, faux, session } = fakeSession();
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall('copy_part', { part: 'Head_01', mirror: false })], { stopReason: 'toolUse' }),
+      fauxAssistantMessage([fauxToolCall('copy_part', { part: 'Torso' })], { stopReason: 'toolUse' }),
+      fauxAssistantMessage([fauxText('好')]),
+    ]);
+    await session.send('再加一个头');
+    expect(shop.spec.blocks!.added).toEqual([expect.objectContaining({ id: 1, from: 'Head_01' })]);
+    const [turn] = turnsOf(session.messages, session.starts);
+    expect(turn.steps.some((st) => st.kind === 'tool' && st.isError)).toBe(true);
+  });
+
+  it('attach_part、detach_part：接上去、解开；接不了的报错给模型', async () => {
+    const { shop, faux, session } = fakeSession();
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall('attach_part', { part: 'Arm_01_L', to: 'Head_01' })], { stopReason: 'toolUse' }),
+      fauxAssistantMessage([fauxToolCall('attach_part', { part: 'Arm_01_R', to: 'Arm_01_R' })], { stopReason: 'toolUse' }),
+      fauxAssistantMessage([fauxText('接上了')]),
+    ]);
+    await session.send('把左手臂接到头上');
+    expect(shop.spec.blocks!.attach!.Arm_01_L.to).toBe('Head_01');
+    expect(shop.spec.blocks!.attach!.Arm_01_R).toBeUndefined();
+    const [turn] = turnsOf(session.messages, session.starts);
+    expect(turn.changes.map((c) => c.field)).toEqual(['blocks.attach.Arm_01_L']);
+    expect(turn.changes[0].text).toBe('手臂 1 左 接到 头 1 上');
+    expect(turn.steps.some((st) => st.kind === 'tool' && st.isError)).toBe(true);
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall('detach_part', { part: 'Arm_01_L' })], { stopReason: 'toolUse' }),
+      fauxAssistantMessage([fauxToolCall('detach_part', { part: 'Leg_01_L' })], { stopReason: 'toolUse' }),
+      fauxAssistantMessage([fauxText('解开了')]),
+    ]);
+    await session.send('解开');
+    expect(shop.spec.blocks!.attach).toBeUndefined();
+  });
+});
+
 describe('报错和转发地址', () => {
   it('常见报错翻成人话', () => {
     expect(humanError('401 Unauthorized: invalid x-api-key', 'http')).toContain('钥匙');

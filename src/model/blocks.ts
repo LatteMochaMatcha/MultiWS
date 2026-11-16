@@ -3,9 +3,26 @@
  * 只管白模人台、二次元素体：成品角色不看 BodySpec.blocks
  */
 import { cloneRootName } from '../geometry/clone';
+import type { PartType } from '../geometry/figure';
+import { dropAttach } from './attach';
 import { type AddedBlock, type BodySpec, type PartOverride, type Vec3, ringActive } from './spec';
 
 const added = (spec: Pick<BodySpec, 'blocks'>): readonly AddedBlock[] => spec.blocks?.added ?? [];
+
+/** 能复制的那几类。躯干、下身还不能；脖子跟着头走；头发、成人部件不在里面 */
+export const COPYABLE: ReadonlySet<PartType> = new Set<PartType>(['head', 'arm', 'leg', 'chest', 'tail', 'wing', 'horn', 'ear', 'eye']);
+/** 复制出来先往哪挪开多少（沿父部件的轴，摆位用的米），免得和原来那个叠在一起看不见 */
+export const COPY_SHIFT: Partial<Record<PartType, Vec3>> = {
+  head: [0.17, 0, 0],
+  arm: [0, -0.11, 0],
+  leg: [0, 0, -0.15],
+  chest: [0, -0.12, -0.015],
+  tail: [0.07, 0, 0],
+  wing: [0, -0.13, 0],
+  horn: [0, 0, -0.035],
+  ear: [0, 0, -0.035],
+  eye: [0, 0.034, 0],
+};
 
 /** 手工加出来的部件（每一块里照 from 复制出来的那个）→ 它是哪一条 */
 export function blockRoots(spec: Pick<BodySpec, 'blocks'>): Map<string, AddedBlock> {
@@ -84,7 +101,8 @@ export function removeBlock(spec: BodySpec, name: string, under: readonly string
     }
   }
   const overrides = Object.fromEntries(Object.entries(spec.overrides).filter(([key]) => !inside(key)));
-  return { ...spec, blocks: { ...spec.blocks, added: added(spec).filter((b) => !dropped.has(b)) }, overrides };
+  // 接在这一块上的、这一块自己接出去的缝合一起去掉
+  return dropAttach({ ...spec, blocks: { ...spec.blocks, added: added(spec).filter((b) => !dropped.has(b)) }, overrides }, inside);
 }
 
 /* ---------------- 躯干分成胸腔和胯两块 ---------------- */

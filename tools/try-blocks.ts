@@ -5,7 +5,9 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { installAnimeBody } from '../src/anime/body';
 import { buildFigure } from '../src/geometry/layout';
+import { attachParts } from '../src/model/attach';
 import { addBlock } from '../src/model/blocks';
+import { setOverride } from '../src/model/overrides';
 import { type BodySpec, defaultSpec, normalizeSpec } from '../src/model/spec';
 import { POSE_LIBRARY } from '../src/pose/library';
 import { buildSkeleton } from '../src/rig/skeleton';
@@ -47,6 +49,16 @@ const CASES: Record<string, (spec: BodySpec) => BodySpec> = {
     ]).spec;
     const back = -Number(process.env.BACK ?? 0.2);
     return { ...out, overrides: { ...out.overrides, Chest_201_L: { position: [0, 0, back], rotation: [0, 180, 0] }, Chest_201_R: { position: [0, 0, back], rotation: [0, 180, 0] } } };
+  },
+  // 第 3 期缝合：复制一个小头接到左上臂上、复制一只胸接到左大腿上、右手臂接到头上——套姿势时它们跟着接的那个部件走
+  attach: (spec) => {
+    const anime = spec.bodyStyle === 'anime';
+    let out = addBlock(spec, [{ from: 'Head_01', shift: [0.33, -0.1, 0] }]).spec;
+    out = setOverride(out, 'Head_101', { scale: [0.55, 0.55, 0.55] });
+    out = attachParts(out, ['Head_101'], 'Arm_01_L').spec;
+    out = addBlock(out, [{ from: 'Chest_01_L', shift: [0.03, -0.5, -0.02], plain: anime }]).spec;
+    out = attachParts(out, ['Chest_201_L'], 'Leg_01_L').spec;
+    return attachParts(out, ['Arm_01_R'], 'Head_01').spec;
   },
   // 多一条腿在后面、多一条尾巴
   legs: (spec) => {

@@ -110,6 +110,19 @@ export function mirrorDelta(delta: TweakDelta): TweakDelta {
   return out;
 }
 
+/**
+ * 几个部件像一整块那样一起转、一起等比缩放时，支点在 at 的那个部件要照着改的那一份：除了同样的转、缩放，
+ * 还要绕 pivot（操纵杆所在的那个部件的支点）挪过去，互相之间的位置才不变。pivot、at 都是世界里的位置（米）。
+ * 各方向不一样的缩放不挪（那是各自拉伸自己）
+ */
+export function rigidDelta(delta: TweakDelta, pivot: V3, at: V3): TweakDelta {
+  const from: V3 = [at[0] - pivot[0], at[1] - pivot[1], at[2] - pivot[2]];
+  const arm = delta.turn ? rotate(delta.turn, from) : from;
+  const k = delta.ratio && Math.abs(delta.ratio[0] - delta.ratio[1]) < 1e-9 && Math.abs(delta.ratio[1] - delta.ratio[2]) < 1e-9 ? delta.ratio[0] : 1;
+  const base = delta.move ?? [0, 0, 0];
+  return { ...delta, move: [base[0] + pivot[0] + arm[0] * k - at[0], base[1] + pivot[1] + arm[1] * k - at[1], base[2] + pivot[2] + arm[2] * k - at[2]] };
+}
+
 /** 部件在哪一侧（名字以 _L、_R 结尾的）；正中的是 null */
 export const sideOf = (name: string): 'L' | 'R' | null => (name.endsWith('_L') ? 'L' : name.endsWith('_R') ? 'R' : null);
 

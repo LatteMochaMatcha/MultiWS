@@ -6,6 +6,7 @@
 import { t } from '../i18n';
 import { ROSTER } from '../character/roster';
 import { withoutAdult } from '../model/adult';
+import { blockRoots } from '../model/blocks';
 import { partLabel } from '../model/partLabel';
 import {
   ARM_LAYOUTS,
@@ -387,6 +388,24 @@ export function diffSpec(a: BodySpec, b: BodySpec): Change[] {
       if (JSON.stringify(from) === JSON.stringify(to)) continue;
       out.push({ field: `overrides.${name}`, from, to, text: to ? t('微调 {part}', { part: partLabel(name) }) : t('还原 {part}', { part: partLabel(name) }) });
     }
+  }
+  // 体块：复制出来的、接到别处的、躯干分没分开（见 docs/blocks-plan.md）
+  const [rootsA, rootsB] = [blockRoots(a), blockRoots(b)];
+  for (const name of [...new Set([...rootsA.keys(), ...rootsB.keys()])].sort()) {
+    if (rootsA.has(name) === rootsB.has(name)) continue;
+    const made = rootsB.has(name);
+    out.push({ field: `blocks.added.${name}`, from: made ? null : name, to: made ? name : null, text: made ? t('复制出 {part}', { part: partLabel(name) }) : t('拿掉 {part}', { part: partLabel(name) }) });
+  }
+  const [joinA, joinB] = [a.blocks?.attach ?? {}, b.blocks?.attach ?? {}];
+  for (const name of [...new Set([...Object.keys(joinA), ...Object.keys(joinB)])].sort()) {
+    const from = joinA[name]?.to ?? null;
+    const to = joinB[name]?.to ?? null;
+    if (from === to) continue;
+    out.push({ field: `blocks.attach.${name}`, from, to, text: to ? t('{part} 接到 {host} 上', { part: partLabel(name), host: partLabel(to) }) : t('解开 {part}', { part: partLabel(name) }) });
+  }
+  if (!!a.blocks?.splitTorso !== !!b.blocks?.splitTorso) {
+    const on = !!b.blocks?.splitTorso;
+    out.push({ field: 'blocks.splitTorso', from: !on, to: on, text: on ? t('躯干分成胸腔和胯两块') : t('躯干合回一整块') });
   }
   return out;
 }

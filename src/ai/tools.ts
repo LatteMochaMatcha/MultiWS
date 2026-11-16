@@ -5,7 +5,10 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { arr, bool, int, num, obj, oneOf, opt, str, union } from '@earendil-works/pi-schema';
 import { applyParse, describeSpec, parseDescription } from '../parser';
-import { clearOverride, setOverride } from '../model/overrides';
+import { buildFigure } from '../geometry/layout';
+import { attachParts, attachedTo, detachParts } from '../model/attach';
+import { COPYABLE, COPY_SHIFT, addBlock } from '../model/blocks';
+import { clearOverride, mirrorName, setOverride } from '../model/overrides';
 import { partLabel } from '../model/partLabel';
 import { type BodySpec, CHEST_ROW, COUNT_DEFS, type CountKey, HAIR_STYLES, PENIS_ROW, PER_TORSO_KEYS, type PartOverride, SHAPE_DEFS, TORSO_SIDES } from '../model/spec';
 import { ADULT_CHOICES, ADULT_COUNTS, ADULT_SHAPES, type Adjusted, type BodyPatch, CHOICES, type Change, applyPatch, diffSpec, stateForModel } from './body';
@@ -246,6 +249,77 @@ export function partTools(ctx: ToolContext): AgentTool[] {
     },
   };
 
-  return [listParts, tweakPart];
+  /** 不是成品角色、名字认得的部件；不然报错给模型 */
+  const figureOf = (spec: BodySpec, ...names: string[]) => {
+    if (spec.bodyStyle === 'character') throw new Error('Copying and attaching parts is not available for ready-made characters (bodyStyle "character").');
+    const known = api.parts();
+    for (const name of names) if (!known.includes(name)) throw new Error(`Unknown part "${name}". Parts: ${known.join(', ')}`);
+    return buildFigure(spec);
+  };
+  const finish = (before: BodySpec, next: BodySpec, extra: Record<string, unknown>) => {
+    const after = api.apply(next, ctx.undoKey());
+    const out = report(api, diffSpec(before, after), []);
+    out.content = text({ ...extra, ...JSON.parse(out.content[0].text) });
+    return out;
+  };
+
+  const copyPart: AgentTool = {
+    name: 'copy_part',
+    label: 'copy_part',
+    description:
+      'Duplicate ONE existing part (with anything growing on it: a copied head brings its neck, horns, ears) so the character has an extra one that can be placed anywhere — ' +
+      'e.g. a breast on the belly or back, a third arm on the hip, a small head on a shoulder. Works for heads, arms, legs, breasts (Chest_*), tails, wings, horns, ears, eyes; not the torso. ' +
+      'The copy appears slightly offset from the original and is returned as "created" (names like Arm_101_L); then use tweak_part on it to move, rotate or scale it. ' +
+      'mirror (default true) also copies the left/right twin so the copies are a pair. Use set_body counts instead when the user just wants "more arms" in the standard layout.',
+    parameters: obj({ part: str(), mirror: opt(bool()) }),
+    executionMode: 'sequential',
+    execute: async (_id, params) => {
+      const p = params as { part: string; mirror?: boolean };
+      const before = api.spec();
+      const figure = figureOf(before, p.part);
+      const twinName = p.mirror !== false ? mirrorName(p.part) : null;
+      const sources = [p.part, ...(twinName !== null ? [twinName] : [])].flatMap((name) => figure.parts.filter((q) => q.name === name));
+      const bad = sources.find((q) => !COPYABLE.has(q.type));
+      if (!sources.length || bad) throw new Error(`"${p.part}" cannot be copied (only heads, arms, legs, breasts, tails, wings, horns, ears, eyes).`);
+      const out = addBlock(before, sources.map((q) => ({ from: q.name, shift: COPY_SHIFT[q.type], ...(q.surface && { plain: true }) })));
+      return finish(before, out.spec, { created: out.names.map((name) => ({ name, label: partLabel(name) })) });
+    },
+  };
+
+  const attachPart: AgentTool = {
+    name: 'attach_part',
+    label: 'attach_part',
+    description:
+      'Attach ONE part (with anything growing on it) onto another part: it stays where it is now, and from then on follows the host when the host is moved, rotated, scaled or posed ' +
+      '(e.g. a copied head attached to an arm, a tail attached to the head). Position the part first with tweak_part, then attach it. ' +
+      'A part cannot be attached to itself or to something growing on it; the torso cannot be attached. detach_part undoes it.',
+    parameters: obj({ part: str(), to: str() }),
+    executionMode: 'sequential',
+    execute: async (_id, params) => {
+      const p = params as { part: string; to: string };
+      const before = api.spec();
+      figureOf(before, p.part, p.to);
+      const out = attachParts(before, [p.part], p.to);
+      if (!out.attached.length) throw new Error(`"${p.part}" cannot be attached to "${p.to}" (not itself, not a part growing on it, and only heads, arms, legs, breasts, tails, wings, horns, ears, eyes can be attached).`);
+      return finish(before, out.spec, { part: p.part, attachedTo: p.to });
+    },
+  };
+
+  const detachPart: AgentTool = {
+    name: 'detach_part',
+    label: 'detach_part',
+    description: 'Undo attach_part: the part goes back to the part it originally grew on, without moving.',
+    parameters: obj({ part: str() }),
+    executionMode: 'sequential',
+    execute: async (_id, params) => {
+      const p = params as { part: string };
+      const before = api.spec();
+      figureOf(before, p.part);
+      if (attachedTo(before, p.part) === undefined) throw new Error(`"${p.part}" is not attached to anything.`);
+      return finish(before, detachParts(before, [p.part]), { part: p.part, attachedTo: null });
+    },
+  };
+
+  return [listParts, tweakPart, copyPart, attachPart, detachPart];
 }
 
