@@ -220,5 +220,8 @@
   "已删除（点一下恢复）：": "Deleted (click to restore): ",
   "复制选中的部件": "Duplicate selected parts",
   "复制一份": "Duplicate",
-  "点中头、手臂、腿、胸、尾巴这些部件以后可以「复制一份」：多出来的那个想挪到哪就挪到哪。": "After selecting a part such as a head, arm, leg, breast or tail, you can \"Duplicate\" it; the extra one can then be moved anywhere."
+  "点中头、手臂、腿、胸、尾巴这些部件以后可以「复制一份」：多出来的那个想挪到哪就挪到哪。": "After selecting a part such as a head, arm, leg, breast or tail, you can \"Duplicate\" it; the extra one can then be moved anywhere.",
+  "合回一整块躯干": "Merge back into one torso",
+  "分成胸腔和胯": "Split into ribcage and pelvis",
+  "胸腔和胯是分开的两块：动其中一块，另一块不动，中间的腰跟着接顺；胯带着腿一起动，脚还踩在地上。": "The ribcage and the pelvis are two separate blocks: moving one leaves the other in place, and the waist between them stays smoothly joined. The pelvis takes the legs with it, and the feet stay on the ground."
 }

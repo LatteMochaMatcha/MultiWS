@@ -3,7 +3,7 @@
  * 只管白模人台、二次元素体：成品角色不看 BodySpec.blocks
  */
 import { cloneRootName } from '../geometry/clone';
-import type { AddedBlock, BodySpec, PartOverride, Vec3 } from './spec';
+import { type AddedBlock, type BodySpec, type PartOverride, type Vec3, ringActive } from './spec';
 
 const added = (spec: Pick<BodySpec, 'blocks'>): readonly AddedBlock[] => spec.blocks?.added ?? [];
 
@@ -85,4 +85,30 @@ export function removeBlock(spec: BodySpec, name: string, under: readonly string
   }
   const overrides = Object.fromEntries(Object.entries(spec.overrides).filter(([key]) => !inside(key)));
   return { ...spec, blocks: { ...spec.blocks, added: added(spec).filter((b) => !dropped.has(b)) }, overrides };
+}
+
+/* ---------------- 躯干分成胸腔和胯两块 ---------------- */
+
+/** 分开以后的两块叫什么（见 geometry/torsos.ts 的 one）：胸腔是 UpperBody，胯和小腹还叫 Torso */
+export const RIBCAGE = 'UpperBody';
+export const PELVIS = 'Torso';
+
+/** 这副身体的躯干能不能分成两块：一个上半身的白模人台、二次元素体（几个上半身本来就是分开的；连体、围成一圈、成品角色不分） */
+export const canSplitTorso = (spec: Pick<BodySpec, 'bodyStyle' | 'counts' | 'conjoined' | 'ring'>): boolean =>
+  spec.bodyStyle !== 'character' && spec.counts.torsos === 1 && spec.conjoined === 'none' && !ringActive(spec);
+
+/** 躯干现在是不是分成两块的 */
+export const torsoSplit = (spec: Pick<BodySpec, 'bodyStyle' | 'counts' | 'conjoined' | 'ring' | 'blocks'>): boolean => !!spec.blocks?.splitTorso && canSplitTorso(spec);
+
+/**
+ * 把躯干分成胸腔和胯两块，或者合回一整块。
+ * 整块躯干的微调带着的是腰以上那些（腿不跟着）：分开时挪到胸腔上，合回去时胸腔的挪回躯干上；胯自己的微调合回去时丢掉
+ */
+export function setSplitTorso(spec: BodySpec, on: boolean): BodySpec {
+  if (on === !!spec.blocks?.splitTorso) return spec;
+  const { [RIBCAGE]: ribcage, [PELVIS]: whole, ...rest } = spec.overrides;
+  const moved = on ? whole : ribcage;
+  const overrides = moved ? { ...rest, [on ? RIBCAGE : PELVIS]: moved } : rest;
+  const { splitTorso: _was, ...blocks } = spec.blocks ?? { added: [] };
+  return { ...spec, blocks: on ? { ...blocks, splitTorso: true } : blocks, overrides };
 }

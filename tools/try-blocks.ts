@@ -56,6 +56,53 @@ const CASES: Record<string, (spec: BodySpec) => BodySpec> = {
   },
 };
 
+/** 第 2 期：躯干分成胸腔和胯两块。每一行一种摆法：名字 → 胸腔（UpperBody）、胯（Torso）的微调 */
+const SPLITS: [string, BodySpec['overrides']][] = [
+  ['没切开', {}],
+  ['切开没动', {}],
+  ['胸腔前倾 20°', { UpperBody: { rotation: [20, 0, 0] } }],
+  ['胸腔歪 15°', { UpperBody: { rotation: [0, 0, 15] } }],
+  ['胸腔拔高 10 cm', { UpperBody: { position: [0, 0.1, 0] } }],
+  ['胸腔扭 30°', { UpperBody: { rotation: [0, 30, 0] } }],
+  ['胸腔左挪 6 cm', { UpperBody: { position: [0.06, 0, 0] } }],
+  ['胯歪 12°', { Torso: { rotation: [0, 0, 12] } }],
+  ['胯放大 1.25', { Torso: { scale: [1.25, 1.25, 1.25] } }],
+  ['胯后挪 6 cm', { Torso: { position: [0, 0, -0.06] } }],
+];
+
+/** 一种样式一张：每行一种摆法，静止的正面、侧面、斜前，再套两个现成姿势 */
+function splitSheet(dir: string, bodyStyle: 'mannequin' | 'anime', voxel: number, rows: string | undefined) {
+  const poses = ['弯腰拿东西', '蹲着'];
+  const tiles: Uint8Array[] = [];
+  const picked = SPLITS.filter(([name]) => !rows || rows.split(',').includes(name));
+  for (const [name, overrides] of picked) {
+    const spec = normalizeSpec({ ...defaultSpec(), bodyStyle, overrides, blocks: { added: [], splitTorso: name !== '没切开' } });
+    const figure = buildFigure(spec);
+    const body = figureBody(spec, voxel);
+    const shot = (pos: Float32Array, triangles: Uint32Array, view: keyof typeof VIEWS) => {
+      const dirOf = VIEWS[view] as V3;
+      tiles.push(render(pos, triangles, dirOf, frameFor(pos, [dirOf], W, H, 1.06), W, H));
+    };
+    for (const view of ['front', 'side', 'three'] as const) shot(body.rest.pos, body.rest.triangles, view);
+    const paths: string[] = [];
+    for (const poseName of poses) {
+      const posed = body.pose(POSE_LIBRARY.find((p) => p.name === poseName)!.posing);
+      paths.push(`${poseName}:${posed.path}`);
+      shot(posed.pos, posed.triangles, 'three');
+    }
+    console.log(bodyStyle, name, '部件', figure.parts.map((p) => p.name).filter((n) => /Torso|UpperBody/.test(n)).join('+'), '身高', figure.metrics.height.toFixed(3), JSON.stringify(body.restRow), paths.join(' '));
+  }
+  const cols = 3 + poses.length;
+  const sheet = new Uint8Array(W * cols * H * picked.length * 3);
+  tiles.forEach((img, i) => {
+    const [r, c] = [Math.floor(i / cols), i % cols];
+    for (let y = 0; y < H; y++) sheet.set(img.subarray(y * W * 3, (y + 1) * W * 3), ((r * H + y) * W * cols + c * W) * 3);
+  });
+  const file = join(dir, `split-${bodyStyle}.png`);
+  writeFileSync(file, png(W * cols, H * picked.length, sheet));
+  console.log(file);
+}
+
 export async function main(args: string[], root: string) {
   const opt = (key: string) => {
     const i = args.indexOf(key);
@@ -67,6 +114,10 @@ export async function main(args: string[], root: string) {
   mkdirSync(dir, { recursive: true });
   const bytes = readFileSync(join(root, 'public/anime/body.bin'));
   installAnimeBody(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+  if (only === 'split') {
+    for (const bodyStyle of (opt('--style') ? [opt('--style')] : ['mannequin', 'anime']) as ('mannequin' | 'anime')[]) splitSheet(dir, bodyStyle, voxel, opt('--rows'));
+    return;
+  }
 
   for (const [name, make] of Object.entries(CASES)) {
     if (only && only !== name) continue;

@@ -19,7 +19,7 @@ import { WING_OUTLINE, sampleTube } from './shapes';
 import { ringAt, smoothRings } from './torso';
 import { SLOT_SIDE, refork, splitTorsos, torsoSlots } from './torsos';
 import { conjoin } from './conjoined';
-import { withBlocks } from './clone';
+import { hostMounds, withBlocks } from './clone';
 import { ringBuild, ringRows } from './ring';
 
 /**
@@ -805,7 +805,7 @@ export function buildFigure(spec: BodySpec): Figure {
   // 手工加的体块：在套微调之前复制进去，之后和别的部件一样挪、转、缩放、删
   const figure = withBlocks(layoutFigure(spec), spec.blocks?.added);
   // 手动挪过、转过的上半身：从胯上分出去的那一段跟着改（见 torsos.ts）
-  const fitted = refork(applyOverrides(figure, palmReach(figure, limbLength(figure, spec))));
+  const fitted = hostMounds(refork(applyOverrides(figure, palmReach(figure, limbLength(figure, spec)))));
   if (Math.abs(spec.shape.legLength - 1) < 1e-6) return fitted;
   // 腿拉长、缩短以后身高还是设定的那么高（和成品角色一样）：整个人照比例缩放，身体、头跟着变小、变大
   const plain = applyOverrides(figure, spec.overrides);
@@ -921,7 +921,7 @@ function layoutEnds(given: BodySpec): Figure {
   // 连体：照一个上半身、一对人腿摆好，再改成两个上半身在腰上对接（见 conjoined.ts）
   if (given.conjoined !== 'none') {
     const counts = { ...given.counts, legs: 2, tails: 0, penises: 0, torsos: 1 };
-    return conjoin(layoutEnds({ ...given, conjoined: 'none', ring: 'none', counts, legLayout: 'auto', legEnd: 'foot', torsoCounts: {} }), given.conjoined, given.conjoinPose);
+    return conjoin(layoutEnds({ ...given, conjoined: 'none', ring: 'none', counts, legLayout: 'auto', legEnd: 'foot', torsoCounts: {}, blocks: undefined }), given.conjoined, given.conjoinPose);
   }
   // 围成一圈：照一个上半身、一对人腿、一对手臂摆好，再整份复制、转成一圈；手臂只留整个身子左右两侧的（见 ring.ts）
   if (given.ring !== 'none' && ringActive(given)) {
@@ -945,6 +945,7 @@ function layoutEnds(given: BodySpec): Figure {
         chestRow: 2,
         legLayout: own > 2 ? 'row' : 'auto',
         torsoCounts: {},
+        blocks: undefined,
       });
     // 上下对齐的每个人各自几排（单数个的补成一对）；交错的两种每个人就是这么多只，ring.ts 照胸的大小一圈圈排满
     const pairs = Math.ceil(given.counts.breasts / 2);
@@ -1010,7 +1011,8 @@ function layoutEnds(given: BodySpec): Figure {
   const one = layout(spec);
   // 好几个上半身：照一个摆好，再从腰那里切开、复制。每个上半身单独设的数量不一样时，各照自己的数量摆一副，
   // 腰以上从各自那副里取（胯、腿照「全部一样」的那副）
-  if (alike) return splitTorsos(one, spec.counts.torsos);
+  // 一个上半身也切成胸腔和胯两块（体块，见 torsos.ts 的 one）：连体、围成一圈里照着复制的那个人不切（它们调过来时去掉了 blocks）
+  if (alike) return spec.counts.torsos === 1 && spec.blocks?.splitTorso ? splitTorsos(one, 1, {}, true) : splitTorsos(one, spec.counts.torsos);
   const sources: Partial<Record<-1 | 0 | 1, Figure>> = {};
   for (const slot of torsoSlots(spec.counts.torsos)) sources[slot] = layout({ ...spec, counts: countsOf(spec, SLOT_SIDE[slot]) });
   return splitTorsos(one, spec.counts.torsos, sources);

@@ -214,6 +214,50 @@ function measure(parts: Part[], figure: Figure): FigureMetrics {
  * 没有任何一条微调对得上现有的部件时，原样返回传进来的那个 Figure。
  */
 export function applyOverrides(figure: Figure, overrides: Overrides): Figure {
+  // 躯干分成胸腔和胯两块的（体块，见 torsos.ts 的 one）：胯的微调另外套（见 movePelvis）
+  const pelvis = splitPelvis(figure);
+  const own = pelvis ? overrides[pelvis.name] : undefined;
+  if (!pelvis || !own) return applyAll(figure, overrides);
+  const { [pelvis.name]: _own, ...rest } = overrides;
+  return movePelvis(applyAll(figure, rest), figure, pelvis.name, own);
+}
+
+/** 躯干分成胸腔和胯两块时的那块胯：胸腔（UpperBody）不挂在它上面、自己也没有父部件。不是这种的没有 */
+function splitPelvis(figure: Pick<Figure, 'parts'>): Part | undefined {
+  if (!figure.parts.some((p) => p.name === 'UpperBody' && p.parent === undefined)) return undefined;
+  return figure.parts.find((p) => p.name === 'Torso' && p.parent === undefined);
+}
+
+/**
+ * 胯（躯干分成两块时的下面那块）的微调：胯带着腿、尾巴、垫在腿根上的那些一起挪、转、缩放（没有父部件的部件都跟着它走，
+ * 各自不变形），胸腔和它上面长的留在原地——两块是各自独立的，中间的腰由 refork 接顺。挪完以后脚还是踩在原来的地面上
+ */
+function movePelvis(base: Figure, original: Figure, name: string, o: PartOverride): Figure {
+  const before = base.parts.find((p) => p.name === name)!;
+  const { part: after, warp } = place(before, o);
+  const k = (after.scale ?? 1) / (before.scale ?? 1);
+  const turn = quatMul(after.quat, quatConj(before.quat));
+  const back = quatConj(before.quat);
+  /** 世界里跟着胯走的一点，胯挪过以后在哪 */
+  const carry = (p: V3): V3 => {
+    const local = rotate(back, sub(p, before.pos));
+    return add(after.pos, mul(rotate(after.quat, warp ? mat3Apply(warp, local) : local), k));
+  };
+  const parts = base.parts.map((p): Part => {
+    if (p.name === name) return after;
+    // 挂在胯上的：胯被拉伸了的话位置跟着变
+    if (p.parent === name) return warp ? { ...p, pos: mat3Apply(warp, p.pos) } : p;
+    // 胸腔（和挂在它上面的）不动
+    if (p.parent !== undefined || p.type === 'torso') return p;
+    const out: Part = { ...p, pos: carry(p.pos), quat: quatMul(turn, p.quat) };
+    if (k !== 1) out.scale = (p.scale ?? 1) * k;
+    return out;
+  });
+  const grounded = reground(parts, original.parts);
+  return { parts: grounded, scale: base.scale, metrics: measure(grounded, base) };
+}
+
+function applyAll(figure: Figure, overrides: Overrides): Figure {
   if (!figure.parts.some((p) => overrides[p.name])) return figure;
   const byName = new Map(figure.parts.map((p) => [p.name, p]));
   const warps = new Map<string, Mat3>();

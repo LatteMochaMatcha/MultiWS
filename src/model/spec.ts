@@ -460,6 +460,11 @@ export interface AddedBlock {
 /** 体块组装的设定（见 docs/blocks-plan.md） */
 export interface Blocks {
   added: AddedBlock[];
+  /**
+   * 躯干分成「胸腔」（UpperBody）和「胯和小腹」（Torso）两块，各自能单独挪、转、缩放，中间的腰跟着接顺（见 geometry/torsos.ts 的 one）。
+   * 只管一个上半身的白模人台、二次元素体：几个上半身本来就是分开的，连体、围成一圈不分
+   */
+  splitTorso?: boolean;
 }
 
 export function cleanBlocks(value: unknown): Blocks {
@@ -471,7 +476,7 @@ export function cleanBlocks(value: unknown): Blocks {
     const shift = readVec3(raw.shift);
     added.push({ id: raw.id, from: raw.from, ...(shift && { shift }) });
   }
-  return { added };
+  return { added, ...(isRecord(value) && value.splitTorso === true && { splitTorso: true }) };
 }
 
 /* ---------------- BodySpec ---------------- */
@@ -954,7 +959,7 @@ export function serializeSpec(spec: BodySpec, text?: string): string {
 
 /** 没有手工加的体块：存的时候不写 blocks 这个键（读的时候 normalizeSpec 会补上） */
 function withoutEmptyBlocks(spec: BodySpec): BodySpec {
-  if (spec.blocks?.added.length) return spec;
+  if (spec.blocks?.added.length || spec.blocks?.splitTorso) return spec;
   const { blocks: _blocks, ...rest } = spec;
   return rest;
 }

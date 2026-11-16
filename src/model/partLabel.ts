@@ -37,7 +37,16 @@ const WORD: Record<string, string> = {
 
 const SIDE: Record<string, string> = { L: t('左'), R: t('右'), C: t('中') };
 
+/** 躯干分成胸腔和胯两块的时候（体块，见 geometry/torsos.ts 的 one）那两块的名字 */
+let splitTorso = false;
+/** 现在显示的这副身体是不是躯干分成两块的：是的话 UpperBody 叫「胸腔」、Torso 叫「胯和小腹」（界面每次重建模型以后告诉一声） */
+export function labelSplitTorso(on: boolean) {
+  splitTorso = on;
+}
+
 export function partLabel(name: string): string {
+  if (splitTorso && name === 'UpperBody') return t('胸腔@@躯干分成两块时上面那块');
+  if (splitTorso && name === 'Torso') return t('胯和小腹');
   if (WHOLE[name]) return WHOLE[name];
   const tokens = name.split('_');
   const pieces: string[] = [];

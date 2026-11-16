@@ -137,6 +137,24 @@ describe.each(STYLES)('复制部件（%s）', (bodyStyle) => {
     expect(part(moved, 'Chest_101_L').pos[1]).toBeCloseTo(part(still, 'Chest_01_L').pos[1] - 0.2, 6);
   });
 
+  it('复制出来的胸自己带一根骨骼，接在离它最近的那节脊柱上；挪到别处以后改接', () => {
+    const withBlock: BodySpec = { ...spec, blocks: { added: [{ id: 1, from: 'Chest_01_L' }] } };
+    const figure = buildFigure(withBlock);
+    const torso = new Set(part(figure, 'Torso').bones!.map((b) => b.name));
+    const own = part(figure, 'Chest_101_L').bones!;
+    expect(own.length).toBe(1);
+    expect(own[0].name).toMatch(/^Bust_L\.\d{3}$/);
+    expect(torso.has(own[0].parent!)).toBe(true);
+    // 原来的胸还是没有骨骼
+    expect(part(figure, 'Chest_01_L').bones).toBeUndefined();
+    // 往下挪到胯上：改接到下面的那根
+    const low = buildFigure({ ...withBlock, overrides: { Chest_101_L: { position: [0, -0.4, 0] } } });
+    const moved = part(low, 'Chest_101_L').bones![0];
+    expect(torso.has(moved.parent!)).toBe(true);
+    expect(moved.parent).not.toBe(own[0].parent);
+    expect(() => buildSkeleton(low)).not.toThrow();
+  });
+
   it('没有体块的设定，摆出来的和以前一样', () => {
     const { blocks: _blocks, ...old } = spec;
     expect(buildFigure(spec)).toEqual(buildFigure(old));

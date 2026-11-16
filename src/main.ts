@@ -76,8 +76,8 @@ import {
   sideOf,
   topMost,
 } from './model/overrides';
-import { addBlock, isBlockRoot, removeBlock } from './model/blocks';
-import { partLabel } from './model/partLabel';
+import { PELVIS, RIBCAGE, addBlock, canSplitTorso, isBlockRoot, removeBlock, setSplitTorso, torsoSplit } from './model/blocks';
+import { labelSplitTorso, partLabel } from './model/partLabel';
 import { PRESETS, applyPreset } from './model/presets';
 import {
   type ArmLayout,
@@ -2359,6 +2359,7 @@ function rebuild() {
 function rebuildBody() {
   const t0 = performance.now();
   if (spec.bodyStyle === 'character') {
+    labelSplitTorso(false);
     ensureCharacter();
     ensureHair();
     ensureHairLight();
@@ -2377,6 +2378,7 @@ function rebuildBody() {
   if (spec.bodyStyle !== 'character') ensureHairShape();
   ensureGenital();
   figure = buildFigure(spec);
+  labelSplitTorso(figure.parts.some((p) => p.name === RIBCAGE && p.parent === undefined));
   picker = null;
   metrics = figure.metrics;
   scheduleClashCheck(figure);
@@ -2703,6 +2705,18 @@ btnTweakDelete.addEventListener('click', () => {
   commit();
 });
 
+/* ---- 躯干分成胸腔和胯两块、合回一整块（BodySpec.blocks.splitTorso） ---- */
+const btnTweakSplit = $<HTMLButtonElement>('btnTweakSplit');
+btnTweakSplit.addEventListener('click', () => {
+  if (character || !canSplitTorso(spec)) return;
+  const on = !torsoSplit(spec);
+  spec = setSplitTorso(spec, on);
+  // 分开以后接着选中胸腔（最常动的那一块）；合回去选中整块躯干
+  select(null);
+  pendingPicks = [on ? RIBCAGE : PELVIS];
+  commit();
+});
+
 /* ---- 复制部件：手工加一块（BodySpec.blocks，见 docs/blocks-plan.md）；成品角色不支持 ---- */
 const btnTweakCopy = $<HTMLButtonElement>('btnTweakCopy');
 /** 能复制的那几类。躯干、下身还不能；脖子跟着头走；头发、成人部件不在里面 */
@@ -2875,6 +2889,10 @@ function renderTweak() {
     btnTweakReset.disabled = !picks.some((n) => activeOverrides(spec)[n]);
     btnTweakDelete.textContent = many ? t('删除选中的部件') : t('删除这个部件');
     btnTweakDelete.disabled = deletablePicks().length === 0;
+    // 选中的是躯干（或者分开以后的胸腔、胯）：能分成两块、合回一整块
+    const splittable = !character && !many && canSplitTorso(spec) && (part.name === PELVIS || part.name === RIBCAGE);
+    btnTweakSplit.hidden = !splittable;
+    if (splittable) btnTweakSplit.textContent = torsoSplit(spec) ? t('合回一整块躯干') : t('分成胸腔和胯');
     btnTweakCopy.textContent = many ? t('复制选中的部件') : t('复制一份');
     btnTweakCopy.disabled = copyablePicks().length === 0;
     $<HTMLButtonElement>('btnTweakKind').disabled = !tweakable().some((p) => p.type === part.type && !picks.includes(p.name));
@@ -2892,6 +2910,9 @@ function renderTweak() {
       t('X 是{frame}左手边，Y 朝上，Z 朝前；角度绕这三根轴转，以关节为中心。', { frame }),
       t('大小：{hint}。', { hint: SCALE_HINT[part.type] ?? t('X 宽、Y 高、Z 厚') }),
       character ? t('成品角色的部件是照骨骼分的：和身体连着的地方（肩膀、腿根、脖子）跟着拉长；复制出来的手臂、角、尾巴、翅膀是整块挪的。') : '',
+      !character && torsoSplit(spec) && picks.some((n) => n === PELVIS || n === RIBCAGE)
+        ? t('胸腔和胯是分开的两块：动其中一块，另一块不动，中间的腰跟着接顺；胯带着腿一起动，脚还踩在地上。')
+        : '',
     ]);
   } else {
     $('tweakNote').textContent = joinSentences([

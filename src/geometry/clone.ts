@@ -9,7 +9,7 @@ import type { AddedBlock } from '../model/spec';
 import { chestBulk } from '../anime/chest';
 import { plainNeck } from './animeLayout';
 import { type BoneHint, type ChestShape, type Figure, type Graft, type Part, type Prim, nthName } from './figure';
-import { add } from './vec';
+import { add, dot, len, mul, sub } from './vec';
 
 /**
  * 复制出来的部件用的号：第 id 块是 100·id 加上原来的号（Arm_02_L 的第 1 份是 Arm_102_L）。
@@ -151,10 +151,73 @@ function cloneBlock(figure: Figure, block: AddedBlock): Figure {
         (g): Graft => ({ ...g, bones: Object.fromEntries(Object.entries(g.bones).map(([mesh, name]) => [mesh, bone(name)])), rigid: g.rigid.map(bone) }),
       );
     }
+    // 复制出来的胸自己带一根骨骼（见 MOUND_BONE）
+    const host = out.type === 'chest' && !out.bones?.length ? hostBone(figure.parts, out) : undefined;
+    if (host !== undefined) {
+      const base = out.side > 0 ? `${MOUND_BONE}_L` : out.side < 0 ? `${MOUND_BONE}_R` : MOUND_BONE;
+      for (let at = first; at <= BONE_LAST; at++) {
+        const name = nthName(base, at);
+        if (boneTaken.has(name)) continue;
+        boneTaken.add(name);
+        out.bones = [{ name, parent: host, head: [0, 0, 0], tail: [0, 0, moundReach(out)] }];
+        break;
+      }
+    }
     return out;
   });
   // 排在最后：父部件（原来就有的、或者这一块里排在前面的）都在它们前面
   return { ...figure, parts: [...figure.parts, ...clones] };
+}
+
+/**
+ * 复制出来的胸自己带一根骨骼（Bust_L.101），接在它底下那块身体离它最近的那根骨骼上。
+ * 胸本来没有骨骼，蒙皮时跟着躯干的几节脊柱一起弯：长在胸口的弯腰时被挤着，看不大出来；挪到背上的鼓出去离脊柱很远，
+ * 一弯腰就被几节脊柱扯开，鼓成一个大球（素体的胸放到 1.6、蹲着时，胸那一片从 13.6 厘米被撑到 18.7 厘米）。
+ * 有了自己的骨骼，整只胸跟着一根骨骼走，不变形；摆姿势时还能单独转它
+ */
+const MOUND_BONE = 'Bust';
+const isMoundBone = (name: string) => /^Bust(_[LR])?\.\d{3}$/.test(name);
+
+/** 胸鼓出来多高（它自己的 +Z 方向）：骨骼就伸这么长 */
+function moundReach(part: Part): number {
+  const q = part.prims.find((p) => p.kind === 'ellipsoid' && !p.cut);
+  return q?.kind === 'ellipsoid' ? Math.max(q.radii[2], MOUND_LEAST) : 0.03;
+}
+
+/** 部件底下那块身体（父部件）里离它最近的那根骨骼；父部件不在、没有骨骼时没有 */
+function hostBone(parts: readonly Part[], part: Part): string | undefined {
+  const parent = part.parent === undefined ? undefined : parts.find((p) => p.name === part.parent);
+  let best: string | undefined;
+  let least = Infinity;
+  for (const b of parent?.bones ?? []) {
+    // 点到骨骼那一段的距离
+    const along = sub(b.tail, b.head);
+    const span = dot(along, along);
+    const t = span > 1e-12 ? Math.max(0, Math.min(1, dot(sub(part.pos, b.head), along) / span)) : 0;
+    const far = len(sub(part.pos, add(b.head, mul(along, t))));
+    if (far < least) {
+      least = far;
+      best = b.name;
+    }
+  }
+  return best;
+}
+
+/**
+ * 套完手动微调以后：复制出来的胸被挪到了别处（从胸口挪到肚子上），它的骨骼改接到现在离它最近的那根上。
+ * 没有这样的胸时原样返回传进来的那个 Figure
+ */
+export function hostMounds(figure: Figure): Figure {
+  let changed = false;
+  const parts = figure.parts.map((part) => {
+    const own = part.bones?.length === 1 && part.type === 'chest' ? part.bones[0] : undefined;
+    if (!own || !isMoundBone(own.name)) return part;
+    const host = hostBone(figure.parts, part);
+    if (host === undefined || host === own.parent) return part;
+    changed = true;
+    return { ...part, bones: [{ ...own, parent: host }] };
+  });
+  return changed ? { ...figure, parts } : figure;
 }
 
 /**

@@ -977,7 +977,9 @@ export function compilePosedField(
 
   // 好几个上半身的二次元素体（见 SHARED_LIFT）：躯干那几块一起顺着所有躯干骨骼弯（腿根那几截也算上），胸根顺着自己那个上半身的脊柱弯
   const sampled = isSampled(figure.parts);
-  const shared = sampled && severalBodies(figure.parts);
+  // 一个上半身切成胸腔和胯两块的（体块，见 torsos.ts 的 one）也一起弯：各弯各的话腰上那道接缝会错开
+  // （白模人台也是：胯只跟着 Hips、胸腔从 Spine 弯起，切口那里错出一圈台阶）
+  const shared = figure.parts.some((part) => (sampled ? /^UpperBody/.test(part.name) : part.name === 'UpperBody' && part.parent === undefined));
   /**
    * 一个上半身的二次元素体：胸整个和躯干一样弯（同一组骨骼、腿根那几截，见 bendDraft），胸根始终贴着躯干。
    * 好几个上半身的另有一套（见 chestDrafts）
