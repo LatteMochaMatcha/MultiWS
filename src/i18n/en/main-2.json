@@ -229,5 +229,6 @@
   "接到…": "Attach to…",
   "现在在模型上点一下要接到的那个部件（也可以在上面的列表里选）；点空白处、按 Esc 或者再点一次按钮是不接了。": "Now click the part to attach to on the model (or choose it from the list above). Click empty space, press Esc, or click the button again to cancel.",
   "它接在「{name}」上：挪、转、缩放「{name}」的时候它跟着走，摆姿势时也跟着。": "It is attached to \"{name}\": it follows when \"{name}\" is moved, rotated or scaled, and also when posing.",
-  "选中的 {n} 个部件像一整块那样改：转动、等比缩放都绕着「{name}」的支点，互相之间的位置不变。": "The {n} selected parts change as one block: rotation and uniform scaling both go around the pivot of \"{name}\", and the parts keep their positions relative to each other."
+  "选中的 {n} 个部件像一整块那样改：转动、等比缩放都绕着「{name}」的支点，互相之间的位置不变。": "The {n} selected parts change as one block: rotation and uniform scaling both go around the pivot of \"{name}\", and the parts keep their positions relative to each other.",
+  "它吸在那里的一个接口上：以后体型变了接口挪了，它跟着挪。": "It is snapped to a connection point there: if the body shape changes and that point moves, it moves along."
 }

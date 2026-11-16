@@ -6,6 +6,8 @@
 import type { Attached } from '../model/spec';
 import { domed, isMoundBone, loose, withMoundBone } from './clone';
 import { isRibcage } from './pelvis';
+import { socketMap } from './sockets';
+import { add } from './vec';
 import { type Figure, type Part, worldTransforms } from './figure';
 import { hostBoneAt } from './hostBone';
 
@@ -73,11 +75,15 @@ export function withAttach(figure: Figure, attach: Attach | undefined): Figure {
   if (!live.size) return figure;
   const taken = new Set(figure.parts.flatMap((p) => (p.bones ?? []).map((b) => b.name)));
   const byName = new Map(figure.parts.map((p) => [p.name, p]));
+  // 吸在接口上的（见 sockets.ts）：位置照接口现在在哪算，接口不在了照记下的位置
+  const sockets = [...live.values()].some((a) => a.socket !== undefined) ? socketMap(figure.parts) : undefined;
   const moved = figure.parts.map((p): Part => {
     const a = live.get(p.name);
     if (!a) return p;
     const { scale: _scale, ...rest } = isRibcage(p) ? onto(p, byName.get(a.to)) : loose(p);
-    return { ...rest, parent: a.to, pos: a.pos, quat: a.quat, ...(Math.abs(a.scale - 1) > 1e-12 ? { scale: a.scale } : {}) };
+    const socket = a.socket === undefined ? undefined : sockets?.get(a.to)?.find((s) => s.id === a.socket);
+    const pos = socket ? add(socket.pos, a.offset ?? [0, 0, 0]) : a.pos;
+    return { ...rest, parent: a.to, pos, quat: a.quat, ...(Math.abs(a.scale - 1) > 1e-12 ? { scale: a.scale } : {}) };
   });
   const parts = parentsFirst(moved);
   const xfs = worldTransforms({ parts, scale: 1 });

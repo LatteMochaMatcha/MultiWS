@@ -21,7 +21,8 @@ import { skinInPlace } from './character/pose';
 import { type TweakedCharacter, characterPartAt, characterPartGlow, characterParts, tweakCharacter } from './character/tweak';
 import { describeClashes, findClashes } from './geometry/clash';
 import { blockNames } from './geometry/clone';
-import { type Figure, type FigureMetrics, type Part, type PartType, nthName } from './geometry/figure';
+import { SOCKET_FOR, nearestSocket } from './geometry/sockets';
+import { type Figure, type FigureMetrics, type Part, type PartType, nthName, worldTransforms } from './geometry/figure';
 import { buildFigure } from './geometry/layout';
 import { type PartFrame, deletable, partFrame } from './geometry/tweak';
 import { type V3, Q_ID, UP, len, norm, quatBetween, quatConj, quatEuler, quatMul, rotate, sub } from './geometry/vec';
@@ -77,7 +78,7 @@ import {
   sideOf,
   topMost,
 } from './model/overrides';
-import { attachParts, attachedTo, detachParts, isAttachable } from './model/attach';
+import { SNAP_NEAR, attachParts, attachedTo, canAttach, detachParts, isAttachable, placedSockets } from './model/attach';
 import { PELVIS, RIBCAGE, addBlock, canCopy, canSplitTorso, copyShift, isBlockRoot, removeBlock, setSplitTorso, torsoSplit } from './model/blocks';
 import { labelSplitTorso, partLabel } from './model/partLabel';
 import { PRESETS, applyPreset } from './model/presets';
@@ -222,6 +223,7 @@ import { type Picker, makePicker } from './sdf/pick';
 import { posedBodyDist } from './sdf/posedBody';
 import { refusable } from './sdf/posedField';
 import { BoneOverlay } from './view/boneOverlay';
+import { SocketOverlay } from './view/socketOverlay';
 import { CharacterModel } from './view/characterModel';
 import { type FusedStats, FusedModel } from './view/fusedModel';
 import { type GizmoMode, GIZMO_MODES, Gizmo } from './view/gizmo';
@@ -1600,6 +1602,8 @@ let characterBase: { key: string; bust: number; build: CharacterBuild } | null =
 let characterVersion = 0;
 /** 骨架的示意线，点「骨骼」按钮才显示 */
 const bones = new BoneOverlay();
+/** 接口的小圆点：挑「接到哪」的时候、勾着「吸到接口上」拖着部件的时候显示（见 syncSockets） */
+const socketDots = new SocketOverlay();
 let showBones = false;
 let viewport: Viewport | null = null;
 /** 点选、选中高亮和操纵杆 */
@@ -1617,6 +1621,7 @@ try {
   viewport = new Viewport($('stage'));
   viewport.scene.add(live, sceneView.root);
   viewport.overlay.add(bones.root);
+  viewport.overlay.add(socketDots.root);
   gizmo = new Gizmo(viewport);
   poseHandles = new PoseHandles(viewport);
   watchViewport(viewport);
@@ -2450,6 +2455,10 @@ let attaching: string[] | null = null;
 let attachNote = '';
 /** 多选时一起转、一起缩放是不是像一整块（都绕操纵杆所在的那个部件）；不是的话各自绕自己的关节 */
 let rigidGroup = false;
+/** 接部件的时候吸到接口上（见 geometry/sockets.ts）：点「接到…」时点在接口附近、拖着松手时离接口很近，都吸过去 */
+let snapSockets = true;
+/** 上一次在模型上点中的地方（世界里的位置，米）；没点中是 null。「接到…」时照它找最近的接口 */
+let pickPoint: V3 | null = null;
 /** 多选时正拖着操纵杆：按下那一刻各个部件的微调和操作坐标，拖动中都从它算起 */
 let dragFrom: Map<string, { override: PartOverride | undefined; frame: PartFrame }> | null = null;
 /** 左右成对的部件：改一侧时对侧同时改成镜像的样子 */
@@ -2741,20 +2750,24 @@ btnTweakAttach.addEventListener('click', () => {
   if (!names.length) return;
   attaching = names;
   attachNote = '';
+  syncSockets();
   renderTweak();
 });
 /** 点了要接到的那个部件（target 是 null 就是不接了） */
-function finishAttach(target: string | null) {
+function finishAttach(target: string | null, point: V3 | null = null) {
   const names = attaching;
   attaching = null;
+  syncSockets();
   if (!names || !target || !figure) {
     renderTweak();
     return;
   }
+  // 勾着「吸到接口上」、又是在模型上点的目标：照点中的地方找最近的接口（够不着就留在原地）
+  const snap = snapSockets && point ? { at: point } : undefined;
   let next = spec;
   const done: string[] = [];
   for (const name of names) {
-    const out = attachParts(next, [name], target);
+    const out = attachParts(next, [name], target, snap);
     next = out.spec;
     if (!out.attached.length) continue;
     done.push(name);
@@ -2762,7 +2775,8 @@ function finishAttach(target: string | null) {
     const twin = mirror ? mirrorName(name) : null;
     if (twin === null || names.includes(twin) || !figure.parts.some((p) => p.name === twin)) continue;
     const across = mirrorName(target);
-    next = attachParts(next, [twin], across !== null && figure.parts.some((p) => p.name === across) ? across : target).spec;
+    // 对侧的照镜像过去的那一点找接口
+    next = attachParts(next, [twin], across !== null && figure.parts.some((p) => p.name === across) ? across : target, snap && { at: [-snap.at[0], snap.at[1], snap.at[2]] }).spec;
   }
   if (!done.length) {
     attachNote = t('接不上「{name}」：不能接到自己、或者长在自己上面的部件上。', { name: partLabel(target) });
@@ -2779,6 +2793,48 @@ btnTweakDetach.addEventListener('click', () => {
   spec = detachParts(spec, [...names, ...twins]);
   commit();
 });
+const snapInput = $<HTMLInputElement>('tweakSnap');
+snapInput.checked = snapSockets;
+snapInput.addEventListener('change', () => {
+  snapSockets = snapInput.checked;
+  syncSockets();
+});
+/** 接口的小圆点跟上现在的状态：挑「接到哪」的时候、勾着「吸到接口上」拖着部件的时候显示（选中的部件自己和长在它上面的那些的接口不显示） */
+function syncSockets() {
+  const moving = attaching ?? (tweaking && snapSockets && picks.length === 1 ? picks : null);
+  if (character || !figure || !moving || (!attaching && !snapSockets)) {
+    socketDots.update(null);
+    return;
+  }
+  const parts = figure.parts;
+  socketDots.update(placedSockets(spec, figure).filter((s) => moving.every((n) => canAttach(parts, n, s.host))).map((s) => s.world));
+}
+/**
+ * 拖着一个部件松手：勾着「吸到接口上」、它的根离别的部件上的接口很近（SNAP_NEAR），就接到那个接口上。
+ * 只管接到「别的」部件上：本来就长在这个部件上的，在它上面随便挪，不会被吸住。接上了返回 true
+ */
+function snapOnDrop(): boolean {
+  if (!snapSockets || character || picks.length !== 1 || !selected) return false;
+  const now = buildFigure(spec);
+  const part = now.parts.find((p) => p.name === selected);
+  if (!part || !isAttachable(part)) return false;
+  // 头是带着脖子的：照脖子根找
+  const neck = part.type === 'head' ? now.parts.find((p) => p.name === selected!.replace('Head_', 'Neck_') && p.parent === part.parent) : undefined;
+  const at = worldTransforms(now).get((neck ?? part).name)?.pos;
+  if (!at) return false;
+  const native = attachedTo(spec, selected) === undefined ? part.parent : undefined;
+  const near = nearestSocket(
+    placedSockets(spec, now).filter((s) => s.host !== native && canAttach(now.parts, selected!, s.host)),
+    at,
+    SNAP_NEAR * now.scale,
+    SOCKET_FOR[part.type],
+  );
+  if (!near) return false;
+  const out = attachParts(spec, [selected], near.host, { at: near.world, reach: 1e-6 * now.scale + 1e-9 });
+  if (!out.snapped.length) return false;
+  spec = out.spec;
+  return true;
+}
 const rigidInput = $<HTMLInputElement>('tweakRigid');
 rigidInput.addEventListener('change', () => {
   rigidGroup = rigidInput.checked;
@@ -2975,6 +3031,7 @@ function renderTweak() {
       attaching ? t('现在在模型上点一下要接到的那个部件（也可以在上面的列表里选）；点空白处、按 Esc 或者再点一次按钮是不接了。') : '',
       attachNote,
       host !== undefined ? t('它接在「{name}」上：挪、转、缩放「{name}」的时候它跟着走，摆姿势时也跟着。', { name: partLabel(host) }) : '',
+      host !== undefined && spec.blocks?.attach?.[part.name]?.socket !== undefined ? t('它吸在那里的一个接口上：以后体型变了接口挪了，它跟着挪。') : '',
       many && rigidGroup
         ? t('选中的 {n} 个部件像一整块那样改：转动、等比缩放都绕着「{name}」的支点，互相之间的位置不变。', { n: picks.length, name: partLabel(part.name) })
         : many
@@ -3095,10 +3152,12 @@ function pickPart(ray: Raycaster): string | null {
     const hit = ray.intersectObject(characterModel.root, true)[0];
     return hit ? characterPartAt(tweaked, [hit.point.x, hit.point.y, hit.point.z]) : null;
   }
+  pickPoint = null;
   if (!figure) return null;
   const isFused = spec.meshMode === 'fused';
   const hit = ray.intersectObject(isFused ? fused.root : model.root, true)[0];
   if (!hit) return null;
+  pickPoint = [hit.point.x, hit.point.y, hit.point.z];
   // 分部件模式、以及融合模式下的眼睛：点中的物体就是部件
   if (!isFused || hit.object.name !== 'Body') return hit.object.name || null;
   // 融合模式下身体是一整块：看这一点离哪个部件最近
@@ -3116,7 +3175,7 @@ if (gizmo) {
   gizmo.onPick = (name, add) => {
     // 正等着点「接到哪个部件上」：这一下点的是目标（点在空白处就是不接了）
     if (attaching) {
-      finishAttach(name);
+      finishAttach(name, name ? pickPoint : null);
       return;
     }
     // 多选（开着开关，或者按着 Ctrl、Shift）：点中的加进来、再点去掉；点在空白处不动，免得一下全丢了
@@ -3142,10 +3201,15 @@ if (gizmo) {
         if (frame) dragFrom.set(name, { override: activeOverrides(spec)[name], frame });
       }
     }
+    syncSockets();
     // 松手以后存档、刷新面板，再同步一次：操纵杆回到按存下来的数值算出的位置（数值被取整、限幅过）
     if (!active) {
-      save();
-      render();
+      // 松手的地方离别的部件上的接口很近：接上去（单独记一步撤销）
+      if (snapOnDrop()) commit();
+      else {
+        save();
+        render();
+      }
     }
   };
 }

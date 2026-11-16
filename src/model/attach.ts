@@ -3,10 +3,11 @@
  * 接上去、解开的那一刻部件留在原地不跳：照它现在在世界里的摆放，换算成新父部件坐标里的摆放（接上去）或者一条手动微调（解开）。
  * 只管白模人台、二次元素体。摆好的 Figure 上那一半见 geometry/attach.ts
  */
-import { type Part, type PartType, type WorldXf, worldTransforms } from '../geometry/figure';
-import { buildFigure } from '../geometry/layout';
+import { type Figure, type Part, type PartType, type WorldXf, worldTransforms } from '../geometry/figure';
+import { beforeAttach, buildFigure } from '../geometry/layout';
 import { isRibcage } from '../geometry/pelvis';
-import { type Mat3, type Quat, type V3, Q_ID, eulerOf, mat3Apply, mul, quatConj, quatMul, rotate, scaleAlong, sub } from '../geometry/vec';
+import { SOCKET_FOR, type Socket, nearestSocket, socketMap } from '../geometry/sockets';
+import { type Mat3, type Quat, type V3, Q_ID, add, eulerOf, mat3Apply, mul, quatConj, quatMul, rotate, scaleAlong, sub } from '../geometry/vec';
 import { type Attached, type BodySpec, type PartOverride, cleanOverride } from './spec';
 
 const DEG = Math.PI / 180;
@@ -47,6 +48,33 @@ export function canAttach(parts: readonly Part[], name: string, to: string): boo
 const unwarpOf = (host: Part | undefined): Mat3 | null =>
   host?.resize ? scaleAlong([1 / host.resize[0], 1 / host.resize[1], 1 / host.resize[2]], host.axes) : null;
 
+/** 接的时候点中的地方离接口多远以内就吸过去（按标准人台的米；乘上 Figure.scale 才是这个角色身上的） */
+export const SNAP_REACH = 0.12;
+/** 拖着部件松手时，它的根离别的部件上的接口多远以内就自动接上去（按标准人台的米） */
+export const SNAP_NEAR = 0.045;
+
+/** 摆好的身体上的一个接口：在哪个部件上、在世界里的位置（米） */
+export interface PlacedSocket extends Socket {
+  host: string;
+  world: V3;
+}
+
+/** 这副身体上所有的接口在世界里的位置（界面上画标记、找最近的接口用）。figure 是摆好的（buildFigure(spec)），不给就现摆 */
+export function placedSockets(spec: BodySpec, figure: Figure = buildFigure(spec)): PlacedSocket[] {
+  const xfs = worldTransforms(figure);
+  const byName = new Map(figure.parts.map((p) => [p.name, p]));
+  const out: PlacedSocket[] = [];
+  for (const [host, list] of socketMap(beforeAttach(spec).parts)) {
+    const part = byName.get(host);
+    const xf = xfs.get(host);
+    if (!part || !xf) continue;
+    // 部件被拉伸了的话，接口跟着拉伸挪（和挂在它上面的部件一样）
+    const warp = part.resize ? scaleAlong(part.resize, part.axes) : null;
+    for (const s of list) out.push({ ...s, host, world: add(xf.pos, mul(rotate(xf.quat, warp ? mat3Apply(warp, s.pos) : s.pos), xf.scale)) });
+  }
+  return out;
+}
+
 /** 世界里的摆放 child，在 host（世界里的摆放）自己的坐标里是什么样（位置还没算 host 的拉伸） */
 function localOf(host: WorldXf, child: WorldXf): { pos: V3; quat: Quat; scale: number } {
   const back = quatConj(host.quat);
@@ -58,12 +86,20 @@ function localOf(host: WorldXf, child: WorldXf): { pos: V3; quat: Quat; scale: n
  * 原来记在它们上面的位置、角度、等比大小的微调已经算进接上去的摆放里了，只留下各方向不一样的那部分拉伸。
  * 接不了的（见 canAttach）跳过，名字在 refused 里
  */
-export function attachParts(spec: BodySpec, names: readonly string[], to: string): { spec: BodySpec; attached: string[]; refused: string[] } {
+export function attachParts(
+  spec: BodySpec,
+  names: readonly string[],
+  to: string,
+  snap?: { at: V3; reach?: number },
+): { spec: BodySpec; attached: string[]; refused: string[]; snapped: string[] } {
   const figure = buildFigure(spec);
   const xfs = worldTransforms(figure);
   const byName = new Map(figure.parts.map((p) => [p.name, p]));
   const host = byName.get(to);
   const hostXf = xfs.get(to);
+  // 吸到接口上：to 上离 snap.at（世界里的一点：点中的地方、或者拖到的地方）最近的那个接口，够不着就留在原地
+  const sockets = snap ? placedSockets(spec, figure).filter((s) => s.host === to) : [];
+  const snapped: string[] = [];
   const attach: Record<string, Attached> = { ...(spec.blocks?.attach ?? {}) };
   const overrides: Record<string, PartOverride> = { ...spec.overrides };
   const attached: string[] = [];
@@ -75,13 +111,26 @@ export function attachParts(spec: BodySpec, names: readonly string[], to: string
       continue;
     }
     const neck = neckOf(figure.parts, part);
+    // 这一组（头带着脖子）根上的那个部件吸到接口上，别的跟着挪一样多
+    const hit = snap ? nearestSocket(sockets, snap.at, snap.reach ?? SNAP_REACH * figure.scale, SOCKET_FOR[part.type]) : undefined;
+    const shift: V3 = hit ? sub(hit.world, xfs.get(neck ?? name)!.pos) : [0, 0, 0];
+    if (hit) snapped.push(name);
     for (const one of neck === null ? [name] : [neck, name]) {
       const own = byName.get(one)!;
-      const at = localOf(hostXf, xfs.get(one)!);
+      const now = xfs.get(one)!;
+      const at = localOf(hostXf, hit ? { ...now, pos: add(now.pos, shift) } : now);
       const unwarp = unwarpOf(host);
+      const pos = unwarp ? mat3Apply(unwarp, at.pos) : at.pos;
+      const offset: V3 | undefined = hit ? sub(pos, hit.pos) : undefined;
       // 贴在躯干表面上的胸：微调是摆位时换算进形状里的（接出去以后换成圆包，见 clone.ts 的 loose），放大过的照等比的那一份算进去
       const baked = own.surface ? Math.cbrt((overrides[one]?.scale ?? [1, 1, 1]).reduce((a, b) => a * b, 1)) : 1;
-      attach[one] = { to, pos: unwarp ? mat3Apply(unwarp, at.pos) : at.pos, quat: at.quat, scale: at.scale * baked };
+      attach[one] = {
+        to,
+        pos,
+        quat: at.quat,
+        scale: at.scale * baked,
+        ...(hit && offset ? { socket: hit.id, ...(Math.hypot(offset[0], offset[1], offset[2]) > 1e-6 ? { offset } : {}) } : {}),
+      };
       // 位置、角度、等比的大小都在上面了；各方向不一样的那部分拉伸还记在微调里
       const left = own.surface ? null : cleanOverride({ scale: own.resize ? [own.resize[0], own.resize[1], own.resize[2]] : undefined });
       if (left) overrides[one] = left;
@@ -89,8 +138,8 @@ export function attachParts(spec: BodySpec, names: readonly string[], to: string
     }
     attached.push(name);
   }
-  if (!attached.length) return { spec, attached, refused };
-  return { spec: { ...spec, blocks: { ...(spec.blocks ?? { added: [] }), attach }, overrides }, attached, refused };
+  if (!attached.length) return { spec, attached, refused, snapped };
+  return { spec: { ...spec, blocks: { ...(spec.blocks ?? { added: [] }), attach }, overrides }, attached, refused, snapped };
 }
 
 /**

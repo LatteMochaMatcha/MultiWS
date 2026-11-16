@@ -253,5 +253,7 @@
   "像一整块那样转动、缩放": "Rotate and scale as one block",
   "把选中的部件（连同长在它上面的）接到另一个部件上：点这个按钮，再在模型上点要接到的那个部件。接上以后它留在原地，之后跟着那个部件挪、转、缩放，摆姿势时也跟着它动": "Attaches the selected part (with anything growing on it) to another part: click this button, then click the part to attach to on the model. The part stays where it is, and from then on it follows that part when it is moved, rotated or scaled, and also when posing",
   "解开以后它回到原来长的那个部件上，位置不变": "After detaching, it goes back to the part it originally grew on, without moving",
-  "解开": "Detach"
+  "解开": "Detach",
+  "勾着的时候：点「接到…」再点目标，点在接口（肩、髋、脖子根、尾巴根、骨骼的关节）附近，部件的根就吸到那个接口上；拖着部件松手时，它的根离别的部件上的接口很近也会自动接上去。接口在挑目标、拖动的时候显示成小圆点。吸在接口上的部件，以后体型变了接口挪了它跟着挪": "When ticked: after \"Attach to…\", clicking the target near a connection point (shoulder, hip, neck base, tail root, a bone joint) snaps the root of the part onto that point; releasing a dragged part with its root very close to a connection point on another part also attaches it automatically. Connection points are shown as small dots while choosing a target or dragging. A part snapped to a connection point moves along when the body shape changes and the point moves",
+  "吸到接口上（肩、髋、脖子根、关节）": "Snap to connection points (shoulder, hip, neck base, joints)"
 }

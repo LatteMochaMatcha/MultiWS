@@ -807,7 +807,12 @@ export function beastLift(form: LegForm): V3 {
  */
 export function planFigure(spec: BodySpec): Figure {
   // 胯上有两个以上胸腔（复制出来的）时照好几个上半身那样并排摆开（见 torsos.ts 的 seatRibcages）
-  return seatRibcages(withAttach(withBlocks(layoutFigure(spec), spec.blocks?.added, spec.overrides), spec.blocks?.attach));
+  return seatRibcages(withAttach(beforeAttach(spec), spec.blocks?.attach));
+}
+
+/** 还没套缝合的样子（自动摆位加上手工复制的体块）：各个部件上的接口照它算（见 sockets.ts 的 socketMap、attach.ts 的 withAttach） */
+export function beforeAttach(spec: BodySpec): Figure {
+  return withBlocks(layoutFigure(spec), spec.blocks?.added, spec.overrides);
 }
 
 /** 摆位，再套上手动微调：界面、网格、导出用的都是这个结果 */

@@ -479,6 +479,13 @@ export interface Attached {
   pos: Vec3;
   quat: [number, number, number, number];
   scale: number;
+  /**
+   * 吸在 to 的哪个接口上（见 geometry/sockets.ts 的 Socket.id）：有的话位置是「接口在哪 + offset」，接口因为体型、数量变了挪了，它跟着挪；
+   * 这个接口现在不在了（那里原来长的部件没了）就照上面的 pos
+   */
+  socket?: string;
+  /** 离接口多远（to 自己的坐标）；正好在接口上就不写 */
+  offset?: Vec3;
 }
 
 export function cleanBlocks(value: unknown): Blocks {
@@ -497,7 +504,14 @@ export function cleanBlocks(value: unknown): Blocks {
     const quat = Array.isArray(raw.quat) && raw.quat.length === 4 && raw.quat.every((n) => typeof n === 'number' && Number.isFinite(n)) ? raw.quat : undefined;
     const norm = quat ? Math.hypot(quat[0], quat[1], quat[2], quat[3]) : 0;
     if (!pos || !quat || norm < 1e-9 || typeof raw.scale !== 'number' || !(raw.scale > 0) || !Number.isFinite(raw.scale)) continue;
-    attach[name] = { to: raw.to, pos, quat: [quat[0] / norm, quat[1] / norm, quat[2] / norm, quat[3] / norm], scale: raw.scale };
+    const offset = readVec3(raw.offset);
+    attach[name] = {
+      to: raw.to,
+      pos,
+      quat: [quat[0] / norm, quat[1] / norm, quat[2] / norm, quat[3] / norm],
+      scale: raw.scale,
+      ...(typeof raw.socket === 'string' && raw.socket ? { socket: raw.socket, ...(offset && offset.some((v) => v !== 0) ? { offset } : {}) } : {}),
+    };
   }
   return {
     added,
