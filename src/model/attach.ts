@@ -5,6 +5,7 @@
  */
 import { type Part, type PartType, type WorldXf, worldTransforms } from '../geometry/figure';
 import { buildFigure } from '../geometry/layout';
+import { isRibcage } from '../geometry/pelvis';
 import { type Mat3, type Quat, type V3, Q_ID, eulerOf, mat3Apply, mul, quatConj, quatMul, rotate, scaleAlong, sub } from '../geometry/vec';
 import { type Attached, type BodySpec, type PartOverride, cleanOverride } from './spec';
 
@@ -30,10 +31,13 @@ function under(parts: readonly Part[], name: string, ancestor: string): boolean 
   return false;
 }
 
+/** 这个部件是不是能接到别的部件上的那几类；躯干里只有复制出来的胸腔（UpperBody_101 …）能接 */
+export const isAttachable = (part: Part): boolean => ATTACHABLE.has(part.type) || (isRibcage(part) && /^UpperBody_\d+$/.test(part.name));
+
 /** name 这个部件能不能接到 to 上：两个都在、不是同一个、to 不长在 name 上（不然绕成圈）、name 是能接的那几类 */
 export function canAttach(parts: readonly Part[], name: string, to: string): boolean {
   const part = parts.find((p) => p.name === name);
-  return part !== undefined && ATTACHABLE.has(part.type) && parts.some((p) => p.name === to) && !under(parts, to, name);
+  return part !== undefined && isAttachable(part) && parts.some((p) => p.name === to) && !under(parts, to, name);
 }
 
 /**
@@ -126,9 +130,12 @@ export function detachParts(spec: BodySpec, names: readonly string[]): BodySpec 
     const turn = eulerOf(quatMul(at.quat, quatConj(base.quat)));
     const k = at.scale / (base.scale ?? 1);
     const stretch = byName.get(name)?.resize ?? [1, 1, 1];
+    // 转、缩放是绕支点的（见 geometry/tweak.ts 的 place）：支点不在原点的（胸腔的在腰上），位置里要把这一份扣掉
+    const pivot = base.pivot ?? [0, 0, 0];
+    const swing = sub(rotate(at.quat, mul(pivot, at.scale)), rotate(base.quat, mul(pivot, base.scale ?? 1)));
     // base.pos 已经算过父部件的拉伸了（见 unwarpOf）
     const made = cleanOverride({
-      position: [at.pos[0] - base.pos[0], at.pos[1] - base.pos[1], at.pos[2] - base.pos[2]],
+      position: [at.pos[0] - base.pos[0] + swing[0], at.pos[1] - base.pos[1] + swing[1], at.pos[2] - base.pos[2] + swing[2]],
       rotation: [turn[0] / DEG, turn[1] / DEG, turn[2] / DEG],
       scale: [k * stretch[0], k * stretch[1], k * stretch[2]],
     });

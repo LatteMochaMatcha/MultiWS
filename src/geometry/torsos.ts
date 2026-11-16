@@ -837,7 +837,8 @@ export function refork(given: Figure): Figure {
     .sort((a, b) => a - b);
   const pelvised = bodies.map((p): Part => {
     if (!outward.length || p.name !== 'Torso') return p;
-    const amount = outward.reduce((a, b) => a + b, 0) / outward.length;
+    // 体块复制出来的几个胸腔（不挂在胯上，见 seatRibcages）个数不限：胯照最外面那个加宽（四个时里面两个、外面两个离得不一样远）
+    const amount = figure.parts.some((q) => forks.has(q.name) && q.parent === undefined) ? Math.max(...outward) : outward.reduce((a, b) => a + b, 0) / outward.length;
     const one = [...forks.values()][0];
     const prims = p.prims.map((q): Prim => {
       if (q.kind === 'grid' && q.tile?.seats) return { ...q, tile: { ...q.tile, seats, ...seatLevels(q.tile, seats) } };
@@ -882,6 +883,112 @@ export function refork(given: Figure): Figure {
       ...(body.fork ? { fork: { ...body.fork, freeze: p.pos[1] } } : {}),
     };
     return { ...p, prims: p.prims.map((q): Prim => (q.kind === 'chest' ? { ...q, body: own, ...(seam ? { seam } : {}) } : q)) };
+  });
+  return { ...figure, parts };
+}
+
+/** 体块：胯上并排着的第 i 个胸腔（原来那块是第 0 个，复制出来的照先后往下数）坐在第几格。单数个时原来那块在正中，往后的一左一右往外排；双数个时原来那块在正中偏右半格 */
+function seatSlot(i: number, count: number): number {
+  const step = Math.ceil(i / 2) * (i % 2 ? 1 : -1);
+  return count % 2 ? step : i % 2 ? (i + 1) / 2 - 0.5 : -(i / 2) - 0.5;
+}
+
+/** 体块：白模人台并排着的胸腔相邻两个隔多远的一半、每往外一格多歪多少（照 SHIFT、LEAN_MIN 的意思；白模的腰很细，挪得少、歪得多） */
+const SEAT_LEAN = 22 * (Math.PI / 180);
+
+/**
+ * 体块：躯干分成胸腔和胯两块以后（见 splitTorsos 的 one），胸腔可以复制（clone.ts）。胯上有两个以上不挂在别的部件上的胸腔时，
+ * 把它们照「好几个上半身」那样摆：左右并排、往外歪开一点，二次元素体的直立着、各有各的腰，胯的上半截跟着加宽
+ * （转从分开的地方渐渐加到腋下，往两边挪的那一份在分开的地方上下一小段里就挪足，见 SPLIT_HALF）；里侧的手臂往前伸（见 besideArms）。
+ * 不这样的话几个胸腔都从一个人那么宽的胯正中斜着岔出去，腰是几根细长的杈。
+ * 在套手动微调之前做：之后再手动挪、转某一个，腰照样由 refork 接顺。只有一个胸腔、没有这样的胸腔时原样返回
+ */
+export function seatRibcages(figure: Figure): Figure {
+  const forkOf = (p: Part): Fork | undefined => {
+    for (const q of p.prims) if ((q.kind === 'grid' || q.kind === 'loft') && q.fork && !q.fork.frame) return q.fork;
+    return undefined;
+  };
+  const pelvis = figure.parts.find((p) => p.name === 'Torso' && p.parent === undefined);
+  const ribs = figure.parts.filter((p) => p.parent === undefined && p.type === 'torso' && forkOf(p) !== undefined);
+  if (!pelvis || ribs.length < 2) return figure;
+  const first = forkOf(ribs[0])!;
+  const sampled = ribs[0].prims.some((p) => p.kind === 'grid');
+  const forkFrom = first.from - (sampled ? TURN_DELAY : 0);
+
+  /* ---- 相邻两个隔多远 ---- */
+  let unit = ribs.length === 2 ? 2 * SHIFT : SHIFT * SHIFT_THREE;
+  if (sampled) {
+    // 腰最细那里多宽（分开的那一段里，从正中往两边量）：两个时里侧挤进去一点，三个以上分得开（见 UPRIGHT_OVERLAP、UPRIGHT_SPREAD_THREE）
+    const whole = compileField({ scale: 1, parts: [{ ...ribs[0], parent: undefined, pos: [0, 0, 0], quat: Q_ID, scale: 1 }] }, { blend: 0 });
+    let waist = Infinity;
+    for (let y = first.from; y <= first.to; y += 0.005) waist = Math.min(waist, 0.6 - castRay(whole, [0.6, y, 0], [-1, 0, 0], 0.6));
+    if (Number.isFinite(waist) && waist > 0.01) unit = waist * (ribs.length === 2 ? 2 * UPRIGHT_OVERLAP : UPRIGHT_SPREAD_THREE);
+  }
+  const slots = new Map(ribs.map((p, i) => [p.name, seatSlot(i, ribs.length)]));
+  const most = Math.max(...[...slots.values()].map(Math.abs)) * unit;
+
+  /* ---- 每个胸腔：绕腰往外歪、往自己那格挪 ---- */
+  /** 第 slot 格的往外歪多少：每往外一格多歪一份 */
+  const leanOf = (slot: number) => Math.min(LEAN_MAX, (sampled ? UPRIGHT_LEAN : SEAT_LEAN) * Math.ceil(Math.abs(slot)));
+  const turnOf = (slot: number): Quat => quatEuler(0, 0, -Math.sign(slot) * leanOf(slot));
+  const k = pelvis.scale ?? 1;
+  const placed = new Map<string, { q: Quat; pos: V3 }>();
+  for (const p of ribs) {
+    const slot = slots.get(p.name)!;
+    const q = turnOf(slot);
+    const fork = forkOf(p)!;
+    // 在胯自己的坐标里：绕腰转 q，再往旁边挪（和 splitTorsos 里 copyPos 一个算法），然后换到世界里
+    const local = add(sub(fork.pivot, rotate(q, fork.pivot)), [slot * unit, 0, 0]);
+    placed.set(p.name, { q, pos: add(p.pos, rotate(pelvis.quat, local.map((v) => v * k) as V3)) });
+  }
+
+  /* ---- 里侧的手臂（旁边还有别的胸腔的那一边）：二次元素体的往前伸 ---- */
+  const arms = new Map<string, Part>();
+  if (sampled) {
+    for (const p of ribs) {
+      const slot = slots.get(p.name)!;
+      const { q, pos } = placed.get(p.name)!;
+      for (const side of [1, -1]) {
+        if (![...slots.values()].some((other) => (other - slot) * side > 0)) continue;
+        const mine = figure.parts.filter((c) => c.parent === p.name && c.side === side && c.type === 'arm').map((c): Part => ({ ...c }));
+        for (const arm of mine) {
+          // 歪过以后肩关节离它和旁边那个胸腔正中间那道线不到 BESIDE_ROOT 的，沿胸腔的左右挪回自己这边
+          // （不然伸到旁边那个身子里，两边的交叉着长出来，见 BESIDE_ROOT）
+          const joint = add(sub(pos, p.pos), rotate(q, arm.pos))[0];
+          const room = ((slot + side * 0.5) * unit - joint) * side;
+          if (room < BESIDE_ROOT) arm.pos = [arm.pos[0] - (side * (BESIDE_ROOT - room)) / Math.cos(leanOf(slot)), arm.pos[1], arm.pos[2]];
+          arms.set(arm.name, arm);
+        }
+        besideArms(
+          mine,
+          q,
+          Math.sign(slot),
+          figure.parts.filter((c) => c.parent === p.name && c.side === side && c.type === 'chest'),
+        );
+      }
+    }
+  }
+
+  const parts = figure.parts.map((p): Part => {
+    const at = placed.get(p.name);
+    if (at) {
+      const prims = p.prims.map((q): Prim => {
+        if ((q.kind !== 'grid' && q.kind !== 'loft') || !q.fork) return q;
+        // 往两边挪的那一份在分开的地方上下一小段里挪足（采样好的躯干）：往上各有各的腰，直立着
+        return { ...q, fork: sampled ? { ...q.fork, shiftFrom: forkFrom - SPLIT_HALF, shiftTo: forkFrom + SPLIT_HALF } : q.fork };
+      });
+      return { ...p, pos: at.pos, quat: quatMul(pelvis.quat, at.q), prims };
+    }
+    if (p === pelvis && sampled) {
+      // 胯的上半截跟着往两边加宽（之后手动挪过胸腔的话 refork 照实际的改）
+      const prims = p.prims.map((q): Prim => {
+        if (q.kind !== 'grid' || q.tile) return q;
+        const f = q.spreadX ? spreadAt(q.spreadX, forkFrom) : 1;
+        return { ...q, widenX: [...(q.widenX ?? []), [most / f, forkFrom - SPLIT_HALF, forkFrom + SPLIT_HALF, SPLIT_CORE] as WidenBand] };
+      });
+      return { ...p, prims };
+    }
+    return arms.get(p.name) ?? p;
   });
   return { ...figure, parts };
 }

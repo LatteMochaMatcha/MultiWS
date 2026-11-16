@@ -8,6 +8,7 @@
  * 手掌和手指另有自己的起点（手心朝下、四指并拢伸直，见 fingers.ts）：
  * 静止时手掌歪着一点、手指张着弯着的骨架，手心的朝向和手势照样对得上。
  */
+import { cloneBoneSource } from '../geometry/cloneNames';
 import { type Quat, type V3, Q_ID, mul, quatBasis, quatConj, quatMul } from '../geometry/vec';
 import { type Hand, extraFingerTwin, findHands } from './fingers';
 import { type Limb, findLimbs, limbFrame } from './limbs';
@@ -92,7 +93,10 @@ export function stateOf(solver: Solver, posing: Posing): PoseState {
     const above = p >= 0 ? world[p] : Q_ID;
     // 多出来的手指没记的：跟着它照着复制的那根（无名指）
     const twin = extraFingerTwin(name);
-    const told = posing.bones[name] ?? (twin ? posing.bones[twin] : undefined);
+    let told = posing.bones[name] ?? (twin ? posing.bones[twin] : undefined);
+    // 手工复制出来的部件（体块，见 geometry/clone.ts）的骨骼没记的：跟着照着复制的那根——复制出来的胸腔和原来那个一样弯，
+    // 复制出来的手臂、腿和原来那条摆成一样
+    for (let from = told ? null : cloneBoneSource(name), guard = 0; !told && from !== null && guard < 4; from = cloneBoneSource(from), guard++) told = posing.bones[from];
     if (!told) {
       world.push(above);
       return;

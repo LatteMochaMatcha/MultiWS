@@ -14,6 +14,7 @@
  * 沿躯干上下排的几对各有各的肩膀，不在此列：还是只摆最上面那一对，别的保持自己静止时的样子。
  * 纯函数。
  */
+import { BONE_FIRST, BONE_STEP, cloneBoneSource } from '../geometry/cloneNames';
 import { nthName } from '../geometry/figure';
 import { type Quat, type V3, quatConj, quatMul, rotate } from '../geometry/vec';
 import type { Limb } from './limbs';
@@ -145,14 +146,34 @@ export function followArms(solver: Solver, posing: Posing): { posing: Posing; fo
     }
     followers.push(limbs.indexOf(limb));
   }
+  // 手工复制出来的胸腔和原来那个并排站在胯上时（体块，见 geometry/torsos.ts 的 seatRibcages）：旁边还站着别的胸腔的那一侧的手臂，
+  // 姿势里摆了的也登记成「跟着动的」——伸进旁边那个身子里的让开、让不开就退回静止的样子（往前伸着），见 clear.ts。
+  // 程序排的几个上半身里侧的手臂本来就是跟着动的（它们排在后面几对）
+  const spines = rig.names.flatMap((name, j) => (/^Spine(_[LR])?(\.\d+)?$/.test(name) ? [j] : []));
+  if (spines.length > 1 && spines.some((j) => cloneBoneSource(rig.names[j]) !== null)) {
+    const spineOf = (bone: number): number => {
+      for (let b = rig.parent[bone]; b >= 0; b = rig.parent[b]) if (spines.includes(b)) return b;
+      return -1;
+    };
+    for (const limb of arms) {
+      const index = limbs.indexOf(limb);
+      const mine = spineOf(limb.upper);
+      if (mine < 0 || followers.includes(index) || !bones[rig.names[limb.upper]]) continue;
+      const x = rig.head[mine][0];
+      if (spines.some((j) => j !== mine && (rig.head[j][0] - x) * limb.side > 0.02 * rig.unit)) followers.push(index);
+    }
+  }
   return followers.length ? { posing: { ...posing, bones }, followers } : { posing, followers };
 }
 
-/** 一根骨骼（手臂）长在哪个上半身上：往上找到的第一节脊柱带的边（Spine_L 是 _L，正中那个是空的） */
+/**
+ * 一根骨骼（手臂）长在哪个上半身上：往上找到的第一节脊柱带的边（Spine_L 是 _L，正中那个是空的）；
+ * 手工复制出来的胸腔（体块，见 geometry/clone.ts）的脊柱不带边，照它是第几块复制出来的认（Spine.101 是 #0，Spine.121 是 #1）
+ */
 export function torsoOf(rig: Pick<Solver['rig'], 'names' | 'parent'>, bone: number): string {
   for (let b = rig.parent[bone]; b >= 0; b = rig.parent[b]) {
-    const m = /^(?:Spine|Chest|UpperChest)(_[LR])?(?:\.\d+)?$/.exec(rig.names[b]);
-    if (m) return m[1] ?? '';
+    const m = /^(?:Spine|Chest|UpperChest)(_[LR])?(?:\.(\d+))?$/.exec(rig.names[b]);
+    if (m) return (m[1] ?? '') + (m[2] && Number(m[2]) > BONE_FIRST ? `#${Math.floor((Number(m[2]) - 1 - BONE_FIRST) / BONE_STEP)}` : '');
   }
   return '';
 }

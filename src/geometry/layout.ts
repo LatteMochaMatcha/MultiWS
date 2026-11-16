@@ -17,10 +17,10 @@ import { type Mount, UNDER, genitalParts } from './genital';
 import { type HeadHair, CRANIUM, HEAD_HALF_HEIGHT, HEAD_HALF_WIDTH, SKULL, makeFace, makeHead } from './head';
 import { WING_OUTLINE, sampleTube } from './shapes';
 import { ringAt, smoothRings } from './torso';
-import { SLOT_SIDE, refork, splitTorsos, torsoSlots } from './torsos';
+import { SLOT_SIDE, refork, seatRibcages, splitTorsos, torsoSlots } from './torsos';
 import { conjoin } from './conjoined';
 import { liveAttach, rehost, withAttach } from './attach';
-import { withBlocks } from './clone';
+import { cloneRootName, withBlocks } from './clone';
 import { ringBuild, ringRows } from './ring';
 
 /**
@@ -806,7 +806,8 @@ export function beastLift(form: LegForm): V3 {
  * 之后它们和别的部件一样挪、转、缩放、删
  */
 export function planFigure(spec: BodySpec): Figure {
-  return withAttach(withBlocks(layoutFigure(spec), spec.blocks?.added), spec.blocks?.attach);
+  // 胯上有两个以上胸腔（复制出来的）时照好几个上半身那样并排摆开（见 torsos.ts 的 seatRibcages）
+  return seatRibcages(withAttach(withBlocks(layoutFigure(spec), spec.blocks?.added, spec.overrides), spec.blocks?.attach));
 }
 
 /** 摆位，再套上手动微调：界面、网格、导出用的都是这个结果 */
@@ -920,6 +921,20 @@ export const UPRIGHT_HIPS = 1.25;
 /** 二次元素体三个上半身直立并排（分得开，见 torsos.ts 的 UPRIGHT_SPREAD_THREE）时胯再宽多少倍：托得住三个腰 */
 export const UPRIGHT_HIPS_THREE = 1.5;
 
+/** 体块：胯上站着四个以上胸腔时，每多一个胯再宽多少倍、最多宽到多少倍（三个以内照 UPRIGHT_HIPS、UPRIGHT_HIPS_THREE） */
+const RIBS_HIPS_MORE = 0.2;
+const RIBS_HIPS_MOST = 2.1;
+
+/**
+ * 体块：躯干分成胸腔和胯两块的身体上，原来那副胯上站着几个胸腔——原来那一个，加上复制出来、没有接到别的部件上的那些（见 clone.ts、attach.ts）。
+ * 没分开的、连体、围成一圈、几个上半身的是 1
+ */
+function looseRibs(spec: BodySpec): number {
+  if (!spec.blocks?.splitTorso || spec.counts.torsos !== 1 || spec.conjoined !== 'none' || ringActive(spec)) return 1;
+  const attach = spec.blocks.attach ?? {};
+  return 1 + spec.blocks.added.filter((b) => /^UpperBody(_\d+)?$/.test(b.from) && !attach[cloneRootName(b.from, b.id)]).length;
+}
+
 /** 只按部件数量、排布和体型自动摆位，不管手动微调；单独设过末端、手指数的手臂、腿照它自己的设法 */
 export function layoutFigure(given: BodySpec): Figure {
   return ownLimbs(layoutEnds(given), given);
@@ -1014,7 +1029,15 @@ function layoutEnds(given: BodySpec): Figure {
   const wide = anime && alike && given.counts.torsos === 2 && given.counts.heads === 1 && given.headLayout !== 'faces' && plan.form === 'abreast' && plan.stations.length === 2 && plan.stations.every((n) => n === 2);
   if (wide) return splitTorsos(layoutAnime({ ...given, counts: { ...given.counts, torsos: 1, heads: 2 } }, true), 2);
   const three = anime && given.counts.torsos === 3;
-  const spec = given.counts.torsos > 1 ? { ...given, shape: { ...given.shape, hips: given.shape.hips * (upright ? UPRIGHT_HIPS : three ? UPRIGHT_HIPS_THREE : MULTI_HIPS) } } : given;
+  // 躯干分成两块以后复制出来的胸腔（体块，见 clone.ts）也算：胯上站着几个胸腔，胯就照几个上半身那样宽
+  const ribs = looseRibs(given);
+  const wider = ribs < 2 ? 1 : !anime ? MULTI_HIPS : ribs === 2 ? UPRIGHT_HIPS : Math.min(RIBS_HIPS_MOST, UPRIGHT_HIPS_THREE + RIBS_HIPS_MORE * (ribs - 3));
+  const spec =
+    given.counts.torsos > 1
+      ? { ...given, shape: { ...given.shape, hips: given.shape.hips * (upright ? UPRIGHT_HIPS : three ? UPRIGHT_HIPS_THREE : MULTI_HIPS) } }
+      : wider !== 1
+        ? { ...given, shape: { ...given.shape, hips: given.shape.hips * wider } }
+        : given;
   // 二次元少女素体的数据还没载入时，先按白模摆（数据到了以后界面会重新生成一遍）
   const layout = (s: BodySpec) => (anime ? layoutAnime(s) : layoutMannequin(s));
   const one = layout(spec);

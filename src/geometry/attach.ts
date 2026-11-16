@@ -4,7 +4,8 @@
  * 纯函数，不碰 three.js 和 DOM。
  */
 import type { Attached } from '../model/spec';
-import { isMoundBone, loose, withMoundBone } from './clone';
+import { domed, isMoundBone, loose, withMoundBone } from './clone';
+import { isRibcage } from './pelvis';
 import { type Figure, type Part, worldTransforms } from './figure';
 import { hostBoneAt } from './hostBone';
 
@@ -30,6 +31,16 @@ export function liveAttach(figure: Pick<Figure, 'parts'>, attach: Attach | undef
     live.set(name, a);
   }
   return live;
+}
+
+/**
+ * 胸腔（躯干分成两块时复制出来的，见 clone.ts）接到 host 上：host 是一块胯的话，它还是从胯上渐渐分出去的（腰照旧由 torsos.ts 的 refork 接顺，
+ * 只是换了一块胯）；接到别的部件上，它就是一整块跟着那个部件走——不再从胯上长出来，底下垫一个圆顶
+ */
+function onto(ribcage: Part, host: Part | undefined): Part {
+  if (host && host.type === 'torso' && !isRibcage(host)) return ribcage;
+  const { pivot: _pivot, ...rest } = ribcage;
+  return domed({ ...rest, prims: rest.prims.map((q) => (q.kind === 'grid' || q.kind === 'loft' ? { ...q, fork: undefined } : q)) }, 'bottom');
 }
 
 /** 排成父部件都在子部件前面（worldTransforms 要这个顺序），别的先后不变 */
@@ -61,10 +72,11 @@ export function withAttach(figure: Figure, attach: Attach | undefined): Figure {
   const live = liveAttach(figure, attach);
   if (!live.size) return figure;
   const taken = new Set(figure.parts.flatMap((p) => (p.bones ?? []).map((b) => b.name)));
+  const byName = new Map(figure.parts.map((p) => [p.name, p]));
   const moved = figure.parts.map((p): Part => {
     const a = live.get(p.name);
     if (!a) return p;
-    const { scale: _scale, ...rest } = loose(p);
+    const { scale: _scale, ...rest } = isRibcage(p) ? onto(p, byName.get(a.to)) : loose(p);
     return { ...rest, parent: a.to, pos: a.pos, quat: a.quat, ...(Math.abs(a.scale - 1) > 1e-12 ? { scale: a.scale } : {}) };
   });
   const parts = parentsFirst(moved);

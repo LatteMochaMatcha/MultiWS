@@ -28,10 +28,9 @@ describe('复制出来的部件叫什么', () => {
     // 照复制出来的再复制：号段换成新的那一块的，不叠上去
     expect(cloneRootName('Arm_101_L', 2)).toBe('Arm_201_L');
   });
-  it('名字里没有编号的（躯干、下身）复制不了', () => {
-    expect(cloneRootName('Torso', 1)).toBeNull();
-    expect(cloneRootName('LowerBody', 1)).toBeNull();
-    expect(cloneRootName('UpperBody_L', 1)).toBeNull();
+  it('名字里没有编号的（躯干、下身）加上这一块的号（能不能复制另看，见 torsoBlocks.test.ts）', () => {
+    expect(cloneRootName('Torso', 1)).toBe('Torso_101');
+    expect(cloneRootName('UpperBody_L', 1)).toBe('UpperBody_101_L');
   });
 });
 
@@ -190,10 +189,10 @@ describe('设定里的体块', () => {
     expect(addBlock(tweaked, [{ from: 'Chest_01_L', plain: true }]).spec.overrides.Chest_101_L).toBeUndefined();
   });
 
-  it('复制不了的原样返回', () => {
+  it('复制不了的（没分开的躯干）记在设定里也不出现', () => {
     const out = addBlock(spec, [{ from: 'Torso' }]);
-    expect(out.names).toEqual([]);
-    expect(out.spec).toBe(spec);
+    expect(buildFigure(out.spec).parts.map((p) => p.name)).toEqual(buildFigure(spec).parts.map((p) => p.name));
+    expect(addBlock(spec, []).spec).toBe(spec);
   });
 
   it('拿掉一块：连同照它再复制的、记在它们上面的微调；空出来的号下次接着用', () => {

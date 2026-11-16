@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { installAnimeBody } from '../src/anime/body';
 import { buildFigure } from '../src/geometry/layout';
 import { attachParts } from '../src/model/attach';
-import { addBlock } from '../src/model/blocks';
+import { addBlock, copyShift, setSplitTorso } from '../src/model/blocks';
 import { setOverride } from '../src/model/overrides';
 import { type BodySpec, defaultSpec, normalizeSpec } from '../src/model/spec';
 import { POSE_LIBRARY } from '../src/pose/library';
@@ -18,6 +18,12 @@ import { type V3, VIEWS, frameFor, png, render } from './softRender';
 const W = 300;
 const H = 440;
 const POSES = ['张开双臂', '叉腰', '蹲着'];
+
+/** 界面上点「复制一份」时先挪开多少（见 model/blocks.ts 的 copyShift） */
+const copyShiftOf = (spec: BodySpec, name: string) => {
+  const part = buildFigure(setSplitTorso(spec, true)).parts.find((p) => p.name === name);
+  return part ? copyShift(part) : undefined;
+};
 
 /** 各种加法：名字 → 在默认角色上加了什么 */
 const CASES: Record<string, (spec: BodySpec) => BodySpec> = {
@@ -59,6 +65,31 @@ const CASES: Record<string, (spec: BodySpec) => BodySpec> = {
     out = addBlock(out, [{ from: 'Chest_01_L', shift: [0.03, -0.5, -0.02], plain: anime }]).spec;
     out = attachParts(out, ['Chest_201_L'], 'Leg_01_L').spec;
     return attachParts(out, ['Arm_01_R'], 'Head_01').spec;
+  },
+  // 第 4 期：躯干分成两块以后复制胸腔——一个胯上两个胸腔，各往两边歪开
+  ribs: (spec) => addBlock(setSplitTorso(spec, true), [{ from: 'UpperBody' }]).spec,
+  // 第 4 期：复制胯——后面多一副胯，带着自己的一对腿
+  hips: (spec) => addBlock(setSplitTorso(spec, true), [{ from: 'Torso', shift: [0, 0, -0.3] }]).spec,
+  // 第 4 期：前后两副胯，各长一个胸腔——复制出来的胸腔接到复制出来的胯上，从那副胯上长出来
+  pair: (spec) => {
+    let out = addBlock(setSplitTorso(spec, true), [{ from: 'Torso', shift: [0, 0, -0.28] }]).spec;
+    out = addBlock(out, [{ from: 'UpperBody', shift: [0, 0, -0.28] }]).spec;
+    return attachParts(out, ['UpperBody_201'], 'Torso_101').spec;
+  },
+  // 对照：程序自己排的两个、三个上半身（counts.torsos）
+  program2: (spec) => normalizeSpec({ ...spec, counts: { ...spec.counts, torsos: 2 } }),
+  program3: (spec) => normalizeSpec({ ...spec, counts: { ...spec.counts, torsos: 3 } }),
+  // 复制出来的两个、三个胸腔，什么都不调（复制完就是这样）
+  copy2: (spec) => addBlock(setSplitTorso(spec, true), [{ from: 'UpperBody', shift: copyShiftOf(spec, 'UpperBody') }]).spec,
+  copy3: (spec) => {
+    const out = addBlock(setSplitTorso(spec, true), [{ from: 'UpperBody', shift: copyShiftOf(spec, 'UpperBody') }]).spec;
+    return addBlock(out, [{ from: 'UpperBody', shift: copyShiftOf(spec, 'UpperBody') }]).spec;
+  },
+  // 第 4 期：三个胸腔、两副胯
+  both: (spec) => {
+    let out = addBlock(setSplitTorso(spec, true), [{ from: 'UpperBody' }]).spec;
+    out = addBlock(out, [{ from: 'UpperBody' }]).spec;
+    return addBlock(out, [{ from: 'Torso', shift: [0, 0, -0.3] }]).spec;
   },
   // 多一条腿在后面、多一条尾巴
   legs: (spec) => {

@@ -7,7 +7,7 @@ import { arr, bool, int, num, obj, oneOf, opt, str, union } from '@earendil-work
 import { applyParse, describeSpec, parseDescription } from '../parser';
 import { buildFigure } from '../geometry/layout';
 import { attachParts, attachedTo, detachParts } from '../model/attach';
-import { COPYABLE, COPY_SHIFT, addBlock } from '../model/blocks';
+import { addBlock, canCopy, copyShift } from '../model/blocks';
 import { clearOverride, mirrorName, setOverride } from '../model/overrides';
 import { partLabel } from '../model/partLabel';
 import { type BodySpec, CHEST_ROW, COUNT_DEFS, type CountKey, HAIR_STYLES, PENIS_ROW, PER_TORSO_KEYS, type PartOverride, SHAPE_DEFS, TORSO_SIDES } from '../model/spec';
@@ -268,7 +268,8 @@ export function partTools(ctx: ToolContext): AgentTool[] {
     label: 'copy_part',
     description:
       'Duplicate ONE existing part (with anything growing on it: a copied head brings its neck, horns, ears) so the character has an extra one that can be placed anywhere — ' +
-      'e.g. a breast on the belly or back, a third arm on the hip, a small head on a shoulder. Works for heads, arms, legs, breasts (Chest_*), tails, wings, horns, ears, eyes; not the torso. ' +
+      'e.g. a breast on the belly or back, a third arm on the hip, a small head on a shoulder. Works for heads, arms, legs, breasts (Chest_*), tails, wings, horns, ears, eyes. ' +
+      'When the torso has been split into two blocks (list_parts shows both "UpperBody" = ribcage and "Torso" = pelvis), those can be copied too: a copied ribcage brings its head, arms and breasts and grows from the same pelvis; a copied pelvis brings its legs. ' +
       'The copy appears slightly offset from the original and is returned as "created" (names like Arm_101_L); then use tweak_part on it to move, rotate or scale it. ' +
       'mirror (default true) also copies the left/right twin so the copies are a pair. Use set_body counts instead when the user just wants "more arms" in the standard layout.',
     parameters: obj({ part: str(), mirror: opt(bool()) }),
@@ -279,9 +280,9 @@ export function partTools(ctx: ToolContext): AgentTool[] {
       const figure = figureOf(before, p.part);
       const twinName = p.mirror !== false ? mirrorName(p.part) : null;
       const sources = [p.part, ...(twinName !== null ? [twinName] : [])].flatMap((name) => figure.parts.filter((q) => q.name === name));
-      const bad = sources.find((q) => !COPYABLE.has(q.type));
-      if (!sources.length || bad) throw new Error(`"${p.part}" cannot be copied (only heads, arms, legs, breasts, tails, wings, horns, ears, eyes).`);
-      const out = addBlock(before, sources.map((q) => ({ from: q.name, shift: COPY_SHIFT[q.type], ...(q.surface && { plain: true }) })));
+      const bad = sources.find((q) => !canCopy(figure.parts, q));
+      if (!sources.length || bad) throw new Error(`"${p.part}" cannot be copied (only heads, arms, legs, breasts, tails, wings, horns, ears, eyes; the ribcage "UpperBody" and the pelvis "Torso" only after the torso has been split into two blocks in the Tweak panel).`);
+      const out = addBlock(before, sources.map((q) => ({ from: q.name, shift: copyShift(q), ...(q.surface && { plain: true }) })));
       return finish(before, out.spec, { created: out.names.map((name) => ({ name, label: partLabel(name) })) });
     },
   };

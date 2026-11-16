@@ -7,6 +7,7 @@
  * - 长在另一个上半身上（两个上半身时里侧的手臂）：照搬一模一样的朝向（姿势数据里记的那个），每个上半身各自做一整套动作。
  * 左边的跟左边的，右边的跟右边的。别的骨骼（脊柱、头、腿……）、整个人的位置不动。纯函数。
  */
+import { BONE_FIRST, BONE_STEP } from '../geometry/cloneNames';
 import { nthName } from '../geometry/figure';
 import { type Quat, quatConj, quatMul } from '../geometry/vec';
 import { armPairOf } from './blend';
@@ -38,8 +39,9 @@ export const armPairCount = (solver: Solver): number =>
 function torsoOf(solver: Solver, bone: number): string {
   const { rig } = solver;
   for (let b = rig.parent[bone]; b >= 0; b = rig.parent[b]) {
-    const m = /^(?:Spine|Chest|UpperChest)(_[LR])?(?:\.\d+)?$/.exec(rig.names[b]);
-    if (m) return m[1] ?? '';
+    const m = /^(?:Spine|Chest|UpperChest)(_[LR])?(?:\.(\d+))?$/.exec(rig.names[b]);
+    // 手工复制出来的胸腔的脊柱不带边，照它是第几块复制出来的认（见 fit.ts 的 torsoOf）
+    if (m) return (m[1] ?? '') + (m[2] && Number(m[2]) > BONE_FIRST ? `#${Math.floor((Number(m[2]) - 1 - BONE_FIRST) / BONE_STEP)}` : '');
   }
   return '';
 }

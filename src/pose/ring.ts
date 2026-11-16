@@ -90,7 +90,8 @@ export function isRingRig(rig: Pick<PoseRig, 'names' | 'parent' | 'hips'>): bool
   let known = ringRigs.get(rig);
   if (known === undefined) {
     const roots = rig.names.filter((name, j) => rig.parent[j] === rig.hips && /^Spine/.test(name));
-    known = roots.length >= 3 && roots.every((name) => /^Spine(\.\d{3})?$/.test(name));
+    // 手工复制出来的胸腔的脊柱（Spine.101 起，见 geometry/cloneNames.ts）不算：那不是围成一圈
+    known = roots.length >= 3 && roots.every((name) => /^Spine(\.0\d{2})?$/.test(name));
     ringRigs.set(rig, known);
   }
   return known;

@@ -2,8 +2,9 @@
  * 编辑「手工加的体块」用的小工具（见 docs/blocks-plan.md）。都是纯函数，返回新的 BodySpec。
  * 只管白模人台、二次元素体：成品角色不看 BodySpec.blocks
  */
-import { cloneRootName } from '../geometry/clone';
-import type { PartType } from '../geometry/figure';
+import { cloneRootName, isTorsoBlock } from '../geometry/clone';
+import type { Part, PartType } from '../geometry/figure';
+import { isRibcage } from '../geometry/pelvis';
 import { dropAttach } from './attach';
 import { type AddedBlock, type BodySpec, type PartOverride, type Vec3, ringActive } from './spec';
 
@@ -24,13 +25,16 @@ export const COPY_SHIFT: Partial<Record<PartType, Vec3>> = {
   eye: [0, 0.034, 0],
 };
 
+/** 这个部件能不能复制：COPYABLE 那几类，加上躯干分成两块以后的胸腔（带着头、手臂、胸）和胯（带着腿） */
+export const canCopy = (parts: readonly Part[], part: Part): boolean => COPYABLE.has(part.type) || isTorsoBlock(parts, part);
+
+/** 复制出来先往哪挪开多少：胯往后（挨着原来那块）；胸腔不用挪，几个胸腔在胯上自己会并排摆开（见 geometry/torsos.ts 的 seatRibcages） */
+export const copyShift = (part: Part): Vec3 | undefined => (part.type === 'torso' ? (isRibcage(part) ? undefined : [0, 0, -0.2]) : COPY_SHIFT[part.type]);
+
 /** 手工加出来的部件（每一块里照 from 复制出来的那个）→ 它是哪一条 */
 export function blockRoots(spec: Pick<BodySpec, 'blocks'>): Map<string, AddedBlock> {
   const out = new Map<string, AddedBlock>();
-  for (const block of added(spec)) {
-    const name = cloneRootName(block.from, block.id);
-    if (name !== null) out.set(name, block);
-  }
+  for (const block of added(spec)) out.set(cloneRootName(block.from, block.id), block);
   return out;
 }
 
@@ -63,18 +67,16 @@ export function addBlock(spec: BodySpec, sources: readonly BlockSource[]): { spe
   const names: string[] = [];
   for (const source of sources) {
     const name = cloneRootName(source.from, id);
-    if (name === null) continue;
     blocks.push({ id, from: source.from, ...(source.shift && { shift: source.shift }) });
     names.push(name);
     for (const [key, o] of Object.entries(spec.overrides)) {
       if (key === source.from) {
         if (!source.plain) overrides[name] = o;
-      } else if (key.startsWith(`${source.from}_`)) overrides[name + key.slice(source.from.length)] = o;
+      } else if (key.startsWith(`${source.from}_`) && !/^_\d+$/.test(key.slice(source.from.length))) overrides[name + key.slice(source.from.length)] = o;
     }
     // 头底下的脖子跟着头一起复制（见 geometry/clone.ts）
     const neck = /^Head_\d+$/.test(source.from) ? source.from.replace('Head_', 'Neck_') : null;
-    const neckClone = neck === null ? null : cloneRootName(neck, id);
-    if (neck !== null && neckClone !== null && spec.overrides[neck]) overrides[neckClone] = spec.overrides[neck];
+    if (neck !== null && spec.overrides[neck]) overrides[cloneRootName(neck, id)] = spec.overrides[neck];
   }
   if (!names.length) return { spec, names };
   return { spec: { ...spec, blocks: { ...spec.blocks, added: blocks }, overrides }, names };

@@ -47,6 +47,12 @@ export function labelSplitTorso(on: boolean) {
 export function partLabel(name: string): string {
   if (splitTorso && name === 'UpperBody') return t('胸腔@@躯干分成两块时上面那块');
   if (splitTorso && name === 'Torso') return t('胯和小腹');
+  // 手工复制出来的胸腔、胯（UpperBody_101、Torso_201，见 geometry/clone.ts）
+  const copied = /^(UpperBody|Torso)_(\d+)$/.exec(name);
+  if (copied) {
+    const what = copied[1] === 'UpperBody' ? t('胸腔@@躯干分成两块时上面那块') : t('胯和小腹');
+    return `${what} ${t('加{n}@@手工复制出来的部件', { n: Math.floor(Number(copied[2]) / 100) })}`;
+  }
   if (WHOLE[name]) return WHOLE[name];
   const tokens = name.split('_');
   const pieces: string[] = [];

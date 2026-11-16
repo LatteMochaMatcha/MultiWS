@@ -77,8 +77,8 @@ import {
   sideOf,
   topMost,
 } from './model/overrides';
-import { ATTACHABLE, attachParts, attachedTo, detachParts } from './model/attach';
-import { COPYABLE, COPY_SHIFT, PELVIS, RIBCAGE, addBlock, canSplitTorso, isBlockRoot, removeBlock, setSplitTorso, torsoSplit } from './model/blocks';
+import { attachParts, attachedTo, detachParts, isAttachable } from './model/attach';
+import { PELVIS, RIBCAGE, addBlock, canCopy, canSplitTorso, copyShift, isBlockRoot, removeBlock, setSplitTorso, torsoSplit } from './model/blocks';
 import { labelSplitTorso, partLabel } from './model/partLabel';
 import { PRESETS, applyPreset } from './model/presets';
 import {
@@ -2714,7 +2714,7 @@ mirrorInput.addEventListener('change', () => {
 /* ---- 删除部件：记在微调里（PartOverride.hidden），套微调时从身上拿掉；成品角色不支持 ---- */
 const btnTweakDelete = $<HTMLButtonElement>('btnTweakDelete');
 /** 选中的里面能删的（躯干、下身、脖子不能删） */
-const deletablePicks = (): string[] => (character ? [] : picks.filter((n) => tweakable().some((p) => p.name === n && deletable(p.type))));
+const deletablePicks = (): string[] => (character ? [] : picks.filter((n) => tweakable().some((p) => p.name === n && (deletable(p.type) || isBlockRoot(spec, n)))));
 btnTweakDelete.addEventListener('click', () => {
   const names = deletablePicks();
   if (!names.length) return;
@@ -2728,7 +2728,7 @@ btnTweakDelete.addEventListener('click', () => {
 const btnTweakAttach = $<HTMLButtonElement>('btnTweakAttach');
 const btnTweakDetach = $<HTMLButtonElement>('btnTweakDetach');
 /** 选中的里面能接到别的部件上的（多选时父部件也选中了的不算：它跟着父部件一起接过去） */
-const attachablePicks = (): string[] => (character || !figure ? [] : tweakTargets().filter((n) => figure!.parts.some((p) => p.name === n && ATTACHABLE.has(p.type))));
+const attachablePicks = (): string[] => (character || !figure ? [] : tweakTargets().filter((n) => figure!.parts.some((p) => p.name === n && isAttachable(p))));
 /** 选中的里面现在接着别的部件的 */
 const attachedPicks = (): string[] => (character ? [] : picks.filter((n) => attachedTo(spec, n) !== undefined));
 btnTweakAttach.addEventListener('click', () => {
@@ -2800,7 +2800,7 @@ btnTweakSplit.addEventListener('click', () => {
 /* ---- 复制部件：手工加一块（BodySpec.blocks，见 docs/blocks-plan.md）；成品角色不支持 ---- */
 const btnTweakCopy = $<HTMLButtonElement>('btnTweakCopy');
 /** 选中的里面能复制的（多选时父部件也选中了的不算：它跟着父部件一起复制） */
-const copyablePicks = (): Part[] => (character || !figure ? [] : tweakTargets().flatMap((n) => figure!.parts.filter((p) => p.name === n && COPYABLE.has(p.type))));
+const copyablePicks = (): Part[] => (character || !figure ? [] : tweakTargets().flatMap((n) => figure!.parts.filter((p) => p.name === n && canCopy(figure!.parts, p))));
 btnTweakCopy.addEventListener('click', () => {
   const sources = copyablePicks();
   if (!sources.length || !figure) return;
@@ -2811,12 +2811,12 @@ btnTweakCopy.addEventListener('click', () => {
     if (done.has(part.name)) continue;
     // 左右成对的：对侧也选中了，或者勾着「同时调整对侧」，就两个一起复制、用同一个号——复制出来的还是一对
     const twinName = mirrorName(part.name);
-    const twin = twinName !== null && (picked.has(twinName) || mirror) ? figure.parts.find((p) => p.name === twinName && COPYABLE.has(p.type)) : undefined;
+    const twin = twinName !== null && (picked.has(twinName) || mirror) ? figure.parts.find((p) => p.name === twinName && canCopy(figure!.parts, p)) : undefined;
     const pair = twin ? [part, twin] : [part];
     const out = addBlock(
       spec,
       // 贴在躯干表面上的胸：微调已经换算进它的形状里了，不再照搬一遍
-      pair.map((p) => ({ from: p.name, shift: COPY_SHIFT[p.type], ...(p.surface && { plain: true }) })),
+      pair.map((p) => ({ from: p.name, shift: copyShift(p), ...(p.surface && { plain: true }) })),
     );
     spec = out.spec;
     made.push(...out.names.filter((_, i) => picked.has(pair[i].name)));
