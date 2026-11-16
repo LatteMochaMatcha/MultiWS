@@ -246,5 +246,6 @@
   "互动": "Interaction",
   "场景文件": "Scene file",
   "删除这个部件": "Delete this part",
-  "把选中的部件从身上拿掉（长在它上面的一起拿掉）。躯干、下身、脖子不能删；删掉的在下面「已删除」里点一下就恢复": "Removes the selected parts from the body (anything growing on them goes too). The torso, lower body and neck cannot be deleted; click a name under \"Deleted\" below to bring it back"
+  "把选中的部件从身上拿掉（长在它上面的一起拿掉）。躯干、下身、脖子不能删；删掉的在下面「已删除」里点一下就恢复": "Removes the selected parts from the body (anything growing on them goes too). The torso, lower body and neck cannot be deleted; click a name under \"Deleted\" below to bring it back",
+  "照选中的部件多做一个（长在它上面的一起复制：复制头带着脖子、角、耳朵），先挪开一点，之后想挪到哪就挪到哪。头、手臂、腿、胸、尾巴、翅膀、角、耳朵、眼睛能复制": "Makes one more of the selected part (anything growing on it is duplicated too: a duplicated head brings its neck, horns and ears). The copy starts slightly offset and can then be moved anywhere. Heads, arms, legs, breasts, tails, wings, horns, ears and eyes can be duplicated"
 }

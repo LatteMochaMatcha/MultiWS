@@ -20,7 +20,8 @@ import { ROSTER, rosterEntry } from './character/roster';
 import { skinInPlace } from './character/pose';
 import { type TweakedCharacter, characterPartAt, characterPartGlow, characterParts, tweakCharacter } from './character/tweak';
 import { describeClashes, findClashes } from './geometry/clash';
-import { type Figure, type FigureMetrics, type PartType, nthName } from './geometry/figure';
+import { blockNames } from './geometry/clone';
+import { type Figure, type FigureMetrics, type Part, type PartType, nthName } from './geometry/figure';
 import { buildFigure } from './geometry/layout';
 import { type PartFrame, deletable, partFrame } from './geometry/tweak';
 import { type V3, Q_ID, UP, len, norm, quatBetween, quatConj, quatEuler, quatMul, rotate, sub } from './geometry/vec';
@@ -75,6 +76,7 @@ import {
   sideOf,
   topMost,
 } from './model/overrides';
+import { addBlock, isBlockRoot, removeBlock } from './model/blocks';
 import { partLabel } from './model/partLabel';
 import { PRESETS, applyPreset } from './model/presets';
 import {
@@ -2436,6 +2438,8 @@ let selected: string | null = null;
 let picks: string[] = [];
 /** 「多选」开着：在模型上点部件是往选中的里加一个、再点去掉（电脑上按着 Ctrl 或 Shift 点也一样） */
 let multiPick = false;
+/** 刚复制出来的部件（见 btnTweakCopy）：等模型重建好、它们出现了再选中（见 syncTweak） */
+let pendingPicks: string[] | null = null;
 /** 多选时正拖着操纵杆：按下那一刻各个部件的微调和操作坐标，拖动中都从它算起 */
 let dragFrom: Map<string, { override: PartOverride | undefined; frame: PartFrame }> | null = null;
 /** 左右成对的部件：改一侧时对侧同时改成镜像的样子 */
@@ -2532,6 +2536,7 @@ function anchorOf(names: readonly string[]): string | null {
 
 /** 换选中的部件（一个或好几个） */
 function setPicks(next: string[]) {
+  pendingPicks = null;
   const anchor = anchorOf(next);
   if (anchor === selected && next.length === picks.length && next.every((n, i) => n === picks[i])) return;
   picks = next;
@@ -2692,8 +2697,53 @@ const deletablePicks = (): string[] => (character ? [] : picks.filter((n) => twe
 btnTweakDelete.addEventListener('click', () => {
   const names = deletablePicks();
   if (!names.length) return;
-  for (const name of names) spec = hidePart(spec, name);
+  // 手工加出来的那一块是真的拿掉（连同记在它上面的微调），别的是记成「已删除」、点一下能恢复
+  for (const name of names) spec = isBlockRoot(spec, name) ? removeBlock(spec, name, figure ? blockNames(figure, name) : []) : hidePart(spec, name);
   select(null);
+  commit();
+});
+
+/* ---- 复制部件：手工加一块（BodySpec.blocks，见 docs/blocks-plan.md）；成品角色不支持 ---- */
+const btnTweakCopy = $<HTMLButtonElement>('btnTweakCopy');
+/** 能复制的那几类。躯干、下身还不能；脖子跟着头走；头发、成人部件不在里面 */
+const COPYABLE: ReadonlySet<PartType> = new Set<PartType>(['head', 'arm', 'leg', 'chest', 'tail', 'wing', 'horn', 'ear', 'eye']);
+/** 复制出来先往哪挪开多少（沿父部件的轴，摆位用的米），免得和原来那个叠在一起看不见 */
+const COPY_SHIFT: Partial<Record<PartType, Vec3>> = {
+  head: [0.17, 0, 0],
+  arm: [0, -0.11, 0],
+  leg: [0, 0, -0.15],
+  chest: [0, -0.12, -0.015],
+  tail: [0.07, 0, 0],
+  wing: [0, -0.13, 0],
+  horn: [0, 0, -0.035],
+  ear: [0, 0, -0.035],
+  eye: [0, 0.034, 0],
+};
+/** 选中的里面能复制的（多选时父部件也选中了的不算：它跟着父部件一起复制） */
+const copyablePicks = (): Part[] => (character || !figure ? [] : tweakTargets().flatMap((n) => figure!.parts.filter((p) => p.name === n && COPYABLE.has(p.type))));
+btnTweakCopy.addEventListener('click', () => {
+  const sources = copyablePicks();
+  if (!sources.length || !figure) return;
+  const picked = new Set(sources.map((p) => p.name));
+  const done = new Set<string>();
+  const made: string[] = [];
+  for (const part of sources) {
+    if (done.has(part.name)) continue;
+    // 左右成对的：对侧也选中了，或者勾着「同时调整对侧」，就两个一起复制、用同一个号——复制出来的还是一对
+    const twinName = mirrorName(part.name);
+    const twin = twinName !== null && (picked.has(twinName) || mirror) ? figure.parts.find((p) => p.name === twinName && COPYABLE.has(p.type)) : undefined;
+    const pair = twin ? [part, twin] : [part];
+    const out = addBlock(
+      spec,
+      // 贴在躯干表面上的胸：微调已经换算进它的形状里了，不再照搬一遍
+      pair.map((p) => ({ from: p.name, shift: COPY_SHIFT[p.type], ...(p.surface && { plain: true }) })),
+    );
+    spec = out.spec;
+    made.push(...out.names.filter((_, i) => picked.has(pair[i].name)));
+    for (const p of pair) done.add(p.name);
+  }
+  if (!made.length) return;
+  pendingPicks = made;
   commit();
 });
 
@@ -2825,9 +2875,11 @@ function renderTweak() {
     btnTweakReset.disabled = !picks.some((n) => activeOverrides(spec)[n]);
     btnTweakDelete.textContent = many ? t('删除选中的部件') : t('删除这个部件');
     btnTweakDelete.disabled = deletablePicks().length === 0;
+    btnTweakCopy.textContent = many ? t('复制选中的部件') : t('复制一份');
+    btnTweakCopy.disabled = copyablePicks().length === 0;
     $<HTMLButtonElement>('btnTweakKind').disabled = !tweakable().some((p) => p.type === part.type && !picks.includes(p.name));
-    // 这一条的末端、手指数只对单独选中的一条说得通
-    syncLimbTip(many ? undefined : part);
+    // 这一条的末端、手指数只对单独选中的一条说得通；手工复制出来的照着原来那条，不单独设
+    syncLimbTip(many || isBlockRoot(spec, part.name) ? undefined : part);
     const frame = part.type === 'eye' || part.type === 'horn' || part.type === 'ear' ? t('这个头的') : t('角色的');
     $('tweakNote').textContent = joinSentences([
       many
@@ -2845,6 +2897,7 @@ function renderTweak() {
     $('tweakNote').textContent = joinSentences([
       t('在模型上点一下某个部件，或者在上面选，就能单独调它的位置、角度和大小。'),
       t('要好几个一起调：勾上「多选」再一个个点，或者按住 Ctrl、Shift 点。'),
+      character ? '' : t('点中头、手臂、腿、胸、尾巴这些部件以后可以「复制一份」：多出来的那个想挪到哪就挪到哪。'),
     ]);
   }
   // 舞台左下角也标出选中的是谁：面板滚走了也看得见
@@ -2896,6 +2949,13 @@ function renderTweak() {
 
 /** 模型重建、或者换了选中的部件以后：把高亮、操纵杆和面板同步过来 */
 function syncTweak() {
+  // 刚复制出来的部件：模型重建好、它们出现了，就选中它们（操纵杆直接摆在新的那个上，接着就能拖走）
+  if (pendingPicks?.some((n) => tweakable().some((p) => p.name === n))) {
+    picks = pendingPicks.filter((n) => tweakable().some((p) => p.name === n));
+    selected = anchorOf(picks);
+    pendingPicks = null;
+    history.seal();
+  }
   // 部件数变了以后已经不存在的，从选中的里去掉
   if (picks.some((n) => !tweakable().some((p) => p.name === n))) {
     picks = picks.filter((n) => tweakable().some((p) => p.name === n));

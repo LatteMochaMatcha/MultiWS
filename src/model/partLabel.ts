@@ -45,7 +45,11 @@ export function partLabel(name: string): string {
     const word = WORD[tokens[i++]];
     if (!word) return name;
     let piece = word;
-    if (/^\d+$/.test(tokens[i] ?? '')) piece += ` ${Number(tokens[i++])}`;
+    if (/^\d+$/.test(tokens[i] ?? '')) {
+      const n = Number(tokens[i++]);
+      // 手工复制出来的（见 geometry/clone.ts）：号是 100 × 第几块 + 原来的号。写成「加 1」；照第 2 个以后复制的再带上原来的号
+      piece += n >= 100 ? ` ${t('加{n}@@手工复制出来的部件', { n: Math.floor(n / 100) })}${n % 100 > 1 ? `-${n % 100}` : ''}` : ` ${n}`;
+    }
     if (SIDE[tokens[i] ?? '']) piece += ` ${SIDE[tokens[i++]]}`;
     pieces.push(piece);
   }

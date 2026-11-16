@@ -19,6 +19,7 @@ import { WING_OUTLINE, sampleTube } from './shapes';
 import { ringAt, smoothRings } from './torso';
 import { SLOT_SIDE, refork, splitTorsos, torsoSlots } from './torsos';
 import { conjoin } from './conjoined';
+import { withBlocks } from './clone';
 import { ringBuild, ringRows } from './ring';
 
 /**
@@ -801,7 +802,8 @@ export function beastLift(form: LegForm): V3 {
 
 /** 摆位，再套上手动微调：界面、网格、导出用的都是这个结果 */
 export function buildFigure(spec: BodySpec): Figure {
-  const figure = layoutFigure(spec);
+  // 手工加的体块：在套微调之前复制进去，之后和别的部件一样挪、转、缩放、删
+  const figure = withBlocks(layoutFigure(spec), spec.blocks?.added);
   // 手动挪过、转过的上半身：从胯上分出去的那一段跟着改（见 torsos.ts）
   const fitted = refork(applyOverrides(figure, palmReach(figure, limbLength(figure, spec))));
   if (Math.abs(spec.shape.legLength - 1) < 1e-6) return fitted;

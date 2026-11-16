@@ -217,5 +217,8 @@
   "全部@@姿势分类": "All",
   "一个部位都没勾": "no parts ticked",
   "删除选中的部件": "Delete selected parts",
-  "已删除（点一下恢复）：": "Deleted (click to restore): "
+  "已删除（点一下恢复）：": "Deleted (click to restore): ",
+  "复制选中的部件": "Duplicate selected parts",
+  "复制一份": "Duplicate",
+  "点中头、手臂、腿、胸、尾巴这些部件以后可以「复制一份」：多出来的那个想挪到哪就挪到哪。": "After selecting a part such as a head, arm, leg, breast or tail, you can \"Duplicate\" it; the extra one can then be moved anywhere."
 }

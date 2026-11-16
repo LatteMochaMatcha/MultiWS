@@ -442,6 +442,38 @@ export function cleanOverride(o: PartOverride): PartOverride | null {
   return { ...(position && { position }), ...(rotation && { rotation }), ...(scale && { scale }), ...(o.hidden && { hidden: true }) };
 }
 
+/* ---------------- 体块：手工加的部件 ---------------- */
+
+/**
+ * 手工加的一块：照 from 这个部件（连同长在它上面的）复制一份，接在同一个父部件上（见 geometry/clone.ts）。
+ * 复制出来的部件用 id 定的号段起名（Arm_01_L 的第 1 块是 Arm_101_L），之后和别的部件一样记手动微调
+ */
+export interface AddedBlock {
+  /** 第几块，从 1 起。左右一对一起加的两条用同一个 id（Arm_101_L、Arm_101_R），这样「同时调整对侧」照旧认得 */
+  id: number;
+  /** 照哪个部件复制（实例名）；这个部件现在不在（改了数量）时这一块不出现 */
+  from: string;
+  /** 复制出来以后先挪开多少，免得和原来那个叠在一起看不见：和微调的位置一样沿父部件的轴、照标准人台的米 */
+  shift?: Vec3;
+}
+
+/** 体块组装的设定（见 docs/blocks-plan.md） */
+export interface Blocks {
+  added: AddedBlock[];
+}
+
+export function cleanBlocks(value: unknown): Blocks {
+  const added: AddedBlock[] = [];
+  const list = isRecord(value) && Array.isArray(value.added) ? value.added : [];
+  for (const raw of list) {
+    if (!isRecord(raw) || typeof raw.from !== 'string' || !raw.from) continue;
+    if (typeof raw.id !== 'number' || !Number.isInteger(raw.id) || raw.id < 1) continue;
+    const shift = readVec3(raw.shift);
+    added.push({ id: raw.id, from: raw.from, ...(shift && { shift }) });
+  }
+  return { added };
+}
+
 /* ---------------- BodySpec ---------------- */
 
 /**
@@ -528,6 +560,8 @@ export interface BodySpec {
    * 胯、腿照 character；两种白模不看它
    */
   torsoCharacters?: TorsoCharacters;
+  /** 体块组装：手工加的部件（见 Blocks）。成品角色不看它 */
+  blocks?: Blocks;
 }
 
 /** 每个上半身换成了哪个成品角色（见 BodySpec.torsoCharacters） */
@@ -600,10 +634,11 @@ export function defaultSpec(): BodySpec {
     posing: emptyPosing(),
     torsoCounts: {},
     torsoCharacters: {},
+    blocks: { added: [] },
   };
 }
 
-const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+const clamp =(v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 
 /** 取整并收进各自范围；非数字回落到默认值。返回新对象。 */
 export function clampCounts(counts: Partial<BodyCounts>): BodyCounts {
@@ -909,11 +944,19 @@ export function normalizeSpec(input: unknown): BodySpec {
     posing: cleanPosing(src.posing),
     torsoCounts: clampTorsoCounts(src.torsoCounts),
     torsoCharacters: cleanTorsoCharacters(src.torsoCharacters),
+    blocks: cleanBlocks(src.blocks),
   };
 }
 
 export function serializeSpec(spec: BodySpec, text?: string): string {
-  return JSON.stringify({ app: 'oc-basemesh', ...withoutAdultKeys(spec), ...(text === undefined ? {} : { text }) }, null, 2);
+  return JSON.stringify({ app: 'oc-basemesh', ...withoutAdultKeys(withoutEmptyBlocks(spec)), ...(text === undefined ? {} : { text }) }, null, 2);
+}
+
+/** 没有手工加的体块：存的时候不写 blocks 这个键（读的时候 normalizeSpec 会补上） */
+function withoutEmptyBlocks(spec: BodySpec): BodySpec {
+  if (spec.blocks?.added.length) return spec;
+  const { blocks: _blocks, ...rest } = spec;
+  return rest;
 }
 
 /**

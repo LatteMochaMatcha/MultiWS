@@ -87,5 +87,7 @@ export function applyPreset(spec: BodySpec, preset: Preset): BodySpec {
     ringHipsPerRow: preset.ringHipsPerRow ?? spec.ringHipsPerRow,
     earShape: preset.earShape ?? spec.earShape,
     overrides: {},
+    // 手工加的体块也是针对上一个角色的部件加的
+    blocks: { added: [] },
   };
 }

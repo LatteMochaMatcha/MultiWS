@@ -169,6 +169,12 @@ const WAIST_Y = 1.0;
 /** 这一块就摆在素体原来的位置上时，和躯干直接取并集，接缝处还原成素体本来的样子 */
 const NATIVE = { fuseAs: 'torso' } as const;
 
+/**
+ * 不在素体原位的脖子（挪了位置、斜着伸出去的，或者手工复制出来的，见 clone.ts）：一根光溜的圆台，从根部伸到 span。
+ * 往下多伸一截埋进肩膀里；根部垫一团软的，像斜方肌那样顺着肩线铺开
+ */
+export const plainNeck = (span: V3): Prim[] => [cone('Neck', mul(span, -0.06 / len(span)), span, 0.04, 0.03), mass('NeckRoot', [0.046, 0.028, 0.042], [0, -0.014, 0], 0.03)];
+
 /** 左边的关节换到 side 一侧 */
 const mirror = (p: V3, side: number): V3 => [p[0] * side, p[1], p[2]];
 /**
@@ -657,13 +663,7 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
       pos: base,
       quat: Q_ID,
       material: 'clay',
-      prims: inPlace
-        ? [grid('Neck', 'neck', 1, { thicken: { from: O, to: NECK_SPAN, k: NECK_THICK, ramp: [0.012, 0.035, 0.035] } })]
-        : [
-            // 往下多伸一截埋进肩膀里；根部垫一团软的，像斜方肌那样顺着肩线铺开
-            cone('Neck', mul(neckSpan, -0.06 / len(neckSpan)), neckSpan, 0.04, 0.03),
-            mass('NeckRoot', [0.046, 0.028, 0.042], [0, -0.014, 0], 0.03),
-          ],
+      prims: inPlace ? [grid('Neck', 'neck', 1, { thicken: { from: O, to: NECK_SPAN, k: NECK_THICK, ramp: [0.012, 0.035, 0.035] } })] : plainNeck(neckSpan),
       bones: [bone(nthName('Neck', k), O, neckSpan, 'UpperChest')],
       ...(inPlace ? NATIVE : {}),
     });
