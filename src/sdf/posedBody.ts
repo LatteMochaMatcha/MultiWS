@@ -7,7 +7,7 @@
  */
 import type { Figure, PartType } from '../geometry/figure';
 import { GROUP_INDEX, evalPrims } from './field';
-import { type PoseMatrices, compilePosedField } from './posedField';
+import { type PoseMatrices, compilePosedField, heldLegs } from './posedField';
 
 /** 算进身体的部件 */
 const BODY: PartType[] = ['torso', 'lower', 'leg', 'neck', 'head', 'chest'];
@@ -29,4 +29,24 @@ export function posedBodyDist(figure: Pick<Figure, 'parts' | 'scale'>, blend: nu
   const prims = Int32Array.from(list);
   const unit = figure.scale;
   return (x, y, z) => evalPrims(field, prims, prims.length, x / unit, y / unit, z / unit) * unit;
+}
+
+/**
+ * 量手腕周围空不空用的（见 pose/clear.ts 的 posed）：照摆好的姿势的距离，和照「融合的时候」的样子的距离里小的那个。
+ * 二次元素体的腿不在场里摆：融合时腿整个跟着胯（见 posedFuse.ts），缝完手才搬到摆好的位置。蹲下、迈开腿以后垂在胯旁边的手，
+ * 照摆好的姿势量是空着的，融合时却贴着那条还直着的腿——腿又不许挖（挖出的坑会跟着腿搬走），手就缝不上、掉成单独一块。
+ * 所以两个样子里手腕周围都得空着。腿没动、或者不是这种腿的，就是 posedBodyDist
+ */
+export function wristBodyDist(figure: Pick<Figure, 'parts' | 'scale'>, blend: number, matrices: PoseMatrices): ((x: number, y: number, z: number) => number) | null {
+  const posed = posedBodyDist(figure, blend, matrices);
+  if (!posed) return null;
+  let held: ReturnType<typeof heldLegs>;
+  try {
+    held = heldLegs(figure, matrices);
+  } catch {
+    return posed;
+  }
+  const fusing = held && posedBodyDist(figure, blend, held.matrices);
+  if (!fusing) return posed;
+  return (x, y, z) => Math.min(posed(x, y, z), fusing(x, y, z));
 }

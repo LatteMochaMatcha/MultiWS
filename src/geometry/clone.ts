@@ -9,11 +9,12 @@ import type { AddedBlock, PartOverride } from '../model/spec';
 import { chestBulk } from '../anime/chest';
 import { plainNeck } from './animeLayout';
 import { castRay, compileField } from '../sdf/field';
-import { type BoneHint, type ChestShape, type Figure, type Graft, type Part, type Prim, nthName, worldTransforms } from './figure';
+import { type BoneHint, type ChestShape, type Figure, type Graft, type Part, type Prim, nthName, shapeMatrix, worldTransforms } from './figure';
 import { BONE_FIRST, BONE_LAST, BONE_STEP, ordinal } from './cloneNames';
 import { hostBoneAt } from './hostBone';
 import { isPelvis, isRibcage, isSplit, pelvisOf } from './pelvis';
-import { type V3, Q_ID, add } from './vec';
+import { forkWarp } from '../sdf/fork';
+import { type V3, Q_ID, add, mul, quatBasis, quatConj, quatMul, rotate, sub } from './vec';
 
 /**
  * 复制出来的部件用的号：第 id 块是 100·id 加上原来的号（Arm_02_L 的第 1 份是 Arm_102_L）。
@@ -113,6 +114,12 @@ function mound(q: ChestShape): Prim {
 }
 
 /**
+ * 点明了保持原胸型的胸（AddedBlock.piece）是坐进身体表面、一只挨一只排满的，和底下的胯、旁边的胸腔、肩膀底下的手臂根挨着是摆出来的样子：
+ * 穿模检查不算（Part.rootFree 给得比整个人还大，和围成一圈里坐在芯子上的胸一样，见 ring.ts 的 EMBEDDED）
+ */
+const PIECE_FREE = 10;
+
+/**
  * 复制出来的部件不在原来那个位置上，照原位做的形状要换成能摆到别处的：
  * - 贴在躯干表面上的胸（二次元素体）：不贴表面，换成一个圆包（见 mound），和别的部件一样随便挪、转、缩放；
  * - 长在素体本来的肩膀上的手臂：根上连着一圈腋下的皮，挪到别处会支出一圈毛边。换成它举高时用的那一套
@@ -121,8 +128,15 @@ function mound(q: ChestShape): Prim {
  * - 素体上从同一个模型切下来、还在原位的那几块（头、脖子、手臂、腿）是当成躯干的一部分直接拼的（fuseAs）：
  *   挪开以后对不上原来的切口，改回圆滑地融进去
  */
-export function loose(part: Part): Part {
+export function loose(part: Part, piece = false): Part {
   const { fuseAs, ...rest } = part;
+  // 保持原胸型的（AddedBlock.piece）：只取胸根以内的那一块整只搬走，还和躯干算同一类直接取并集——
+  // 算成别的类，胸根和底下的身体几乎重合的那一片之间出圆角，整片顶起来像一块盾牌（见 ring.ts 的 strung）
+  if (piece && part.surface && part.prims.some((q) => q.kind === 'chest')) {
+    return { ...part, surface: false, rootFree: PIECE_FREE, prims: part.prims.map((q) => (q.kind === 'chest' ? { ...q, piece: true } : q)) };
+  }
+  // 白模人台的胸本来就是一个圆包，没有「原胸型」这回事；点明了 piece 的也是一只挨一只坐在身体上的，穿模检查一样不算
+  if (piece && part.type === 'chest') return { ...part, rootFree: PIECE_FREE };
   const free: Part = fuseAs === 'torso' && part.type !== 'torso' ? rest : part;
   if (free.surface) return { ...free, surface: false, prims: free.prims.map((q) => (q.kind === 'chest' ? mound(q) : q)) };
   if (free.type === 'arm' && free.posed) {
@@ -197,7 +211,7 @@ function cloneBlock(figure: Figure, block: AddedBlock): Figure {
     /** 这一块里领头的（父部件在这一块外面的：要复制的那个、头底下的脖子、胯带着的腿） */
     const top = p.parent === undefined || !partName.has(p.parent);
     // 复制胸腔、胯的时候整块连同上面长的都照原样（它们相互之间还在原位）；别的部件领头的那几个换成能摆到别处的形状
-    const shaped = torso ? (p === source && isPelvis(p) ? domed(p) : p) : top ? loose(p) : p;
+    const shaped = torso ? (p === source && isPelvis(p) ? domed(p) : p) : top ? loose(p, block.piece) : p;
     const out: Part = { ...shaped, name: partName.get(p.name)! };
     if (p.parent !== undefined) out.parent = partName.get(p.parent) ?? p.parent;
     // 挪开：领头的那些一起挪，长在它们上面的跟着走
@@ -229,6 +243,45 @@ export const isMoundBone = (name: string) => /^Bust(_[LR])?\.\d{3}$/.test(name);
 function moundReach(part: Part): number {
   const q = part.prims.find((p) => p.kind === 'ellipsoid' && !p.cut);
   return q?.kind === 'ellipsoid' ? Math.max(q.radii[2], MOUND_LEAST) : 0.03;
+}
+
+/**
+ * 整只搬过去的胸（AddedBlock.piece）贴着的那块躯干不带「从胯上分出去的那一段」（Fork）。
+ * torsos.ts 的 refork 给每只胸各记一个高度（Fork.freeze，照胸现在摆在多高）：分出去的那一段照这个高度上转、挪了多少整块退回去，
+ * 是一个不变形的转动加挪动。同一个胸腔上的十几只胸摆在不同的高度，形状的参数就各不一样，要各烤一份
+ * （sdf/grids.ts 的 chestDist，一份十几 MB、两秒）：楚云萱三十只胸有十六种，缓存装不下，每融合一次、每套一个姿势都在重烤。
+ * 这里把那个转动、挪动算出来挪到部件自己的摆放上，形状里不留——摆出来和原来一模一样，三十只是同一种形状。
+ * 在 refork 之后做（见 layout.ts 的 buildFigure）。部件被压扁拉长过的、分叉带着别的坐标系或者和旁边的上半身有分界的照旧不动
+ */
+export function plainPieces(figure: Figure): Figure {
+  const out = new Float64Array(4);
+  let changed = false;
+  const parts = figure.parts.map((part): Part => {
+    const shape = part.type === 'chest' ? part.prims.find((q): q is ChestShape => q.kind === 'chest') : undefined;
+    const fork = shape?.piece ? shape.body.fork : undefined;
+    if (!shape || !fork || fork.freeze === undefined || fork.frame || fork.split?.length || shapeMatrix(part)) return part;
+    // 胸腔里的一点 x 退回去是 R·x + t：照四个点量出来
+    const warp = forkWarp(fork);
+    const at = (x: number, y: number, z: number): V3 => {
+      warp.map(x, y, z, out);
+      return [out[0], out[1], out[2]];
+    };
+    const t = at(0, 0, 0);
+    const turn = quatBasis(sub(at(1, 0, 0), t), sub(at(0, 1, 0), t), sub(at(0, 0, 1), t));
+    const back = quatConj(turn);
+    // 部件里的一点 p 原来量的是 d(R·(p + o) + t)，现在量 d(p′ + o)：p′ = R·(p + o) + t − o，部件的摆放跟着换
+    const quat = part.quat ?? Q_ID;
+    const o = shape.origin;
+    const pos = add(part.pos, rotate(quat, mul(sub(rotate(back, sub(o, t)), o), part.scale ?? 1)));
+    changed = true;
+    return {
+      ...part,
+      pos,
+      quat: quatMul(quat, back),
+      prims: part.prims.map((q): Prim => (q === shape ? { ...q, body: { ...q.body, fork: undefined } } : q)),
+    };
+  });
+  return changed ? { ...figure, parts } : figure;
 }
 
 /**

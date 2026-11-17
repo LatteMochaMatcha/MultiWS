@@ -217,6 +217,8 @@
   "全部@@姿势分类": "All",
   "一个部位都没勾": "no parts ticked",
   "删除选中的部件": "Delete selected parts",
+  "收起": "Collapse",
+  "{n} 个，点开看": "{n} — click to show",
   "已删除（点一下恢复）：": "Deleted (click to restore): ",
   "复制选中的部件": "Duplicate selected parts",
   "复制一份": "Duplicate",

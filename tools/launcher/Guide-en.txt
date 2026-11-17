@@ -138,6 +138,14 @@ Section by section:
                      With a Ready-made character, everything above her waist (hair and clothes included) is copied
                      once and bent apart at the waist.
   Presets            13 ready-made combinations; click one to switch to it.
+                     The last one, Chu Yunxuan (six heads in front-and-back rows), is assembled from copied blocks
+                     on the Anime body: nine pelvises, nine ribcages, twelve arms and thirty breasts, each of
+                     which can be selected, moved, rotated or deleted under Manual tweak.
+                     If you then drag a body-shape slider or change the number of heads or arms, the blocks are
+                     arranged again to fit; once you have edited a block by hand they are no longer re-arranged.
+                     On the Mannequin and ready-made characters it uses the "Front-and-back rows" ring layout.
+                     If you switch body style right after applying it (nothing else changed), it is applied
+                     again for the new style.
   Parts              One card per part (head, arms, breasts, legs, tails, wings): set how many with − and + on
                      the card header, and click the header to open that part's own layout, style and size
                      (options that don't apply are hidden). Layouts: "Multiple heads": "Clustered", "1 head, N faces" (one head with several faces) or "Wide torso";
@@ -174,7 +182,7 @@ Section by section:
                      down a little.
                      The first time you pick a certain hairstyle you wait a second or two (the data is being fetched).
   Body shape         Gender, pose (A-pose / T-pose), and sliders for height, heads tall, bust
-                     size, shoulder width, waist width, hip width, limb thickness, arm length, leg length and so on.
+                     size, shoulder width, waist width, hip width, limb thickness, thigh thickness, arm length, leg length and so on.
                      Pushed to either end they give very exaggerated cartoon proportions (limbs up to 3 times
                      thicker or down to 0.35 times).
                      Leg length doesn't change the height: when the legs are lengthened, the whole figure is scaled
@@ -196,6 +204,10 @@ Section by section:
                      when posing); "Detach" puts it back. With "Snap to connection points" ticked, click near one
                      of the small dots on the model (shoulder, hip, neck base, joints) and the root of the part
                      snaps onto it.
+                     Deleting a duplicated pelvis also deletes the ribcage attached to it (with its head, arms and
+                     breasts); to remove only the legs, delete the legs.
+                     When more than 12 names are listed under "Deleted" or "Tweaked", they are folded; click
+                     "N — click to show" to open the list.
                      These are not available on ready-made characters.
                      Ready-made characters can be tweaked too: the parts follow the bones, and where they join the
                      body (shoulder, hip joint, neck) they stretch along; copied arms, tails, wings and horns move

@@ -270,6 +270,7 @@ select:focus-visible,.triple input:focus-visible{outline:2px solid var(--accent)
 @media (hover:hover){.tweaked button.chip:hover{outline:1px solid var(--accent)}}
 .tweaked button.chip:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .tweaked button.chip.hit{color:var(--accent-ink)}
+.tweaked button.chip.fold{background:transparent;outline:1px dashed var(--line);color:var(--muted)}
 
 /* ---------- 导出：钉在面板底部，面板滚到哪都够得着 ---------- */
 .panel-foot{display:flex;flex-direction:column;gap:8px;padding:12px 20px 14px;border-top:1px solid var(--line);background:var(--panel)}

@@ -136,6 +136,26 @@ describe.each(STYLES)('复制部件（%s）', (bodyStyle) => {
     expect(part(moved, 'Chest_101_L').pos[1]).toBeCloseTo(part(still, 'Chest_01_L').pos[1] - 0.2, 6);
   });
 
+  it('点明要保持原胸型的（piece）：素体复制出来的还是那只胸型、只取胸根以内，照样能挪、能转；白模人台没有这回事', () => {
+    const figure = withBlocks(plain, [{ id: 1, from: 'Chest_01_L', piece: true }]);
+    const from = part(figure, 'Chest_01_L');
+    const copy = part(figure, 'Chest_101_L');
+    expect(copy.surface ?? false).toBe(false);
+    if (bodyStyle === 'anime') {
+      expect(copy.prims).toEqual(from.prims.map((q) => ({ ...q, piece: true })));
+      // 还和躯干算同一类直接取并集（算成别的类胸根那一片顶起来像一块盾牌）
+      expect(copy.fuseAs).toBe(from.fuseAs);
+      expect(copy.bones).toHaveLength(1);
+      const turned = buildFigure({ ...spec, blocks: { added: [{ id: 1, from: 'Chest_01_L', piece: true }] }, overrides: { Chest_101_L: { position: [0, -0.2, 0], rotation: [0, 30, 0] } } });
+      expect(part(turned, 'Chest_101_L').pos[1]).toBeCloseTo(from.pos[1] - 0.2, 6);
+      expect(part(turned, 'Chest_101_L').quat).not.toEqual(from.quat);
+    } else expect(copy.prims).toEqual(part(withBlocks(plain, [{ id: 1, from: 'Chest_01_L' }]), 'Chest_101_L').prims);
+    // 存成设定再读回来还带着这一项；不是 true 的不留
+    const saved = normalizeSpec(JSON.parse(JSON.stringify({ ...spec, blocks: { added: [{ id: 1, from: 'Chest_01_L', piece: true }, { id: 2, from: 'Chest_01_R', piece: 1 }] } })));
+    expect(saved.blocks?.added).toEqual([{ id: 1, from: 'Chest_01_L', piece: true }, { id: 2, from: 'Chest_01_R' }]);
+    expect(addBlock(spec, [{ from: 'Chest_01_L', piece: true }]).spec.blocks?.added).toEqual([{ id: 1, from: 'Chest_01_L', piece: true }]);
+  });
+
   it('复制出来的胸自己带一根骨骼，接在离它最近的那节脊柱上；挪到别处以后改接', () => {
     const withBlock: BodySpec = { ...spec, blocks: { added: [{ id: 1, from: 'Chest_01_L' }] } };
     const figure = buildFigure(withBlock);

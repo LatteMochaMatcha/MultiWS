@@ -113,6 +113,7 @@ export type ShapeKey =
   | 'waist'
   | 'hips'
   | 'limbs'
+  | 'thighs'
   | 'armLength'
   | 'legLength'
   | 'tailFluff'
@@ -148,6 +149,8 @@ export const SHAPE_DEFS: readonly ShapeDef[] = [
   { key: 'waist', label: t('腰宽'), min: 0.7, max: 1.6, step: 0.01, def: 1, safe: [0.8, 1.3] },
   { key: 'hips', label: t('胯宽'), min: 0.7, max: 1.8, step: 0.01, def: 1, safe: [0.8, 1.4] },
   { key: 'limbs', label: t('四肢粗细'), min: 0.5, max: 2, step: 0.01, def: 1, safe: [0.8, 1.3] },
+  // 只动大腿（膝盖往上），小腿、脚照旧；叠在四肢粗细上面。成品角色不跟着变
+  { key: 'thighs', label: t('大腿粗细'), min: 0.7, max: 1.8, step: 0.01, def: 1, safe: [0.85, 1.15] },
   { key: 'armLength', label: t('手臂长短'), min: 0.5, max: 2, step: 0.01, def: 1, safe: [1, 1] },
   { key: 'legLength', label: t('腿长短'), min: 0.5, max: 1.8, step: 0.01, def: 1, safe: [1, 1] },
   { key: 'tailFluff', label: t('尾巴蓬松'), min: 0, max: 3, step: 0.01, def: 0.4, safe: [0, 2] },
@@ -455,6 +458,11 @@ export interface AddedBlock {
   from: string;
   /** 复制出来以后先挪开多少，免得和原来那个叠在一起看不见：和微调的位置一样沿父部件的轴、照标准人台的米 */
   shift?: Vec3;
+  /**
+   * 二次元素体贴在躯干表面上的胸，复制出来还是原来的胸型（只取胸根以内的那一块，见 ChestShape.piece），整只搬过去；
+   * 不写是一个自己成形的圆包。原胸型带不走底下那片皮，单独放着根上有一圈印子，一只挨一只排满才好看（见 model/chu.ts）
+   */
+  piece?: boolean;
 }
 
 /** 体块组装的设定（见 docs/blocks-plan.md） */
@@ -486,6 +494,11 @@ export interface Attached {
   socket?: string;
   /** 离接口多远（to 自己的坐标）；正好在接口上就不写 */
   offset?: Vec3;
+  /**
+   * 胸腔接在胯上时也当成一整块（底下垫圆顶、靠融合和胯长在一起），不从胯上渐渐分出去：
+   * 相对胯转了半圈的胸腔，腰上那一段是渐渐拧过去的，看着像拧麻花（见 model/chu.ts 中间一排、后排的胸腔）
+   */
+  whole?: boolean;
 }
 
 export function cleanBlocks(value: unknown): Blocks {
@@ -495,7 +508,7 @@ export function cleanBlocks(value: unknown): Blocks {
     if (!isRecord(raw) || typeof raw.from !== 'string' || !raw.from) continue;
     if (typeof raw.id !== 'number' || !Number.isInteger(raw.id) || raw.id < 1) continue;
     const shift = readVec3(raw.shift);
-    added.push({ id: raw.id, from: raw.from, ...(shift && { shift }) });
+    added.push({ id: raw.id, from: raw.from, ...(shift && { shift }), ...(raw.piece === true && { piece: true }) });
   }
   const attach: Record<string, Attached> = {};
   for (const [name, raw] of Object.entries(isRecord(value) && isRecord(value.attach) ? value.attach : {})) {
@@ -511,6 +524,7 @@ export function cleanBlocks(value: unknown): Blocks {
       quat: [quat[0] / norm, quat[1] / norm, quat[2] / norm, quat[3] / norm],
       scale: raw.scale,
       ...(typeof raw.socket === 'string' && raw.socket ? { socket: raw.socket, ...(offset && offset.some((v) => v !== 0) ? { offset } : {}) } : {}),
+      ...(raw.whole === true && { whole: true }),
     };
   }
   return {

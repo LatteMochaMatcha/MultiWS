@@ -19,6 +19,7 @@ import { torsoOf } from './fit';
 import type { Limb } from './limbs';
 import { quatAngle, quatLimit } from './math';
 import type { Posing } from './posing';
+import { isBlockRig, isRingRig } from './ring';
 import { type Frame, forward, setWorldRot, tailOf } from './rig';
 import { type Solver, posingOf, stateOf } from './solver';
 
@@ -51,6 +52,8 @@ const PARTLY = [0.75, 0.5, 0.25];
  * 只有往身前伸才放得下（三个上半身蹲着时要抬到平举以上）：最多抬 LIFT_STUCK
  */
 const SQUEEZE = 0.5;
+/** 肩关节离得不到上臂长的这么多倍，算挤在同一个肩膀上（和 fit.ts 的一样） */
+const SAME_SHOULDER = 0.5;
 const LIFT_STUCK = (120 * Math.PI) / 180;
 /** 这几条摆回静止的样子时，插得不比 GRACE 的这么多倍深就算让开了 */
 const REST_GRACE = 2;
@@ -127,12 +130,13 @@ export function clearArms(
    * 只在所有手臂都摆好以后补着推的时候量（见 freeStub）：算进让开没让开的话，挨着别的手臂垂着的几条（肩部聚拢）全都让不开、
    * 退回静止的样子
    */
-  const samples = (limb: Limb, f: Frame): { p: V3; r: number; stub?: boolean }[] => {
+  const samples = (limb: Limb, f: Frame): { p: V3; r: number; stub?: boolean; end?: boolean }[] => {
     const [upper, fore, hand] = rods(limb, f);
-    const out: { p: V3; r: number; stub?: boolean }[] = [];
+    const out: { p: V3; r: number; stub?: boolean; end?: boolean }[] = [];
     for (const t of [UPPER_FROM, 0.6, 0.8, 1]) out.push({ p: lerp3(upper.a, upper.b, t), r: upper.r });
-    for (const t of [0.25, 0.5, 0.75, 1]) out.push({ p: lerp3(fore.a, fore.b, t), r: fore.r });
-    for (const t of [0.5, 1]) out.push({ p: lerp3(hand.a, hand.b, t), r: hand.r });
+    // end：手腕和手（见 slack）
+    for (const t of [0.25, 0.5, 0.75, 1]) out.push({ p: lerp3(fore.a, fore.b, t), r: fore.r, end: t === 1 });
+    for (const t of [0.5, 1]) out.push({ p: lerp3(hand.a, hand.b, t), r: hand.r, end: true });
     // 顺着前臂伸出去，也连着手掌根顺着手折过去：两个方向都取
     for (const way of [norm(sub(fore.b, fore.a)), norm(sub(hand.b, hand.a))]) {
       for (const { at, r } of STUB) out.push({ p: add(fore.b, mul(way, at * scale)), r: r * k + room, stub: true });
@@ -189,17 +193,38 @@ export function clearArms(
     }
     return { depth, out };
   };
-  /** 一条手臂插得最深的那一点（withStub：手腕外面那一截也量） */
+  /**
+   * 静止时就插着的手臂（用体块拼的身体，见下面 blocky）：静止时比 GRACE 多插了多深，摆过去以后照样让这么多。分两截算：
+   * 手腕和手（samples 里标了 end 的）只让它们自己静止时插的那么多（多半是零），别的点让整条手臂里插得最深的那么多——
+   * 静止时埋着的是上臂（夹在胸中间），转过去以后埋着的换成了上臂、前臂上别的点，所以这一截不分哪个点；
+   * 手腕和手也照埋得最深的那一点放宽的话，手腕就能贴着、插进身体（弯腰拿东西、蹲着），那里没有一圈干净的断口，手缝不上。
+   * 记下来以后 worst 里一直算着：最后补着推手腕外面那一截时（见 freeStub），推的才是那一截，不是静止时就埋着的上臂
+   */
+  const slack = new Map<Limb, { rest: number; end: number }>();
+  /** 一条手臂插得最深的那一点（withStub：手腕外面那一截也量），每个点先减掉让给它的那一截（见 slack） */
   const worst = (limb: Limb, others: Rod[] | null, withStub = false): { p: V3; depth: number; out: V3 } => {
     let hit = { p: [0, 0, 0] as V3, depth: -Infinity, out: [0, 1, 0] as V3 };
-    for (const { p, r, stub } of samples(limb, frame)) {
+    const give = slack.get(limb);
+    for (const { p, r, stub, end } of samples(limb, frame)) {
       if (stub && !withStub) continue;
       const inBody = stub && posed ? intoPosed(p, r, posed) : intoBody(p, r, frame, stub ? STUB_BONES : 1);
+      const less = !give || stub ? 0 : end ? give.end : give.rest;
       for (const probe of [inBody, others ? intoArms(p, r, others) : null]) {
-        if (probe && probe.depth > hit.depth) hit = { p, ...probe };
+        if (probe && probe.depth - less > hit.depth) hit = { p, ...probe, depth: probe.depth - less };
       }
     }
     return hit;
+  };
+  /** 一条手臂现在比 GRACE 多插了多深：整条里最深的（rest）、手腕和手上最深的（end）；手腕外面那一截不算 */
+  const excess = (limb: Limb, others: Rod[] | null): { rest: number; end: number } => {
+    const out = { rest: 0, end: 0 };
+    for (const { p, r, stub, end } of samples(limb, frame)) {
+      if (stub) continue;
+      const over = Math.max(intoBody(p, r, frame).depth, others ? intoArms(p, r, others).depth : -Infinity) - grace;
+      out.rest = Math.max(out.rest, over);
+      if (end) out.end = Math.max(out.end, over);
+    }
+    return out;
   };
   /** 整条手臂绕肩关节转 turn（世界坐标里的旋转） */
   const swing = (limb: Limb, turn: Quat) => {
@@ -244,15 +269,34 @@ export function clearArms(
   };
   /**
    * 推不开的：从 start 起整条往身前抬 angle（绕手臂长在上面的那个上半身现在的左右方向转），再推开（最多转 NUDGE）。
-   * others：还要让开的别的手臂（只让开身体的是 null）。返回最后还插着多深
+   * others：还要让开的别的手臂（只让开身体的是 null）；withStub：手腕外面那一截也要空着才算。返回最后还插着多深
    */
-  const lifted = (limb: Limb, chain: number[], start: readonly Quat[], angle: number, others: Rod[] | null): number => {
+  const lifted = (limb: Limb, chain: number[], start: readonly Quat[], angle: number, others: Rod[] | null, withStub = false): number => {
     put(chain, start);
     const top = rig.parent[chain[0]];
     if (angle) swing(limb, axisTurn(rotate(top >= 0 ? frame.rot[top] : [0, 0, 0, 1], [1, 0, 0]), -angle));
-    return relieve(limb, others, NUDGE);
+    return relieve(limb, others, NUDGE, withStub);
   };
 
+  /**
+   * 别的一条手臂 other 上 limb 要让开的那几段：和 limb 挤在同一个肩膀上的（肩部聚拢，肩关节离得不到上臂长的 SAME_SHOULDER 倍）
+   * 只算前臂和手——上臂在肩膀那里本来就是一把扇子的扇骨、挨着的，照上臂的粗细算总是插着，几条全都让不开、退回静止的样子
+   */
+  const rodsBeside = (limb: Limb, other: Limb): Rod[] => {
+    const all = rods(other, frame);
+    if (ringOnly) return all;
+    const a = rig.head[limb.upper];
+    const b = rig.head[other.upper];
+    return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < SAME_SHOULDER * limb.len1 ? all.slice(1) : all;
+  };
+
+  /** 用体块拼的、有上半身背对背的（楚云萱）：手臂让开的规矩有两处不一样，见下面跟着动的那一段 */
+  const blocky = isBlockRig(rig);
+  /**
+   * 围成一圈的（不是体块拼的）：照老规矩，别的手臂整条都要让开（见 rodsBeside）。只算前臂和手、照静止时放宽都试过：
+   * 动的手臂是多了，可前后排的二次元素体叉腰、蹲着时有手缝不上了（原来十个姿势都缝得上），不动它
+   */
+  const ringOnly = isRingRig(rig) && !blocky;
   const following = new Set(followers);
   /**
    * 挤在两个身子之间的（见 SQUEEZE）：原来的那几条里，姿势摆了它、肩关节旁边又有另一个身子的手臂的。
@@ -321,9 +365,19 @@ export function clearArms(
     if (!following.has(i)) continue;
     const chain = armChain(solver, limb);
     const start = chain.map((j) => state.local[j]);
-    const others = () => arms.filter((other) => other.i !== i).flatMap((other) => rods(other.limb, frame));
+    const others = () => arms.filter((other) => other.i !== i).flatMap((other) => rodsBeside(limb, other.limb));
+    // 用体块拼的（楚云萱，见 pose/ring.ts）：手臂静止时就夹在绕到身侧的胸中间，比 GRACE 插得深，
+    // 不比静止时插得更深就算让开了（手腕和手另算，见 slack）。不然这几条怎么摆都「让不开」，套什么姿势都退回静止的样子。
+    // 别的身体不放宽：静止时贴着另一个身子的里侧手臂，摆过去以后要真的让开。
+    // 这种身体的手臂四周都是胸、胯、别的手臂，手腕外面那一截（见 STUB）也空着才算让开（下面几处的 blocky）：
+    // 光靠最后补着推（freeStub）推不出来的，手缝不上、掉成单独一块。别的身体不这样要求：挨着垂着的几条会全都让不开
+    if (blocky) {
+      put(chain, null);
+      slack.set(limb, excess(limb, others()));
+      put(chain, start);
+    }
     let clear = false;
-    for (let angle = 0; angle <= LIFT_MAX + 1e-9 && !clear; angle += LIFT_STEP) clear = lifted(limb, chain, start, angle, others()) <= grace;
+    for (let angle = 0; angle <= LIFT_MAX + 1e-9 && !clear; angle += LIFT_STEP) clear = lifted(limb, chain, start, angle, others(), blocky) <= grace;
     // 往前抬到头还碰着（两个上半身中间的两条照姿势垂下去，两边都是身子）：再往前多抬、往身后摆（搭在另一个身子背后）、
     // 只照姿势摆几成（剩下的照静止的样子，手在另一个身子胸前、腰前），让得开的里面挑离姿势原意最近的那个；都不行才整条退回静止的样子。
     // 退回静止的话，这条手臂一直横在胸前，身子弯下去、走起来它都不动（看着就像姿势没套上）
@@ -340,11 +394,11 @@ export function clearArms(
         const off = Math.acos(Math.max(-1, Math.min(1, dot(now[0], want[0])))) + 0.5 * Math.acos(Math.max(-1, Math.min(1, dot(now[1], want[1]))));
         if (!best || off < best.off) best = { off, locals: chain.map((j) => state.local[j]) };
       };
-      for (let angle = LIFT_MAX + LIFT_STEP; angle <= LIFT_MORE + 1e-9; angle += LIFT_STEP) consider(lifted(limb, chain, start, angle, others()));
-      for (let angle = LIFT_STEP; angle <= BACK_MAX + 1e-9; angle += LIFT_STEP) consider(lifted(limb, chain, start, -angle, others()));
+      for (let angle = LIFT_MAX + LIFT_STEP; angle <= LIFT_MORE + 1e-9; angle += LIFT_STEP) consider(lifted(limb, chain, start, angle, others(), blocky));
+      for (let angle = LIFT_STEP; angle <= BACK_MAX + 1e-9; angle += LIFT_STEP) consider(lifted(limb, chain, start, -angle, others(), blocky));
       for (const keep of PARTLY) {
         put(chain, start.map((q) => nlerpQuat([0, 0, 0, 1], q, keep)));
-        consider(relieve(limb, others(), NUDGE));
+        consider(relieve(limb, others(), NUDGE, blocky));
       }
       const found = best as { off: number; locals: Quat[] } | null;
       if (found) {
@@ -365,7 +419,7 @@ export function clearArms(
     if (resting.has(i)) continue;
     const torso = torsoOf(rig, limb.upper);
     const others = following.has(i)
-      ? arms.filter((other) => other.i !== i).flatMap((other) => rods(other.limb, frame))
+      ? arms.filter((other) => other.i !== i).flatMap((other) => rodsBeside(limb, other.limb))
       : squeezed.has(i)
         ? arms.filter((other) => squeezed.has(other.i) && torsoOf(rig, other.limb.upper) !== torso).flatMap((other) => rods(other.limb, frame).slice(1))
         : null;

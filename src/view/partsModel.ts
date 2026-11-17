@@ -1,6 +1,7 @@
 /**
  * 把 Figure 变成 three.js 场景里的一组物体（分部件模式）：每个部件一个网格，父子关系照搬。
- * 几何体按「部件名 + 形状」缓存：拖滑块时只有形状真的变了的部件才重建。
+ * 几何体按形状缓存：拖滑块时只有形状真的变了的部件才重建；形状一样的部件（体块组装复制出来的胸、腿、胯）共用一份，
+ * 不各算一遍（楚云萱九十块里三十只胸是同一种，各算一遍要十几秒）。
  */
 import * as THREE from 'three';
 import type { Figure, Material, Part } from '../geometry/figure';
@@ -34,8 +35,8 @@ export class PartsModel {
     let triangles = 0;
 
     for (const part of figure.parts) {
-      const key = `${part.name}|${shapeKey(part)}`;
-      const geo = this.cache.get(key) ?? buildPartGeometry(part);
+      const key = shapeKey(part);
+      const geo = this.cache.get(key) ?? next.get(key) ?? buildPartGeometry(part);
       next.set(key, geo);
       triangles += triangleCount(geo);
 

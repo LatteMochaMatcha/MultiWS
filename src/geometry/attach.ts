@@ -37,11 +37,14 @@ export function liveAttach(figure: Pick<Figure, 'parts'>, attach: Attach | undef
 
 /**
  * 胸腔（躯干分成两块时复制出来的，见 clone.ts）接到 host 上：host 是一块胯的话，它还是从胯上渐渐分出去的（腰照旧由 torsos.ts 的 refork 接顺，
- * 只是换了一块胯）；接到别的部件上，它就是一整块跟着那个部件走——不再从胯上长出来，底下垫一个圆顶
+ * 只是换了一块胯）；接到别的部件上、或者点明了要整块接（Attached.whole），它就是一整块跟着那个部件走——不再从胯上长出来，底下垫一个圆顶
  */
-function onto(ribcage: Part, host: Part | undefined): Part {
-  if (host && host.type === 'torso' && !isRibcage(host)) return ribcage;
-  const { pivot: _pivot, ...rest } = ribcage;
+function onto(ribcage: Part, host: Part | undefined, whole = false): Part {
+  const pelvis = !!host && host.type === 'torso' && !isRibcage(host);
+  if (pelvis && !whole) return ribcage;
+  // 整块接在胯上的（Attached.whole）转、缩放还是绕着腰
+  const { pivot, ...bare } = ribcage;
+  const rest: Part = pelvis && pivot ? { ...bare, pivot } : bare;
   return domed({ ...rest, prims: rest.prims.map((q) => (q.kind === 'grid' || q.kind === 'loft' ? { ...q, fork: undefined } : q)) }, 'bottom');
 }
 
@@ -80,7 +83,7 @@ export function withAttach(figure: Figure, attach: Attach | undefined): Figure {
   const moved = figure.parts.map((p): Part => {
     const a = live.get(p.name);
     if (!a) return p;
-    const { scale: _scale, ...rest } = isRibcage(p) ? onto(p, byName.get(a.to)) : loose(p);
+    const { scale: _scale, ...rest } = isRibcage(p) ? onto(p, byName.get(a.to), a.whole) : loose(p);
     const socket = a.socket === undefined ? undefined : sockets?.get(a.to)?.find((s) => s.id === a.socket);
     const pos = socket ? add(socket.pos, a.offset ?? [0, 0, 0]) : a.pos;
     return { ...rest, parent: a.to, pos, quat: a.quat, ...(Math.abs(a.scale - 1) > 1e-12 ? { scale: a.scale } : {}) };

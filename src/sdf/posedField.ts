@@ -1049,7 +1049,6 @@ export function compilePosedField(
     const bone = nearest(bonesFor(part), xf.pos);
     const o = bone * 12;
     const m = matrices;
-    const torso = restTorso();
     const [near, far] = SHARED_LIFT.map((v) => v * xf.scale);
     const shape = part.prims.find((prim): prim is ChestShape => prim.kind === 'chest');
     const seam = shape?.seam;
@@ -1064,6 +1063,8 @@ export function compilePosedField(
     const spine = body && /^UpperBody/.test(body.name) ? own.get(body.name) : undefined;
     // 两个上半身直立并排：整只胸只顺着自己那个上半身的脊柱弯（见 OWN_BEND）
     const follow = body && spine && apartMap(body.name) ? spine : undefined;
+    // 离躯干多远只有「不是整只跟着自己脊柱」的胸才用：用不上的不烤（楚云萱那样胸绕了一圈的要烤半分钟）
+    const torso = follow ? null : restTorso();
     const q = new Float64Array(3);
     /** 一个静止时的基本体整个跟着那节骨骼搬过去以后占多大（corners：用哪几个角） */
     const rigidBox = (corners: readonly number[]): number[] => {
@@ -1126,7 +1127,7 @@ export function compilePosedField(
           const rx = m[o] * dx + m[o + 3] * dy + m[o + 6] * dz;
           const ry = m[o + 1] * dx + m[o + 4] * dy + m[o + 7] * dz;
           const rz = m[o + 2] * dx + m[o + 5] * dy + m[o + 8] * dz;
-          const h = torso(rx, ry, rz);
+          const h = torso!(rx, ry, rz);
           const t = h <= near ? 0 : h >= far ? 1 : (h - near) / (far - near);
           const w = t * t * (3 - 2 * t);
           if (w >= 1 && !seam) return f(rx, ry, rz);

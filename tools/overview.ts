@@ -16,6 +16,7 @@ import { findClashes } from '../src/geometry/clash';
 import type { Figure } from '../src/geometry/figure';
 import { buildFigure } from '../src/geometry/layout';
 import { quatEuler } from '../src/geometry/vec';
+import { chuSpec } from '../src/model/chu';
 import { type BodySpec, type BodyStyle, defaultSpec, legPlan, normalizeSpec } from '../src/model/spec';
 import { clearArms } from '../src/pose/clear';
 import { fitConjoined } from '../src/pose/conjoined';
@@ -23,13 +24,14 @@ import { fitArms, followArms } from '../src/pose/fit';
 import { fitLegs } from '../src/pose/fitLegs';
 import { POSE_LIBRARY } from '../src/pose/library';
 import type { Posing } from '../src/pose/posing';
+import { fitRing, isBlockRig, isRingRig } from '../src/pose/ring';
 import { forward, poseMatrices } from '../src/pose/rig';
 import { makeSolver, stateOf } from '../src/pose/solver';
 import { buildSkeleton } from '../src/rig/skeleton';
 import { compileField, fieldAt } from '../src/sdf/field';
 import { VOXEL } from '../src/sdf/fuse';
 import { runJob } from '../src/sdf/job';
-import { posedBodyDist } from '../src/sdf/posedBody';
+import { posedBodyDist, wristBodyDist } from '../src/sdf/posedBody';
 import { refusable } from '../src/sdf/posedField';
 import { type V3, VIEWS, frameFor, png, render } from './softRender';
 
@@ -39,6 +41,8 @@ interface Case {
   label: string;
   style: BodyStyle;
   spec: Patch;
+  /** 照 spec 摆好以后再过一道（用体块拼的预设） */
+  make?: (spec: BodySpec) => BodySpec;
 }
 
 const anime = (name: string, label: string, spec: Patch): Case => ({ name, label: `二次元素体 · ${label}`, style: 'anime', spec });
@@ -99,6 +103,8 @@ export const CASES: Case[] = [
   made('C08', '三个上半身', { counts: { torsos: 3 } }),
   made('C09', '连体 · 同向', { conjoined: 'same' }),
   made('C10', '连体 · 同向侧躺', { conjoined: 'same', conjoinPose: 'lie' }),
+  // 加在最后：前面那些的分片（--shard）不变
+  { ...anime('A29', '楚云萱（用体块拼的）', {}), make: chuSpec },
 ];
 
 /** 套哪些现成姿势 */
@@ -111,7 +117,8 @@ export const TWISTS: { name: string; bones: Record<string, [number, number, numb
 
 export function specOf(c: Case): BodySpec {
   const d = defaultSpec();
-  return normalizeSpec({ ...d, bodyStyle: c.style, ...c.spec, counts: { ...d.counts, ...c.spec.counts }, shape: { ...d.shape, ...c.spec.shape } });
+  const spec = normalizeSpec({ ...d, bodyStyle: c.style, ...c.spec, counts: { ...d.counts, ...c.spec.counts }, shape: { ...d.shape, ...c.spec.shape } });
+  return c.make ? c.make(spec) : spec;
 }
 
 /** 和工坊里点姿势按钮一样（main.ts 的 fitted）：多出来的腿照左右腿摆、几个上半身的脊柱都照着摆，手臂挑一条摆、别的跟着动，再让开身体 */
@@ -131,11 +138,13 @@ export function fittedPosing(
     }
   }
   // 连体：姿势换到每个上半身自己的朝向里套（和工坊里一样，见 pose/conjoined.ts）
-  const own = spec.conjoined !== 'none' ? fitConjoined(solver, { ...posing, bones }, spec.conjoinPose) : { ...posing, bones };
+  // 用体块拼的、有上半身背对背的身体（楚云萱）：照围成一圈的办法套（见 pose/ring.ts）
+  const blocky = !!spec.blocks?.added.length && isRingRig(solver.rig);
+  const own = blocky ? fitRing(solver, posing) : spec.conjoined !== 'none' ? fitConjoined(solver, { ...posing, bones }, spec.conjoinPose) : { ...posing, bones };
   const { posing: next, followers } = followArms(solver, fitArms(solver, own));
   if (!clear) return next;
   // 手腕外面那一截照摆好的姿势量（见 sdf/posedBody.ts）
-  const posed = figure ? posedBodyDist(figure, spec.blend, poseMatrices(solver.rig, forward(solver.rig, stateOf(solver, next)), figure.scale)) : null;
+  const posed = figure ? (isBlockRig(solver.rig) ? wristBodyDist : posedBodyDist)(figure, spec.blend, poseMatrices(solver.rig, forward(solver.rig, stateOf(solver, next)), figure.scale)) : null;
   return clearArms(solver, next, clear, scale, spec.shape.limbs, followers, posed);
 }
 
@@ -231,7 +240,8 @@ function shot(file: string, pos: Float32Array, triangles: Uint32Array, view: key
 interface Body {
   rest: { pos: Float32Array; triangles: Uint32Array; vertices: number };
   restRow: Record<string, unknown>;
-  pose: (posing: Posing) => { pos: Float32Array; triangles: Uint32Array; vertices: number; path: string; rest?: Float32Array };
+  /** skinOnly：不重新融合，照权重弯（页面上拖着的时候看到的样子） */
+  pose: (posing: Posing, skinOnly?: boolean) => { pos: Float32Array; triangles: Uint32Array; vertices: number; path: string; rest?: Float32Array };
 }
 
 export function figureBody(spec: BodySpec, voxel: number): Body {
@@ -248,11 +258,11 @@ export function figureBody(spec: BodySpec, voxel: number): Body {
   return {
     rest: { pos: plain.positions.map((v) => v * unit), triangles: plain.triangles, vertices: plain.info.vertices },
     restRow: { parts: figure.parts.length, components: plain.info.components, ...edgeCheck(plain.triangles, plain.info.vertices), ms, clashes: findClashes(figure).map((c) => `${c.a}×${c.b} ${(c.depth * 100).toFixed(1)}cm`) },
-    pose: (raw) => {
+    pose: (raw, skinOnly) => {
       const posing = fittedPosing(spec, solver, raw, clear, unit, figure);
       const frame = forward(solver.rig, stateOf(solver, posing));
       const exact = poseMatrices(solver.rig, frame, unit);
-      if (refusable(figure, exact)) {
+      if (!skinOnly && refusable(figure, exact)) {
         const m = runJob({ parts: figure.parts, voxel, blend: spec.blend, pose: exact }).mesh;
         return { pos: m.positions.map((v) => v * unit), triangles: m.triangles, vertices: m.info.vertices, path: 'refuse' };
       }

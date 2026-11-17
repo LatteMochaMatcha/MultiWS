@@ -20,7 +20,7 @@ import { ringAt, smoothRings } from './torso';
 import { SLOT_SIDE, refork, seatRibcages, splitTorsos, torsoSlots } from './torsos';
 import { conjoin } from './conjoined';
 import { liveAttach, rehost, withAttach } from './attach';
-import { cloneRootName, withBlocks } from './clone';
+import { cloneRootName, plainPieces, withBlocks } from './clone';
 import { ringBuild, ringRows } from './ring';
 
 /**
@@ -39,6 +39,7 @@ const legGapOf = (figure: Figure): number => {
   const xs = figure.parts.filter((p) => p.type === 'leg' && !p.parent).map((p) => p.pos[0]);
   return xs.length > 1 ? Math.max(...xs) - Math.min(...xs) : 0.1;
 };
+import { thighen } from './thigh';
 import { applyOverrides } from './tweak';
 import { wigOf } from './wig';
 import {
@@ -820,7 +821,7 @@ export function buildFigure(spec: BodySpec): Figure {
   const figure = planFigure(spec);
   // 手动挪过、转过的上半身：从胯上分出去的那一段跟着改（见 torsos.ts）；接出去的部件、复制出来的胸照最后的位置定骨骼接在哪
   const attached = new Set(liveAttach(figure, spec.blocks?.attach).keys());
-  const fitted = rehost(refork(applyOverrides(figure, palmReach(figure, limbLength(figure, spec)))), attached);
+  const fitted = rehost(plainPieces(refork(applyOverrides(figure, palmReach(figure, limbLength(figure, spec))))), attached);
   if (Math.abs(spec.shape.legLength - 1) < 1e-6) return fitted;
   // 腿拉长、缩短以后身高还是设定的那么高（和成品角色一样）：整个人照比例缩放，身体、头跟着变小、变大
   const plain = applyOverrides(figure, spec.overrides);
@@ -949,7 +950,11 @@ function looseRibs(spec: BodySpec): number {
 
 /** 只按部件数量、排布和体型自动摆位，不管手动微调；单独设过末端、手指数的手臂、腿照它自己的设法 */
 export function layoutFigure(given: BodySpec): Figure {
-  return ownLimbs(layoutEnds(given), given);
+  const figure = ownLimbs(layoutEnds(given), given);
+  // 大腿粗细：每条人腿的大腿照滑块加粗、收细（见 thigh.ts）
+  const k = given.shape.thighs;
+  if (Math.abs(k - 1) < 1e-6) return figure;
+  return { ...figure, parts: figure.parts.map((p) => (p.type === 'leg' ? thighen(p, k) : p)) };
 }
 
 /** 自动摆位，手臂、腿的末端都照统一的设法 */

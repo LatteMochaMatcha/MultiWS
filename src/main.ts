@@ -20,7 +20,6 @@ import { ROSTER, rosterEntry } from './character/roster';
 import { skinInPlace } from './character/pose';
 import { type TweakedCharacter, characterPartAt, characterPartGlow, characterParts, tweakCharacter } from './character/tweak';
 import { describeClashes, findClashes } from './geometry/clash';
-import { blockNames } from './geometry/clone';
 import { SOCKET_FOR, nearestSocket } from './geometry/sockets';
 import { type Figure, type FigureMetrics, type Part, type PartType, nthName, worldTransforms } from './geometry/figure';
 import { buildFigure } from './geometry/layout';
@@ -79,9 +78,10 @@ import {
   topMost,
 } from './model/overrides';
 import { SNAP_NEAR, attachParts, attachedTo, canAttach, detachParts, isAttachable, placedSockets } from './model/attach';
-import { PELVIS, RIBCAGE, addBlock, canCopy, canSplitTorso, copyShift, isBlockRoot, removeBlock, setSplitTorso, torsoSplit } from './model/blocks';
+import { PELVIS, RIBCAGE, addBlock, canCopy, canSplitTorso, copyShift, isBlockRoot, removeBlockAt, setSplitTorso, torsoSplit } from './model/blocks';
 import { labelSplitTorso, partLabel } from './model/partLabel';
-import { PRESETS, applyPreset } from './model/presets';
+import { chuRefit } from './model/chu';
+import { PRESETS, applyPreset, styledPreset } from './model/presets';
 import {
   type ArmLayout,
   type BodySpec,
@@ -208,7 +208,7 @@ import { fitArms, followArms } from './pose/fit';
 import { fitLegs } from './pose/fitLegs';
 import { armOfBone, armPairCount, followPair } from './pose/follow';
 import { fitConjoined } from './pose/conjoined';
-import { fitRing } from './pose/ring';
+import { fitRing, isBlockRig, isRingRig } from './pose/ring';
 import { POSE_GROUPS, POSE_LIBRARY, type PoseGroup, type PresetPose } from './pose/library';
 import { type Posing, POSING_VERSION, cleanPosing, emptyPosing, flipPosing, isPosed, placedTwins } from './pose/posing';
 import { type Frame, type PoseRig, type PoseState, type RigBone, cloneState, forward, pointOn, poseMatrices, posedBones, shiftRoot, tailOf } from './pose/rig';
@@ -220,7 +220,7 @@ import { type HairShape, hairReady, loadHairShape } from './hair/shapes';
 import { compileField, fieldAt } from './sdf/field';
 import { provideGenital, provideHair, provideShapes, spreadWork } from './sdf/meshClient';
 import { type Picker, makePicker } from './sdf/pick';
-import { posedBodyDist } from './sdf/posedBody';
+import { posedBodyDist, wristBodyDist } from './sdf/posedBody';
 import { refusable } from './sdf/posedField';
 import { BoneOverlay } from './view/boneOverlay';
 import { SocketOverlay } from './view/socketOverlay';
@@ -267,7 +267,7 @@ const BODY_LABEL: Record<BodyStyle, string> = { mannequin: t('白模人台'), an
 const FIXED_SHAPES: Record<BodyStyle, ReadonlySet<ShapeDef['key']>> = {
   mannequin: new Set(),
   anime: new Set(),
-  character: new Set(['build']),
+  character: new Set(['build', 'thighs']),
 };
 const BODY_NOTE: Record<BodyStyle, string> = {
   mannequin: '',
@@ -491,7 +491,8 @@ function fromText(value: string) {
 
 /** 用户改了部件数量或排布：把描述重写成规范中文 */
 function fromParams(next: BodySpec) {
-  spec = next;
+  // 「楚云萱」的体块：套完没手动动过的话，头、手臂的数量变了照新的重新摆（见 model/chu.ts 的 chuRefit）
+  spec = chuRefit(spec, next);
   readText(describeSpec(spec));
   desc.value = text;
   commit();
@@ -499,7 +500,8 @@ function fromParams(next: BodySpec) {
 
 /** 用户拖了体型滑块：描述里不写体型，文字不动 */
 function fromShape(key: ShapeDef['key'], value: number) {
-  spec = { ...spec, shape: clampShape({ ...spec.shape, [key]: value }) };
+  // 「楚云萱」的体块是照体型量着摆的：套完没手动动过的话，照新的体型重新摆（见 model/chu.ts 的 chuRefit）
+  spec = chuRefit(spec, { ...spec, shape: clampShape({ ...spec.shape, [key]: value }) });
   commit(`shape:${key}`);
 }
 
@@ -516,8 +518,15 @@ for (const preset of PRESETS) {
   const btn = el('button', 'btn', preset.name);
   btn.type = 'button';
   btn.addEventListener('click', () => {
-    refitNext = true;
-    fromParams(applyPreset(spec, preset));
+    const apply = () => {
+      refitNext = true;
+      fromParams(applyPreset(spec, preset));
+    };
+    // 「楚云萱」是量着素体的身体拼出来的：刚切到二次元素体、数据还在路上时等它到了再套，不然套出来的是旧的那一套
+    if (preset.build && spec.bodyStyle === 'anime' && !animeReady()) {
+      setStatus(t('正在载入二次元素体…'));
+      loadAnimeBody(import.meta.env.BASE_URL).then(giveShapes, () => {}).then(apply);
+    } else apply();
   });
   $('presets').append(btn);
 }
@@ -879,9 +888,26 @@ const syncEar = buildSeg($('segEar'), EAR_SHAPES, (v) => EAR_NAME[v], (earShape)
 );
 
 const syncBody = buildSeg($('segBody'), BODY_STYLES, (v) => BODY_LABEL[v], (bodyStyle) => {
+  // 「楚云萱」各种身体样式拼法不一样：还是刚套上去的原样的话，换了样式照新的样式重新套一遍（见 presets.ts 的 styledPreset）
+  const again = styledPreset(spec);
   refitNext = true;
+  if (again && !(bodyStyle === 'anime' && !animeReady())) {
+    fromParams(applyPreset({ ...spec, bodyStyle }, again));
+    return;
+  }
   spec = { ...spec, bodyStyle };
   commit();
+  // 素体的数据还在路上：先照旧的显示，等它到了再套（这中间又改了别的就不套了）
+  if (again) {
+    const shown = spec;
+    loadAnimeBody(import.meta.env.BASE_URL)
+      .then(giveShapes, () => {})
+      .then(() => {
+        if (spec !== shown || !animeReady()) return;
+        refitNext = true;
+        fromParams(applyPreset(spec, again));
+      });
+  }
 });
 /** 成品角色选哪一个：一格一个，带一张小头像 */
 const characterCards = new Map<CharacterChoice, HTMLButtonElement>();
@@ -2728,7 +2754,7 @@ btnTweakDelete.addEventListener('click', () => {
   const names = deletablePicks();
   if (!names.length) return;
   // 手工加出来的那一块是真的拿掉（连同记在它上面的微调），别的是记成「已删除」、点一下能恢复
-  for (const name of names) spec = isBlockRoot(spec, name) ? removeBlock(spec, name, figure ? blockNames(figure, name) : []) : hidePart(spec, name);
+  for (const name of names) spec = isBlockRoot(spec, name) ? removeBlockAt(spec, figure ?? { parts: [] }, name) : hidePart(spec, name);
   select(null);
   commit();
 });
@@ -2966,6 +2992,9 @@ function tweakable(): readonly { name: string; type: PartType }[] {
   return figure ? figure.parts : (tweaked?.parts ?? []);
 }
 
+/** 「已删除」「已微调」的名字多过这么多个就先收着（体块拼的预设一套就是上百个，全摊开面板拉得老长），点一下再展开 */
+const TWEAKED_FOLD = 12;
+const tweakedOpen = { removed: false, changed: false };
 function renderTweak() {
   const names = tweakable().map((p) => p.name);
   const key = names.map((n) => (activeOverrides(spec)[n] ? `${n}*` : n)).join('|');
@@ -3067,9 +3096,27 @@ function renderTweak() {
   if (all.length || removed.length) {
     const items: HTMLElement[] = [];
     // 删掉的部件：点名字恢复
-    if (removed.length) {
-      items.push(el('span', '', t('已删除（点一下恢复）：')));
-      for (const n of removed) {
+    /** 一组名字：多过 TWEAKED_FOLD 个时先收着，只留一个「N 个，点开看」的按钮 */
+    const group = (key: keyof typeof tweakedOpen, label: string, chips: HTMLElement[], always = false) => {
+      if (!chips.length && !always) return;
+      items.push(el('span', '', label));
+      if (chips.length <= TWEAKED_FOLD) {
+        items.push(...chips);
+        return;
+      }
+      if (tweakedOpen[key]) items.push(...chips);
+      const toggle = el('button', 'chip fold', tweakedOpen[key] ? t('收起') : t('{n} 个，点开看', { n: chips.length }));
+      toggle.type = 'button';
+      toggle.addEventListener('click', () => {
+        tweakedOpen[key] = !tweakedOpen[key];
+        renderTweak();
+      });
+      items.push(toggle);
+    };
+    group(
+      'removed',
+      t('已删除（点一下恢复）：'),
+      removed.map((n) => {
         const chip = el('button', 'chip', partLabel(n));
         chip.type = 'button';
         chip.title = n;
@@ -3077,17 +3124,21 @@ function renderTweak() {
           spec = showPart(spec, n);
           commit();
         });
-        items.push(chip);
-      }
-    }
-    if (all.length) items.push(el('span', '', t('已微调：')));
-    for (const n of changed) {
-      const chip = el('button', picks.includes(n) ? 'chip hit' : 'chip', partLabel(n));
-      chip.type = 'button';
-      chip.title = n;
-      chip.addEventListener('click', () => pickPartName(n));
-      items.push(chip);
-    }
+        return chip;
+      }),
+    );
+    group(
+      'changed',
+      t('已微调：'),
+      changed.map((n) => {
+        const chip = el('button', picks.includes(n) ? 'chip hit' : 'chip', partLabel(n));
+        chip.type = 'button';
+        chip.title = n;
+        chip.addEventListener('click', () => pickPartName(n));
+        return chip;
+      }),
+      all.length > 0,
+    );
     if (all.length > changed.length) {
       items.push(el('span', '', t('另有 {n} 条对应的部件现在不存在', { n: all.length - changed.length })));
     }
@@ -4356,17 +4407,20 @@ if (POSE_LIBRARY.length) {
   // 别的多出来的手臂跟着原来的那条动（见 pose/fit.ts）。然后手臂让开身体、让开别的手臂（见 pose/clear.ts）
   /** 连体：姿势换到每个上半身自己的朝向里去套，胯不动，撑着身子的手留在原处（见 pose/conjoined.ts） */
   const fittedConjoined = (posing: Posing): Posing => (spec.conjoined !== 'none' && kit ? fitConjoined(kit.solver, posing, spec.conjoinPose) : posing);
-  /** 围成一圈：姿势换到每个人、每条腿自己朝外的方向里去套，两侧的手臂照整个身子的左右（见 pose/ring.ts）。不是围成一圈的返回 null */
+  /**
+   * 围成一圈：姿势换到每个人、每条腿自己朝外的方向里去套，两侧的手臂照整个身子的左右（见 pose/ring.ts）。
+   * 用体块拼的、有上半身背对背的身体（楚云萱）也照这一套。都不是的返回 null
+   */
   const fittedRing = (posing: Posing): Posing | null =>
-    ringActive(spec) && kit ? fitRing(kit.solver, posing) : null;
+    kit && (ringActive(spec) || isRingRig(kit.solver.rig)) ? fitRing(kit.solver, posing) : null;
   const fitted = (posing: Posing): Posing => {
     const own = fittedRing(posing) ?? fittedConjoined(fittedTorsos(fittedLegs(posing)));
     if (!kit) return own;
     const { posing: next, followers } = followArms(kit.solver, fitArms(kit.solver, own));
     const body = bodyDist();
     if (!body || !figure) return next;
-    // 手腕外面那一截照摆好的姿势量（见 sdf/posedBody.ts）
-    const posed = posedBodyDist(figure, spec.blend, poseMatrices(kit.solver.rig, forward(kit.solver.rig, stateOf(kit.solver, next)), figure.scale));
+    // 手腕外面那一截照摆好的姿势量（见 sdf/posedBody.ts）；用体块拼的（楚云萱）连融合时腿还跟着胯的样子也量
+    const posed = (isBlockRig(kit.solver.rig) ? wristBodyDist : posedBodyDist)(figure, spec.blend, poseMatrices(kit.solver.rig, forward(kit.solver.rig, stateOf(kit.solver, next)), figure.scale));
     return clearArms(kit.solver, next, body, figure.scale, spec.shape.limbs, followers, posed);
   };
 

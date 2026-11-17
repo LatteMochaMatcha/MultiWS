@@ -32,6 +32,7 @@ import { castRay, compileField } from '../sdf/field';
 import { highest, lowest, pointArm } from './conjoined';
 import type { BoneHint, Figure, Graft, Part, PartType, Prim, Ring } from './figure';
 import { nthName } from './figure';
+import { thighen as thighenBy } from './thigh';
 import { type Quat, type V3, Q_ID, add, len, mat3Mul, mul, quatBetween, quatConj, quatMat3, quatMul, rotate, sub } from './vec';
 import { RING_SPREAD_CIRCLE_MIN } from '../model/spec';
 
@@ -144,9 +145,7 @@ const spreadOf = (spread: number): { radius: number; head: number } => ({
  *   可同一个人的左右大腿只叠着一两厘米，挨着的那一截很浅，斜过去也挡不住，三排的缝又在同一个左右位置上，正面一眼看穿。
  *   knee：排与排之间那一刀往下只切到脚踝到髋关节的这么多（膝盖上下）；
  *   所以 shift：中间那一排（没有头，正面、背面都藏在前后排后面）整排往 +X 挪这么多（比缝宽一点），前排缝后面正好是中排的大腿；
- * - thigh / thighTaper / knee：下半截的大腿比滑块设的再粗多少倍（参考图是粗大腿、细小腿）。素体的腿是一块格子带加粗变形，
- *   从腿根往下 thighRamp[0] 起渐渐粗、到 thighRamp[1] 粗足，往脚踝那头变回原样的那一段拉长到腿长的 thighTaper（膝盖上面就开始收）；白模的大腿是一根圆台，根上粗 thigh 倍、
- *   膝盖那头只粗 knee 那么多（1 + (thigh − 1) · knee），小腿不动；
+ * - thigh：下半截的大腿比滑块设的再粗多少倍（参考图是粗大腿、细小腿），怎么加粗见 thigh.ts；
  * - legsFollow：前后两排的人连腿一起从髋关节斜过去（脚在脚踝上转平、整个人落回地上）。参考图侧面是一个「人」字：
  *   前后两个人从脚到头一条斜线，脚分得很开、头碰在一起；腿竖直、只有上身斜的话侧面是竖直的腿上顶一个斜身子；
  * - coreFrom：芯子从髋关节以上这么高才有，再往上 coreRamp 这么长渐渐粗到平常那么粗——往下是三排分开的胯，中间不能有东西填着；
@@ -202,9 +201,6 @@ const ROWS = {
   legLean: 4 * (Math.PI / 180),
   thigh: 1.5,
   slit: { gap: 0.03, top: 0.08, reach: 0.2, soft: 0.012, skew: 10 * (Math.PI / 180), rowSkew: 3 * (Math.PI / 180), deep: 0.2, shift: 0, knee: 0.5, waist: 0.3, rowGap: 0.06, rowShare: 0.33, rowBack: 0.03, marker: 0.014, touch: 0.03, rowSoft: 0.025 },
-  thighRamp: [0.02, 0.3] as const,
-  thighTaper: 0.62,
-  knee: 0.35,
   leanMax: 16 * (Math.PI / 180),
   upperLeanMax: 24 * (Math.PI / 180),
   collar: 0.02,
@@ -481,25 +477,8 @@ export function ringBuild(
   })();
   /** 大腿加粗到几倍：最多 ROWS.thigh，一个人自己的两条大腿（中段）正好贴上为止；不收细 */
   const thighK = rowsMode && legs.length > 1 ? Math.max(1, Math.min(ROWS.thigh, (wide * ROWS.thighFit) / thighWide)) : ROWS.thigh;
-  /** 前后排下半截的腿：大腿加粗（见 thighK）。只改形状，骨骼、接上去的脚不动 */
-  const thighen = (leg: Part): Part => {
-    const ankle = leg.bones?.find((b) => /^Foot/.test(b.name))?.head;
-    if (!ankle) return leg;
-    const span = Math.hypot(ankle[0], ankle[1], ankle[2]);
-    return {
-      ...leg,
-      prims: leg.prims.map((q): Prim => {
-        if (q.kind === 'grid') {
-          const base = q.thicken?.k ?? 1;
-          const from = q.thicken?.ramp ?? [0.1, 0.2, 0.08];
-          // 从腿根起就渐渐粗起来、拉长到 thighRamp 才粗足：一下子粗起来的话大腿根上鼓出一圈，像穿了灯笼裤
-          return { ...q, thicken: { from: [0, 0, 0], to: q.thicken?.to ?? ankle, k: base * thighK, ramp: [Math.min(from[0], ROWS.thighRamp[0]), Math.max(from[1], ROWS.thighRamp[1]), span * ROWS.thighTaper], end: base } };
-        }
-        if (q.kind === 'cone' && /^Thigh/.test(q.name)) return { ...q, ra: q.ra * thighK, rb: q.rb * (1 + (thighK - 1) * ROWS.knee) };
-        return q;
-      }),
-    };
-  };
+  /** 前后排下半截的腿：大腿加粗（见 thighK、thigh.ts）。只改形状，骨骼、接上去的脚不动 */
+  const thighen = (leg: Part): Part => thighenBy(leg, thighK, 'thick');
   /**
    * 下半截的一副胯（连加粗过的大腿）前后各鼓到哪（摆位的坐标里的 z；一个朝正前、直着站的人）：
    * 从髋关节往下 0.38 到往上 0.14 这一段里，肚皮、大腿前面最靠前，屁股、大腿后面最靠后的地方

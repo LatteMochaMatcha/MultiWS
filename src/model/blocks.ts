@@ -2,8 +2,8 @@
  * 编辑「手工加的体块」用的小工具（见 docs/blocks-plan.md）。都是纯函数，返回新的 BodySpec。
  * 只管白模人台、二次元素体：成品角色不看 BodySpec.blocks
  */
-import { cloneRootName, isTorsoBlock } from '../geometry/clone';
-import type { Part, PartType } from '../geometry/figure';
+import { blockNames, cloneRootName, isTorsoBlock } from '../geometry/clone';
+import type { Figure, Part, PartType } from '../geometry/figure';
 import { isRibcage } from '../geometry/pelvis';
 import { dropAttach } from './attach';
 import { type AddedBlock, type BodySpec, type PartOverride, type Vec3, ringActive } from './spec';
@@ -51,6 +51,8 @@ export interface BlockSource {
    * （见 animeLayout.ts），复制的是换算以后的样子，再搬一遍就动了两份
    */
   plain?: boolean;
+  /** 复制出来的胸保持原胸型（见 AddedBlock.piece） */
+  piece?: boolean;
 }
 
 /**
@@ -67,7 +69,7 @@ export function addBlock(spec: BodySpec, sources: readonly BlockSource[]): { spe
   const names: string[] = [];
   for (const source of sources) {
     const name = cloneRootName(source.from, id);
-    blocks.push({ id, from: source.from, ...(source.shift && { shift: source.shift }) });
+    blocks.push({ id, from: source.from, ...(source.shift && { shift: source.shift }), ...(source.piece && { piece: true }) });
     names.push(name);
     for (const [key, o] of Object.entries(spec.overrides)) {
       if (key === source.from) {
@@ -91,20 +93,47 @@ export function removeBlock(spec: BodySpec, name: string, under: readonly string
   if (!roots.has(name)) return spec;
   /** 要拿掉的部件：这一块，和照它们再复制出来的那些块 */
   const gone = new Set<string>([name, ...under]);
-  const inside = (part: string) => [...gone].some((g) => part === g || part.startsWith(`${g}_`));
+  /**
+   * 拿掉的块的号：这一块里的部件名字里都带着它的号段（第 id 块是 100·id 到 100·id + 99，见 clone.ts 的 cloneRootName），
+   * 现在不在身上的（删掉了的手臂、胸）under 里没有，照号认——不然它们的微调、照它们复制的块留在设定里，
+   * 这个号以后再用到时又冒出来。左右一对共用一个号的（Arm_101_L、Arm_101_R）只拿掉一边时不能照号认
+   */
+  const ids = new Set<number>();
+  const sole = (block: AddedBlock) => added(spec).filter((b) => b.id === block.id).length === 1;
+  const numbered = (part: string) => ids.size > 0 && part.split('_').some((seg) => /^\d+$/.test(seg) && ids.has(Math.floor(Number(seg) / 100)));
+  const inside = (part: string) => numbered(part) || [...gone].some((g) => part === g || part.startsWith(`${g}_`));
   const dropped = new Set<AddedBlock>([roots.get(name)!]);
+  if (sole(roots.get(name)!)) ids.add(roots.get(name)!.id);
   for (let grew = true; grew; ) {
     grew = false;
     for (const [root, block] of roots) {
       if (dropped.has(block) || !inside(block.from)) continue;
       dropped.add(block);
       gone.add(root);
+      if (sole(block)) ids.add(block.id);
       grew = true;
     }
   }
   const overrides = Object.fromEntries(Object.entries(spec.overrides).filter(([key]) => !inside(key)));
   // 接在这一块上的、这一块自己接出去的缝合一起去掉
   return dropAttach({ ...spec, blocks: { ...spec.blocks, added: added(spec).filter((b) => !dropped.has(b)) }, overrides }, inside);
+}
+
+/**
+ * 页面上删掉手工加的一块（name 是它领头的那个部件，figure 是现在摆好的样子）。
+ * 删的是一副胯、上面接着复制出来的胸腔时，那个胸腔（连同它的头、手臂、胸）跟着一起拿掉：只去掉缝合的话它回到原来那副胯上
+ * 和别的胸腔并排——拼好的身体（楚云萱）正中间就凭空多出一个上半身
+ */
+export function removeBlockAt(spec: BodySpec, figure: Pick<Figure, 'parts'>, name: string): BodySpec {
+  const under = blockNames(figure, name);
+  const gone = new Set([name, ...under]);
+  const roots = blockRoots(spec);
+  const riders = Object.entries(spec.blocks?.attach ?? {})
+    .filter(([rider, a]) => rider !== name && gone.has(a.to) && roots.has(rider) && figure.parts.some((p) => p.name === rider && isRibcage(p)))
+    .map(([rider]) => rider);
+  let out = spec;
+  for (const rider of riders) out = removeBlock(out, rider, blockNames(figure, rider));
+  return removeBlock(out, name, under);
 }
 
 /* ---------------- 躯干分成胸腔和胯两块 ---------------- */
