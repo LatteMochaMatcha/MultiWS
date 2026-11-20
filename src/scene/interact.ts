@@ -10,7 +10,7 @@
  */
 import { tk } from '../i18n';
 import { type V3, add, dot, len, madd, mul, norm, sub } from '../geometry/vec';
-import { type Place, absolutePlace } from '../model/scene';
+import { type Place, absolutePlace, placeY } from '../model/scene';
 import { type Posing, emptyPosing } from '../pose/posing';
 import { type PoseState, type RigBone, cloneState, forward, posedBones } from '../pose/rig';
 import { fitArms, followArms } from '../pose/fit';
@@ -94,7 +94,7 @@ export function toScene(place: Place, p: V3): V3 {
   const a = (place.yaw * Math.PI) / 180;
   const c = Math.cos(a);
   const s = Math.sin(a);
-  return [c * p[0] + s * p[2] + place.x, p[1], -s * p[0] + c * p[2] + place.z];
+  return [c * p[0] + s * p[2] + place.x, p[1] + placeY(place), -s * p[0] + c * p[2] + place.z];
 }
 
 /** 场景里的点 → 角色自己的坐标 */
@@ -104,7 +104,7 @@ export function fromScene(place: Place, p: V3): V3 {
   const s = Math.sin(a);
   const x = p[0] - place.x;
   const z = p[2] - place.z;
-  return [c * x - s * z, p[1], s * x + c * z];
+  return [c * x - s * z, p[1] - placeY(place), s * x + c * z];
 }
 
 export const placeCapsules = (caps: readonly Capsule[], place: Place): Capsule[] =>

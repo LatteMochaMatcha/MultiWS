@@ -212,3 +212,62 @@ VRoid Hub 上作者把条件设成谁都能用、可改、可再分发、可商�
 | 棕发针织背心（`marron`） | `hub_marron/2693294445634964331.vrm` | マロン / ピカピカ | <https://hub.vroid.com/characters/7459200881471498968/models/4791607087327485063> | **性表现：不允许** | 11.82 MB，`6122d085da94` |
 
 同一批里另有两个条件也合适、他没选的：アジサイ（ピカピカ，不许性表现）、オリジナル眼鏡おじさん（ここは通，不许性表现）。
+
+## kenney-furniture-kit/（道具里现成的家具，2026-11-20）
+
+Kenney 的「Furniture Kit」2.0：<https://kenney.nl/assets/furniture-kit>，**CC0**（压缩包里的 `License.txt`：「License: (Creative Commons Zero, CC0)……free to use in personal, educational and commercial projects」，署名随意）。
+他点名同意后下载。下载页上点「Download」→「Continue without donating...」。
+
+| 文件 | 是什么 | 校验（SHA-256 开头） |
+| --- | --- | --- |
+| `kenney_furniture-kit.zip` | 原包，4.89 MB，解压到 `kit/`：140 件低模家具，每件有 GLB、FBX、OBJ、DAE、STL 五种格式，另有等距、侧面的预览图 | `e67652d0932c` |
+
+```powershell
+node tools/run.mjs tools/build-props.ts
+```
+
+`build-props.ts` 从 `kit/Models/GLTF format/` 里挑 24 件（清单在脚本开头的 `PIECES`：椅子、沙发、床、桌子、书架、浴缸、楼梯、门框……），
+照节点的摆放拼成一整块、放大两倍到真人的尺寸、原点挪到底面正中，写成 `public/props/lowpoly.bin`（138 KB）和 `src/props/lowpolyMeta.json`。
+材质、贴图坐标没有带：道具在工坊里是统一的一个颜色。工坊运行时只读这两个文件；道具栏里的小图是读进来以后现画的，没有用包里的预览图。
+
+## polyhaven-props/（道具里的写实款，2026-11-20）
+
+Poly Haven 的 16 件家具：<https://polyhaven.com/models/furniture>，**CC0**（不用署名，能商用）。他点名「16 件全要」后下载。
+每件一个文件夹 `polyhaven-<编号>/`：`<编号>_1k.gltf`、`<编号>.bin`、`textures/` 里 1K 的 JPG（底色 `diff`、法线 `nor_gl`、三合一 `arm`；`sofa_03` 是 `rough`）。
+下载地址在每件的网页上选 glTF、1K（文件表：`https://api.polyhaven.com/files/<编号>`）。
+
+| 工坊里的名字（编号） | Poly Haven 上的编号 | 作者 | 另外缩放 | `_1k.gltf` 的校验（SHA-256 开头） |
+| --- | --- | --- | --- | --- |
+| 现代扶手椅（`armchairModern`） | `modern_arm_chair_01` | Vibrant Nordic | ×0.8 | `d31be520add2` |
+| 学生椅（`schoolChair`） | `SchoolChair_01` | Ethan Place | ×0.85 | `1db6aca4bf37` |
+| 课桌（`schoolDesk`） | `SchoolDesk_01` | Ethan Place | ×0.85 | `9d840b58a9e6` |
+| 皮面沙发（`sofaLeather`） | `sofa_02` | Kirill Sannikov | | `5df114209f9b` |
+| 复古双人床（`bedGothic`） | `GothicBed_01` | Kirill Sannikov | | `67df189dd3a6` |
+| 铺桌布的餐桌（`tableCloth`） | `dining_table` | Aron Łyczek | ×0.93 | `6af2b850b052` |
+| 圆木凳（`stoolWood`） | `bar_chair_round_01` | Dairon Sanchez | | `6a8f92123245` |
+| 木长椅（`benchWood`） | `painted_wooden_bench` | Kirill Sannikov | ×0.75 | `2289ab82f3fe` |
+| 单人躺床（`dayBed`） | `vintage_day_bed` | Aron Łyczek | | `fb255992b6e6` |
+| 皮转椅（`swivelChair`） | `mid_century_lounge_chair` | Kuutti Siitonen | | `47c5769ee4df` |
+| 摇椅（`rockingChair`） | `Rockingchair_01` | Jorge Camacho | | `eb8c3a8f9c2c` |
+| 野餐桌（`picnicTable`） | `wooden_picnic_table` | Ulan Cabanilla | | `6b0dd9916fd8` |
+| 小圆桌（`tableRoundWood`） | `round_wooden_table_02` | Ulan Cabanilla | | `df65c3514828` |
+| 中式扶手椅（`armchairChinese`） | `chinese_armchair` | Kirill Sannikov | ×0.77 | `e0649ac9e631` |
+| 铁皮办公桌（`deskMetal`） | `metal_office_desk` | Ulan Cabanilla | ×0.95 | `f07032a5ee89` |
+| 布面长沙发（`sofaFabric`） | `sofa_03` | Fran Calvente | ×0.85，去掉了流苏 | `123f491bef4e` |
+
+```powershell
+node tools/run.mjs tools/build-props-real.ts
+```
+
+`build-props-real.ts` 照脚本开头的 `PIECES` 逐件转：拼成一整块、缩放、原点挪到底面正中、每个材质的面排在一起、贴图原样装进去、面多的另做一份碰撞用的粗网格。
+写出 `.props-store/<SHA-256>`（16 个文件，共 25.4 MB，不进仓库、不进安装包，发版时传到下载站的 `props/` 目录）和 `src/props/realMeta.json`。
+开发服务器上这些文件从 `/__props/<SHA-256>` 取（`tools/props-store/plugin.mjs`），不用真的传。
+
+道具栏里的小图（`public/props/real/<编号>.webp`，随安装包走）要另外做：开着开发服务器，在页面上把每件单独摆出来，
+视图的底色先设成黑的截一张（存成 `thumb-<编号>-k.png`）、再设成白的截一张（`thumb-<编号>-w.png`），然后
+
+```powershell
+uv run --with pillow --with numpy python tools/prop-thumbs.py <截图的文件夹> .
+```
+
+两张一比算出透明度，裁成正方形、缩到 144 像素。

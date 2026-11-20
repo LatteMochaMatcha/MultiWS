@@ -138,6 +138,11 @@ export class Gizmo {
     return this.controls.dragging;
   }
 
+  /** 正拖着操纵杆，或者光标正指着它（这时候点一下不算点选别的东西） */
+  get busy(): boolean {
+    return this.controls.dragging || (Boolean(this.controls.object) && this.controls.axis !== null);
+  }
+
   /** 选中的部件（多选时是全部）在世界坐标里占的那块地方（手机上镜头凑过去用）；没选中就是 null */
   selectionBox(): THREE.Box3 | null {
     if (!this.glow.visible) return null;

@@ -288,6 +288,35 @@ not change the pose along with it.
 Exports and screenshots taken in "Pose" show the posed figure; exports taken in "Shape" are the rest pose.
 
 
+[Props]
+
+Further down the "Scene" tab is "Props": chairs, beds, tables, poles and other things for poses to rest on.
+Props belong to the scene, not to any one character.
+
+  Placing       Five basic shapes: Pole, Box, Stand, Ball, Wall. "Ready-made furniture" has 24 low-poly pieces
+                (chairs, sofas, beds, tables...) and 16 textured "Realistic" ones. Realistic props are not part of
+                the installer: each one is downloaded when you click it (0.4-4 MB) and then stays on this device.
+  Adjusting     Click a prop in the 3D view to select it, then drag the arrows to move, the rings to turn and
+                the cubes to scale; the panel takes numbers for position, angle and size, and a colour
+                (a realistic prop needs "Paint grey" ticked first). "Drop down" drops it onto the floor or the prop
+                below; "Upright" clears the tilt; a pole has "Lay flat / Stand up" (laid flat it becomes a bar 2.1 m up).
+  One-click     With a prop selected, the row of buttons under Make "character": Sit on it, Lie on it, Hands on top,
+  actions       Hold it, Lean back on it, Hang (needs a horizontal pole), Wrap legs (needs an upright pole).
+                One click poses the character on the prop. Greyed-out buttons say why in their tooltip.
+                They only work for a body with one pair of legs (any number of arms and heads);
+                pose centaurs, spider bodies and the like by hand.
+  Following     After sitting, lying, leaning, hanging or wrapping, the whole figure follows the prop when you move
+                or turn it. With Hands on top and Hold it, the hand is pinned to the prop.
+                Poses you made yourself can be attached too: select the prop and click "Make ... follow it",
+                or pick a hand or foot in Pose and click "Pin to...". Each attachment can be released under "Attached to it".
+  While posing  Hands, feet and hips stop at the surface of a prop; when the body cuts into a prop,
+                the readout and the "Props" section say so.
+  Saving        "Save scene" includes the props, "Save config" does not. When the character is attached to props,
+                "Save pose" takes those props along, and loading asks whether to place them too.
+  Export        Exporting the "Whole scene" includes the props by default ("Include props" can be unticked), and
+                realistic props keep their textures in the GLB; exporting only the current character, or a VRM, leaves them out.
+
+
 [Export]
 
 Click "Export" at the right of the top bar (on a phone: the round download button on the right) and pick a format in
@@ -404,6 +433,8 @@ loading failed… and that it can't reach the workshop program
 
 
 [Assets and licenses]
+
+The ready-made furniture props come from Kenney's Furniture Kit and the realistic ones from Poly Haven; both are CC0 (no attribution required).
 
 The poses in the pose library come from Quaternius's Universal Animation Library and Universal Animation Library 2 (CC0);
 the first 8 soft standing poses were posed by the workshop itself.

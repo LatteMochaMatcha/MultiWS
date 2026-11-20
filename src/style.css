@@ -640,6 +640,8 @@ button,label,summary,select,input{touch-action:manipulation}
   .app[data-card="joint"] #poseJoint .actions .btn{grid-row:1;min-height:36px;padding:6px 10px;font-size:13px;white-space:nowrap}
   .app[data-card="joint"] #posePinRow{grid-column:1/-1;grid-row:2;min-height:32px;font-size:12.5px;color:var(--muted)}
   .app[data-card="joint"] #poseJoint #poseToolRow{grid-column:1/-1;grid-row:3;align-items:center;min-height:36px}
+  .app[data-card="joint"] #poseLinkRow{grid-column:1/-1;grid-row:4;min-height:36px}
+  .app[data-card="joint"] #poseLinkRow .btn{min-height:34px}
   .app[data-card="joint"] #segPoseTool{grid-auto-columns:76px}
   .app[data-card="joint"] #segPoseTool label{padding:7px 2px}
 
@@ -702,6 +704,23 @@ button,label,summary,select,input{touch-action:manipulation}
 .scene-chip:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 /* 「场景」那一栏的角色列表：名字（下面一行小字是哪种身体），往前、往后、删掉 */
 .figure-list{display:flex;flex-direction:column;gap:6px}
+/* 「道具」那一节（view/propsPanel.ts 现做的）：和别的栏一样一行一行隔开；清单只有名字和删除两格 */
+.props-panel{display:flex;flex-direction:column;gap:10px;min-width:0}
+.props-panel>[hidden]{display:none}
+.figure-row.prop-row{grid-template-columns:minmax(0,1fr) auto}
+/* 道具的位置、尺寸常是「193.5」这样五位的数：格子窄，去掉上下小箭头、收一点边距才显示得全 */
+.props-panel .triple label{gap:3px}
+.props-panel .triple input{padding-inline:4px;-moz-appearance:textfield;appearance:textfield}
+.props-panel .triple input::-webkit-inner-spin-button,.props-panel .triple input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+/* 现成的家具：一格一件，上面是小图（素材读进来以后现画的），下面是名字 */
+.prop-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:6px}
+.prop-tile{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;min-height:44px;padding:6px 4px;font:inherit;font-size:12.5px;line-height:1.3;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;cursor:pointer}
+.prop-tile:hover{border-color:var(--accent)}
+.prop-tile:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.prop-tile img{width:100%;max-width:56px;aspect-ratio:1;object-fit:contain;pointer-events:none}
+.prop-tile span{text-align:center;overflow-wrap:anywhere}
+.prop-tile small{font-size:11px;line-height:1.2;color:var(--muted);font-variant-numeric:tabular-nums}
+.prop-tiles .note{grid-column:1/-1}
 .figure-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:4px;align-items:stretch}
 .figure-pick{display:flex;flex-direction:column;align-items:flex-start;min-width:0;font:inherit;text-align:left;padding:6px 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);cursor:pointer}
 .figure-pick .figure-name{max-width:100%;font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -714,24 +733,32 @@ button,label,summary,select,input{touch-action:manipulation}
 .figure-row .icon:disabled{opacity:.35;cursor:default}
 .figure-pick:focus-visible,.figure-row .icon:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 #askDialog p{margin:0 0 14px;font-size:14px;line-height:1.6}
-#figureName{width:100%;font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:7px 10px}
-#figureName:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
-@media (pointer:coarse){#figureName{font-size:16px;padding-block:9px}}
+#figureName,.props-panel .prop-name{width:100%;font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:7px 10px}
+#figureName:focus-visible,.props-panel .prop-name:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
+@media (pointer:coarse){#figureName,.props-panel .prop-name{font-size:16px;padding-block:9px}}
 /* 导出面板里「当前角色 / 整个场景」：电脑上导出面板打开时才显示 */
 @media (width > 820px),(width > 600px) and (orientation:landscape){
-  .app[data-pop="export"] .panel-foot>#exportWhatField:not([hidden]){display:flex}
+  .app[data-pop="export"] .panel-foot>#exportWhatField:not([hidden]),.app[data-pop="export"] .panel-foot>#exportPropsRow:not([hidden]){display:flex}
 }
 /* 手机竖屏：角色条在读数下面一行，左右滑；导出那一格也是导出面板打开时才有 */
 @media (max-width:600px),(max-width:820px) and (orientation:portrait){
   .scene-bar{top:calc(74px + var(--top));left:8px;max-width:calc(100% - 16px);box-shadow:0 1px 3px var(--shade)}
   .scene-chip{padding:6px 12px;font-size:13px}
-  .panel-foot #exportWhatField{display:none}
-  .app[data-pop="export"] .panel-foot #exportWhatField:not([hidden]){display:flex}
+  .panel-foot #exportWhatField,.panel-foot #exportPropsRow{display:none}
+  .app[data-pop="export"] .panel-foot #exportWhatField:not([hidden]),.app[data-pop="export"] .panel-foot #exportPropsRow:not([hidden]){display:flex}
   .figure-row .icon{width:40px}
 }
 /* 场景：和别的角色穿插的提示、双人动作 */
 .clash-row{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:9px;border:1px solid var(--warn);background:var(--bg)}
 .clash-note{margin:0;font-size:12.5px;line-height:1.5;color:var(--warn)}
+/* 和道具的连接：一行字、右边一个小按钮（摆姿势里选中的关节下面、道具面板里「连着它的」） */
+.link-row{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px;line-height:1.4}
+.link-row>span{min-width:0;overflow-wrap:anywhere}
+.link-row>span:empty{display:none}
+.link-row .btn{flex:none;padding:4px 10px}
+.link-row>span:empty+.btn{flex:1}
+.prop-links{gap:6px}
+.prop-links>.btn{align-self:flex-start}
 .pair-with{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
 .pair-with select{flex:1;min-width:0;font:inherit;font-size:13px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:5px 8px}
 .pair-presets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}

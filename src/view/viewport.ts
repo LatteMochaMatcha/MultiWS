@@ -247,6 +247,12 @@ export class Viewport {
     this.controls.update();
   }
 
+  /** 地面在屏幕上多高（米）：当前角色站在台子上时它在原点，地面就在它脚下那么多 */
+  setFloor(y: number) {
+    this.ground.position.y = y;
+    this.ring.position.y = y + 0.001;
+  }
+
   /** 地面上的影子和那一圈参照线，显示还是收起来 */
   setGround(on: boolean) {
     this.groundOn = on;

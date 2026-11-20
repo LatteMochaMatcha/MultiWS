@@ -76,5 +76,6 @@
   "和谁一起摆": "Who to pose with",
   "现在这个角色站着不动，选的那个人走到旁边，两人一起换姿势，手会伸过去碰到对方。两人各能撤销一步。": "The current character stays put; the one you pick moves next to it, both change pose, and their hands reach over to touch. Each of them can undo it as one step.",
   "这台设备自己记着": "Remembered on this device",
-  "摆姿势时手脚碰到别人就停在表面": "When posing, stop hands and feet at other characters' surface"
+  "摆姿势时手脚碰到别人、碰到道具就停在表面": "When posing, stop hands and feet at the surface of other characters and props",
+  "场景：角色和道具": "Scene: characters and props"
 }

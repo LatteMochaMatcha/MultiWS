@@ -320,12 +320,25 @@ The "Scene" tab puts several characters in one scene, each with its own settings
 - **Characters never fuse together**: however close they stand, each is its own mesh and they just overlap. When they overlap, the readout says with whom and where; "Move apart" in "Scene" steps away. While posing, hands and feet stop at other characters' surface (can be turned off in "Scene").
 - **Two-person poses**: in "Scene", pick who to pose "With", then click Hold hands, Arm on shoulder, Back to back, High five, Hold both hands or Hug. The current character stays put, the other one moves next to it, both change pose and their hands reach over to touch; each of them can undo it as one step. Extra arms keep their pose; the first pair of arms is used.
 
+## Props (scene)
+
+Further down the "Scene" tab is "Props": things for poses to rest on. Props belong to the scene, not to any one character.
+
+- **Placing**: five basic shapes (Pole, Box, Stand, Ball, Wall); "Ready-made furniture" has 24 low-poly pieces (chairs, sofas, beds, tables…) and 16 textured "Realistic" ones. Realistic props are not part of the installer: each one is downloaded when you click it (0.4–4 MB) and then stays on this device.
+- **Adjusting**: click a prop in the 3D view to select it, then drag the arrows to move, the rings to turn and the cubes to scale; the panel takes numbers for position, angle and size, and a colour (a realistic prop needs "Paint grey" ticked first). "Drop down" drops it onto the floor or the prop below, "Upright" clears the tilt, and a pole has "Lay flat / Stand up".
+- **One-click actions**: with a prop selected, the row under Make "character": Sit on it, Lie on it, Hands on top, Hold it, Lean back on it, Hang (needs a horizontal pole), Wrap legs (needs an upright pole). Greyed-out buttons say why in their tooltip. They only work for a body with one pair of legs (any number of arms and heads); pose other bodies by hand.
+- **Following**: after sitting, lying, leaning, hanging or wrapping, the whole figure follows the prop when you move or turn it; with Hands on top and Hold it, the hand is pinned to the prop. Poses you made yourself can be attached too: select the prop and click "Make … follow it", or pick a hand or foot in Pose and click "Pin to…". Each attachment can be released under "Attached to it".
+- **While posing**, hands, feet and hips stop at the surface of a prop; when the body cuts into a prop, the readout and the "Props" section say so.
+- **Saving**: "Save scene" includes the props, "Save config" does not. When the character is attached to props, "Save pose" takes those props along, and loading asks whether to place them too.
+- **Export**: exporting the "Whole scene" includes the props by default ("Include props" can be unticked), and realistic props keep their textures in the GLB; exporting only the current character, or a VRM, leaves them out.
+- Undo and redo take prop changes and character changes in the order they were made.
+
 ## AI assistant (off by default)
 
 Say what you want in plain words ("three heads, six arms, nine tails", "make the legs a bit longer", "raise the arm I circled") and the assistant changes the settings for you. Tick "Turn on the AI assistant" in the "⋯" menu at the top right, and an "AI assistant" button appears at the top.
 
 - **You bring your own key**: in the assistant window's settings pick a provider (DeepSeek, Kimi, Zhipu, Claude, OpenAI, OpenRouter and others, or "Custom (OpenAI-compatible)" for an address of your own such as a local Ollama) and paste the API key you got from that provider. The cost is charged to your own account; the key is stored only on this device and sent only to the provider you picked.
-- **What it can do**: change part counts, layouts, body shape, hair and body style, and tweak a single part. After each turn it lists what changed, and "Undo this round" takes it all back at once. It cannot save or export files and does not touch your files.
+- **What it can do**: change part counts, layouts, body shape, hair and body style, and tweak a single part. It can also place and move props in the scene and make the character sit on, lie on or hang from one. After each turn it lists what changed, and "Undo this round" takes it all back at once. It cannot save or export files and does not touch your files.
 - **Circle it**: "Circle it" at the bottom left of the input box lets you draw red circles on the 3D view to show which part "here" means; models that can read images also get a screenshot.
 - **Conversations** are stored on this device, so you can pick one up again later; while it is working you can add a message or press "Stop".
 - **exe and Android app**: requests to the provider are forwarded by the app shell. Installers from before 2.8 do not have this (apart from Claude, most providers will not connect); installing the new installer once fixes it. The plain web version only works with providers that allow cross-origin requests (Claude does).
@@ -442,7 +455,7 @@ Licence notices for the open-source libraries used (three.js, pi and the provide
 | Ready-made character "Formal black-hair" | プリセット/黒髪青年 © sin (VRoid Hub); the author asks modified versions to say there is an original model |
 | Adult parts | The penis and scrotum come from "DJP Male Base Mesh Mark 03" © Death Joe Productions, CC BY 4.0 |
 
-**No attribution required**: the Anime body, the first five Ready-made characters and the four hairstyles come from VRoid Studio's old samples (pixiv, CC0); the ready-made poses come from Quaternius's Universal Animation Library 1 and 2 (CC0); the breast shape and torso contours also drew on Death Joe Productions' base body and Blender's official Human Base Meshes (CC0). The three characters Rabbit ears, Wolf ears and Sailor suit follow the terms their authors set on VRoid Hub: modification, redistribution and commercial use are allowed, and no attribution is needed (Wolf ears must not be used for sexual depictions; the author of Sailor suit additionally forbids use for NFTs, politics and religion).
+**No attribution required**: the Anime body, the first five Ready-made characters and the four hairstyles come from VRoid Studio's old samples (pixiv, CC0); the ready-made poses come from Quaternius's Universal Animation Library 1 and 2 (CC0); the breast shape and torso contours also drew on Death Joe Productions' base body and Blender's official Human Base Meshes (CC0); the ready-made furniture props come from Kenney's Furniture Kit (CC0), and the realistic ones from Poly Haven (CC0). The three characters Rabbit ears, Wolf ears and Sailor suit follow the terms their authors set on VRoid Hub: modification, redistribution and commercial use are allowed, and no attribution is needed (Wolf ears must not be used for sexual depictions; the author of Sailor suit additionally forbids use for NFTs, politics and religion).
 
 ## Development
 
@@ -466,6 +479,8 @@ Run the `.ts` scripts in `tools/` with `node tools/run.mjs tools/<script>.ts`, a
 | `build-characters.ts` | The slimmed-down Ready-made characters, `public/character/*.vrm` |
 | `build-poses.ts`, `build-soft-poses.ts` | The ready-made poses |
 | `build-genital.ts` | Adult parts |
+| `build-props.ts` | Ready-made furniture props `public/props/lowpoly.bin` |
+| `build-props-real.ts` | Realistic props (not in the installer; built into `.props-store/` and uploaded to the download site at release) |
 
 Things that exist only on the dev server (they are not in the built web page, the exe or the apk):
 

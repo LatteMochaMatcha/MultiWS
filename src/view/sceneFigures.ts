@@ -165,7 +165,7 @@ export class SceneFigures {
   /** 摆到相对当前角色的位置 */
   place(id: string, rel: Place) {
     const e = this.entry(id);
-    e.group.position.set(rel.x, 0, rel.z);
+    e.group.position.set(rel.x, rel.y ?? 0, rel.z);
     e.group.rotation.set(0, rel.yaw * RAD, 0);
     e.group.updateMatrixWorld(true);
   }

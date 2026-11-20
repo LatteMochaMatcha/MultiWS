@@ -1,5 +1,5 @@
 /**
- * 把几个 GLB 合成一个（导出整个场景，见 docs/scene-plan.md）：每个原来的文件是一个角色，
+ * 把几个 GLB 合成一个（导出整个场景，见 docs/scene-plan.md）：每个原来的文件是一个角色（或者一件道具，见 docs/props-plan.md），
  * 合起来以后每个角色是一个父节点（名字、在地上的位置、朝向），原来文件里的东西原样挂在它下面。
  * 网格、材质、贴图、骨架（蒙皮）都照搬，只是各种下标往后挪；二进制数据接在一起。
  * 带骨骼的也行：每个角色一副自己的骨架，进 Blender 是几个骨架物体。
@@ -62,6 +62,10 @@ export interface GlbPart {
   x: number;
   z: number;
   yaw: number;
+  /** 离地多高（米）；不给就是站在地上 */
+  y?: number;
+  /** 整个朝向（四元数 x、y、z、w）：给了就用它，不看 yaw（道具能倾斜） */
+  rotation?: [number, number, number, number];
 }
 
 const shift = (v: unknown, by: number) => (typeof v === 'number' ? v + by : v);
@@ -154,7 +158,7 @@ export function mergeGlbs(parts: readonly GlbPart[]): ArrayBuffer {
     }
     // 父节点：照位置、朝向摆
     const a = (part.yaw * Math.PI) / 180;
-    const holder: Json = { name: part.name, translation: [part.x, 0, part.z], rotation: [0, Math.sin(a / 2), 0, Math.cos(a / 2)], children: [] as number[] };
+    const holder: Json = { name: part.name, translation: [part.x, part.y ?? 0, part.z], rotation: part.rotation ?? [0, Math.sin(a / 2), 0, Math.cos(a / 2)], children: [] as number[] };
     const holderIndex = out.nodes.length;
     out.nodes.push(holder);
     out.scenes[0].nodes.push(holderIndex);

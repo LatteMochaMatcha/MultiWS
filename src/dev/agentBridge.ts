@@ -39,7 +39,11 @@ interface OcHooks {
   rebuild(): void;
   /** 场景里的好几个角色（见 model/scene.ts） */
   scene?: {
-    get(): { current: string; figures: readonly { id: string; name: string; place: unknown; spec: { bodyStyle?: unknown } }[] };
+    get(): {
+      current: string;
+      figures: readonly { id: string; name: string; place: unknown; spec: { bodyStyle?: unknown }; links?: readonly { prop: string; part: string }[] }[];
+      props?: readonly { id: string; name: string; kind: string; asset?: string; size: unknown; pos: unknown; rot: unknown; gray?: boolean }[];
+    };
     waiting(): string[];
   };
   viewport: Viewport | null;
@@ -131,14 +135,24 @@ function start(hot: ViteHotContext) {
           }
         : null,
       pose: hooks.mode() === 'pose' ? { bones: pose?.local.length ?? 0, handles: hooks.pose.kit()?.handles.length ?? 0 } : null,
-      // 场景里好几个角色时：每个是谁、站在哪、哪个是现在改的、哪些还在后台算（只有一个角色时是 null）
+      // 场景里好几个角色、或者放了道具时：每个角色是谁、站在哪、连着哪件道具的哪里、哪个是现在改的、哪些还在后台算；
+      // 每件道具是什么、多大、在哪、怎么转的（只有一个角色、没有道具时是 null）
       scene: (() => {
         const sc = hooks.scene?.get();
-        if (!sc || sc.figures.length < 2) return null;
+        const props = sc?.props ?? [];
+        if (!sc || (sc.figures.length < 2 && !props.length)) return null;
         const waiting = hooks.scene!.waiting();
         return {
           current: sc.current,
-          figures: sc.figures.map((f) => ({ id: f.id, name: f.name, bodyStyle: f.spec.bodyStyle, place: f.place, waiting: waiting.includes(f.id) })),
+          figures: sc.figures.map((f) => ({
+            id: f.id,
+            name: f.name,
+            bodyStyle: f.spec.bodyStyle,
+            place: f.place,
+            waiting: waiting.includes(f.id),
+            ...(f.links?.length ? { links: f.links.map((l) => `${l.part} → ${l.prop}`) } : {}),
+          })),
+          props: props.map((p) => ({ id: p.id, name: p.name, kind: p.kind === 'asset' ? p.asset : p.kind, size: p.size, pos: p.pos, rot: p.rot, ...(p.gray ? { gray: true } : {}) })),
         };
       })(),
       camera: hooks.viewport?.cameraState() ?? null,
@@ -151,7 +165,7 @@ function start(hot: ViteHotContext) {
   const signature = () => {
     const hooks = oc();
     if (!hooks) return 'not-ready';
-    return JSON.stringify([hooks.spec(), hooks.mode(), hooks.buildMs(), hooks.fusedStats()?.triangles, hooks.fusedStats()?.draft, text('readout'), text('status'), hooks.selected(), Boolean(hooks.character())]);
+    return JSON.stringify([hooks.spec(), hooks.mode(), hooks.buildMs(), hooks.fusedStats()?.triangles, hooks.fusedStats()?.draft, text('readout'), text('status'), hooks.selected(), Boolean(hooks.character()), hooks.scene?.get().props ?? null]);
   };
 
   /** 等模型算完：签名连着 quiet 毫秒没变、读数不是「正在生成」、屏幕上不是拖动时的粗网格 */

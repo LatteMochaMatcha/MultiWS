@@ -261,6 +261,19 @@ export function dragReach(solver: Solver, start: PoseState, limb: number, target
   return state;
 }
 
+/**
+ * 只动这一条肢体：末端去 target，够不着就朝它伸直，身体不跟过去
+ * （手脚钉在道具上、道具挪了：只有那只手、那只脚跟着，见 scene/follow.ts）
+ */
+export function reachOnly(solver: Solver, start: PoseState, limb: number, target: V3): PoseState {
+  const { rig, limbs } = solver;
+  const one = limbs[limb];
+  const f0 = forward(rig, start);
+  const state = cloneState(start);
+  placeLimb(rig, state, f0, one, holdOf(one, f0), target, one.kind === 'leg' ? { endRot: f0.rot[one.end] } : {});
+  return state;
+}
+
 /** 拖肘、拖膝：手脚不动，中间那个关节绕着「根部 → 末端」这根线转到朝 toward 的那一边 */
 export function dragBend(solver: Solver, start: PoseState, limb: number, toward: V3): PoseState {
   const { rig, limbs } = solver;

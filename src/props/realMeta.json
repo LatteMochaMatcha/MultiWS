@@ -1,0 +1,214 @@
+{
+ "source": "Poly Haven (CC0)",
+ "store": "https://pub-d985d51f23684c13b3c981336d18882a.r2.dev/props/",
+ "assets": [
+  {
+   "id": "armchairModern",
+   "group": "seat",
+   "size": [
+    0.656,
+    0.818,
+    0.789
+   ],
+   "vertices": 5851,
+   "triangles": 8916,
+   "bytes": 2659204,
+   "sha256": "b73c42ebabf5875fd271efc28dff581f72a04837de483894c65ff4710ebc5aa0"
+  },
+  {
+   "id": "schoolChair",
+   "group": "seat",
+   "size": [
+    0.481,
+    0.855,
+    0.574
+   ],
+   "vertices": 3208,
+   "triangles": 5072,
+   "bytes": 469804,
+   "sha256": "75062b5020d53518ed780de5d182bc4b93593859d1aaab1d4be812f07894216d"
+  },
+  {
+   "id": "schoolDesk",
+   "group": "table",
+   "size": [
+    0.605,
+    0.75,
+    0.464
+   ],
+   "vertices": 2951,
+   "triangles": 4162,
+   "bytes": 404500,
+   "sha256": "d8f4c0fb23727ad305ed2460754147ae988814ffa14bc197349baa807ac7a45f"
+  },
+  {
+   "id": "sofaLeather",
+   "group": "seat",
+   "size": [
+    1.807,
+    0.709,
+    0.818
+   ],
+   "vertices": 1825,
+   "triangles": 2728,
+   "bytes": 425132,
+   "sha256": "505cfe9b17463df58f048f9ba5650378dca382f49fb79c0c8deb3525538b7139"
+  },
+  {
+   "id": "bedGothic",
+   "group": "bed",
+   "size": [
+    1.494,
+    1.534,
+    2.04
+   ],
+   "vertices": 16878,
+   "triangles": 18745,
+   "bytes": 1016100,
+   "sha256": "8190243c6e7037ef8028b81a401cd8476bda6db5dd0e8caf72ab4a8e30a933c5"
+  },
+  {
+   "id": "tableCloth",
+   "group": "table",
+   "size": [
+    2.098,
+    0.816,
+    1.293
+   ],
+   "vertices": 772,
+   "triangles": 1048,
+   "bytes": 2273224,
+   "sha256": "ccb54bb90c362a3b9b3367d64e4d26173086dfa4abd99bb75d57626218a77618"
+  },
+  {
+   "id": "stoolWood",
+   "group": "seat",
+   "size": [
+    0.483,
+    0.751,
+    0.486
+   ],
+   "vertices": 10799,
+   "triangles": 14373,
+   "bytes": 2149292,
+   "sha256": "12f0ce90e1c5317e0fc8551b371a7253c6d7cbd5c37d14392b4b00a455a201ea"
+  },
+  {
+   "id": "benchWood",
+   "group": "seat",
+   "size": [
+    0.874,
+    0.667,
+    0.372
+   ],
+   "vertices": 677,
+   "triangles": 630,
+   "bytes": 1981116,
+   "sha256": "3411e55fb07156783f13f417d3af36266e618a4855e8ea87f923df5cc036f05d"
+  },
+  {
+   "id": "dayBed",
+   "group": "bed",
+   "size": [
+    1.973,
+    1.127,
+    0.855
+   ],
+   "vertices": 1998,
+   "triangles": 2715,
+   "bytes": 2423620,
+   "sha256": "e228afe6e3c7cef11cf3d790b90a5b72bffe94ee673d3bb0b2085358aa071424"
+  },
+  {
+   "id": "swivelChair",
+   "group": "seat",
+   "size": [
+    1.009,
+    1.169,
+    1.19
+   ],
+   "vertices": 4203,
+   "triangles": 6148,
+   "bytes": 2064916,
+   "sha256": "871db81af81c051d00df6dd65518ff640710cd7cd86eb1f1d285826a51df447e"
+  },
+  {
+   "id": "rockingChair",
+   "group": "seat",
+   "size": [
+    0.708,
+    0.995,
+    0.833
+   ],
+   "vertices": 9953,
+   "triangles": 11866,
+   "bytes": 730032,
+   "sha256": "b108db081e405962cfd69d0c5cd2261cfdb180925568b8ec39080a91b93000b7"
+  },
+  {
+   "id": "picnicTable",
+   "group": "table",
+   "size": [
+    2.241,
+    0.746,
+    3.022
+   ],
+   "vertices": 6574,
+   "triangles": 10210,
+   "bytes": 4259244,
+   "sha256": "1d9b0b4b4883b0b7e94ddaa342a90b0e210d1eb2277652b8b0879adc8fc1a9ce"
+  },
+  {
+   "id": "tableRoundWood",
+   "group": "table",
+   "size": [
+    0.796,
+    0.746,
+    0.796
+   ],
+   "vertices": 3434,
+   "triangles": 4254,
+   "bytes": 1907436,
+   "sha256": "63f0bb7be0d906a9942de1a632b6555bf45fff6a713374cb139256bb80e07753"
+  },
+  {
+   "id": "armchairChinese",
+   "group": "seat",
+   "size": [
+    0.653,
+    1.222,
+    0.607
+   ],
+   "vertices": 2043,
+   "triangles": 2675,
+   "bytes": 1701904,
+   "sha256": "ca4c73c04836ab946a718f1dbc5c13fa628aa51e1f33fc1e3037031f93542047"
+  },
+  {
+   "id": "deskMetal",
+   "group": "table",
+   "size": [
+    1.9,
+    0.748,
+    0.9
+   ],
+   "vertices": 6070,
+   "triangles": 6898,
+   "bytes": 1563892,
+   "sha256": "27a767e53b85b3fdb0cd824e378eb14f8040122a6b1b960a18f3fed2656e070e"
+  },
+  {
+   "id": "sofaFabric",
+   "group": "seat",
+   "size": [
+    2.322,
+    0.951,
+    0.786
+   ],
+   "vertices": 4507,
+   "triangles": 6994,
+   "bytes": 599088,
+   "sha256": "c632cdf8bf007318b424874745e838ba308c82590904d73bbd07e091e0250a94"
+  }
+ ]
+}

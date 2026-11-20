@@ -277,6 +277,16 @@ export class PoseHandles {
     return Boolean(this.down?.dot) || this.turner.dragging || this.mover.dragging;
   }
 
+  /** 暂时收起来（拖道具带着人走的时候，圆点先不显示）：不改能不能用 */
+  set veiled(on: boolean) {
+    this.root.visible = this.on && !on;
+  }
+
+  /** 这一下按在了圆点、旋转环、移动箭头上（点一下不算点选场景里别的东西） */
+  get engaged(): boolean {
+    return this.busy || (this.on && (this.turner.axis !== null || this.mover.axis !== null));
+  }
+
   /** 换一批圆点 */
   setHandles(handles: readonly Handle[]) {
     this.root.clear();

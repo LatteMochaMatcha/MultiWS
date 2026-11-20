@@ -1,13 +1,15 @@
 import { defineConfig } from 'vitest/config';
 import { agentMonitor } from './tools/agent-monitor/plugin.mjs';
 import { aiForward } from './tools/ai-forward/plugin.mjs';
+import { propsStore } from './tools/props-store/plugin.mjs';
 
 export default defineConfig({
   // 打包出来的网页里全用相对地址：放在网站的根上、某个子文件夹里都能用
   base: './',
   // 开发服务器上给 agent 用的监控测试接口 /__agent/（打包时不生效），见 docs/agent-monitor.md
   // AI 助手的转发 /__ai/（打包时也不生效；正式版由 exe、apk 外壳转发），见 tools/ai-forward/plugin.mjs
-  plugins: [agentMonitor(), aiForward()],
+  // 写实款道具的文件 /__props/（打包时也不生效；正式版从下载站取），见 tools/props-store/plugin.mjs
+  plugins: [agentMonitor(), aiForward(), propsStore()],
   server: { port: 5173 },
   worker: { format: 'es' },
   build: {

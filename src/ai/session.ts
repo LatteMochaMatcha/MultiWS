@@ -17,6 +17,7 @@ import { systemPrompt } from './prompt';
 import { CUSTOM_ID, customModel, customProvider, providerOf } from './providers';
 import { type AiSettings, loadKey, loadSettings } from './settings';
 import { type Conversation, newConversation } from './store';
+import { sceneTools } from './sceneTools';
 import { bodyTools } from './tools';
 import { type Route, detectRoute, routeModel } from './transport';
 import { titleOf, turnsOf, usageOf } from './turns';
@@ -343,7 +344,7 @@ export class AiSession {
       return this.agent;
     }
     const adult = this.conversation.adult;
-    const tools: AgentTool[] = bodyTools({ api: this.opts.api, undoKey: () => this.runKey }, adult);
+    const tools: AgentTool[] = [...bodyTools({ api: this.opts.api, undoKey: () => this.runKey }, adult), ...sceneTools(this.opts.api.scene)];
     this.agentFor = this.conversation.id;
     this.agent = new Agent({
       // 接着以前的对话：消息原样交回（开头那条系统消息就是当时的系统提示）

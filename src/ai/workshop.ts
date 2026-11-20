@@ -35,4 +35,47 @@ export interface WorkshopApi {
   viewSide(): string;
   /** 能单独微调的部件名（和「微调」那一栏一样） */
   parts(): string[];
+
+  /** 场景里的道具（sceneTools.ts 用）。没有这一块时助手没有道具的工具 */
+  scene?: SceneApi;
+}
+
+/** 一件道具：尺寸是宽、高、深（米）；pos 是底面正中在场景里的位置（左右、离地多高、前后）；rot 是前后倾、朝向、左右倾（度） */
+export interface PropInfo {
+  id: string;
+  /** 给人看的名字 */
+  name: string;
+  /** 基本体的种类（pole、box……），或者家具的编号 */
+  kind: string;
+  size: [number, number, number];
+  pos: [number, number, number];
+  rot: [number, number, number];
+  color: string;
+}
+
+/** 要改的那几项。size 里的 NaN 是「这一项不改」；lift：新放的道具没给位置时离地多高 */
+export interface PropChange {
+  pos?: [number, number, number];
+  rot?: [number, number, number];
+  size?: [number, number, number];
+  color?: string;
+  name?: string;
+  lift?: number;
+}
+
+export interface SceneApi {
+  props(): PropInfo[];
+  /** 能放的种类：基本体和现成的家具（real：写实款，第一次用要下载） */
+  kinds(): { kind: string; name: string; size: [number, number, number]; real?: true }[];
+  /** 当前角色站在哪（左右、前后，米）、朝哪（度）、离地多高（米） */
+  figure(): { name: string; x: number; z: number; yaw: number; y: number };
+  /** 放一件；没给位置的放在当前角色旁边的空地上。放不了抛出原因 */
+  add(kind: string, change: PropChange): Promise<PropInfo>;
+  /** 改一件（位置、角度、尺寸、颜色、名字）；没有这件抛错 */
+  change(id: string, change: PropChange): PropInfo;
+  remove(id: string): void;
+  /** 当前角色能对这件道具做的一键动作；block 是现在做不了的原因 */
+  actions(id: string): { key: string; label: string; block: string | null }[];
+  /** 做一个一键动作，返回做成了的那句话；做不了抛出原因 */
+  act(id: string, action: string): string;
 }

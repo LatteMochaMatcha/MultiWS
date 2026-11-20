@@ -27,3 +27,6 @@ notes/
 # 总览重测的原始数据、浏览器工具的日志
 docs/accept/*/shard-*.jsonl
 .playwright-mcp/
+
+# 写实款道具转好的文件（tools/build-props-real.ts 写的，发版时传到下载站）：不进仓库、不进安装包
+.props-store/

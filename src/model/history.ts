@@ -33,6 +33,11 @@ export class History<T> {
     return this.present;
   }
 
+  /** 现在能撤销多少步（多了就是刚记了新的一步，没多就是并进了上一步或者没变） */
+  get steps(): number {
+    return this.past.length;
+  }
+
   get canUndo(): boolean {
     return this.past.length > 0;
   }
@@ -56,6 +61,14 @@ export class History<T> {
     this.future = [];
     this.lastKey = key ?? null;
     this.lastTime = now;
+  }
+
+  /**
+   * 把现在这个状态换掉，不记新的一步，能重做的也留着
+   * （道具挪了、连在它上面的角色跟着走：这是道具那一步的后果，角色自己的历史里不另算一步）
+   */
+  amend(state: T): void {
+    this.present = state;
   }
 
   /** 到此为止：下一次修改不管 key 是什么都另算一步（松开鼠标时用） */

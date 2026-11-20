@@ -1,0 +1,294 @@
+{
+ "source": "Kenney Furniture Kit 2.0 (CC0)",
+ "bytes": 141060,
+ "assets": [
+  {
+   "id": "chair",
+   "group": "seat",
+   "size": [
+    0.4,
+    0.94,
+    0.4
+   ],
+   "vertices": 230,
+   "triangles": 170,
+   "at": 0
+  },
+  {
+   "id": "chairCushion",
+   "group": "seat",
+   "size": [
+    0.4,
+    0.92,
+    0.4
+   ],
+   "vertices": 262,
+   "triangles": 198,
+   "at": 4472
+  },
+  {
+   "id": "chairRounded",
+   "group": "seat",
+   "size": [
+    0.4,
+    0.91,
+    0.4
+   ],
+   "vertices": 336,
+   "triangles": 280,
+   "at": 9592
+  },
+  {
+   "id": "chairDesk",
+   "group": "seat",
+   "size": [
+    0.67,
+    1.215,
+    0.629
+   ],
+   "vertices": 734,
+   "triangles": 588,
+   "at": 16312
+  },
+  {
+   "id": "stoolBar",
+   "group": "seat",
+   "size": [
+    0.531,
+    0.87,
+    0.46
+   ],
+   "vertices": 246,
+   "triangles": 176,
+   "at": 30852
+  },
+  {
+   "id": "bench",
+   "group": "seat",
+   "size": [
+    0.8,
+    0.94,
+    0.4
+   ],
+   "vertices": 230,
+   "triangles": 170,
+   "at": 35600
+  },
+  {
+   "id": "loungeChair",
+   "group": "seat",
+   "size": [
+    0.98,
+    0.92,
+    0.82
+   ],
+   "vertices": 196,
+   "triangles": 128,
+   "at": 40072
+  },
+  {
+   "id": "loungeSofa",
+   "group": "seat",
+   "size": [
+    1.96,
+    0.92,
+    0.82
+   ],
+   "vertices": 196,
+   "triangles": 128,
+   "at": 43780
+  },
+  {
+   "id": "loungeSofaLong",
+   "group": "seat",
+   "size": [
+    1.96,
+    0.92,
+    1.64
+   ],
+   "vertices": 282,
+   "triangles": 186,
+   "at": 47488
+  },
+  {
+   "id": "ottoman",
+   "group": "seat",
+   "size": [
+    0.88,
+    0.46,
+    0.9
+   ],
+   "vertices": 128,
+   "triangles": 84,
+   "at": 52836
+  },
+  {
+   "id": "bedSingle",
+   "group": "bed",
+   "size": [
+    1.142,
+    0.75,
+    2.25
+   ],
+   "vertices": 354,
+   "triangles": 214,
+   "at": 55260
+  },
+  {
+   "id": "bedDouble",
+   "group": "bed",
+   "size": [
+    1.912,
+    0.75,
+    2.25
+   ],
+   "vertices": 450,
+   "triangles": 264,
+   "at": 61856
+  },
+  {
+   "id": "bedBunk",
+   "group": "bed",
+   "size": [
+    1.142,
+    1.7,
+    2.19
+   ],
+   "vertices": 852,
+   "triangles": 580,
+   "at": 70192
+  },
+  {
+   "id": "pillow",
+   "group": "bed",
+   "size": [
+    0.46,
+    0.177,
+    0.444
+   ],
+   "vertices": 96,
+   "triangles": 50,
+   "at": 86452
+  },
+  {
+   "id": "table",
+   "group": "table",
+   "size": [
+    1.935,
+    0.751,
+    1.029
+   ],
+   "vertices": 168,
+   "triangles": 120,
+   "at": 88192
+  },
+  {
+   "id": "tableRound",
+   "group": "table",
+   "size": [
+    1.386,
+    0.733,
+    1.6
+   ],
+   "vertices": 128,
+   "triangles": 80,
+   "at": 91432
+  },
+  {
+   "id": "tableCoffee",
+   "group": "table",
+   "size": [
+    1.322,
+    0.46,
+    0.8
+   ],
+   "vertices": 168,
+   "triangles": 124,
+   "at": 93832
+  },
+  {
+   "id": "desk",
+   "group": "table",
+   "size": [
+    1.469,
+    0.769,
+    0.785
+   ],
+   "vertices": 304,
+   "triangles": 198,
+   "at": 97096
+  },
+  {
+   "id": "kitchenBar",
+   "group": "table",
+   "size": [
+    0.86,
+    0.84,
+    0.42
+   ],
+   "vertices": 88,
+   "triangles": 76,
+   "at": 102844
+  },
+  {
+   "id": "bookcase",
+   "group": "table",
+   "size": [
+    0.8,
+    1.76,
+    0.5
+   ],
+   "vertices": 400,
+   "triangles": 320,
+   "at": 104620
+  },
+  {
+   "id": "bathtub",
+   "group": "other",
+   "size": [
+    2.38,
+    0.84,
+    1.12
+   ],
+   "vertices": 556,
+   "triangles": 602,
+   "at": 112540
+  },
+  {
+   "id": "toilet",
+   "group": "other",
+   "size": [
+    0.625,
+    0.902,
+    0.954
+   ],
+   "vertices": 342,
+   "triangles": 230,
+   "at": 124492
+  },
+  {
+   "id": "stairs",
+   "group": "other",
+   "size": [
+    3.647,
+    2.679,
+    1.58
+   ],
+   "vertices": 488,
+   "triangles": 308,
+   "at": 131004
+  },
+  {
+   "id": "doorway",
+   "group": "other",
+   "size": [
+    0.972,
+    2.019,
+    0.178
+   ],
+   "vertices": 48,
+   "triangles": 28,
+   "at": 140172
+  }
+ ]
+}

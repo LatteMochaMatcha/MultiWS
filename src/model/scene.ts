@@ -5,6 +5,8 @@
  * 同一时间只改一个（当前角色）：界面、撤销、摆姿势照旧只对着它；别的角色在屏幕上是定住的网格。
  * 这里只管数据：增删、复制、改名、切换、摆放，存档和读档。都是不可变的值，每次修改返回新的。
  */
+import { type PropLink, normalizeLinks } from './links';
+import { type SceneProp, normalizeProps } from './props';
 import type { BodySpec } from './spec';
 
 /** 在地上站在哪（米）、朝哪（度，从上往下看逆时针为正；0 是脸朝 +Z，也就是正面视图里朝着镜头） */
@@ -12,7 +14,14 @@ export interface Place {
   x: number;
   z: number;
   yaw: number;
+  /** 脚下离地多高（米）：站在台子上、跟着道具被抬起来。在地上的不写这一项（和加高度以前的存档一模一样） */
+  y?: number;
 }
+
+/** 脚下离地多高（没写就是在地上） */
+export const placeY = (p: Place): number => p.y ?? 0;
+/** 带上离地高度：0 就不写这一项 */
+const withY = (p: { x: number; z: number; yaw: number }, y: number): Place => (y ? { ...p, y } : p);
 
 export interface SceneFigure {
   /** 场景里唯一的编号（f1、f2……），删了不复用 */
@@ -22,19 +31,23 @@ export interface SceneFigure {
   spec: BodySpec;
   text: string;
   place: Place;
+  /** 和道具的连接（整个人跟着哪件、哪只手脚钉在哪件上，见 model/links.ts）；没有就不写 */
+  links?: readonly PropLink[];
 }
 
 export interface Scene {
   figures: readonly SceneFigure[];
   /** 当前角色的 id */
   current: string;
+  /** 场景里的道具（见 model/props.ts）：归整个场景，不跟着哪个角色 */
+  props: readonly SceneProp[];
 }
 
 export const SCENE_APP = 'oc-basemesh-scene';
 export const SCENE_VERSION = 1;
 
-/** 摆放能设的范围：位置 ±20 米，朝向 -180°–180° */
-export const PLACE_LIMITS = { x: [-20, 20], z: [-20, 20], yaw: [-180, 180] } as const;
+/** 摆放能设的范围：位置 ±20 米，朝向 -180°–180°，离地 -5–10 米（和道具一样） */
+export const PLACE_LIMITS = { x: [-20, 20], z: [-20, 20], yaw: [-180, 180], y: [-5, 10] } as const;
 export const ORIGIN: Place = { x: 0, z: 0, yaw: 0 };
 /** 名字最长多少个字 */
 export const NAME_MAX = 40;
@@ -51,18 +64,21 @@ export function wrapYaw(yaw: number): number {
 /** 位置、朝向收进范围；位置留到毫米、朝向留到 0.1° */
 export function clampPlace(p: Partial<Place> | null | undefined): Place {
   const round = (v: number, k: number) => Math.round(v * k) / k;
-  return {
-    x: round(clamp(finite(p?.x, 0), PLACE_LIMITS.x), 1000),
-    z: round(clamp(finite(p?.z, 0), PLACE_LIMITS.z), 1000),
-    yaw: round(wrapYaw(finite(p?.yaw, 0)), 10),
-  };
+  return withY(
+    {
+      x: round(clamp(finite(p?.x, 0), PLACE_LIMITS.x), 1000),
+      z: round(clamp(finite(p?.z, 0), PLACE_LIMITS.z), 1000),
+      yaw: round(wrapYaw(finite(p?.yaw, 0)), 10),
+    },
+    round(clamp(finite(p?.y, 0), PLACE_LIMITS.y), 1000) + 0,
+  );
 }
 
 export const cleanName = (name: unknown): string => (typeof name === 'string' ? name.replace(/\s+/g, ' ').trim().slice(0, NAME_MAX) : '');
 
 /** 只有一个角色的场景（打开旧版存档、第一次打开时） */
 export function singleScene(spec: BodySpec, text: string): Scene {
-  return { figures: [{ id: 'f1', name: '', spec, text, place: ORIGIN }], current: 'f1' };
+  return { figures: [{ id: 'f1', name: '', spec, text, place: ORIGIN }], current: 'f1', props: [] };
 }
 
 /** 下一个没用过的编号 */
@@ -92,6 +108,7 @@ export function updateFigure(scene: Scene, id: string, patch: Partial<Omit<Scene
 export function addFigure(scene: Scene, figure: Omit<SceneFigure, 'id'>): Scene {
   const id = nextId(scene);
   return {
+    ...scene,
     figures: [...scene.figures, { ...figure, id, name: cleanName(figure.name), place: clampPlace(figure.place) }],
     current: id,
   };
@@ -103,7 +120,7 @@ export function removeFigure(scene: Scene, id: string): Scene {
   if (i < 0 || scene.figures.length <= 1) return scene;
   const figures = scene.figures.filter((f) => f.id !== id);
   const current = scene.current === id ? figures[Math.min(i, figures.length - 1)].id : scene.current;
-  return { figures, current };
+  return { ...scene, figures, current };
 }
 
 /** 把删掉的角色放回原来的位置（「恢复刚删的」） */
@@ -111,7 +128,7 @@ export function restoreFigure(scene: Scene, figure: SceneFigure, at: number): Sc
   if (figureOf(scene, figure.id)) return scene;
   const figures = [...scene.figures];
   figures.splice(Math.max(0, Math.min(at, figures.length)), 0, figure);
-  return { figures, current: figure.id };
+  return { ...scene, figures, current: figure.id };
 }
 
 /** 换当前角色（不认得的 id 不换） */
@@ -144,7 +161,7 @@ export function relativePlace(from: Place, to: Place): Place {
   // 绕 Y 轴转 a（three.js 的 rotation.y：从上往下看逆时针）
   const c = Math.cos(a);
   const s = Math.sin(a);
-  return { x: c * dx + s * dz, z: -s * dx + c * dz, yaw: wrapYaw(to.yaw - from.yaw) };
+  return withY({ x: c * dx + s * dz, z: -s * dx + c * dz, yaw: wrapYaw(to.yaw - from.yaw) }, placeY(to) - placeY(from));
 }
 
 /** relativePlace 反过来：在 from 的坐标里位于 local 的点，在场景里站在哪 */
@@ -152,7 +169,7 @@ export function absolutePlace(from: Place, local: Place): Place {
   const a = from.yaw * RAD;
   const c = Math.cos(a);
   const s = Math.sin(a);
-  return { x: from.x + c * local.x + s * local.z, z: from.z - s * local.x + c * local.z, yaw: wrapYaw(from.yaw + local.yaw) };
+  return withY({ x: from.x + c * local.x + s * local.z, z: from.z - s * local.x + c * local.z, yaw: wrapYaw(from.yaw + local.yaw) }, placeY(from) + placeY(local));
 }
 
 /** 一个角色占的地方：在场景里的位置，从上往下看的半宽（米） */
@@ -184,7 +201,13 @@ export function serializeScene(scene: Scene, specData: (spec: BodySpec, text: st
     app: SCENE_APP,
     version: SCENE_VERSION,
     current: scene.current,
-    figures: scene.figures.map((f) => ({ id: f.id, name: f.name, place: f.place, spec: specData(f.spec, f.text) })),
+    figures: scene.figures.map((f) => {
+      // 道具已经不在了的连接不写（屏幕上留着它，是为了撤销把道具放回来时还连着）
+      const links = (f.links ?? []).filter((l) => scene.props.some((p) => p.id === l.prop));
+      return { id: f.id, name: f.name, place: f.place, spec: specData(f.spec, f.text), ...(links.length ? { links } : {}) };
+    }),
+    // 没有道具就不写这一项：和加道具以前的文件一模一样
+    ...(scene.props.length ? { props: scene.props } : {}),
   };
   return pretty ? JSON.stringify(data, null, 2) : JSON.stringify(data);
 }
@@ -201,6 +224,7 @@ export function normalizeScene(data: unknown, readSpec: (raw: unknown) => { spec
   if (!Array.isArray(raw) || !raw.length) return null;
   const used = new Set<string>();
   const figures: SceneFigure[] = [];
+  const props = normalizeProps((data as { props?: unknown }).props);
   let n = 0;
   for (const item of raw) {
     if (typeof item !== 'object' || item === null) continue;
@@ -212,10 +236,11 @@ export function normalizeScene(data: unknown, readSpec: (raw: unknown) => { spec
     }
     used.add(id);
     const { spec, text } = readSpec(f.spec);
-    figures.push({ id, name: cleanName(f.name), spec, text, place: clampPlace(f.place as Partial<Place>) });
+    const links = normalizeLinks(f.links, props);
+    figures.push({ id, name: cleanName(f.name), spec, text, place: clampPlace(f.place as Partial<Place>), ...(links.length ? { links } : {}) });
   }
   if (!figures.length) return null;
   const want = (data as { current?: unknown }).current;
   const current = typeof want === 'string' && used.has(want) ? want : figures[0].id;
-  return { figures, current };
+  return { figures, current, props };
 }
