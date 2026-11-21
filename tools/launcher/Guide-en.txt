@@ -296,6 +296,13 @@ Props belong to the scene, not to any one character.
   Placing       Five basic shapes: Pole, Box, Stand, Ball, Wall. "Ready-made furniture" has 24 low-poly pieces
                 (chairs, sofas, beds, tables...) and 16 textured "Realistic" ones. Realistic props are not part of
                 the installer: each one is downloaded when you click it (0.4-4 MB) and then stays on this device.
+  Your own      The last group under "Ready-made furniture" is "Mine": click "Import..." and pick a model file
+                (GLB, glTF, OBJ, STL or FBX, or a zip that contains one). If the model comes with .bin, .mtl or
+                texture files, select them together; on a computer you can also drag files or a whole folder
+                into the window. The import dialog lets you "Stand upright", set the size, name it and choose
+                a category; with Seats, Beds or Tables chosen, the one-click actions find the seat, bed surface
+                or table top from the shape. Files are kept on this device and are not uploaded; saves only
+                record which asset was used, so on another device you need to import the same file again.
   Adjusting     Click a prop in the 3D view to select it, then drag the arrows to move, the rings to turn and
                 the cubes to scale; the panel takes numbers for position, angle and size, and a colour
                 (a realistic prop needs "Paint grey" ticked first). "Drop down" drops it onto the floor or the prop
@@ -303,12 +310,46 @@ Props belong to the scene, not to any one character.
   One-click     With a prop selected, the row of buttons under Make "character": Sit on it, Lie on it, Hands on top,
   actions       Hold it, Lean back on it, Hang (needs a horizontal pole), Wrap legs (needs an upright pole).
                 One click poses the character on the prop. Greyed-out buttons say why in their tooltip.
+                Four more bring the prop to the character instead: Carry (one hand: a pole is gripped,
+                anything else rests on the palm; click again for the other hand), Carry in both hands,
+                Hug (against the chest) and Lift overhead. The character stays where it stands, the prop
+                comes to the hands and then follows the hand (or chest); one undo puts the prop back.
+                For a horizontal bar overhead (a bus handrail), Hold it stands underneath and reaches up
+                to grip it; click again and the other hand grips it too.
                 They only work for a body with one pair of legs (any number of arms and heads);
                 pose centaurs, spider bodies and the like by hand.
   Following     After sitting, lying, leaning, hanging or wrapping, the whole figure follows the prop when you move
-                or turn it. With Hands on top and Hold it, the hand is pinned to the prop.
+                or turn it. With Hands on top and Hold it, the hand holds the prop.
                 Poses you made yourself can be attached too: select the prop and click "Make ... follow it",
-                or pick a hand or foot in Pose and click "Pin to...". Each attachment can be released under "Attached to it".
+                or pick a hand or foot in Pose and click "Grab ..." or "Stand on ...". A hand or foot attached this way
+                follows the prop's orientation as well: turn or tilt the prop and the palm or sole turns with it;
+                it stays on the prop when you drag the rest of the body, and once the arm is straight the body
+                is held back. When you grab, the palm turns towards the prop (a pole is gripped) and the
+                fingers close around its shape; a foot is laid flat on the surface. A gripping hand has
+                a "Grip" slider: 100% closes the fingers until they touch, further left they straighten,
+                and at 0 the fingers are yours to pose.
+                A hand that grips a bar also has "Grip style": click Overhand or Underhand to switch.
+                Overhand has the thumb pointing inwards or up (as in a pull-up), underhand is the other way
+                round (as in a chin-up; a reverse grip on a knife). The palm flips over and the wrist moves
+                to the other side of the bar; the prop does not move.
+                Snap (a tick box under Pose, on by default): drag a hand or foot close to a prop and it snaps
+                onto it, a ring lights up on the prop, and letting go grabs it - no button needed. Thin parts
+                such as chair legs and rails are gripped like a pole; fingers pointing over a table edge hook
+                onto the edge. Keep dragging while snapped and the hand slides along the prop.
+                Carrying: pick a hand that holds a prop (or a foot standing on one) and tick "Prop follows
+                this hand". From then on dragging the hand, dragging the body, moving the character or
+                changing the pose takes the prop along. Untick it and the prop stays where it is, with the
+                hand still on it. Moving a carried prop makes the hand follow; moved out of reach, the prop
+                comes back to the hand. A prop can follow only one place; other hands and other characters
+                can still hold on to it.
+                Both hands: put the other hand on the carried prop as well. Drag the carrying hand and the
+                other hand comes along; drag the other hand and the prop swings around the carrying hand,
+                stopping where that hand can no longer reach. Pull the hands apart and it lets go. With
+                three or more hands on it, dragging the others only moves their grip along the prop.
+                Hugging: select the prop and click "Make … hug it" under "Attached to it". The prop then
+                follows the chest when the character bends, twists or moves, and hands holding it follow
+                it. Click "Detach" on that row to stop.
+                Each attachment can be released under "Attached to it".
   While posing  Hands, feet and hips stop at the surface of a prop; when the body cuts into a prop,
                 the readout and the "Props" section say so.
   Saving        "Save scene" includes the props, "Save config" does not. When the character is attached to props,

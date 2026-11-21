@@ -642,8 +642,11 @@ button,label,summary,select,input{touch-action:manipulation}
   .app[data-card="joint"] #poseJoint #poseToolRow{grid-column:1/-1;grid-row:3;align-items:center;min-height:36px}
   .app[data-card="joint"] #poseLinkRow{grid-column:1/-1;grid-row:4;min-height:36px}
   .app[data-card="joint"] #poseLinkRow .btn{min-height:34px}
-  .app[data-card="joint"] #segPoseTool{grid-auto-columns:76px}
-  .app[data-card="joint"] #segPoseTool label{padding:7px 2px}
+  .app[data-card="joint"] #poseCarryRow{grid-column:1/-1;grid-row:5;min-height:32px;font-size:12.5px}
+  .app[data-card="joint"] #poseGripRow{grid-column:1/-1;grid-row:6}
+  .app[data-card="joint"] #poseJoint #poseWayRow{grid-column:1/-1;grid-row:7;align-items:center;min-height:36px}
+  .app[data-card="joint"] #segPoseTool,.app[data-card="joint"] #segPoseWay{grid-auto-columns:76px}
+  .app[data-card="joint"] #segPoseTool label,.app[data-card="joint"] #segPoseWay label{padding:7px 2px}
 
   /* ---------- 弹出层：「更多」菜单、导出面板 ---------- */
   .scrim{position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.3)}
@@ -721,6 +724,21 @@ button,label,summary,select,input{touch-action:manipulation}
 .prop-tile span{text-align:center;overflow-wrap:anywhere}
 .prop-tile small{font-size:11px;line-height:1.2;color:var(--muted);font-variant-numeric:tabular-nums}
 .prop-tiles .note{grid-column:1/-1}
+/* 「我的」：第一格是「导入…」；导入过的每件右上角有个删除 */
+.prop-tile-add{border-style:dashed;justify-content:center;color:var(--muted)}
+.prop-tile-add b{font-size:22px;line-height:1;font-weight:400}
+.prop-tile-wrap{position:relative;display:flex}
+.prop-tile-wrap .prop-tile{flex:1;min-width:0}
+.prop-tile-del{position:absolute;top:2px;right:2px;width:20px;height:20px;min-height:0;padding:0;font-size:11px;line-height:1;border-radius:50%;opacity:.55}
+.prop-tile-del:hover,.prop-tile-del:focus-visible{opacity:1}
+/* 手指点：看着还是这么小，能点中的地方往外放一圈 */
+@media (pointer:coarse){.prop-tile-del::after{content:"";position:absolute;inset:-9px}}
+/* 导入素材的框 */
+.prop-import-stage{display:flex;align-items:center;justify-content:center;height:200px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.prop-import-stage img{max-width:100%;max-height:100%;object-fit:contain}
+.prop-import-stage img[hidden]{display:none}
+.prop-import-notes{margin:0;padding-left:1.2em}
+.prop-import .triple{grid-template-columns:3.6em repeat(3,minmax(0,1fr))}
 .figure-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:4px;align-items:stretch}
 .figure-pick{display:flex;flex-direction:column;align-items:flex-start;min-width:0;font:inherit;text-align:left;padding:6px 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);cursor:pointer}
 .figure-pick .figure-name{max-width:100%;font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

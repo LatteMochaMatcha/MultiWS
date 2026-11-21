@@ -41,7 +41,7 @@ interface OcHooks {
   scene?: {
     get(): {
       current: string;
-      figures: readonly { id: string; name: string; place: unknown; spec: { bodyStyle?: unknown }; links?: readonly { prop: string; part: string }[] }[];
+      figures: readonly { id: string; name: string; place: unknown; spec: { bodyStyle?: unknown }; links?: readonly { prop: string; part: string; carry?: boolean }[] }[];
       props?: readonly { id: string; name: string; kind: string; asset?: string; size: unknown; pos: unknown; rot: unknown; gray?: boolean }[];
     };
     waiting(): string[];
@@ -150,7 +150,8 @@ function start(hot: ViteHotContext) {
             bodyStyle: f.spec.bodyStyle,
             place: f.place,
             waiting: waiting.includes(f.id),
-            ...(f.links?.length ? { links: f.links.map((l) => `${l.part} → ${l.prop}`) } : {}),
+            // 方向：→ 是这一处跟着道具（抓着、坐着），⇐ 是道具跟着这一处（拿着、抱着）
+            ...(f.links?.length ? { links: f.links.map((l) => (l.carry ? `${l.part} ⇐ ${l.prop}（道具跟着它）` : `${l.part} → ${l.prop}`)) } : {}),
           })),
           props: props.map((p) => ({ id: p.id, name: p.name, kind: p.kind === 'asset' ? p.asset : p.kind, size: p.size, pos: p.pos, rot: p.rot, ...(p.gray ? { gray: true } : {}) })),
         };

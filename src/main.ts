@@ -24,7 +24,7 @@ import { SOCKET_FOR, nearestSocket } from './geometry/sockets';
 import { type Figure, type FigureMetrics, type Part, type PartType, nthName, worldTransforms } from './geometry/figure';
 import { buildFigure } from './geometry/layout';
 import { type PartFrame, deletable, partFrame } from './geometry/tweak';
-import { type V3, Q_ID, UP, len, norm, quatBetween, quatConj, quatEuler, quatMul, rotate, sub } from './geometry/vec';
+import { type Quat, type V3, Q_ID, UP, len, norm, quatBetween, quatConj, quatEuler, quatMul, rotate, sub } from './geometry/vec';
 import { cleanFileName, inAndroidShell, saveBlob, saveText } from './io/download';
 import { exportGlb } from './io/exportGlb';
 import { OfflineError } from './io/fetchFile';
@@ -60,7 +60,7 @@ import {
   updateFigure,
 } from './model/scene';
 import { type Baked, bakeFigure, bakedGlb, bakedView, charactersOf, skeletonFor } from './scene/bake';
-import { type Capsule, type Clash as FigureClash, type PairPreset, PAIR_PRESETS, PART_LABEL, capsulesOf, findClashes as figureClashes, heightOf, placeCapsules, pushOut, solvePair, toScene } from './scene/interact';
+import { type Capsule, type Clash as FigureClash, type PairPreset, PAIR_PRESETS, PART_LABEL, capsulesOf, findClashes as figureClashes, fromScene, heightOf, placeCapsules, pushOut, solvePair, toScene } from './scene/interact';
 import { mergeGlbs } from './io/mergeGlb';
 import { SceneFigures } from './view/sceneFigures';
 import {
@@ -240,18 +240,22 @@ import { type SkinSource, FlatParts, PosedMeshes, WHITE_BLEND } from './view/pos
 import { type CameraState, type ViewName, VIEW_DEFAULTS, VIEW_LIMITS, Viewport } from './view/viewport';
 import { installUpdateUi } from './update/ui';
 import { installDiag, installDiagRow, noteProblem, watchViewport } from './view/diag';
+import { droppedFiles } from './view/dropFiles';
 import { PropsPanel, propLabel } from './view/propsPanel';
 import { propGlbParts, propTriangles, propWorldShapes } from './io/propFiles';
-import { PROP_ASSETS, REAL_ASSETS, realAsset } from './props/catalog';
+import { PROP_ASSETS, REAL_ASSETS, isUserAssetId, realAsset, skinnedAsset, userAssets } from './props/catalog';
 import { PROP_LABEL, propAssetLabel } from './view/propNames';
 import { loadPropAssets } from './props/library';
 import { loadRealAsset } from './props/realLoad';
+import { loadUserAssets } from './props/userStore';
 import { type PropClash, type PropSolid, propClashes, propSolid, pushOutOfSolids, slideOutOfSolids, solidDistance } from './scene/propTouch';
-import { PROP_KINDS, PROP_SIZE, type SceneProp, propOf } from './model/props';
-import { BODY_LINK, type PropLink, dropLink, linkOf, liveLinks, sameLinks, setLink } from './model/links';
-import { followPlace, holdPosing, holdState, holdTargets, linkTo, nearestSolid, rideLink, topUnder } from './scene/follow';
+import { PROP_KINDS, PROP_SIZE, type SceneProp, propOf, propPoint } from './model/props';
+import { BODY_LINK, type PropLink, dropLink, isLimbPart, linkOf, linkPoint, liveLinks, putDown, sameLinks, setLink, turnLink, withCarry, withGrip } from './model/links';
+import { type Carrier, carrierIn, carryLoops, placeCarried, samePose } from './scene/carry';
+import { type GripWay, type HoldTarget, barGripWay, chestBone, flipGrip, followPlace, grabLink, holdPosing, holdState, holdTargets, linkTo, nearestSolid, rideLink, sceneRot, snapReach, swingReach, topUnder } from './scene/follow';
+import type { SeatMark } from './scene/grip';
 import { packPoseProps, placePoseProps, readPoseProps } from './scene/poseProps';
-import { PROP_ACTIONS, type PropAction, actionBlock, solvePropAction } from './scene/propActions';
+import { type ActionResult, PROP_ACTIONS, type PropAction, actionBlock, isPickAction, solveGrab, solvePropAction } from './scene/propActions';
 
 // 写死在 index.html 里的文字先换成当前语言，后面的代码再往页面上加东西
 translatePage();
@@ -388,8 +392,35 @@ function load() {
   spec = applyParse(defaultSpec(), readText(START_TEXT));
 }
 
+/* 「道具跟着手」（见下面「道具跟着手」那一段）用到的状态：放在这里，是因为存档、道具面板、重建在文件跑到那一段之前就可能用到 */
+
+/** 带着的道具里，刚自己被挪了的那几件（操纵杆正拖着、改了数、撤销）：这一下是手跟着它们，它们的位置照清单 */
+const propLed = new Set<string>();
+/** 道具面板正在写清单（它紧跟着要记撤销）：这时候不往清单里补写，等它记完（见 propsPanel 的 edited） */
+let propWriting = false;
+/** 道具面板刚写完的这一步里，自己被挪了的带着的道具（记完撤销以后看它们有没有被拉回手上，见 edited） */
+let ledJust: string[] = [];
+/** 存档的时候当前角色的身体还没照新的设定重建：带着的道具等重建完再写回清单 */
+let settleDue = false;
+/** 屏幕上的姿势（showPose 刚算的）、存着的姿势各是哪根骨骼在哪；别的角色的照它的设定记着 */
+let liveFrame: { key: PoseState; solver: Solver; frame: Frame } | null = null;
+let savedFrame: { key: Posing; solver: Solver; frame: Frame } | null = null;
+/**
+ * 屏幕上的姿势（poseState）是照哪一份存着的姿势来的。存着的那份换了（撤销、套了现成姿势）而屏幕上还没跟上的那一小会儿，
+ * 带着的道具照存着的算，不照屏幕上那份过时的
+ */
+let posedFrom: Posing | null = null;
+const otherFrames = new Map<string, { spec: BodySpec; solver: Solver; frame: Frame }>();
+/** 上一回照哪份清单算出来的；屏幕上的道具是照哪一份摆的 */
+let carriedView: { base: readonly SceneProp[]; out: readonly SceneProp[] } | null = null;
+let carriedShown: readonly SceneProp[] | null = null;
+/** 正在把带着的道具写回清单（里面又会存档：别绕回来） */
+let settling = false;
+
 function save() {
   scene = updateFigure(scene, scene.current, { spec, text });
+  // 带着的道具：现在在哪写回清单（见 settleCarried）
+  settleCarried();
   try {
     localStorage.setItem(STORE_KEY, serializeSpec(spec, text));
     localStorage.setItem(SCENE_KEY, serializeScene(scene, specData));
@@ -427,7 +458,13 @@ interface Snapshot {
   place: Place;
   /** 和道具的连接（见 model/links.ts） */
   links: readonly PropLink[];
+  /** 这一步是一键动作把道具拿到了身上（「拿着」「抱着」这类）：那几件道具原来在哪。撤销这一步时放回去（见 stepEdit） */
+  picked?: Picked;
 }
+type Picked = Readonly<Record<string, { pos: Vec3; rot: Vec3 }>>;
+/** 当前角色现在这一步记着的 picked：中途把这一步换掉（amend）时带着；记新的一步时换成 tookNext（一般是空的） */
+let tookNow: Picked | undefined;
+let tookNext: Picked | undefined;
 
 const samePlace = (a: Place, b: Place) => a.x === b.x && a.z === b.z && a.yaw === b.yaw && placeY(a) === placeY(b);
 const HISTORY_OPTIONS = {
@@ -437,7 +474,9 @@ const HISTORY_OPTIONS = {
 /** 场景里一个角色现在的样子（别人的撤销历史里记的就是这个） */
 const snapOf = (f: SceneFigure): Snapshot => ({ spec: f.spec, text: f.text, place: f.place, links: f.links ?? [] });
 /** 当前角色现在的样子：设定、文字是界面上的，摆放和连接是场景里记着的 */
-const snapNow = (): Snapshot => ({ spec, text, place: currentOf(scene).place, links: currentOf(scene).links ?? [] });
+const snapNow = (): Snapshot => ({ spec, text, place: currentOf(scene).place, links: currentOf(scene).links ?? [], ...(tookNow ? { picked: tookNow } : {}) });
+/** 别的角色的历史里现在这一步换成它现在的样子（那一步记着的 picked 留着） */
+const amendOf = (h: History<Snapshot> | undefined, f: SceneFigure) => h?.amend({ ...snapOf(f), ...(h.current.picked ? { picked: h.current.picked } : {}) });
 /** 当前角色的撤销历史。场景里每个角色各有一份：切走时存在 histories 里，切回来接着用 */
 let history = new History<Snapshot>(snapNow(), HISTORY_OPTIONS);
 const histories = new Map<string, History<Snapshot>>();
@@ -459,8 +498,16 @@ let slid = false;
 function commit(key?: string) {
   spec = gate(spec);
   const steps = history.steps;
+  const was = tookNow;
+  tookNow = tookNext;
+  tookNext = undefined;
   history.push(snapNow(), key);
   if (history.steps > steps) noteEdit('figure');
+  else if (!tookNow && was) {
+    // 没记成新的一步（并进了上一步，或者没变）：还是原来那一步，它记着的 picked 留着
+    tookNow = was;
+    history.amend(snapNow());
+  }
   // 只认操纵杆自己的改动：万一没收到松手，别的改动（滑块、撤销）照常存档、刷新
   if (tweaking && key?.startsWith('gizmo:')) {
     // 拖操纵杆只改了微调：面板上别的都没变，微调那几格数字在重建以后跟着同步（见 syncTweak）
@@ -493,6 +540,7 @@ function endSlide() {
 
 function restore(snapshot: Snapshot | null) {
   if (!snapshot) return;
+  tookNow = snapshot.picked;
   spec = gate(snapshot.spec);
   readText(snapshot.text);
   const linked = !sameLinks(snapshot.links, currentOf(scene).links);
@@ -528,8 +576,17 @@ function stepEdit(back: boolean) {
   while (side && !canStep(side, back)) side = from.pop();
   side ??= canStep('figure', back) ? 'figure' : 'props';
   if (!canStep(side, back)) return;
-  if (side === 'figure') restore(back ? history.undo() : history.redo());
-  else if (back) propsPanel.undo();
+  if (side === 'figure' && back) {
+    // 撤销的这一步把道具拿到了身上：道具放回原来的地方
+    const left = history.current.picked;
+    restore(history.undo());
+    if (left) putBack(left);
+  } else if (side === 'figure') {
+    const next = history.redo();
+    // 重做一步「拿起来」：道具这会儿在哪，就是再撤销这一步时要放回的地方
+    if (next?.picked) history.amend({ ...next, picked: posesOf(Object.keys(next.picked)) });
+    restore(history.current);
+  } else if (back) propsPanel.undo();
   else propsPanel.redo();
   (back ? redoOrder : editOrder).push(side);
   syncUndo();
@@ -1590,11 +1647,13 @@ const workshop: WorkshopApi = {
     for (let i = 0; i < steps; i++) undo();
   },
   scene: {
-    props: () => scene.props.map(propInfo),
+    props: () => propsNow().map(propInfo),
     kinds: () => [
       ...PROP_KINDS.map((kind) => ({ kind, name: PROP_LABEL[kind], size: PROP_SIZE[kind] })),
       ...PROP_ASSETS.map((a) => ({ kind: a.id, name: propAssetLabel(a.id) || a.id, size: a.size })),
       ...REAL_ASSETS.map((a) => ({ kind: a.id, name: propAssetLabel(a.id) || a.id, size: a.size, real: true as const })),
+      // 用户自己导入的（「我的」）
+      ...userAssets().map((a) => ({ kind: a.id, name: a.name, size: a.size, mine: true as const })),
     ],
     figure() {
       const me = currentOf(scene);
@@ -1613,6 +1672,34 @@ const workshop: WorkshopApi = {
     actions: (id) => propActionList(id).map((a) => ({ key: a.key, label: a.label, block: a.block })),
     act(id, action) {
       const got = applyPropAction(id, action as PropAction);
+      if (!got.ok) throw new Error(got.text);
+      return got.text;
+    },
+    limbs: () => grabParts(),
+    attached: () =>
+      (currentOf(scene).links ?? []).map((l) => {
+        const way = gripWayNow(l.part);
+        return { part: l.part, label: linkPartLabel(l.part), prop: l.prop, mode: l.part === BODY_LINK ? ('rides' as const) : l.carry ? ('carries' as const) : ('holds' as const), ...(way ? { way } : {}) };
+      }),
+    grab(part, id, carry) {
+      if (!propOf(propsNow(), id)) throw new Error(t('场景里没有这件道具'));
+      const got = applyGrab(part, id, carry);
+      if (!got.ok) throw new Error(got.text);
+      return got.text;
+    },
+    release(part) {
+      const me = currentOf(scene);
+      if (!linkOf(me.links, part)) throw new Error(t('这里没有抓着、带着道具'));
+      unlinkPart(me.id, part);
+      return $('status').textContent ?? '';
+    },
+    setCarry(part, on) {
+      const got = applyCarry(part, on);
+      if (!got.ok) throw new Error(got.text);
+      return got.text;
+    },
+    gripWay(part, way) {
+      const got = applyGripWay(part, way);
       if (!got.ok) throw new Error(got.text);
       return got.text;
     },
@@ -1780,18 +1867,32 @@ const propsPanel = new PropsPanel({
   viewport,
   panel: $('propsPanel'),
   base: import.meta.env.BASE_URL,
-  read: () => scene.props,
+  read: () => propsNow(),
   write: (next, dragging, restored) => {
     const had = scene.props.length > 0;
     const before = scene.props;
-    scene = { ...scene, props: next };
-    if (!restored) forgetLinks(before);
-    followProps(dragging);
-    if (!dragging) save();
+    // 带着的道具自己被挪了（操纵杆、改数、撤销）：这一下是手跟着它，不是它跟着手
+    leadCarried(next);
+    propWriting = true;
+    try {
+      scene = { ...scene, props: next };
+      if (!restored) forgetLinks(before);
+      followProps(dragging);
+      if (!dragging) {
+        ledJust = [...propLed];
+        propLed.clear();
+        save();
+      }
+    } finally {
+      propWriting = false;
+    }
     sceneBounds();
     scheduleSceneClash();
     // 有了第一件道具、最后一件没了：「看全部」那一行跟着出现、收起
-    if (had !== next.length > 0) syncScenePanel();
+    if (had !== next.length > 0) {
+      syncScenePanel();
+      renderPosePanel();
+    }
   },
   here: () => currentOf(scene).place,
   picked: () => {
@@ -1799,14 +1900,23 @@ const propsPanel = new PropsPanel({
     selectJoint(null);
   },
   edited: (step) => {
+    // 道具那一步记完了：手够不着、被拉回手上的那几件，照手现在在哪写回清单（并进刚记的这一步）
+    const led = propOf(scene.props, ledJust[0] ?? null);
+    ledJust = [];
+    if (settleCarried() && led) {
+      setStatus(t('「{name}」挪到了手够不着的地方：它回到手上了。要它留在那边，先去掉「道具跟着这只手」的勾（脚是「道具跟着这只脚」）。', { name: propLabel(led) }), true);
+    }
     if (step) noteEdit('props');
     syncUndo();
   },
   status: (message, warn) => setStatus(message, warn),
+  confirm: (message, ok) => askConfirm(message, ok),
   links: (prop) => linksTo(prop),
   unlink: (figure, part) => unlinkPart(figure, part),
   rideLabel: (prop) => (linkOf(myLinks(), BODY_LINK)?.prop === prop ? null : figureLabel(currentOf(scene))),
   ride: (prop) => rideProp(prop),
+  hugLabel: (prop) => (hugging(prop) ? null : figureLabel(currentOf(scene))),
+  hug: (prop) => hugProp(prop),
   actor: () => figureLabel(currentOf(scene)),
   actions: (prop) => propActionList(prop),
   act: (prop, key) => applyPropAction(prop, key as PropAction),
@@ -2547,6 +2657,9 @@ function rebuild() {
     propsPanel.syncActions();
   }
   if (mode === 'pose') syncPosing();
+  // 身体变了（手臂长了、换了样式）：带着的道具跟到手现在的地方；存档那会儿身体还没重建的，现在补上
+  showCarried();
+  if (settleDue && settleCarried()) save();
 }
 
 function rebuildBody() {
@@ -3506,7 +3619,9 @@ let pinHands = false;
 /** 哪几组圆点亮着。指尖、头发衣摆的点又小又密，平时收着，要用的时候再打开 */
 const shownGroups = new Set<HandleGroup>(HANDLE_GROUPS.filter((group) => group !== 'hair' && group !== 'finger'));
 /** 一次拖动：按下去那一刻的姿势，和那一刻钉着的手脚 */
-let grab: { start: PoseState; frame: Frame; pins: Pin[] } | null = null;
+let grab: { start: PoseState; frame: Frame; pins: Pin[]; swing?: { carrier: number; slack: number } } | null = null;
+/** 这一次拖动里，上一下是不是把道具绕着主手转过去了（两只手拿，见 swingFor） */
+let swung = false;
 
 const GROUP_LABEL: Record<HandleGroup, string> = {
   torso: t('躯干'),
@@ -3652,6 +3767,9 @@ function showPose() {
   placeRing();
   if (showBones) bones.update({ bones: posedBones(rig, frame).map((b) => ({ ...b, part: '' })) });
   if (scene.figures.length > 1 || scene.props.length) scheduleSceneClash();
+  // 手上带着道具的：道具跟到手现在的地方
+  liveFrame = { key: poseState, solver: kit.solver, frame };
+  showCarried();
 }
 
 /**
@@ -3744,6 +3862,7 @@ function syncPosing() {
   if (!poseHandles?.busy) {
     settleOldCollars(k.solver);
     poseState = stateOf(k.solver, spec.posing);
+    posedFrom = spec.posing;
   }
   showPose();
   markHandles();
@@ -3828,15 +3947,30 @@ function syncPicked() {
 function beginGrab() {
   if (!kit || !poseState) return;
   const frame = forward(kit.solver.rig, poseState);
-  // 钉在道具上的手脚也留在原地：钉的是道具上那一点（手现在没够着的话，照样朝那一点去）
-  const held = new Map(myHolds().map((h) => [h.part, h.target]));
-  const pins = capturePins(kit.solver, frame, held.size ? new Set([...pinned, ...held.keys()]) : pinned);
+  // 抓着、踩着道具的手脚也留在原地：留的是道具上那一点、那个朝向（手现在没够着的话，照样朝那一点去）
+  // 抓在自己带着的道具上的不算：道具跟着身体走，它们跟着道具走（见 rideCarried）
+  const riding = new Set(ridingHolds().map((h) => h.part));
+  const held = new Map(
+    myHolds()
+      .filter((h) => !h.carried && !riding.has(h.part))
+      .map((h) => [h.part, h]),
+  );
+  const pins = capturePins(kit.solver, frame, held.size || riding.size ? new Set([...pinned, ...held.keys()].filter((name) => !riding.has(name))) : pinned);
+  const on = HOLD_ON * linkScale();
   for (const pin of pins) {
-    const target = held.get(kit.solver.limbs[pin.limb].name);
-    if (target) pin.pos = target;
+    const hold = held.get(kit.solver.limbs[pin.limb].name);
+    if (!hold) continue;
+    // 手这会儿就在道具上：手臂伸直了把身体拉住（和钉着的脚拉住胯一样）。
+    // 本来就够不着、悬着的不拉：不然一碰身体，整个人就被拽过去
+    pin.firm = len(sub(pin.pos, hold.target)) < on;
+    pin.pos = hold.target;
+    if (hold.rot) pin.rot = hold.rot;
   }
   grab = { start: poseState, frame, pins };
+  swung = false;
 }
+/** 手脚离抓着的那一点不到这么远（标准身高 1.7 米时，米），算是「还在道具上」 */
+const HOLD_ON = 0.01;
 
 /**
  * 屏幕上的姿势定下来：存进设定，记一步撤销。
@@ -3846,16 +3980,22 @@ function commitPose(keep: Posing = spec.posing, key?: string) {
   if (!kit || !poseState) return;
   // key：拖滑块的时候连着的修改算一步撤销
   if (!key) history.seal();
-  // 钉在道具上的手脚：身体别处怎么动，它们都回到钉着的点上
-  poseState = holdState(kit.solver, poseState, myHolds());
+  // 抓着、踩着道具的手脚：身体别处怎么动，它们都回到抓着的点上；刚换了地方、换了角度抓的，手指重新握一遍
+  poseState = holdState(kit.solver, poseState, myHolds(), { grip: regripDue ? 'always' : 'moved' });
+  regripDue = false;
   spec = { ...spec, posing: posingOf(kit.solver, poseState, keep) };
+  posedFrom = spec.posing;
   commit(key);
 }
+
+/** 下一次存姿势时，抓着道具的手的手指都重新握一遍（刚在道具上换了地方、换了角度抓） */
+let regripDue = false;
 
 /** 直接换一个姿势（对称、翻转、还原）。打开了「几对手臂一起动」的话，别的几对照领头的那一对摆好再存 */
 function editPosing(next: Posing, key?: string) {
   if (kit && followOn) next = posingOf(kit.solver, following(stateOf(kit.solver, next)), next);
-  if (kit) next = holdPosing(kit.solver, next, myHolds());
+  // 整个姿势换了：抓着道具的手回到道具上，手指重新握
+  if (kit) next = holdPosing(kit.solver, next, myHolds(), { grip: 'always' });
   spec = { ...spec, posing: next };
   commit(key);
 }
@@ -3917,28 +4057,53 @@ if (poseHandles) {
   poseHandles.onGrab = (handle) => {
     takeLead(handle);
     beginGrab();
-    grabTouch();
+    grabTouch(handle);
+    swingFor(handle);
   };
   poseHandles.onDrag = (handle, target) => {
     if (!kit || !grab) return;
     const { solver } = kit;
+    /** 照平常拖手脚时，手脚要去的地方（给 tether 用） */
+    let reached: V3 | null = null;
     // 手脚碰到场景里别的角色、碰到道具：停在表面（见 touchTarget）；拖胯坐下去、躺下去也停在道具表面
     if (handle.kind === 'reach') {
       const limb = solver.limbs[handle.limb];
-      poseState = dragReach(solver, grab.start, handle.limb, touchTarget(target, limb.kind === 'leg' ? 'foot' : 'hand', grab.frame.pos[limb.end]), grab.pins);
+      // 两只手拿着一件道具、拖的是不带着它的那只：道具绕着主手转过去（拖开了就不转，照平常的拖）
+      const swing = grab.swing ? swingReach(solver, grab.start, grab.swing.carrier, handle.limb, target, grab.swing.slack) : null;
+      swung = Boolean(swing);
+      if (swing) {
+        poseState = swing;
+        gripSnap = null;
+      } else {
+        const to = touchTarget(target, limb.kind === 'leg' ? 'foot' : 'hand', grab.frame.pos[limb.end]);
+        // 拖到道具跟前：吸上去（见 snapDrag）
+        poseState = snapDrag(handle.limb, to, dragReach(solver, grab.start, handle.limb, to, grab.pins));
+        reached = to;
+      }
     }
     else if (handle.kind === 'bend') poseState = dragBend(solver, grab.start, handle.limb, target);
     else if (handle.kind === 'body') poseState = dragBody(solver, grab.start, touchTarget(target, 'body', grab.frame.pos[solver.rig.hips]), grab.pins);
     else if (handle.links.length) poseState = dragAim(solver, grab.start, handle.links, { bone: handle.anchor, rest: handle.rest }, target, grab.pins);
     if (poseState) poseState = following(poseState);
+    // 抓在自己带着的道具上的别的手脚：跟到道具现在的地方（正拖着的这只不管，转道具的时候它已经在了）
+    rideCarried(handle.kind === 'reach' && !swung ? solver.limbs[handle.limb].name : undefined);
+    // 拖的是带着道具的那只手：别的手够不着了，道具停在它们还够得着的地方
+    if (reached && handle.kind === 'reach') tether(handle.limb, reached);
     showPose();
+    poseHandles?.snap(gripSnap?.mark ?? null);
   };
   poseHandles.onRelease = (handle, moved) => {
     grab = null;
     if (moved) {
-      relinkDragged(handle);
+      // 道具绕着主手转过去了：两只手都还抓在原处，连接不用动。
+      // 不然：松手时吸在道具上就抓住它；再不然照老规矩（还挨着就换个地方抓，拖开了就松开）
+      if (swung) snapRelease(undefined);
+      else if (!snapRelease(handle)) relinkDragged(handle);
+      freeGripOf(handle);
+      dropStretched();
       commitPose();
-    }
+    } else snapRelease(undefined);
+    swung = false;
   };
   poseHandles.onPick = (handle) => {
     // 这一下点中的是道具（见 release）：选中的关节已经放掉了
@@ -3957,10 +4122,15 @@ if (poseHandles) {
       ? turnSpine(kit.solver, grab.start, handle.turn, handle.twist, delta, grab.pins)
       : turnBone(kit.solver, grab.start, handle.turn, quatMul(delta, grab.frame.rot[handle.turn]), grab.pins);
     poseState = following(turned);
+    // 弯腰、转身、转带着道具的手：抓在这件道具上的手脚跟着它（正转着的那只手脚不管）
+    rideCarried(kit.solver.limbs.find((l) => l.end === handle.turn)?.name);
     showPose();
   };
   poseHandles.onTurnEnd = () => {
     grab = null;
+    relinkTurned(pickedHandle());
+    freeGripOf(pickedHandle());
+    dropStretched();
     commitPose();
   };
   // 移动箭头：和拖圆点一样解，只是位置是沿箭头挪出来的
@@ -3968,7 +4138,8 @@ if (poseHandles) {
     const handle = pickedHandle();
     takeLead(handle);
     beginGrab();
-    if (handle) grabTouch();
+    if (handle) grabTouch(handle);
+    swingFor(handle);
   };
   poseHandles.onMove = (target) => {
     const handle = pickedHandle();
@@ -3977,9 +4148,13 @@ if (poseHandles) {
   poseHandles.onMoveEnd = (moved) => {
     grab = null;
     if (moved) {
-      relinkDragged(pickedHandle());
+      if (swung) snapRelease(undefined);
+      else if (!snapRelease(pickedHandle())) relinkDragged(pickedHandle());
+      freeGripOf(pickedHandle());
+      dropStretched();
       commitPose();
-    }
+    } else snapRelease(undefined);
+    swung = false;
   };
 }
 
@@ -4073,6 +4248,8 @@ function usePosing(posing: Posing, ground: boolean) {
   }
   showPose();
   if (ground) dropToGround();
+  // 整个姿势换了：抓着、拿着道具的手，手指都重新握一遍（换上去的那份里手是张着的）
+  regripDue = true;
   // 表情也是：换上去的那份里没有，脸上原来的就留着
   commitPose(posing.faces || !spec.posing.faces ? posing : { ...posing, faces: spec.posing.faces });
 }
@@ -4137,7 +4314,7 @@ $('btnPoseSave').addEventListener('click', async () => {
   const { solver } = kit;
   // 角色连着道具（坐着、吊着、手钉着）：那几件道具一起带上，载入时能连道具一起放
   const me = currentOf(scene);
-  const carried = packPoseProps(me.place, me.links, scene.props);
+  const carried = packPoseProps(me.place, me.links, propsNow());
   const file = {
     app: 'oc-basemesh',
     kind: 'pose',
@@ -4181,7 +4358,7 @@ filePose.addEventListener('change', async () => {
       ));
     if (withProps && carried) {
       const me = currentOf(scene);
-      const got = placePoseProps(carried, me.place, scene.props);
+      const got = placePoseProps(carried, me.place, propsNow());
       propsPanel.insert(got.props);
       history.seal();
       movePlace(me.id, got.place, true);
@@ -4240,6 +4417,7 @@ function reshapeHands(change: (shape: HandShape) => HandShape, key?: string) {
   }
   poseState = following(next);
   showPose();
+  freeGrip(pickedHands());
   commitPose(spec.posing, key);
 }
 
@@ -4919,6 +5097,8 @@ function renderPosePanel() {
   if (followLeads.left >= pairs) followLeads.left = 0;
   if (followLeads.right >= pairs) followLeads.right = 0;
   $('poseFollowRow').hidden = pairs < 2;
+  // 「吸附」：场景里有道具才用得上
+  $('poseSnapRow').hidden = !propsNow().length;
   syncFollow(followOn ? 'on' : 'off', true);
   syncPresetPanel();
   renderHand();
@@ -5473,6 +5653,9 @@ async function bakeOthers() {
         scheduleSceneClash();
         bakedFor.set(next.id, key);
         bakeFailed.delete(next.id);
+        // 成品角色的文件这时才载进来：它的骨架重新取，手上带着的道具跟到位
+        otherFrames.delete(next.id);
+        showCarried();
         sceneBounds();
         renderSceneBar();
         renderFigureList();
@@ -5509,6 +5692,8 @@ function placeAll() {
   propsPanel.follow();
   sceneBounds();
   scheduleSceneClash();
+  // 角色挪了：它手上带着的道具跟着走
+  showCarried();
 }
 
 /**
@@ -5598,6 +5783,7 @@ function loadFigure(id: string, follow: boolean) {
   spec = gate(to.spec);
   readText(to.text);
   desc.value = text;
+  tookNow = histories.get(id)?.current.picked;
   history = histories.get(id) ?? new History<Snapshot>(snapNow(), HISTORY_OPTIONS);
   carry(null);
   // 只属于上一个角色的东西清掉：选中的部件和关节、摆姿势的骨架、钉住的手脚、刚套的现成姿势、染哪个头……
@@ -5733,6 +5919,14 @@ function useScene(next: Scene) {
   bakeFailed.clear();
   lastRemoved = null;
   scene = next;
+  // 换了一整个场景：上一个场景里道具各在哪、多大不算数了（不然新场景的道具正好挪到同一处时，连着的手脚不跟）
+  followedKey = '';
+  followedSizes.clear();
+  noteSizes();
+  propLed.clear();
+  otherFrames.clear();
+  carriedView = null;
+  carriedShown = null;
   propsPanel.reset();
   for (const f of scene.figures) if (f.id !== scene.current) sceneView.setGhost(f.id, [], new Box3());
   refitNext = true;
@@ -5764,6 +5958,23 @@ for (const btn of askDialog.querySelectorAll<HTMLButtonElement>('button')) {
   btn.addEventListener('click', () => asking?.(btn.value === 'ok'));
 }
 askDialog.addEventListener('close', () => asking?.(askDialog.returnValue === 'ok'));
+
+/* ---- 把模型文件拖进窗口：当成道具导入（见 docs/import-plan.md） ---- */
+
+window.addEventListener('dragover', (e) => {
+  // 不拦的话松手时浏览器会把页面换成那个文件
+  if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+});
+window.addEventListener('drop', (e) => {
+  if (!e.dataTransfer?.files.length) return;
+  e.preventDefault();
+  // 松手以后这份东西就读不到了：要的先当场取出来
+  const picked = droppedFiles(e.dataTransfer);
+  void picked.then((files) => {
+    if (!files.some((f) => propsPanel.accepts(f.path))) return setStatus(t('拖进来的东西里没有工坊认的模型：当道具导入的话要 GLB、glTF、OBJ、STL、FBX，或者装着它们的 zip 包。'), true);
+    void propsPanel.importFiles(files);
+  });
+});
 
 /* ---- 3D 视图上：脚下的底座圈拖着挪、转；点别的角色切过去 ---- */
 
@@ -6159,11 +6370,17 @@ async function sceneFile(kind: ExportKind): Promise<{ fileName: string; blob: Bl
     await loadAssetsFor(s);
     done.push({ figure: f, baked: await bakeFigure(s, { rig: kind === 'rig', fine: true }) });
   }
-  const props = exportPropsBox.checked ? scene.props : [];
+  const props = exportPropsBox.checked ? propsNow() : [];
   // 素材道具的网格要先取到：没取到时屏幕上是方块顶着的，不能把方块导出去
-  if (props.some((p) => p.kind === 'asset' && !realAsset(p.asset))) await loadPropAssets(import.meta.env.BASE_URL);
+  if (props.some((p) => p.kind === 'asset' && !skinnedAsset(p.asset))) await loadPropAssets(import.meta.env.BASE_URL);
   // 写实款这台设备上没有的先下回来（下不了就停在这，说明原因）
   for (const id of new Set(props.flatMap((p) => (p.kind === 'asset' && realAsset(p.asset) ? [p.asset as string] : [])))) await loadRealAsset(id);
+  // 导入的素材这台设备上没有的：导出去就是个方块，先拦住
+  const lost = await loadUserAssets(props.flatMap((p) => (p.kind === 'asset' && isUserAssetId(p.asset) ? [p.asset] : [])));
+  if (lost.length) {
+    const names = [...new Set(props.flatMap((p) => (p.asset && lost.includes(p.asset) ? [propLabel(p)] : [])))];
+    throw new Error(t('场景里有导入的素材这台设备上没有（{names}）：先重新导入，或者导出时不带道具', { names: names.join(t('、')) }));
+  }
   const credits = [...new Set(done.flatMap((d) => d.baked.credits))];
   const credit = credits.length ? credits.join(t('；')) : undefined;
   let blob: Blob;
@@ -6273,7 +6490,7 @@ function checkSceneClash() {
   const mine = scene.props.length ? currentBones() : null;
   propClash = mine ? propClashes(capsulesOf(mine.bones, mine.height), propSolids()) : [];
   const first = propClash[0];
-  const prop = first && scene.props.find((p) => p.id === first.id);
+  const prop = first && propsNow().find((p) => p.id === first.id);
   const propText = prop
     ? t('和「{name}」穿插：{where}（最深 {cm} 厘米）', {
         name: propLabel(prop),
@@ -6300,7 +6517,7 @@ let propClash: PropClash[] = [];
 /** 场景里的道具，换到当前角色的坐标里（它站在原点） */
 function propSolids(): PropSolid[] {
   const here = currentOf(scene).place;
-  return scene.props.map((p) => propSolid(p, here));
+  return propsNow().map((p) => propSolid(p, here));
 }
 
 /** 挪开到不穿插：当前角色顺着「从那个人到自己」的方向一点点往外挪，挪到和他不穿插为止（最多 3 米） */
@@ -6356,10 +6573,19 @@ let touchCaps: Capsule[] | null = null;
 let touchSolids: PropSolid[] = [];
 /** 这一次拖动里，上一下停在了哪（道具那一步之后的） */
 let touchLast: V3 | null = null;
-function grabTouch() {
+function grabTouch(handle?: Handle) {
   touchCaps = touchStop && scene.figures.length > 1 ? othersCapsules().flatMap((o) => o.caps) : null;
-  touchSolids = touchStop ? propSolids() : [];
+  // 自己手上带着的道具会跟着身体走：按下时它在哪不算数，不挡、不吸。
+  // 只有拖别的手脚时（带着道具的那只手这时不动）才算它，好让另一只手也抓上去
+  const limb = handle?.kind === 'reach' ? limbOf(handle) : undefined;
+  const mine = myLinks().filter((l) => l.carry);
+  const skip = new Set(limb && !mine.some((l) => l.part === limb.name) ? [] : mine.map((l) => l.prop));
+  const solids = touchStop || snapOn ? propSolids().filter((s) => !skip.has(s.id)) : [];
+  touchSolids = touchStop ? solids : [];
   touchLast = null;
+  // 带着道具的手不吸：一只手只抓一件，吸上别的就等于把手上的放下了
+  snapSolids = snapOn && !(limb && mine.some((l) => l.part === limb.name)) ? solids : [];
+  gripSnap = null;
 }
 /**
  * 拖的那个点离道具表面留多少（标准身高 1.7 米时，米）：拖的是手腕、脚踝、胯的关节，不是皮肤。
@@ -6384,17 +6610,135 @@ function touchTarget(target: V3, what: keyof typeof TOUCH_ROOM = 'hand', start?:
   return out;
 }
 
+/* ---- 吸附：拖手脚拖到道具跟前自己吸上去，松手就抓住（见 docs/grab-plan.md 第 3 期；这台设备记着开没开） ---- */
+
+const SNAP_KEY = 'oc-basemesh-snap';
+let snapOn = true;
+try {
+  snapOn = localStorage.getItem(SNAP_KEY) !== 'off';
+} catch {
+  // 读不到就开着
+}
+const snapBox = $<HTMLInputElement>('poseSnap');
+snapBox.checked = snapOn;
+snapBox.addEventListener('change', () => {
+  snapOn = snapBox.checked;
+  try {
+    localStorage.setItem(SNAP_KEY, snapOn ? 'on' : 'off');
+  } catch {
+    // 记不住也照样用
+  }
+});
+/**
+ * 拖的那个点（手腕、脚踝）离道具表面不到这么远就吸上去（标准身高 1.7 米时，米）。
+ * 脚踝离脚底有一截、「停在表面」时就离着 7 厘米，所以脚的放宽些。
+ * 吸着以后要再拖出 SNAP_OUT 才放开，免得在边上来回跳
+ */
+const SNAP_IN = { hand: 0.06, foot: 0.1 } as const;
+const SNAP_OUT = 0.03;
+/** 这一次拖动里能吸的道具（当前角色的坐标，按下时取一次） */
+let snapSolids: PropSolid[] = [];
+/** 这会儿吸在哪件道具上：哪条肢体、道具上亮的那一圈、手脚落位以后朝哪、在哪 */
+let gripSnap: { prop: string; part: string; mark: SeatMark; rot: Quat; end: V3 } | null = null;
+
+/**
+ * 拖手脚的这一下要不要吸到道具上。to 是照鼠标该去的地方，dragged 是照它拖到的姿势；
+ * 吸上了返回落到道具上的姿势（并记在 gripSnap 里），没吸返回 dragged
+ */
+function snapDrag(limb: number, to: V3, dragged: PoseState): PoseState {
+  const was = gripSnap;
+  gripSnap = null;
+  if (!kit || !grab || !snapSolids.length) return dragged;
+  const one = kit.solver.limbs[limb];
+  const k = linkScale();
+  let best: PropSolid | null = null;
+  let least = Infinity;
+  for (const solid of snapSolids) {
+    const reach = (SNAP_IN[one.kind === 'leg' ? 'foot' : 'hand'] + (was?.prop === solid.id && was.part === one.name ? SNAP_OUT : 0)) * k;
+    // 先看盒子够不够近
+    if (to.some((v, i) => v < solid.min[i] - reach || v > solid.max[i] + reach)) continue;
+    const dist = solidDistance(solid, to);
+    if (dist <= reach && dist < least) {
+      least = dist;
+      best = solid;
+    }
+  }
+  const prop = best && propOf(propsNow(), best.id);
+  if (!best || !prop) return dragged;
+  // 上一下就吸在这件道具上：照上一下落位的朝向接着算（不然手跟着前臂一转，就在杆的两边来回换着握）
+  const sticky = was && was.prop === prop.id && was.part === one.name ? was.rot : null;
+  const from = sticky ? dragReach(kit.solver, grab.start, limb, to, grab.pins, sticky) : dragged;
+  const got = snapReach(kit.solver, grab.start, limb, grab.pins, from, currentOf(scene).place, prop, best);
+  if (!got) return dragged;
+  gripSnap = { prop: prop.id, part: one.name, mark: got.mark, rot: got.rot, end: forward(kit.solver.rig, got.state).pos[one.end] };
+  return got.state;
+}
+
+/**
+ * 松手：手脚吸在道具上的话抓住（踩住）它，返回 true；没吸着返回 false。
+ * 只改场景里记的连接和屏幕上的姿势，这一步的撤销由紧跟着的 commitPose 记
+ */
+function snapRelease(handle: Handle | undefined): boolean {
+  const snap = gripSnap;
+  gripSnap = null;
+  poseHandles?.snap(null);
+  const limb = handle?.kind === 'reach' ? limbOf(handle) : undefined;
+  const prop = snap && propOf(propsNow(), snap.prop);
+  if (!snap || !limb || limb.name !== snap.part || !prop || !kit || !poseState) return false;
+  // 屏幕上的姿势中途被重摆过（后台重建完了正好插进来）、手已经不在吸着的地方：不算吸着
+  if (len(sub(forward(kit.solver.rig, poseState).pos[limb.end], snap.end)) > HOLD_ON * linkScale()) return false;
+  const me = currentOf(scene);
+  const old = linkOf(myLinks(), limb.name);
+  // 原来就抓着的：握紧度照旧（拖到过 0、自己摆过手指的还是不自己握）；新抓的握到碰着
+  const got = grabLink(kit.solver, poseState, me.place, prop, limb.name, old ? old.grip : 1);
+  if (!got) return false;
+  poseState = following(got.state);
+  scene = updateFigure(scene, me.id, { links: setLink(me.links, got.link) });
+  regripDue = true;
+  if (old?.prop !== prop.id) {
+    setStatus(
+      isFootPart(limb.name)
+        ? t('{part}踩住「{name}」了：挪它、转它，这只脚跟着走。不想让它自己踩住：把脚拖开，或者关掉「姿势」里的「吸附」。', { part: limbLabel(limb.name), name: propLabel(prop) })
+        : twoHandNote(limb.name, prop)
+          ? t('{part}也抓住「{name}」了。', { part: limbLabel(limb.name), name: propLabel(prop) }) + twoHandNote(limb.name, prop)
+          : t('{part}抓住「{name}」了：挪它、转它，这只手跟着走。不想让它自己抓住：把手拖开，或者关掉「姿势」里的「吸附」。', { part: limbLabel(limb.name), name: propLabel(prop) }),
+    );
+  }
+  markHandles();
+  propsPanel.refresh();
+  return true;
+}
+
 /* ---- 钉住和跟随：角色和道具的连接（见 model/links.ts、scene/follow.ts） ---- */
 
+/**
+ * 场景里的道具现在各在哪：显示、导出、查穿插、跟随、一键动作都问它，不直接读清单（见 docs/grab-plan.md 第 0 期）。
+ * 「道具跟着手」的那几件照手现算（见 scene/carry.ts）；别的就是清单。没变时返回的是同一份（sceneSolids 靠这个认变没变）。
+ * live：当前角色照屏幕上的姿势算（拖着的时候是还没存的）；false 是照存着的姿势算（写回清单时用）
+ */
+function propsNow(live = true): readonly SceneProp[] {
+  const base = scene.props;
+  // carryReady：这个文件从上往下跑到「道具跟着手」那一段之前，下面用到的东西还没备好（那时候也还没有屏幕）
+  if (!carryReady || !base.length) return base;
+  const by = carriers(live);
+  if (!by.length) return base;
+  const out = placeCarried(base, by, live && carriedView?.base === base ? carriedView.out : undefined);
+  if (live) carriedView = { base, out };
+  return out;
+}
+// 用 var：要在这一行跑到之前就能读（读到的是 undefined，当作还没备好）
+var carryReady: boolean | undefined;
+
 /** 当前角色现在用得上的连接（道具还在的） */
-const myLinks = (): PropLink[] => liveLinks(currentOf(scene).links, scene.props);
-/** 当前角色钉在道具上的手脚各该在哪（它自己的坐标） */
-const myHolds = () => holdTargets(currentOf(scene).place, currentOf(scene).links, scene.props);
+const myLinks = (): PropLink[] => liveLinks(currentOf(scene).links, propsNow());
+/** 当前角色抓着、踩着道具的手脚各该在哪、朝哪（它自己的坐标） */
+const myHolds = () => holdTargets(currentOf(scene).place, currentOf(scene).links, propsNow(), propLed);
 
 /** 场景里的道具（场景的坐标）：找最近的道具、往下找落脚的面用。清单没变就用上次算的 */
 let sceneSolidsFor: { props: readonly SceneProp[]; solids: PropSolid[] } | null = null;
 function sceneSolids(): PropSolid[] {
-  if (sceneSolidsFor?.props !== scene.props) sceneSolidsFor = { props: scene.props, solids: scene.props.map((p) => propSolid(p)) };
+  const props = propsNow();
+  if (sceneSolidsFor?.props !== props) sceneSolidsFor = { props, solids: props.map((p) => propSolid(p)) };
   return sceneSolidsFor.solids;
 }
 
@@ -6405,12 +6749,14 @@ function limbLabel(part: string): string {
   const base = m[1] === 'Hand' ? (m[2] === 'L' ? t('左手') : t('右手')) : m[2] === 'L' ? t('左脚') : m[2] === 'R' ? t('右脚') : t('中间的脚');
   return m[3] ? `${base} ${Number(m[3])}` : base;
 }
-const linkPartLabel = (part: string): string => (part === BODY_LINK ? t('整个人') : limbLabel(part));
+const linkPartLabel = (part: string): string => (part === BODY_LINK ? t('整个人') : /^(UpperChest|Chest|Spine)/.test(part) ? t('胸口') : limbLabel(part));
 
 /** 连着这件道具的：谁的哪里（面板上「连着它的」那几行） */
 function linksTo(prop: string): { figure: string; part: string; label: string }[] {
   return scene.figures.flatMap((f) =>
-    (f.links ?? []).filter((l) => l.prop === prop).map((l) => ({ figure: f.id, part: l.part, label: `${figureLabel(f)} · ${linkPartLabel(l.part)}` })),
+    (f.links ?? [])
+      .filter((l) => l.prop === prop)
+      .map((l) => ({ figure: f.id, part: l.part, label: `${figureLabel(f)} · ${linkPartLabel(l.part)}${l.carry ? t('（带着它）') : t('（跟着它）')}` })),
   );
 }
 
@@ -6422,7 +6768,7 @@ function forgetLinks(before: readonly SceneProp[]) {
     if (!f.links?.some((l) => fresh.includes(l.prop))) continue;
     scene = updateFigure(scene, f.id, { links: f.links.filter((l) => !fresh.includes(l.prop)) });
     if (f.id === scene.current) history.amend(snapNow());
-    else histories.get(f.id)?.amend(snapOf(figureOf(scene, f.id)!));
+    else amendOf(histories.get(f.id), figureOf(scene, f.id)!);
   }
 }
 
@@ -6438,23 +6784,397 @@ function carry(to: Place | null) {
   if (poseHandles) poseHandles.veiled = Boolean(to);
 }
 
+/* ---- 道具跟着手（见 scene/carry.ts、docs/grab-plan.md 第 4 期） ---- */
+
+const anyCarried = () => scene.figures.some((f) => f.links?.some((l) => l.carry));
+
+/** 当前角色的骨架现在各根骨骼在哪（它自己的坐标）。身体还没照现在的设定建好返回 null */
+function myFrame(live: boolean): { solver: Solver; frame: Frame } | null {
+  // 刚换了当前角色：屏幕上的身体还是上一个角色的
+  if (!bodyKey) return null;
+  if (live && mode === 'pose' && kit && poseState && posedFrom === spec.posing) {
+    if (liveFrame?.key !== poseState || liveFrame.solver !== kit.solver) liveFrame = { key: poseState, solver: kit.solver, frame: forward(kit.solver.rig, poseState) };
+    return liveFrame;
+  }
+  if (!live && bodyKey !== bodyKeyOf()) return null;
+  const solver = ensureKit()?.solver;
+  if (!solver) return null;
+  if (savedFrame?.key !== spec.posing || savedFrame.solver !== solver) savedFrame = { key: spec.posing, solver, frame: forward(solver.rig, stateOf(solver, spec.posing)) };
+  return savedFrame;
+}
+
+/** 别的角色的骨架现在各根骨骼在哪（它自己的坐标）；算不出来返回 null */
+function frameOf(f: SceneFigure): { solver: Solver; frame: Frame } | null {
+  const had = otherFrames.get(f.id);
+  if (had?.spec === f.spec) return had;
+  try {
+    const solver = makeSolver(skeletonFor(bakeSpec(f)));
+    const got = { spec: f.spec, solver, frame: forward(solver.rig, stateOf(solver, f.spec.posing)) };
+    otherFrames.set(f.id, got);
+    return got;
+  } catch {
+    return null;
+  }
+}
+
+/** 现在带着道具的那几只手、脚各在场景里的哪、朝哪 */
+function carriers(live: boolean): Carrier[] {
+  const out: Carrier[] = [];
+  for (const f of scene.figures) {
+    const links = f.links?.filter((l) => l.carry && l.rot && !propLed.has(l.prop));
+    if (!links?.length) continue;
+    const mine = f.id === scene.current;
+    const got = mine ? myFrame(live) : frameOf(f);
+    if (!got) continue;
+    // 当前角色正被拖着的道具带着走（坐在椅子上、椅子在拖）：照屏幕上它被带到的地方
+    const place = mine && live && carried ? carried : f.place;
+    for (const link of links) {
+      // 手、脚的连接写的是末端那根骨骼的名字；抱着的写的是胸口那根骨骼的名字
+      const bone = got.solver.rig.index.get(link.part);
+      if (bone !== undefined) out.push({ link, point: toScene(place, got.frame.pos[bone]), rot: sceneRot(place, got.frame.rot[bone]) });
+    }
+  }
+  return out;
+}
+
+/** 带着的道具可能挪了（手动了、角色挪了、身体变了）：屏幕上的道具、连在它上面的别的角色跟上。只动屏幕，不存 */
+function showCarried() {
+  if (!carryReady || (carriedShown === null && !anyCarried())) return;
+  const now = propsNow();
+  if (now === carriedShown) return;
+  carriedShown = anyCarried() ? now : null;
+  propsPanel.moved();
+  // 别的角色坐在它上面、抓着它的：跟着挪（当前角色自己别的手留到落定时再摆）
+  followProps(true, false);
+  sceneBounds();
+  scheduleSceneClash();
+}
+
+/**
+ * 落定：带着的道具现在在哪，写回清单——不另记一步撤销，是角色那一步（或者道具那一步）的后果。
+ * 这样放下、松开、删掉角色的那一下，道具就留在原地；撤销回到拿起来之前，道具也在那时候的地方。
+ * 返回清单改了没有
+ */
+function settleCarried(): boolean {
+  if (!carryReady || settling || propWriting || propLed.size || !anyCarried()) return false;
+  // 当前角色的身体还没照现在的设定重建：它带着的那几件等重建完再写（见 rebuild）
+  settleDue = Boolean(currentOf(scene).links?.some((l) => l.carry)) && (!bodyKey || bodyKey !== bodyKeyOf());
+  const now = propsNow(false);
+  if (now === scene.props) return false;
+  settling = true;
+  try {
+    scene = { ...scene, props: now };
+    carriedView = null;
+    propsPanel.amend(now);
+    // 连在这件道具上的（别的角色、这个角色别的手脚）跟过去
+    followProps(false);
+  } finally {
+    settling = false;
+  }
+  carriedShown = propsNow();
+  sceneBounds();
+  scheduleSceneClash();
+  return true;
+}
+
+/** 这几件道具现在各在哪（记进快照的 picked 用） */
+function posesOf(ids: readonly string[]): Picked {
+  const now = propsNow();
+  const out: Record<string, { pos: Vec3; rot: Vec3 }> = {};
+  for (const id of ids) {
+    const prop = propOf(now, id);
+    if (prop) out[id] = { pos: prop.pos, rot: prop.rot };
+  }
+  return out;
+}
+
+/**
+ * 撤销了一步「把道具拿到身上」：那几件道具放回拿起来之前的地方——不另记撤销，是那一步的另一半。
+ * 这会儿又被谁带着的（撤回去以后还是拿着，只是换了拿法）不动：它照带着它的那一处算
+ */
+function putBack(picked: Picked) {
+  const held = new Set(scene.figures.flatMap((f) => (f.links ?? []).flatMap((l) => (l.carry ? [l.prop] : []))));
+  let changed = false;
+  const next = scene.props.map((p) => {
+    const was = picked[p.id];
+    if (!was || held.has(p.id) || samePose(p, was)) return p;
+    changed = true;
+    return { ...p, pos: was.pos, rot: was.rot };
+  });
+  if (!changed) return;
+  scene = { ...scene, props: next };
+  carriedView = null;
+  propsPanel.amend(next);
+  // 连在这件道具上的（别的角色、这个角色别的手脚）跟过去
+  followProps(false);
+  carriedShown = anyCarried() ? propsNow() : null;
+  sceneBounds();
+  scheduleSceneClash();
+  save();
+}
+
+/** 道具面板要把清单换成 next：带着的道具里，这一下自己被挪了、改了尺寸的记进 propLed（手跟着它们去） */
+function leadCarried(next: readonly SceneProp[]) {
+  if (!anyCarried()) return;
+  const view = propsNow();
+  for (const f of scene.figures) {
+    for (const l of f.links ?? []) {
+      if (!l.carry) continue;
+      const to = propOf(next, l.prop);
+      const from = propOf(view, l.prop);
+      if (to && from && to !== from && !(samePose(to, from) && to.size.join() === from.size.join())) propLed.add(l.prop);
+    }
+  }
+  carriedView = null;
+}
+
+/** 当前角色的连接里绕圈的「带着」去掉（人整个跟着的道具不能又跟着这个人的手，见 carryLoops） */
+function untangle(id: string) {
+  const f = figureOf(scene, id);
+  if (!f?.links?.some((l) => l.carry)) return;
+  const looped = f.links.filter((l) => l.carry && carryLoops(scene.figures, id, l.prop));
+  if (looped.length) scene = updateFigure(scene, id, { links: looped.reduce((links, l) => putDown(links, l.prop), [...f.links]) });
+}
+
+/** 这只手、这只脚现在不能带着这件道具的原因；能带返回 null */
+function carryBlock(part: string, prop: SceneProp): string | null {
+  const me = currentOf(scene);
+  const by = carrierIn(
+    scene.figures.filter((f) => f.id !== me.id),
+    prop.id,
+  );
+  if (by) return t('「{who}」的{part}正带着「{name}」：一件道具只能跟着一处，先让那边放下', { who: figureLabel(figureOf(scene, by.figure)!), part: linkPartLabel(by.link.part), name: propLabel(prop) });
+  if (carryLoops(scene.figures, me.id, prop.id)) return t('「{who}」整个人正跟着「{name}」（坐在、站在它上面），它不能再跟着{part}走', { who: figureLabel(me), name: propLabel(prop), part: linkPartLabel(part) });
+  return null;
+}
+
+/**
+ * 选中的那只抓着道具的手（踩着道具的脚）：换成道具跟着它走（拿着），或者换回道具不动（抓着）。
+ * 记的是同一份相对位置，换的那一下手和道具都不动
+ */
+function setCarry(on: boolean) {
+  const choice = linkChoice();
+  const limb = choice && kit?.solver.limbs.find((l) => l.name === choice.part);
+  if (!choice?.link || !limb || !kit || !poseState) return syncPoseLink();
+  const { part, prop } = choice;
+  const me = currentOf(scene);
+  const names = { part: limbLabel(part), name: propLabel(prop) };
+  if (!on) {
+    // 道具留在现在的地方（清单里已经是这个位置：每次存档都写回去了）
+    settleCarried();
+    scene = updateFigure(scene, me.id, { links: setLink(me.links, withCarry(choice.link, false)) });
+    commitLinks();
+    return setStatus(t('「{name}」放下了，留在现在的地方；{part}还抓在它上面，挪它、转它{part}跟着走。', names));
+  }
+  const block = carryBlock(part, prop);
+  if (block) {
+    syncPoseLink();
+    return setStatus(block, true);
+  }
+  // 手这会儿没在抓着的那一点上（够不着悬着的、老存档里没记朝向的）：照手现在在哪重新记，不然一勾上道具就跳到手上
+  const frame = forward(kit.solver.rig, poseState);
+  const point = toScene(me.place, frame.pos[limb.end]);
+  let link = choice.link;
+  if (!link.rot || len(sub(point, linkPoint(prop, link))) > 1e-3) link = withGrip(linkTo(prop, part, point, undefined, sceneRot(me.place, frame.rot[limb.end])), link.grip ?? 0);
+  // 这个角色别的手脚原来带着它的：换成这一只带，那一只改成抓着（原来是抱着的，就不抱了）
+  scene = updateFigure(scene, me.id, { links: setLink(putDown(me.links, prop.id), withCarry(link, true)) });
+  commitLinks();
+  setStatus(
+    isFootPart(part)
+      ? t('「{name}」跟着{part}了：拖这只脚、拖身体、挪角色，它都跟着走、跟着转。要它留在原地：去掉「道具跟着这只脚」的勾。', names)
+      : t('「{name}」拿在{part}上了：拖这只手、拖身体、挪角色、换姿势，它都跟着走、跟着转。要它留在原地：去掉「道具跟着这只手」的勾。', names),
+  );
+}
+
+/* ---- 两只手拿、抱着（见 docs/grab-plan.md 第 5 期） ---- */
+
+/** 当前角色自己带着的道具（跟着它的手、脚、胸口走的那几件） */
+const myCarried = (): Set<string> => new Set(myLinks().flatMap((l) => (l.carry ? [l.prop] : [])));
+
+/**
+ * 抓在、踩在自己带着的道具上的手脚各该在哪：道具跟着身体走，它们跟着道具走（不算钉在原地）。
+ * skip：不算这一只（正拖着、正转着的）
+ */
+function ridingHolds(skip?: string): HoldTarget[] {
+  const mine = myCarried();
+  return mine.size ? myHolds().filter((h) => !h.carried && mine.has(h.prop) && h.part !== skip) : [];
+}
+
+/** 屏幕上的姿势刚算出来（拖着、转着的每一下）：抓在自己带着的道具上的手脚，跟到道具现在的地方 */
+function rideCarried(skip?: string) {
+  if (!kit || !poseState) return;
+  const targets = ridingHolds(skip);
+  if (targets.length) poseState = holdState(kit.solver, poseState, targets, { grip: 'never' });
+}
+
+/**
+ * 按下的是不是「两只手拿」里不带着道具的那只手：道具跟着这个角色的另一只手（脚），这个角色抓在它上面的只有这一只。
+ * 是的话记下主手是哪条肢体：拖这只手，道具绕着主手抓的那一点转（见 swingReach）。
+ * 三只以上的手抓着、道具跟着胸口的（抱着）：不转，这只手只在道具上换地方抓
+ */
+function swingFor(handle: Handle | undefined) {
+  if (!grab || !kit || handle?.kind !== 'reach') return;
+  const limb = limbOf(handle);
+  const links = myLinks();
+  const mine = limb && linkOf(links, limb.name);
+  if (!limb || !mine || mine.carry) return;
+  const on = links.filter((l) => l.prop === mine.prop);
+  const by = on.find((l) => l.carry);
+  const carrier = by ? kit.solver.limbs.findIndex((l) => l.name === by.part) : -1;
+  if (carrier < 0 || on.length !== 2) return;
+  grab.swing = { carrier, slack: LINK_NEAR[limb.kind === 'leg' ? 'foot' : 'hand'] * linkScale() };
+}
+
+/** 抓在自己带着的道具上的手脚，离它该在的那一点差得比这个还多（米，照身高缩放）：松手时算够不着、放开 */
+const RIDE_SLIP = 0.03;
+/** 拖带着道具的那只手时，别的手离道具差得比这个还多（米）：道具停在这之前 */
+const RIDE_MISS = 2e-3;
+
+/** 屏幕上的姿势里，抓在自己带着的道具上的手脚离它们该在的那一点最远差多少（米）、是哪一只；先 rideCarried 再量 */
+function rideMiss(skip?: string): { miss: number; hold: HoldTarget | null } {
+  let worst: { miss: number; hold: HoldTarget | null } = { miss: 0, hold: null };
+  if (!kit || !poseState) return worst;
+  const targets = ridingHolds(skip);
+  if (!targets.length) return worst;
+  const frame = forward(kit.solver.rig, poseState);
+  for (const hold of targets) {
+    const limb = kit.solver.limbs.find((l) => l.name === hold.part);
+    const miss = limb ? len(sub(frame.pos[limb.end], hold.target)) : 0;
+    if (miss > worst.miss) worst = { miss, hold };
+  }
+  return worst;
+}
+
+/**
+ * 拖的是带着道具的那只手（脚）、别的手脚还抓在道具上：它们伸直了也够不着道具要去的地方时，
+ * 道具停在它们还够得着的最远处（几只手之间的距离是定死的）。
+ * 硬拉开、差得比「挨着」还远了就不拦：道具跟着主手走，够不着的那只手松手时放开（见 dropStretched）。
+ * to：这一下手要去的地方（角色自己的坐标）
+ */
+function tether(index: number, to: V3) {
+  if (!kit || !grab || !poseState) return;
+  const { solver } = kit;
+  const limb = solver.limbs[index];
+  if (!myLinks().some((l) => l.part === limb.name && l.carry)) return;
+  const worst = rideMiss(limb.name);
+  if (worst.miss <= RIDE_MISS || worst.miss > LINK_NEAR.hand * linkScale()) return;
+  const { start, pins } = grab;
+  const from = grab.frame.pos[limb.end];
+  /** 手只走到 k 成（0–1）：摆好，量别的手差多少 */
+  const at = (k: number) => {
+    const point: V3 = [from[0] + (to[0] - from[0]) * k, from[1] + (to[1] - from[1]) * k, from[2] + (to[2] - from[2]) * k];
+    poseState = following(dragReach(solver, start, index, point, pins));
+    rideCarried(limb.name);
+    return rideMiss(limb.name).miss;
+  };
+  // 按下那一刻就有悬着的：不管，照手要去的地方摆
+  if (at(0) > RIDE_MISS) {
+    at(1);
+    return;
+  }
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 7; i++) {
+    const mid = (lo + hi) / 2;
+    if (at(mid) <= RIDE_MISS) lo = mid;
+    else hi = mid;
+  }
+  at(lo);
+  // 说一声，不然像是拖不动
+  const prop = worst.hold && propOf(propsNow(), worst.hold.prop);
+  if (worst.hold && prop) setStatus(t('{part}伸直了，拉住了「{name}」；再往外拖，这只手就松开。', { part: limbLabel(worst.hold.part), name: propLabel(prop) }));
+}
+
+/**
+ * 松手前：抓在自己带着的道具上的手脚，够不着道具现在的地方、差出 RIDE_SLIP 的，松开
+ * （几只手之间的距离是定死的，硬拉开、转过头就是放手；手不悬在半空）。
+ * 只改场景里记的连接，这一步的撤销由紧跟着的 commitPose 记
+ */
+function dropStretched() {
+  if (!kit || !poseState) return;
+  const targets = ridingHolds();
+  if (!targets.length) return;
+  poseState = holdState(kit.solver, poseState, targets, { grip: 'never' });
+  const frame = forward(kit.solver.rig, poseState);
+  const me = currentOf(scene);
+  let links = me.links;
+  let lost: HoldTarget | null = null;
+  for (const hold of targets) {
+    const limb = kit.solver.limbs.find((l) => l.name === hold.part);
+    if (!limb || len(sub(frame.pos[limb.end], hold.target)) <= RIDE_SLIP * linkScale()) continue;
+    links = dropLink(links, hold.part);
+    lost = hold;
+  }
+  if (!lost) return;
+  scene = updateFigure(scene, me.id, { links });
+  const prop = propOf(propsNow(), lost.prop);
+  setStatus(t('{part}够不着「{name}」了，松开了。', { part: limbLabel(lost.part), name: prop ? propLabel(prop) : '' }), true);
+  markHandles();
+  propsPanel.refresh();
+}
+
+/** 另一只手也抓上了自己拿着的道具：说一句拖哪只手是什么效果；不是这种情况返回 '' */
+function twoHandNote(part: string, prop: SceneProp): string {
+  const on = myLinks().filter((l) => l.prop === prop.id);
+  const by = on.find((l) => l.carry);
+  if (!by || by.part === part) return '';
+  const main = linkPartLabel(by.part);
+  if (on.length === 2 && kit?.solver.limbs.some((l) => l.name === by.part)) return t('拖这只手，「{name}」绕着{main}转；拖{main}，它带着这只手走。', { name: propLabel(prop), main });
+  return t('「{name}」跟着{main}走，这只手跟着它；拖这只手是在它上面换个地方抓。', { name: propLabel(prop), main });
+}
+
+/** 当前角色的胸口正带着这件道具（抱着） */
+const hugging = (prop: string): boolean => myLinks().some((l) => l.carry && l.prop === prop && !isLimbPart(l.part));
+
+/**
+ * 抱着：这件道具跟着当前角色的胸口走（弯腰、转身、挪角色都带着）。照现在的相对位置记，点的那一下道具不动。
+ * 这个角色原来用手拿着它的，改成手抓着它（跟着它走）
+ */
+function hugProp(propId: string) {
+  const prop = propOf(propsNow(), propId);
+  const got = myFrame(true);
+  if (!prop || !got) return setStatus(t('正在生成网格…'));
+  const me = currentOf(scene);
+  const bone = chestBone(got.solver.rig, got.frame, fromScene(me.place, propPoint(prop, [0, prop.size[1] / 2, 0])));
+  if (bone < 0) return setStatus(t('这个身体上没找到胸口，抱不了。'), true);
+  const part = got.solver.rig.names[bone];
+  const block = carryBlock(part, prop);
+  if (block) return setStatus(block, true);
+  const link = withCarry(linkTo(prop, part, toScene(me.place, got.frame.pos[bone]), undefined, sceneRot(me.place, got.frame.rot[bone])), true);
+  scene = updateFigure(scene, me.id, { links: setLink(putDown(me.links, prop.id), link) });
+  commitLinks();
+  setStatus(
+    t('「{who}」抱着「{name}」了：弯腰、转身、拖胯、挪角色，它都跟着胸口走。把手拖到它上面抓住，手也跟着它。不抱了：在「连着它的」里点「解开」。', {
+      who: figureLabel(me),
+      name: propLabel(prop),
+    }),
+  );
+}
+
+// 到这里上面用到的东西都备好了：propsNow 可以照手算了
+carryReady = true;
+
 /**
  * 当前角色照连接摆好：整个人跟着道具的挪到位，钉在道具上的手脚回到钉着的点。
  * dragging：正拖着道具，只挪屏幕上的（镜头和坐标这时候不能动：操纵杆正照着它们算）；松手时才真的改，改的并进角色现在这一步里
  */
 function followCurrent(dragging: boolean) {
   const me = currentOf(scene);
-  const links = liveLinks(me.links, scene.props);
+  const links = liveLinks(me.links, propsNow());
   if (!links.length) return carry(null);
-  const to = followPlace(me.place, links, scene.props);
-  const targets = holdTargets(to, links, scene.props);
+  const to = followPlace(me.place, links, propsNow());
+  // 带着道具的手：手在哪道具就在哪，这里不用摆（刚被挪了的那几件除外，见 propLed）
+  const targets = holdTargets(to, links, propsNow(), propLed).filter((h) => !h.carried);
   if (dragging) {
     carry(samePlace(to, me.place) ? null : to);
     if (mode === 'pose' && kit && poseState && targets.length && !poseHandles?.busy) {
       // 每一下都从存着的姿势算起：拖出去再拖回来，回到原样
-      poseState = holdState(kit.solver, stateOf(kit.solver, spec.posing), targets);
+      poseState = holdState(kit.solver, stateOf(kit.solver, spec.posing), targets, { grip: 'never' });
+      posedFrom = spec.posing;
       showPose();
     }
+    // 人被拖着的道具带着走（坐在椅子上、椅子在拖）：他手上拿着的道具也跟着
+    showCarried();
     return;
   }
   carry(null);
@@ -6465,7 +7185,23 @@ function followCurrent(dragging: boolean) {
   }
   const solver = targets.length ? ensureKit()?.solver : null;
   if (solver) {
-    const posing = holdPosing(solver, spec.posing, targets);
+    // 道具落定了（挪了、转了、改了尺寸）：手指照它现在的形状重新握
+    let posing = spec.posing;
+    const reseat = links.filter((l) => l.grip && resizedProps.has(l.prop));
+    if (reseat.length) {
+      // 改了尺寸的（杆粗了、细了）：抓着它的手先重新落位，再握——不然手还照原来的粗细摆着，手指握不实
+      let state = holdState(solver, stateOf(solver, posing), targets, { grip: 'never' });
+      let mine = currentOf(scene).links;
+      for (const link of reseat) {
+        const got = grabLink(solver, state, to, propOf(propsNow(), link.prop)!, link.part, link.grip);
+        if (!got) continue;
+        state = got.state;
+        mine = setLink(mine, withCarry(got.link, Boolean(link.carry)));
+      }
+      scene = updateFigure(scene, me.id, { links: mine });
+      posing = posingOf(solver, holdState(solver, state, holdTargets(to, mine, propsNow(), propLed), { grip: 'always' }), posing);
+      changed = true;
+    } else posing = holdPosing(solver, posing, targets, { grip: 'always' });
     if (posing !== spec.posing) {
       spec = { ...spec, posing };
       changed = true;
@@ -6479,17 +7215,17 @@ function followCurrent(dragging: boolean) {
 
 /** 别的角色照连接摆好。返回：挪了没有、姿势变了没有（变了要重新算它定住的那张网格） */
 function followOther(f: SceneFigure, dragging: boolean): { moved: boolean; posed: boolean } {
-  const links = liveLinks(f.links, scene.props);
+  const links = liveLinks(f.links, propsNow());
   if (!links.length) return { moved: false, posed: false };
-  const to = followPlace(f.place, links, scene.props);
+  const to = followPlace(f.place, links, propsNow());
   const moved = !samePlace(to, f.place);
   if (moved) scene = updateFigure(scene, f.id, { place: to });
   let posed = false;
   // 手脚重新摆要重算网格：拖着的时候不做，松手再做
-  const targets = dragging ? [] : holdTargets(to, links, scene.props);
+  const targets = dragging ? [] : holdTargets(to, links, propsNow(), propLed).filter((h) => !h.carried);
   if (targets.length) {
     try {
-      const posing = holdPosing(makeSolver(skeletonFor(bakeSpec(f))), f.spec.posing, targets);
+      const posing = holdPosing(makeSolver(skeletonFor(bakeSpec(f))), f.spec.posing, targets, { grip: 'always' });
       if (posing !== f.spec.posing) {
         scene = updateFigure(scene, f.id, { spec: { ...f.spec, posing } });
         posed = true;
@@ -6498,17 +7234,37 @@ function followOther(f: SceneFigure, dragging: boolean): { moved: boolean; posed
       // 它用的素材还没载进来：先不摆，下次道具动的时候再摆
     }
   }
-  if ((moved || posed) && !dragging) histories.get(f.id)?.amend(snapOf(figureOf(scene, f.id)!));
+  if ((moved || posed) && !dragging) amendOf(histories.get(f.id), figureOf(scene, f.id)!);
   return { moved, posed };
 }
 
 /** 上一次跟着道具摆好时，道具各在哪、多大（没变就不用再摆）；拖着的时候跟过、还没落定 */
 let followedKey = '';
 let followLoose = false;
-/** 道具清单变了（拖着、改了数、撤销、删了）：连在道具上的角色跟着 */
-function followProps(dragging: boolean) {
+/** 上一次落定时每件道具多大；这一次落定时改了尺寸的是哪几件（抓着它们的手要重新落位，见 followCurrent） */
+const followedSizes = new Map<string, string>();
+let resizedProps: ReadonlySet<string> = new Set();
+/** 记下每件道具现在多大；返回比上一次记的时候改了尺寸的那几件 */
+function noteSizes(): Set<string> {
+  const resized = new Set<string>();
+  for (const p of propsNow()) {
+    const size = p.size.join();
+    const was = followedSizes.get(p.id);
+    if (was !== undefined && was !== size) resized.add(p.id);
+    followedSizes.set(p.id, size);
+  }
+  return resized;
+}
+noteSizes();
+/**
+ * 道具清单变了（拖着、改了数、撤销、删了），或者带着的道具跟着手挪了：连在道具上的角色跟着。
+ * mine：当前角色也跟（手上带着的道具跟着手挪的那几下不跟：它别的手脚留到落定时再摆）
+ */
+function followProps(dragging: boolean, mine = true) {
+  // 落定的时候（不是正拖着）：记下哪几件改了尺寸
+  if (!dragging) resizedProps = noteSizes();
   if (!scene.figures.some((f) => f.links?.length)) return;
-  const key = JSON.stringify(scene.props.map((p) => [p.id, p.pos, p.rot, p.size]));
+  const key = JSON.stringify(propsNow().map((p) => [p.id, p.pos, p.rot, p.size]));
   if (key === followedKey && !(followLoose && !dragging)) return;
   followedKey = key;
   followLoose = dragging;
@@ -6521,7 +7277,7 @@ function followProps(dragging: boolean) {
     posed ||= got.posed;
   }
   if (moved) placeAll();
-  followCurrent(dragging);
+  if (mine) followCurrent(dragging);
   if (posed) void bakeOthers();
 }
 
@@ -6531,12 +7287,12 @@ function followProps(dragging: boolean) {
  */
 function resettle(id: string): boolean {
   const f = figureOf(scene, id);
-  const links = f && liveLinks(f.links, scene.props);
+  const links = f && liveLinks(f.links, propsNow());
   if (!f || !links?.length) return false;
   const ride = linkOf(links, BODY_LINK);
-  const prop = ride && propOf(scene.props, ride.prop);
+  const prop = ride && propOf(propsNow(), ride.prop);
   if (prop) scene = updateFigure(scene, id, { links: setLink(f.links, rideLink(prop, f.place)) });
-  const targets = holdTargets(f.place, links, scene.props);
+  const targets = holdTargets(f.place, links, propsNow(), propLed).filter((h) => !h.carried);
   if (!targets.length) return false;
   if (id === scene.current) {
     const solver = ensureKit()?.solver;
@@ -6567,26 +7323,44 @@ function commitLinks() {
 const LINK_NEAR = { hand: 0.12, foot: 0.16, body: 0.45 } as const;
 const linkScale = () => (currentBones()?.height ?? 1.7) / 1.7;
 
-/** 把当前角色的一只手、一只脚钉在道具上（不说哪件就是最近的那件）。返回钉上了没有 */
+/** 手、脚上的连接叫「抓住」还是「踩住」：脚是踩 */
+const isFootPart = (part: string) => /^Foot/.test(part);
+
+/** 当前角色的一只手抓住、一只脚踩住道具（不说哪件就是最近的那件）：记下那一点和这会儿的朝向。返回连上了没有 */
 function holdPart(part: string, propId?: string): boolean {
   const limb = kit?.solver.limbs.find((l) => l.name === part);
-  if (!kit || !poseFrame || !limb) return false;
+  if (!kit || !poseState || !poseFrame || !limb) return false;
   const me = currentOf(scene);
   const point = toScene(me.place, poseFrame.pos[limb.end]);
-  const prop = propOf(scene.props, propId ?? nearestSolid(sceneSolids(), point)?.id ?? null);
+  const prop = propOf(propsNow(), propId ?? nearestSolid(sceneSolids(), point)?.id ?? null);
   if (!prop) return false;
-  scene = updateFigure(scene, me.id, { links: setLink(me.links, linkTo(prop, part, point)) });
-  commitLinks();
-  setStatus(t('{part}钉在「{name}」上了：挪这件道具它跟着走，拖身体别处时它留在道具上。', { part: limbLabel(part), name: propLabel(prop) }));
+  // 落位：手掌转过去对着道具（杆是握在四指根部）、脚底贴着面；带手指的手照道具的形状握上
+  const got = grabLink(kit.solver, poseState, me.place, prop, part, 1);
+  if (!got) return false;
+  scene = updateFigure(scene, me.id, { links: setLink(me.links, got.link) });
+  poseState = following(holdState(kit.solver, got.state, myHolds(), { grip: 'always' }));
+  showPose();
+  commitPose();
+  markHandles();
+  propsPanel.refresh();
+  setStatus(
+    isFootPart(part)
+      ? t('{part}踩住「{name}」了：挪它、转它，这只脚跟着走；拖身体别处时脚留在上面。', { part: limbLabel(part), name: propLabel(prop) })
+      : twoHandNote(part, prop)
+        ? t('{part}也抓住「{name}」了。', { part: limbLabel(part), name: propLabel(prop) }) + twoHandNote(part, prop)
+        : t('{part}抓住「{name}」了：挪它、转它，这只手跟着走；拖身体别处时手留在上面，手臂伸直了身体就被拉住。', { part: limbLabel(part), name: propLabel(prop) }),
+  );
   return true;
 }
 
 /** 让当前角色整个人跟着一件道具（坐、躺、站在上面的） */
 function rideProp(propId: string) {
-  const prop = propOf(scene.props, propId);
+  const prop = propOf(propsNow(), propId);
   if (!prop) return;
   const me = currentOf(scene);
   scene = updateFigure(scene, me.id, { links: setLink(me.links, rideLink(prop, me.place)) });
+  // 人整个跟着它了：它不能又跟着这个人的手（原来拿着的改成抓着）
+  untangle(me.id);
   commitLinks();
   setStatus(t('「{who}」整个人跟着「{name}」了：挪它、转它，人跟着走。', { who: figureLabel(me), name: propLabel(prop) }));
 }
@@ -6596,7 +7370,7 @@ function unlinkPart(figureId: string, part: string) {
   const f = figureOf(scene, figureId);
   const link = linkOf(f?.links, part);
   if (!f || !link) return;
-  const prop = propOf(scene.props, link.prop);
+  const prop = propOf(propsNow(), link.prop);
   const h = figureId === scene.current ? null : (histories.get(figureId) ?? new History<Snapshot>(snapOf(f), HISTORY_OPTIONS));
   scene = updateFigure(scene, figureId, { links: dropLink(f.links, part) });
   if (h) {
@@ -6609,24 +7383,34 @@ function unlinkPart(figureId: string, part: string) {
   setStatus(
     part === BODY_LINK
       ? t('「{who}」不跟着「{name}」了。', { who: figureLabel(f), name: prop ? propLabel(prop) : '' })
-      : t('{part}从「{name}」上松开了。', { part: limbLabel(part), name: prop ? propLabel(prop) : '' }),
+      : link.carry
+        ? t('「{name}」放下了，留在现在的地方。', { name: prop ? propLabel(prop) : '' })
+        : t('{part}从「{name}」上松开了。', { part: limbLabel(part), name: prop ? propLabel(prop) : '' }),
   );
 }
 
 /**
- * 拖完一只钉在道具上的手、脚：还挨着那件道具就照新的地方重新钉，拖开了就松开。
+ * 拖完一只抓着、踩着道具的手、脚：还挨着那件道具就照新的地方、新的朝向重新记，拖开了就松开。
  * 只改场景里记的连接，这一步的撤销由紧跟着的 commitPose 记
  */
 function relinkDragged(handle: Handle | undefined) {
   const limb = handle?.kind === 'reach' ? limbOf(handle) : undefined;
   const me = currentOf(scene);
   const link = limb && linkOf(myLinks(), limb.name);
-  const prop = link && propOf(scene.props, link.prop);
-  if (!limb || !link || !prop || !kit || !poseState) return;
-  const point = toScene(me.place, forward(kit.solver.rig, poseState).pos[limb.end]);
+  const prop = link && propOf(propsNow(), link.prop);
+  // 道具跟着这只手的：手到哪它到哪，不用重新记
+  if (!limb || !link || link.carry || !prop || !kit || !poseState) return;
+  const frame = forward(kit.solver.rig, poseState);
+  const point = toScene(me.place, frame.pos[limb.end]);
   const near = LINK_NEAR[limb.kind === 'leg' ? 'foot' : 'hand'] * linkScale();
   if (solidDistance(propSolid(prop), point) <= near) {
-    scene = updateFigure(scene, me.id, { links: setLink(me.links, linkTo(prop, limb.name, point)) });
+    // 换个地方抓：重新落位，握紧度照旧（紧跟着的 commitPose 里手指重新握）
+    const got = grabLink(kit.solver, poseState, me.place, prop, limb.name, link.grip);
+    if (got) {
+      poseState = following(got.state);
+      scene = updateFigure(scene, me.id, { links: setLink(me.links, got.link) });
+      regripDue = true;
+    }
   } else {
     scene = updateFigure(scene, me.id, { links: dropLink(me.links, limb.name) });
     setStatus(t('{part}从「{name}」上松开了。', { part: limbLabel(limb.name), name: propLabel(prop) }));
@@ -6635,7 +7419,60 @@ function relinkDragged(handle: Handle | undefined) {
   propsPanel.refresh();
 }
 
-/** 选中的点能连到哪：手脚是钉在道具上，胯是整个人跟着。已经连着的给出那个连接；旁边没有道具返回 null */
+/**
+ * 用旋转环转完一只抓着道具的手、踩着道具的脚：照转完的朝向重新记（不然一存就被转回原来的朝向）。
+ * 抓在哪不变。只改场景里记的连接，这一步的撤销由紧跟着的 commitPose 记
+ */
+function relinkTurned(handle: Handle | undefined) {
+  if (!handle || !kit || !poseState) return;
+  const limb = kit.solver.limbs.find((l) => l.end === handle.turn);
+  const me = currentOf(scene);
+  const link = limb && linkOf(myLinks(), limb.name);
+  const prop = link && propOf(propsNow(), link.prop);
+  // 道具跟着这只手的：手转了它跟着转，不用重新记
+  if (!limb || !link || link.carry || !prop) return;
+  const rot = sceneRot(me.place, forward(kit.solver.rig, poseState).rot[limb.end]);
+  scene = updateFigure(scene, me.id, { links: setLink(me.links, turnLink(prop, link, rot)) });
+  regripDue = true;
+}
+
+/**
+ * 自己摆了一只抓着道具的手的手指（手势栏、拖指尖、转指节）：这只手的手指以后不自己握了，
+ * 不然下一回道具一动又被握回去。只改场景里记的连接，这一步的撤销由紧跟着的 commitPose 记
+ */
+function freeGrip(hands: readonly Hand[]) {
+  const me = currentOf(scene);
+  let links = me.links;
+  let freed = '';
+  for (const hand of hands) {
+    const link = linkOf(links, hand.name);
+    if (!link?.grip) continue;
+    links = setLink(links, withGrip(link, 0));
+    freed = hand.name;
+  }
+  if (!freed) return;
+  scene = updateFigure(scene, me.id, { links });
+  setStatus(t('{part}的手指改成自己摆了，不再自己握。要它再握上：点中这只手，拖「握紧」。', { part: limbLabel(freed) }));
+}
+/** 拖的、转的是哪只手的手指上的点，就放开那只手 */
+function freeGripOf(handle: Handle | undefined) {
+  if (!handle || !kit) return;
+  const hand = kit.solver.hands.find((h) => [...h.fingers, ...h.extras].some((chain) => chain.includes(handle.anchor) || chain.includes(handle.turn)));
+  if (hand) freeGrip([hand]);
+}
+
+/** 选中的那只抓着道具的手：改握紧度（拖到 0 手指就不自己握了，留着现在的样子归用户自己摆） */
+function setGrip(tight: number) {
+  const choice = linkChoice();
+  if (!choice?.link || choice.part === BODY_LINK || !kit || !poseState) return;
+  const me = currentOf(scene);
+  scene = updateFigure(scene, me.id, { links: setLink(me.links, withGrip(choice.link, tight)) });
+  poseState = following(holdState(kit.solver, poseState, myHolds(), { grip: 'always' }));
+  showPose();
+  commitPose(spec.posing, `grip:${choice.part}`);
+}
+
+/** 选中的点能连到哪：手是抓住道具、脚是踩住，胯是整个人跟着。已经连着的给出那个连接；旁边没有道具返回 null */
 function linkChoice(): { part: string; link?: PropLink; prop: SceneProp } | null {
   const handle = pickedHandle();
   if (!handle || !kit || !poseFrame || !scene.props.length) return null;
@@ -6643,7 +7480,7 @@ function linkChoice(): { part: string; link?: PropLink; prop: SceneProp } | null
   if (!limb && handle.kind !== 'body') return null;
   const part = limb ? limb.name : BODY_LINK;
   const link = linkOf(myLinks(), part);
-  if (link) return { part, link, prop: propOf(scene.props, link.prop)! };
+  if (link) return { part, link, prop: propOf(propsNow(), link.prop)! };
   const me = currentOf(scene);
   const frame = poseFrame;
   const k = linkScale();
@@ -6661,24 +7498,82 @@ function linkChoice(): { part: string; link?: PropLink; prop: SceneProp } | null
         .map((l) => near(l.end, LINK_NEAR.foot))
         .find(Boolean) ??
       null);
-  const prop = got && propOf(scene.props, got.id);
+  const prop = got && propOf(propsNow(), got.id);
   return prop ? { part, prop } : null;
 }
 
 const poseLinkBtn = $<HTMLButtonElement>('btnPoseLink');
+const poseCarry = $<HTMLInputElement>('poseCarry');
+poseCarry.addEventListener('change', () => setCarry(poseCarry.checked));
+const poseGripRow = $('poseGripRow');
+poseGripRow.title = t('手指照道具的形状自己握上：100% 是握到碰着，往左手指越来越直；拖到 0 手指就不自己握了，归你在「手势」里摆');
+const syncGripDial = buildDial(poseGripRow, 's-pose-grip', t('握紧'), [0, 1], percent, setGrip);
+const GRIP_WAYS = ['over', 'under'] as const;
+const syncPoseWay = buildSeg($('segPoseWay'), GRIP_WAYS, (v) => (v === 'over' ? t('正手') : t('反手')), (way) => {
+  const choice = linkChoice();
+  const got = choice?.link ? applyGripWay(choice.part, way) : null;
+  if (got && !got.ok) setStatus(got.text, true);
+  if (!got?.ok) syncPoseLink();
+});
 function syncPoseLink() {
   const choice = linkChoice();
   $('poseLinkRow').hidden = !choice;
+  // 「握紧」：抓着道具、带手指的手才有
+  const gripping = Boolean(choice?.link && choice.part !== BODY_LINK && kit?.solver.hands.some((h) => h.name === choice.part));
+  poseGripRow.hidden = !gripping;
+  if (gripping) syncGripDial(choice!.link!.grip ?? 0);
+  // 「握法」：握着杆（椅子腿、栏杆这类细的一截也算）的手才有
+  const way = gripping ? gripWayNow(choice!.part) : null;
+  $('poseWayRow').hidden = !way;
+  if (way) syncPoseWay(way, true);
+  // 「道具跟着这只手」：抓着、踩着道具的手脚才有
+  const held = Boolean(choice?.link && choice.part !== BODY_LINK);
+  $('poseCarryRow').hidden = !held;
   if (!choice) return;
   const name = propLabel(choice.prop);
   const body = choice.part === BODY_LINK;
-  $('poseLinkNote').textContent = choice.link ? (body ? t('整个人跟着「{name}」', { name }) : t('钉在「{name}」上', { name })) : '';
-  poseLinkBtn.textContent = choice.link ? (body ? t('不跟了') : t('松开')) : body ? t('整个人跟着「{name}」', { name }) : t('钉在「{name}」上', { name });
+  const foot = !body && isFootPart(choice.part);
+  const carrying = Boolean(choice.link?.carry);
+  if (held) {
+    const block = carrying ? null : carryBlock(choice.part, choice.prop);
+    poseCarry.checked = carrying;
+    poseCarry.disabled = Boolean(block);
+    $('poseCarryText').textContent = foot ? t('道具跟着这只脚') : t('道具跟着这只手');
+    $('poseCarryRow').title =
+      block ??
+      (foot
+        ? t('勾上：拖这只脚、拖身体、挪角色，道具都跟着走、跟着转。不勾：道具不动，脚踩在它上面。来回换的那一下脚和道具都不动')
+        : t('勾上是拿着：拖这只手、拖身体、挪角色、换姿势，道具都跟着走、跟着转。不勾是道具不动，手抓在它上面（像公交车的拉杆）。来回换的那一下手和道具都不动'));
+  }
+  $('poseLinkNote').textContent = !choice.link
+    ? ''
+    : body
+      ? t('整个人跟着「{name}」', { name })
+      : carrying
+        ? foot
+          ? t('带着「{name}」', { name })
+          : t('拿着「{name}」', { name })
+        : foot
+          ? t('踩着「{name}」', { name })
+          : t('抓着「{name}」', { name });
+  poseLinkBtn.textContent = choice.link
+    ? body
+      ? t('不跟了')
+      : t('松开')
+    : body
+      ? t('整个人跟着「{name}」', { name })
+      : foot
+        ? t('踩住「{name}」', { name })
+        : t('抓住「{name}」', { name });
   poseLinkBtn.title = choice.link
-    ? t('解开以后，挪这件道具它不再跟着')
+    ? carrying
+      ? t('松开以后道具留在现在的地方，不再跟着走')
+      : t('解开以后，挪这件道具它不再跟着')
     : body
       ? t('坐着、躺着、站在这件道具上时用：挪它、转它，整个人跟着走')
-      : t('握着、扶着、撑着、踩着这件道具时用：挪它，这只手（脚）跟着走；拖身体别处时它留在道具上');
+      : foot
+        ? t('踩着这件道具时用：点了以后脚底贴到面上；挪它、转它，这只脚跟着走、脚掌跟着转；拖身体别处时脚留在上面')
+        : t('握着、扶着、撑着这件道具时用：点了以后手掌转过去对着它，手指照它的形状握上；挪它、转它，这只手跟着走、手掌跟着转；拖身体别处时手留在上面，手臂伸直了身体就被拉住');
 }
 poseLinkBtn.addEventListener('click', () => {
   const choice = linkChoice();
@@ -6737,7 +7632,7 @@ function dropFigure() {
 
 /** 面板上那一排按钮：现在做不了的带上原因 */
 function propActionList(propId: string): { key: string; label: string; tip: string; block: string | null }[] {
-  const prop = propOf(scene.props, propId);
+  const prop = propOf(propsNow(), propId);
   const solver = ensureKit()?.solver;
   return PROP_ACTIONS.map((a) => {
     const block = prop && solver ? actionBlock(a.key, solver, prop) : tk('正在生成网格…');
@@ -6747,7 +7642,7 @@ function propActionList(propId: string): { key: string; label: string; tip: stri
 
 /** 做一个一键动作：当前角色换位置、换姿势、连到道具上，记成一步撤销。返回做没做成和那句话（做不了的是原因） */
 function applyPropAction(propId: string, action: PropAction): { ok: boolean; text: string } {
-  const prop = propOf(scene.props, propId);
+  const prop = propOf(propsNow(), propId);
   const notNow = { ok: false, text: t('现在做不了：正在拖动，或者模型还在生成') };
   if (!prop || poseHandles?.busy || placing || propsPanel.busy) return notNow;
   if (pending) rebuild();
@@ -6755,18 +7650,28 @@ function applyPropAction(propId: string, action: PropAction): { ok: boolean; tex
   const solver = ensureKit()?.solver;
   if (!solver) return notNow;
   const me = currentOf(scene);
-  const got = solvePropAction(action, { solver, place: me.place, posing: spec.posing, links: me.links, prop, props: scene.props, follow: followOn });
+  // 把道具拿到身上来的：别的角色正带着它，或者它正带着这个角色，拿不了
+  const block = isPickAction(action) ? carryBlock(action === 'hug' ? 'UpperChest' : 'Hand_R', prop) : null;
+  if (block) {
+    setStatus(block, true);
+    return { ok: false, text: block };
+  }
+  const got = solvePropAction(action, { solver, place: me.place, posing: spec.posing, links: me.links, prop, props: propsNow(), follow: followOn });
   if ('error' in got) {
     setStatus(t(got.error), true);
     return { ok: false, text: t(got.error) };
   }
-  history.seal();
-  movePlace(me.id, got.place, true);
-  scene = updateFigure(scene, me.id, { links: got.links });
-  spec = { ...spec, posing: keepFaces(got.posing, spec.posing) };
   const names = { who: figureLabel(me), name: propLabel(prop) };
   const done =
-    action === 'sit'
+    action === 'carry'
+      ? t('「{who}」的{part}拿着「{name}」了：拖这只手、拖身体、挪角色，它都跟着走。要放下：点中这只手，去掉「道具跟着这只手」的勾。', { ...names, part: limbLabel(got.part ?? '') })
+      : action === 'both'
+        ? t('「{who}」两手端着「{name}」了：它跟着右手走，左手抓在它上面；拖手、拖身体、挪角色都带着。', names)
+        : action === 'hug'
+          ? t('「{who}」把「{name}」抱在胸前了：弯腰、转身、挪角色，它都跟着胸口走。不抱了：在「连着它的」里点「解开」。', names)
+          : action === 'lift'
+            ? t('「{who}」把「{name}」举过头顶了：它跟着右手走，左手抓在它上面；拖手、拖身体、挪角色都带着。', names)
+            : action === 'sit'
       ? t('「{who}」坐到「{name}」上了：挪这件道具、转它，人跟着走。', names)
       : action === 'lie'
         ? t('「{who}」躺到「{name}」上了：挪这件道具、转它，人跟着走。', names)
@@ -6780,8 +7685,22 @@ function applyPropAction(propId: string, action: PropAction): { ok: boolean; tex
                 ? t('「{who}」缠在「{name}」上了：挪这件道具、转它，人跟着走。要换成另一条腿在上，点「摆姿势」里的「左右翻转」。', names)
                 : t('「{who}」背靠在「{name}」上了：挪这件道具、转它，人跟着走。', names);
   const note = { text: done + (got.missed ? t('有 {n} 处够不着，照够得着的摆了。', { n: got.missed }) : ''), warn: Boolean(got.missed) };
+  // 道具要离开原来的地方了：记下它原来在哪，撤销这一步时放回去
+  return settleAction(got, note, isPickAction(action) ? { [prop.id]: { pos: prop.pos, rot: prop.rot } } : undefined);
+}
+
+/** 一键动作、伸手抓住算好了：当前角色换位置、换姿势、换连接，记成一步撤销，说一句 */
+function settleAction(got: ActionResult, note: { text: string; warn: boolean }, picked?: Picked): { ok: boolean; text: string } {
+  const me = currentOf(scene);
+  history.seal();
+  movePlace(me.id, got.place, true);
+  scene = updateFigure(scene, me.id, { links: got.links });
+  untangle(me.id);
+  spec = { ...spec, posing: keepFaces(got.posing, spec.posing) };
   poseNote = note;
+  tookNext = picked;
   commit();
+  tookNext = undefined;
   history.seal();
   if (mode !== 'pose') setMode('pose');
   markHandles();
@@ -6789,6 +7708,108 @@ function applyPropAction(propId: string, action: PropAction): { ok: boolean; tex
   setStatus(note.text, note.warn);
   scheduleSceneClash();
   return { ok: true, text: note.text };
+}
+
+/* ---- AI 助手的抓住、松开、切方向（见 ai/sceneTools.ts） ---- */
+
+/** 当前角色能抓东西的手、能踩东西的脚 */
+const grabParts = (): { part: string; label: string }[] => (ensureKit()?.solver.limbs ?? []).map((l) => ({ part: l.name, label: limbLabel(l.name) }));
+
+/** 当前角色的一只手抓住（脚踩住）一件道具：挨着就在原处抓，远了先伸过去；carry 是道具跟着它走。记一步撤销 */
+function applyGrab(part: string, propId: string, carry: boolean): { ok: boolean; text: string } {
+  const prop = propOf(propsNow(), propId);
+  const notNow = { ok: false, text: t('现在做不了：正在拖动，或者模型还在生成') };
+  if (!prop || poseHandles?.busy || placing || propsPanel.busy) return notNow;
+  if (pending) rebuild();
+  endSlide();
+  const solver = ensureKit()?.solver;
+  if (!solver) return notNow;
+  const me = currentOf(scene);
+  const block = carry ? carryBlock(part, prop) : null;
+  if (block) return { ok: false, text: block };
+  const got = solveGrab({ solver, place: me.place, posing: spec.posing, links: me.links, prop, props: propsNow(), part, carry });
+  if ('error' in got) return { ok: false, text: t(got.error) };
+  const names = { part: limbLabel(part), name: propLabel(prop) };
+  const text = carry
+    ? isFootPart(part)
+      ? t('「{name}」跟着{part}了：拖这只脚、拖身体、挪角色，它都跟着走、跟着转。要它留在原地：去掉「道具跟着这只脚」的勾。', names)
+      : t('「{name}」拿在{part}上了：拖这只手、拖身体、挪角色、换姿势，它都跟着走、跟着转。要它留在原地：去掉「道具跟着这只手」的勾。', names)
+    : isFootPart(part)
+      ? t('{part}踩住「{name}」了：挪它、转它，这只脚跟着走；拖身体别处时脚留在上面。', names)
+      : t('{part}抓住「{name}」了：挪它、转它，这只手跟着走；拖身体别处时手留在上面，手臂伸直了身体就被拉住。', names);
+  return settleAction(got, { text, warn: false });
+}
+
+/** 当前角色这只手握着杆的话，是正手还是反手（摆姿势时照屏幕上的姿势）；不是握着杆的返回 null */
+function gripWayNow(part: string): GripWay | null {
+  const me = currentOf(scene);
+  const link = isLimbPart(part) ? linkOf(me.links, part) : undefined;
+  const prop = link && propOf(propsNow(), link.prop);
+  const solver = kit?.solver ?? ensureKit()?.solver;
+  if (!link || !prop || !solver) return null;
+  return barGripWay(solver, mode === 'pose' && poseState ? poseState : stateOf(solver, spec.posing), me.place, prop, part);
+}
+
+/** 当前角色握着杆的一只手换握法（正手、反手）：手腕留在原处，手掌翻过去，手指重新握。记一步撤销 */
+function applyGripWay(part: string, way: GripWay): { ok: boolean; text: string } {
+  const me = currentOf(scene);
+  const link = isLimbPart(part) ? linkOf(me.links, part) : undefined;
+  const prop = link && propOf(propsNow(), link.prop);
+  if (!link || !prop) return { ok: false, text: t('这里没有抓着、带着道具') };
+  const notNow = { ok: false, text: t('现在做不了：正在拖动，或者模型还在生成') };
+  if (poseHandles?.busy || placing || propsPanel.busy) return notNow;
+  if (pending) rebuild();
+  endSlide();
+  const solver = ensureKit()?.solver;
+  if (!solver) return notNow;
+  const state = stateOf(solver, spec.posing);
+  const now = barGripWay(solver, state, me.place, prop, part);
+  const names = { part: limbLabel(part), name: propLabel(prop) };
+  if (!now) return { ok: false, text: t('{part}没有握着杆：贴在面上、扣在棱上的手没有正手、反手之分', names) };
+  if (now === way) return { ok: true, text: way === 'over' ? t('{part}已经是正手握了。', names) : t('{part}已经是反手握了。', names) };
+  const got = flipGrip(solver, state, me.place, prop, link);
+  if (!got) return { ok: false, text: t('{part}在这里换不了握法：换过去那一面握不住。把手沿着杆挪一点再试', names) };
+  const links = setLink(me.links, got.link);
+  const held = holdState(solver, got.state, holdTargets(me.place, links, propsNow(), propLed), { grip: 'always' });
+  const text = way === 'over' ? t('{part}换成正手握「{name}」了。', names) : t('{part}换成反手握「{name}」了。', names);
+  const picked = pickedHandle()?.id ?? null;
+  const done = settleAction({ place: me.place, posing: posingOf(solver, held, spec.posing), links, missed: 0 }, { text, warn: false });
+  if (picked && !pickedHandle()) selectJoint(picked);
+  syncPoseLink();
+  return done;
+}
+
+/** 当前角色的一个连接换方向：on 是道具跟着这一处走（拿着），不然道具不动、这一处留在它上面（抓着）；胸口的只有带着，关掉就是不抱了 */
+function applyCarry(part: string, on: boolean): { ok: boolean; text: string } {
+  const me = currentOf(scene);
+  const link = linkOf(me.links, part);
+  const prop = link && propOf(propsNow(), link.prop);
+  if (!link || !prop || part === BODY_LINK) return { ok: false, text: t('这里没有抓着、带着道具') };
+  if (poseHandles?.busy || placing || propsPanel.busy) return { ok: false, text: t('现在做不了：正在拖动，或者模型还在生成') };
+  const names = { part: linkPartLabel(part), name: propLabel(prop) };
+  if (on === Boolean(link.carry)) return { ok: true, text: on ? t('「{name}」已经跟着{part}走了。', names) : t('「{name}」本来就没跟着{part}走。', names) };
+  if (!on) {
+    settleCarried();
+    scene = updateFigure(scene, me.id, { links: isLimbPart(part) ? setLink(me.links, withCarry(link, false)) : dropLink(me.links, part) });
+    commitLinks();
+    const text = isLimbPart(part) ? t('「{name}」放下了，留在现在的地方；{part}还抓在它上面，挪它、转它{part}跟着走。', names) : t('「{name}」放下了，留在现在的地方。', names);
+    setStatus(text);
+    return { ok: true, text };
+  }
+  const block = carryBlock(part, prop);
+  if (block) return { ok: false, text: block };
+  // 手这会儿没在抓着的那一点上（够不着悬着的、老存档里没记朝向的）：照手现在在哪重新记，不然道具一下跳到手上
+  const got = myFrame(false);
+  const bone = got?.solver.rig.index.get(part);
+  if (!got || bone === undefined) return { ok: false, text: t('现在做不了：正在拖动，或者模型还在生成') };
+  const point = toScene(me.place, got.frame.pos[bone]);
+  let next = link;
+  if (!next.rot || len(sub(point, linkPoint(prop, next))) > 1e-3) next = withGrip(linkTo(prop, part, point, undefined, sceneRot(me.place, got.frame.rot[bone])), link.grip ?? 0);
+  scene = updateFigure(scene, me.id, { links: setLink(putDown(me.links, prop.id), withCarry(next, true)) });
+  commitLinks();
+  const text = t('「{name}」跟着{part}走了：拖它、拖身体、挪角色，道具都带着。', names);
+  setStatus(text);
+  return { ok: true, text };
 }
 
 /* ---- 双人动作 ---- */
@@ -7158,7 +8179,7 @@ const tour = new Tour([
   },
   {
     title: t('道具@@引导'),
-    text: t('还是「场景」这一栏，往下是「道具」：杆、箱子、台子，还有现成的椅子、沙发、床、桌子，放进场景给姿势当依托。选中一件道具，点「坐上去」「躺上去」「手撑着」「吊着」这些按钮，角色一下就摆到上面；之后挪道具，人跟着走。'),
+    text: t('还是「场景」这一栏，往下是「道具」：杆、箱子、台子，还有现成的椅子、沙发、床、桌子，放进场景给姿势当依托。选中一件道具，点「坐上去」「躺上去」「手撑着」「吊着」这些按钮，角色一下就摆到上面；之后挪道具，人跟着走。') + t('点「拿着」「两手端着」「抱着」「举过头顶」是反过来：道具到角色手上，之后跟着人走。摆姿势时把手拖到道具跟前，它自己吸上去抓住。') + t('自己的模型文件也能导进来当道具：「现成的家具」最后一组「我的」。'),
     target: () => $('propsPanel'),
     before: () => {
       phone.setPop(null);
@@ -7259,6 +8280,13 @@ if (import.meta.env.DEV) {
         frame: () => poseFrame,
         posed: () => posed,
         pinned,
+        // 手脚这会儿吸在哪件道具上（拖着的时候才有）
+        snapped: () => gripSnap,
+        // 一只手、一只脚的末端这会儿在哪（角色自己的坐标；拖着的时候也是当下的）
+        end(part: string) {
+          const limb = kit?.solver.limbs.find((l) => l.name === part);
+          return kit && poseState && limb ? forward(kit.solver.rig, poseState).pos[limb.end] : null;
+        },
         pick: selectJoint,
         show: showPose,
         use: usePosing,
@@ -7284,6 +8312,13 @@ if (import.meta.env.DEV) {
           if (keep) poseHandles.onRelease(handle, true);
           return true;
         },
+        // 拖着不松手的那一个点松开（__oc.pose.drag(id, to, false) 之后用）
+        drop(id: string) {
+          const handle = kit?.handles.find((h) => h.id === id);
+          if (!handle || !poseHandles) return false;
+          poseHandles.onRelease(handle, true);
+          return true;
+        },
       },
       // 场景：__oc.scene.add(true) 复制当前的、__oc.scene.go('f2') 切过去、__oc.scene.move('f2', { x: 1, z: 0, yaw: 90 })
       scene: {
@@ -7293,6 +8328,11 @@ if (import.meta.env.DEV) {
         go: switchFigure,
         remove: deleteFigure,
         move: movePlace,
+        // 挪当前角色并记一步撤销（和拖完底座圈松手一样）
+        moveMe: (place: Place) => {
+          movePlace(scene.current, place, true);
+          commitPlace();
+        },
         exportScene,
         // 只生成整个场景的文件、不存（试导出用）：__oc.scene.sceneFile('glb')
         sceneFile,
@@ -7311,6 +8351,21 @@ if (import.meta.env.DEV) {
         actions: (prop: string) => propActionList(prop),
         act: (prop: string, key: PropAction) => applyPropAction(prop, key),
         hold: (part: string, prop?: string) => holdPart(part, prop),
+        // 道具跟着手：__oc.scene.carry('Hand_L', true)（先 __oc.pose.pick('Hand_L') 选中它）；__oc.scene.propsNow() 是道具现在各在哪
+        carry: (part: string, on: boolean) => {
+          selectJoint(kit?.handles.find((h) => h.kind === 'reach' && limbOf(h)?.name === part)?.id ?? null);
+          setCarry(on);
+          return linkOf(myLinks(), part)?.carry === true;
+        },
+        propsNow: () => propsNow(),
+        // 正手、反手：__oc.scene.way('Hand_L') 看现在是哪种（不是握着杆是 null），__oc.scene.setWay('Hand_L', 'under') 换
+        way: (part: string) => gripWayNow(part),
+        setWay: (part: string, way: GripWay) => applyGripWay(part, way),
+        // 抱着：__oc.scene.hug('p1')（道具跟着当前角色的胸口）
+        hug: (prop: string) => hugProp(prop),
+        // 道具面板本身（模拟拖操纵杆：panel.select(id)，再 panel.gizmo.onDrag(true)、.onChange({ pos })、.onDrag(false)）
+        panel: propsPanel,
+        propsList: () => scene.props,
         ride: rideProp,
         unlink: unlinkPart,
         baking: () => bakingOthers,

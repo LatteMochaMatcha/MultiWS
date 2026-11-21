@@ -5,7 +5,7 @@
  * 原点在底面正中：位置的高度就是它离地多高，倾斜也是绕着底面正中转。
  * 这里只管数据：增删、复制、改、整理，都是不可变的值，每次修改返回新的。
  */
-import { propAsset, realAsset } from '../props/catalog';
+import { isUserAssetId, propAsset, skinnedAsset, userAsset } from '../props/catalog';
 import type { Vec3 } from './spec';
 
 /** 基本体的种类。形状只有三种（圆柱、方块、椭球），种类另外决定默认尺寸，以后还决定「能握」「能坐」「能靠」 */
@@ -21,6 +21,8 @@ export interface SceneProp {
   kind: PropKind | 'asset';
   /** 素材的编号（props/catalog.ts 的清单里的）；基本体没有这一项 */
   asset?: string;
+  /** 导入的素材才有：放下时它叫什么。换一台设备打开、那边没有这件时，靠它说得出缺的是哪一件 */
+  assetName?: string;
   /** 宽（左右）、高、深（前后），米。杆、台子、球是圆的：宽和深是两个方向的直径；素材是它占的盒子，网格照着拉伸 */
   size: Vec3;
   /** 底面正中在场景里的位置（米）：左右、离地多高、前后 */
@@ -29,7 +31,7 @@ export interface SceneProp {
   rot: Vec3;
   /** 颜色，#rrggbb。写实款带着自己的贴图，刷成灰色（gray）以后才用这个颜色 */
   color: string;
-  /** 写实款才有：刷成灰色——不用它自己的贴图，和别的道具一样一个颜色 */
+  /** 写实款、导入的素材才有：刷成灰色——不用它自己的贴图，和别的道具一样一个颜色 */
   gray?: true;
 }
 
@@ -56,6 +58,8 @@ export const PROP_LIMITS = {
 } as const;
 /** 名字最长多少个字 */
 export const PROP_NAME_MAX = 40;
+/** 导入的素材每一边最小多少（米） */
+const USER_SIZE_MIN = 0.001;
 
 const finite = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -85,17 +89,19 @@ export function clampProp(p: Omit<SceneProp, 'id'> & { id: string }): SceneProp 
   const pos = triple(p.pos);
   const rot = triple(p.rot);
   const base = propBaseSize(p);
-  const [lo, hi] = PROP_LIMITS.size;
+  // 导入的素材能薄到 1 毫米（刀刃、一张纸）：照 1 厘米收的话会被撑厚
+  const [lo, hi] = p.kind === 'asset' && isUserAssetId(p.asset) ? [USER_SIZE_MIN, PROP_LIMITS.size[1]] : PROP_LIMITS.size;
   return {
     id: p.id,
     name: cleanPropName(p.name),
     kind: p.kind,
     ...(p.kind === 'asset' ? { asset: p.asset } : {}),
+    ...(p.kind === 'asset' && isUserAssetId(p.asset) && cleanPropName(p.assetName) ? { assetName: cleanPropName(p.assetName) } : {}),
     size: [0, 1, 2].map((i) => round(clamp(finite(size[i], base[i]), lo, hi), 1000)) as Vec3,
     pos: [0, 1, 2].map((i) => round(clamp(finite(pos[i], 0), PROP_LIMITS.pos[i][0], PROP_LIMITS.pos[i][1]), 1000) + 0) as Vec3,
     rot: [0, 1, 2].map((i) => wrapDeg(finite(rot[i], 0))) as Vec3,
     color: cleanColor(p.color),
-    ...(p.kind === 'asset' && p.gray === true && realAsset(p.asset) ? { gray: true as const } : {}),
+    ...(p.kind === 'asset' && p.gray === true && skinnedAsset(p.asset) ? { gray: true as const } : {}),
   };
 }
 
@@ -120,7 +126,10 @@ export function makeProp(props: readonly SceneProp[], kind: PropKind, at: { x: n
 export function makeAssetProp(props: readonly SceneProp[], asset: string, at: { x: number; z: number; yaw: number }): SceneProp | null {
   const entry = propAsset(asset);
   if (!entry) return null;
-  return clampProp({ id: nextPropId(props), name: '', kind: 'asset', asset, size: entry.size, pos: [at.x, 0, at.z], rot: [0, at.yaw, 0], color: PROP_COLOR });
+  const mine = userAsset(asset);
+  const assetName = mine?.name;
+  // 只有形状的（OBJ、STL）没有自己的颜色：放下来就是一个颜色的，能挑
+  return clampProp({ id: nextPropId(props), name: '', kind: 'asset', asset, ...(assetName ? { assetName } : {}), ...(mine?.plain ? { gray: true as const } : {}), size: entry.size, pos: [at.x, 0, at.z], rot: [0, at.yaw, 0], color: PROP_COLOR });
 }
 
 /** 加一个（排在最后） */
@@ -148,7 +157,10 @@ export const sameProps = (a: readonly SceneProp[], b: readonly SceneProp[]): boo
 
 /* ---------------- 存档 ---------------- */
 
-/** 读存档里的道具清单：不是数组、哪一件认不出种类（或者是清单里没有的素材）的就丢掉，编号重复、不像编号的重新编 */
+/**
+ * 读存档里的道具清单：不是数组、哪一件认不出种类（或者是清单里没有的素材）的就丢掉，编号重复、不像编号的重新编。
+ * 导入的素材照编号的样子认，这台设备上没有也留着（先用方块顶着，重新导入同一个文件就对上）
+ */
 export function normalizeProps(raw: unknown): SceneProp[] {
   if (!Array.isArray(raw)) return [];
   const out: SceneProp[] = [];
@@ -156,7 +168,7 @@ export function normalizeProps(raw: unknown): SceneProp[] {
   for (const item of raw) {
     if (typeof item !== 'object' || item === null) continue;
     const p = item as Record<string, unknown>;
-    const asset = p.kind === 'asset' ? propAsset(p.asset)?.id : undefined;
+    const asset = p.kind === 'asset' ? (propAsset(p.asset)?.id ?? (isUserAssetId(p.asset) ? p.asset : undefined)) : undefined;
     if (!isPropKind(p.kind) && !asset) continue;
     const kind = asset ? 'asset' : (p.kind as PropKind);
     let id = typeof p.id === 'string' && /^p\d+$/.test(p.id) && !used.has(p.id) ? p.id : '';
@@ -166,7 +178,7 @@ export function normalizeProps(raw: unknown): SceneProp[] {
       while (used.has(id) || raw.some((r) => (r as { id?: unknown } | null)?.id === id));
     }
     used.add(id);
-    out.push(clampProp({ id, name: p.name as string, kind, asset, size: p.size as Vec3, pos: p.pos as Vec3, rot: p.rot as Vec3, color: p.color as string, ...(p.gray === true ? { gray: true as const } : {}) }));
+    out.push(clampProp({ id, name: p.name as string, kind, asset, assetName: p.assetName as string, size: p.size as Vec3, pos: p.pos as Vec3, rot: p.rot as Vec3, color: p.color as string, ...(p.gray === true ? { gray: true as const } : {}) }));
   }
   return out;
 }
@@ -198,6 +210,23 @@ export function propQuat(rot: Vec3): [number, number, number, number] {
   const s2 = Math.sin((rot[1] * RAD) / 2);
   const s3 = Math.sin((rot[2] * RAD) / 2);
   return [s1 * c2 * c3 + c1 * s2 * s3, c1 * s2 * c3 - s1 * c2 * s3, c1 * c2 * s3 - s1 * s2 * c3, c1 * c2 * c3 + s1 * s2 * s3];
+}
+
+/** propQuat 反过来：四元数 [x, y, z, w] 写成道具的旋转（度；顺序同上，'YXZ'） */
+export function propEuler(q: readonly [number, number, number, number]): Vec3 {
+  const [x, y, z, w] = q;
+  // 旋转矩阵里用得到的几项（按行：m0 m1 m2 / m3 m4 m5 / m6 m7 m8，和 propRotation 一样）
+  const m0 = 1 - 2 * (y * y + z * z);
+  const m2 = 2 * (x * z + y * w);
+  const m3 = 2 * (x * y + z * w);
+  const m4 = 1 - 2 * (x * x + z * z);
+  const m5 = 2 * (y * z - x * w);
+  const m6 = 2 * (x * z - y * w);
+  const m8 = 1 - 2 * (x * x + y * y);
+  const ex = Math.asin(Math.max(-1, Math.min(1, -m5)));
+  // 前后倾正好 ±90°：朝向和左右倾分不开了，全算在朝向上
+  const [ey, ez] = Math.abs(m5) < 0.9999999 ? [Math.atan2(m2, m8), Math.atan2(m3, m4)] : [Math.atan2(-m6, m0), 0];
+  return [ex / RAD, ey / RAD, ez / RAD];
 }
 
 /** 道具自己坐标里的一点（原点在底面正中）在场景里的哪里 */

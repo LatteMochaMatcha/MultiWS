@@ -4,7 +4,7 @@
  */
 import { t } from '../i18n';
 import type { PropKind, SceneProp } from '../model/props';
-import type { PropAssetGroup } from '../props/catalog';
+import { type PropAssetGroup, isUserAssetId, userAsset } from '../props/catalog';
 
 export const PROP_LABEL: Record<PropKind, string> = { pole: t('杆'), box: t('箱子'), stand: t('台子'), ball: t('球'), wall: t('墙板') };
 
@@ -58,9 +58,12 @@ export const PROP_GROUP_LABEL: Record<PropAssetGroup, string> = { seat: t('坐�
 /** 素材的名字；清单里有、这里没写的返回空（测试会拦住） */
 export const propAssetLabel = (id: string): string => ASSET_LABEL[id] ?? '';
 
-/** 这件道具是哪一种：杆、箱子……，素材是它的名字 */
-export const propKindLabel = (prop: Pick<SceneProp, 'kind' | 'asset'>): string =>
-  prop.kind === 'asset' ? propAssetLabel(prop.asset ?? '') || (prop.asset ?? '') : PROP_LABEL[prop.kind];
+/** 这件道具是哪一种：杆、箱子……，素材是它的名字；导入的是用户起的名字（这台设备上没有它时，用放下时记的那个） */
+export function propKindLabel(prop: Pick<SceneProp, 'kind' | 'asset' | 'assetName'>): string {
+  if (prop.kind !== 'asset') return PROP_LABEL[prop.kind];
+  if (isUserAssetId(prop.asset)) return userAsset(prop.asset)?.name || prop.assetName || t('导入的素材');
+  return propAssetLabel(prop.asset ?? '') || (prop.asset ?? '');
+}
 
 /** 道具在界面上叫什么：起了名字用名字，没起就是「杆 3」（3 是它的编号） */
 export const propLabel = (prop: SceneProp): string => prop.name || `${propKindLabel(prop)} ${prop.id.slice(1)}`;

@@ -5,6 +5,7 @@
  *   每件依次是点（Float32 ×3）、法线（Int8 ×3，除以 127）、面（Uint16 ×3），各自补齐到 4 字节。
  * - 写实款：一件一个文件（排法见 realFile.ts），带贴图坐标、材质、贴图，面多的另带一份碰撞用的粗网格；
  *   文件从哪来（本机存的、下载站）见 realLoad.ts，这里只管读进来记着。
+ * - 我的：用户自己导入的，文件和写实款是同一种，存在本机（见 userStore.ts）。
  *
  * 网格是原样的大小，原点在底面正中，正面朝 +Z。
  */
@@ -84,13 +85,30 @@ export function installRealAsset(id: string, buffer: ArrayBuffer): void {
   reals.set(id, file);
 }
 
+/** 把一件导入的素材读进来记下（编号对不上就报错）。同一个编号再来一次是换掉 */
+export function installUserAsset(id: string, buffer: ArrayBuffer): void {
+  const file = parseRealAsset(buffer);
+  if (file.id !== id) throw new Error(t('道具素材的文件坏了'));
+  shapes.set(id, { positions: file.positions, normals: file.normals, indices: file.indices, uvs: file.uvs, groups: file.groups });
+  if (file.touch) touches.set(id, { positions: file.touch.positions, normals: faceNormals(file.touch.positions, file.touch.indices), indices: file.touch.indices });
+  else touches.delete(id);
+  reals.set(id, file);
+}
+
+/** 一件导入的素材从这里拿掉（删了它以后） */
+export function dropUserAsset(id: string): void {
+  shapes.delete(id);
+  touches.delete(id);
+  reals.delete(id);
+}
+
 /** 一件素材原样的网格；文件还没读进来时没有 */
 export const propAssetShape = (id: string | undefined): PropShape | undefined => (id ? shapes.get(id) : undefined);
 
 /** 碰撞用的网格：写实款面多的有一份粗的，别的就是它自己的网格 */
 export const propTouchShape = (id: string | undefined): PropShape | undefined => (id ? (touches.get(id) ?? shapes.get(id)) : undefined);
 
-/** 写实款的材质、贴图；没读进来、不是写实款都没有 */
+/** 写实款、导入的素材的材质和贴图；没读进来、不是这两种都没有 */
 export const realAssetFile = (id: string | undefined): RealAssetFile | undefined => (id ? reals.get(id) : undefined);
 
 /** 低模家具的网格读进来了没有 */

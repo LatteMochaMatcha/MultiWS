@@ -98,6 +98,17 @@ export class PropsModel {
     return made;
   }
 
+  /** 这件素材的文件换了、没了（重新导入、删掉）：它带贴图的材质放掉，用着它的道具下次 sync 时重算网格 */
+  forget(asset: string) {
+    for (const material of this.skins.get(asset) ?? []) {
+      const m = material as THREE.MeshStandardMaterial;
+      for (const map of new Set([m.map, m.normalMap, m.roughnessMap])) map?.dispose();
+      m.dispose();
+    }
+    this.skins.delete(asset);
+    for (const e of this.entries.values()) if (e.shape.split(':')[1] === asset) e.shape = '';
+  }
+
   /** 当前角色在场景里站在哪：整组反着摆，道具就落在相对它的位置上 */
   setOrigin(here: Place) {
     const m = new THREE.Matrix4().makeRotationY(here.yaw * RAD).setPosition(here.x, here.y ?? 0, here.z).invert();

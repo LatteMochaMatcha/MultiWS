@@ -103,7 +103,7 @@ describe('按钮什么时候是灰的', () => {
     expect(actionBlock('top', solver, asset('chair'))).toMatch(/没有能撑/);
     expect(actionBlock('hold', solver, basic('pole'))).toBeNull();
     expect(actionBlock('lean', solver, basic('wall'))).toBeNull();
-    expect(PROP_ACTIONS.map((a) => a.key)).toEqual(['sit', 'lie', 'top', 'hold', 'lean', 'hang', 'wrap']);
+    expect(PROP_ACTIONS.map((a) => a.key)).toEqual(['sit', 'lie', 'top', 'hold', 'lean', 'hang', 'wrap', 'carry', 'both', 'hug', 'lift']);
   });
 
   it('歪着的道具不能坐、躺、撑（先摆正）；扶、靠照样行', () => {

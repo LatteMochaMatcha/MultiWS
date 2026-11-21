@@ -1,21 +1,20 @@
 /**
  * 一键动作（见 docs/props-plan.md）：选中一件道具，点一下，当前角色就坐上去、躺上去、两手撑着台面、一只手扶着、背靠着，
- * 或者吊在横杆上、腿缠在竖杆上。
+ * 或者吊在横杆上、腿缠在竖杆上；或者把道具拿到身上来——一只手拿着、两手端着、抱着、举过头顶（见 docs/grab-plan.md 第 6 期）。
  *
  * 每个动作做三件事：角色站到哪（位置、朝向、离地多高）、换成什么姿势、摆好以后和道具怎么连着
- * （坐、躺、靠、吊、缠是整个人跟着道具；撑、扶是手钉在道具上，见 model/links.ts）。
+ * （坐、躺、靠、吊、缠是整个人跟着道具；撑、扶是手抓着道具；拿、端、抱、举是道具跟着手或者胸口，角色站在原地不动，见 model/links.ts）。
  * 坐、躺、撑照道具标的接触面找地方（props/contacts.ts），面有多高从网格上量；扶、靠哪件道具都行，照网格找最近的面。
  * 吊、缠只认杆（杆，或者细长的箱子）：照它的尺寸和朝向算（barOf）。
  * 只管两条腿的人形（手臂、头、上半身几个都行）：别的身体按钮是灰的（actionBlock 说原因）。
  * 都是纯函数：坐标是场景的（米），角色自己的坐标用 Place 换。
  */
 import { tk } from '../i18n';
-import { type Quat, type V3, cross, lerp, len, madd, mul, quatBasis, quatConj, quatMul, sub } from '../geometry/vec';
-import { BODY_LINK, type PropLink, linkOf, liveLinks, propLocal, setLink } from '../model/links';
+import { type Quat, type V3, lerp, len, madd, mul, quatMul, sub } from '../geometry/vec';
+import { BODY_LINK, type PropLink, linkOf, liveLinks, propLocal, putDown, setLink, withCarry, withGrip } from '../model/links';
 import { type SceneProp, propPoint } from '../model/props';
-import { type Place, clampPlace, placeY } from '../model/scene';
 import type { Vec3 } from '../model/spec';
-import { GESTURES, type HandShape, shapeHand } from '../pose/fingers';
+import { type Place, clampPlace, placeY } from '../model/scene';
 import { fitArms, followArms } from '../pose/fit';
 import { armOfBone, followPair } from '../pose/follow';
 import { POSE_LIBRARY } from '../pose/library';
@@ -26,21 +25,31 @@ import { isRingRig } from '../pose/ring';
 import { capturePins, dragBend, dragBody, dragReach, reachOnly } from '../pose/solve';
 import { type Solver, posingOf, stateOf } from '../pose/solver';
 import { type ContactRect, type PropContacts, type SitSpot, propContacts } from '../props/contacts';
-import { linkTo, rideLink, topUnder } from './follow';
+import { type Bar, barOf } from './bar';
+import { chestBone, grabLink, holdState, holdTargets, linkTo, rideLink, sceneRot, topUnder } from './follow';
+import { PALM, STANDARD, gripHand, handRot, palmLength, tallOf } from './grip';
 import { fromScene, toScene } from './interact';
 import { type PropSolid, closestOnSolid, insideSolid, propSolid } from './propTouch';
 
-export type PropAction = 'sit' | 'lie' | 'top' | 'hold' | 'lean' | 'hang' | 'wrap';
+export type PropAction = 'sit' | 'lie' | 'top' | 'hold' | 'lean' | 'hang' | 'wrap' | 'carry' | 'both' | 'hug' | 'lift';
+
+/** 把道具拿到身上来的那四个（道具跟着人走，人站在原地）；别的都是人到道具那里去 */
+export type PickAction = 'carry' | 'both' | 'hug' | 'lift';
+export const isPickAction = (action: PropAction): action is PickAction => action === 'carry' || action === 'both' || action === 'hug' || action === 'lift';
 
 /** 面板上的那一排按钮：名字和说明 */
 export const PROP_ACTIONS: readonly { key: PropAction; name: string; tip: string }[] = [
   { key: 'sit', name: tk('坐上去'), tip: tk('坐到这件道具上：有靠背的朝前坐，没靠背的坐在离角色最近的那一边；脚够得着就踩着地，够不着就垂着。坐好以后整个人跟着它') },
   { key: 'lie', name: tk('躺上去'), tip: tk('仰面躺到这件道具上。躺好以后整个人跟着它') },
-  { key: 'top', name: tk('手撑着'), tip: tk('站到离得最近的那一边，两只手撑在台面上。撑好以后两只手钉在它上面') },
-  { key: 'hold', name: tk('手扶着'), tip: tk('一只手扶（握）在这件道具上：够得着就原地伸手、别的姿势不动，够不着就走过去站好再伸手。扶好以后这只手钉在它上面；再点一次换另一只手') },
+  { key: 'top', name: tk('手撑着'), tip: tk('站到离得最近的那一边，两只手撑在台面上。撑好以后两只手留在它上面：挪它、转它，手跟着') },
+  { key: 'hold', name: tk('手扶着'), tip: tk('一只手扶（握）在这件道具上：够得着就原地伸手、别的姿势不动，够不着就走过去站好再伸手。头顶的横杆（公交车的拉杆）是站到下面举手握住。扶好以后这只手抓着它：挪它、转它，手跟着；再点一次换另一只手') },
   { key: 'lean', name: tk('背靠着'), tip: tk('走到这件道具跟前，背过身靠在上面。靠好以后整个人跟着它') },
   { key: 'hang', name: tk('吊着'), tip: tk('两只手握着横杆吊在下面：杆够高就整个人悬空，矮一点就屈着膝。吊好以后整个人跟着它。要一根横着的杆（选中杆点「横过来」）') },
   { key: 'wrap', name: tk('腿缠杆'), tip: tk('两只手握着竖杆，身体离地，两条腿一高一低勾在杆上。缠好以后整个人跟着它。要一根竖着的杆') },
+  { key: 'carry', name: tk('拿着'), tip: tk('一只手拿着这件道具：杆、棍子是握着，别的是托在手心上。角色站在原地，道具到手上来，之后跟着这只手走；再点一次换另一只手') },
+  { key: 'both', name: tk('两手端着'), tip: tk('两只手一左一右端着这件道具，在身前；杆是横着握。角色站在原地，道具到手上来，之后跟着手走') },
+  { key: 'hug', name: tk('抱着'), tip: tk('把这件道具抱在胸前，两只手搂着它。之后它跟着胸口走：弯腰、转身、挪角色都带着') },
+  { key: 'lift', name: tk('举过头顶'), tip: tk('两只手把这件道具举过头顶；杆是横着举。角色站在原地，道具到手上来，之后跟着手走') },
 ];
 
 export interface ActionInput {
@@ -71,7 +80,6 @@ export type ActionOutcome = ActionResult | { error: string };
 
 const RAD = Math.PI / 180;
 /** 量身体各处留多少时的标准身高（米）：别的身高照比例（和 interact.ts 的胶囊体一样） */
-const STANDARD = 1.7;
 /** 坐、躺、撑的道具最多能歪多少度：再歪就先摆正 */
 const TILT_MAX = 5;
 /** 坐着、躺着时胯的关节比坐面高多少（标准身高时，米）：和拖胯停在表面上留的一样（main.ts 的 TOUCH_ROOM.body） */
@@ -82,7 +90,6 @@ const LIE_RISE = 0.12;
 const HEAD_R = 0.095;
 const FOOT_ROOM = 0.07;
 /** 手腕比扶着、撑着的面高（远）多少 */
-const PALM = 0.035;
 /** 坐在有靠背的椅子上，胯的关节离靠背多远 */
 const BACK = 0.15;
 /** 手撑台面：站在离台子边多远的地方、手撑在台子边往里多少、两只手离正中各多远 */
@@ -107,7 +114,7 @@ const NO_BAR = tk('这个动作要一根杆：放一根「杆」，或者细长�
 const BAR_FLAT = tk('杆要横着才吊得上去：选中它点「横过来」');
 const BAR_UPRIGHT = tk('杆要竖着才缠得上去：选中它点「竖起来」（或者「摆正」）');
 const BAR_THICK = tk('这根杆太粗，握不住');
-const NOT_BIPED = tk('一键动作只管两条腿的人形；这个身体请自己摆（摆好以后可以点「整个人跟着」「钉在…上」）');
+const NOT_BIPED = tk('一键动作只管两条腿的人形；这个身体请自己摆（摆好以后可以点「整个人跟着」「抓住」「踩住」）');
 const TILTED = tk('这件道具歪着：先点「摆正」');
 
 const wrap = (deg: number) => {
@@ -115,14 +122,6 @@ const wrap = (deg: number) => {
   return w === -180 ? 180 : w;
 };
 const fail = (error: string): ActionOutcome => ({ error });
-
-/** 这副骨架静止时有多高 */
-function tallOf(solver: Solver): number {
-  let top = 0;
-  for (const p of solver.rig.head) top = Math.max(top, p[1]);
-  for (const p of solver.rig.tail) top = Math.max(top, p[1]);
-  return top || STANDARD;
-}
 
 const legsOf = (solver: Solver): Limb[] => solver.limbs.filter((l) => l.kind === 'leg');
 /** 第一对手臂（多出来的几对不伸手） */
@@ -141,6 +140,7 @@ function biped(solver: Solver): boolean {
 export function actionBlock(action: PropAction, solver: Solver, prop: SceneProp): string | null {
   if (!biped(solver)) return NOT_BIPED;
   if (action !== 'sit' && action !== 'lie' && action !== 'lean' && !armsOf(solver).length) return NO_ARMS;
+  if (isPickAction(action)) return pickBlock(action, solver, prop);
   if (action === 'hold' || action === 'lean') return null;
   if (action === 'hang' || action === 'wrap') {
     const bar = barOf(prop);
@@ -443,8 +443,15 @@ function top(c: Ctx): ActionOutcome {
     if (len(sub(toScene(place, forward(rig, state).pos[arm.end]), target)) > MISS * k) missed++;
   }
   if (c.follow) state = followPair(solver, state, 0);
-  const f = forward(rig, state);
-  const links = arms.map((arm) => linkTo(prop, arm.name, toScene(place, f.pos[arm.end])));
+  // 手掌转过去贴着台面，手指照台面握上；连接带着握紧度
+  const links: PropLink[] = [];
+  for (const arm of arms) {
+    const got = grabLink(solver, state, place, prop, arm.name, 1);
+    if (!got) continue;
+    state = got.state;
+    links.push(got.link);
+  }
+  state = holdState(solver, state, holdTargets(place, links, [prop]), { grip: 'always' });
   return { place, posing: posingOf(solver, state, c.posing), links, missed };
 }
 
@@ -455,6 +462,9 @@ function hold(c: Ctx): ActionOutcome {
   const { rig } = solver;
   const arms = armsOf(solver);
   if (!arms.length) return fail(NO_ARMS);
+  // 头顶的横杆：站到下面举手握住
+  const over = holdOverhead(c, arms);
+  if (over) return over;
   const live = liveLinks(c.links, c.props);
   const riding = Boolean(linkOf(live, BODY_LINK));
   let place = c.place;
@@ -463,7 +473,7 @@ function hold(c: Ctx): ActionOutcome {
   /** 站在 place 时：用哪只手、手腕去哪、离肩膀有手臂的几成远 */
   const aim = () => {
     const f = forward(rig, state);
-    // 道具在角色的哪一边就用哪只手（正前方的用右手）；那只手已经钉着别的了就换另一只
+    // 道具在角色的哪一边就用哪只手（正前方的用右手）；那只手已经抓着别的了就换另一只
     const chest = mul(arms.map((a) => f.pos[a.upper]).reduce((a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]), 1 / arms.length);
     const near = fromScene(place, closestOnSolid(solid, toScene(place, chest)).point);
     const prefer = arms.find((a) => a.side === (near[0] > 0.03 * k ? 1 : -1)) ?? arms[0];
@@ -500,7 +510,7 @@ function hold(c: Ctx): ActionOutcome {
     walked = true;
     got = aim();
   }
-  // 脚留在原地；别的钉在道具上的手脚也留着（走过去的话它们都松开了）
+  // 脚留在原地；别的抓着、踩着道具的手脚也留着（走过去的话它们都松开了）
   const keep = new Set(legsOf(solver).map((l) => l.name));
   if (!walked) for (const link of live) if (link.part !== BODY_LINK && link.part !== got.arm.name) keep.add(link.part);
   state = dragReach(solver, state, limbIndex(solver, got.arm), fromScene(place, got.target), capturePins(solver, forward(rig, state), keep));
@@ -509,10 +519,13 @@ function hold(c: Ctx): ActionOutcome {
   const missed = len(sub(wrist, got.target)) > MISS * k ? 1 : 0;
   if (missed && riding) return fail(tk('够不着：先把道具挪近一点'));
   const base = walked ? [] : (c.links ?? []);
+  // 手掌转过去对着道具（杆是握在四指根部），手指照它的形状握上；连接带着握紧度
+  const grabbed = grabLink(solver, state, place, prop, got.arm.name, 1)!;
+  state = holdState(solver, grabbed.state, holdTargets(place, [grabbed.link], [prop]), { grip: 'always' });
   return {
     place,
     posing: posingOf(solver, state, c.posing),
-    links: setLink(base, linkTo(prop, got.arm.name, wrist)),
+    links: setLink(base, grabbed.link),
     missed,
     part: got.arm.name,
     walked,
@@ -562,89 +575,34 @@ function lean(c: Ctx): ActionOutcome {
 
 /** 多粗的杆还握得住（半径，米）；箱子的两个短边都不超过这么宽才算杆 */
 const BAR_R_MAX = 0.09;
-const BAR_BOX = 0.14;
 /** 吊着：杆最多能斜多少度 */
 const HANG_PITCH = 15;
 
-/** 一根杆：两头在场景里的哪（a 是低的那头）、多粗（半径）、多长、和水平面夹多少度（0 是横着，90 是竖着） */
-export interface Bar {
-  a: V3;
-  b: V3;
-  r: number;
-  length: number;
-  pitch: number;
-}
-
-/** 这件道具当杆用是什么样；不是杆（不是「杆」，也不是细长的箱子）返回 null */
-export function barOf(prop: SceneProp): Bar | null {
-  if (prop.kind !== 'pole' && prop.kind !== 'box') return null;
-  const [w, h, d] = prop.size;
-  const axis = prop.kind === 'pole' ? 1 : w >= h && w >= d ? 0 : h >= d ? 1 : 2;
-  const length = prop.size[axis];
-  const thick = Math.max(...prop.size.filter((_, i) => i !== axis));
-  if (prop.kind === 'box' && (thick > BAR_BOX || length < thick * 4)) return null;
-  const end = (side: number): Vec3 => (axis === 1 ? [0, side > 0 ? h : 0, 0] : axis === 0 ? [(side * w) / 2, h / 2, 0] : [0, h / 2, (side * d) / 2]);
-  const p = propPoint(prop, end(-1));
-  const q = propPoint(prop, end(1));
-  const [a, b] = p[1] <= q[1] ? [p, q] : [q, p];
-  return { a, b, r: thick / 2, length, pitch: Math.asin(Math.min(1, (b[1] - a[1]) / Math.max(length, 1e-6))) / RAD };
-}
-
-const GRIP: HandShape = GESTURES.find((g) => g.name === '握着东西')!.shape;
-/** 手指自己的半粗（标准身高时，米）；一节手指最多弯多少度、一次试多少度 */
-const FINGER_R = 0.009;
-const CURL_MAX = 96;
-const CURL_STEP = 6;
-
-/** p 离线段 a–b 多远 */
-function fromLine(p: V3, a: V3, b: V3): number {
-  const ab = sub(b, a);
-  const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1] + (p[2] - a[2]) * ab[2]) / Math.max(1e-9, ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2)));
-  return len(sub(p, madd(a, ab, t)));
-}
+export { type Bar, barOf };
 
 /**
- * 一只手握住一根杆：四指朝 fingers、手心朝 palm（角色自己的坐标，两个方向互相垂直），
- * 四指从根到梢一节一节往手心弯，弯到碰着杆为止（杆是 a–b 这条线、半径 r，也在角色自己的坐标里）；
- * 哪一节一直碰不着就照「握着东西」的样子弯。没有手指骨骼的手不动
+ * 一只手握住这件道具：手掌先摆成四指朝 fingers、手心朝 palm（角色自己的坐标，两个方向互相垂直），
+ * 手指再照道具的形状握上（见 grip.ts）。solid 是道具的网格，也在角色自己的坐标里。没有手指骨骼的手只转手掌
  */
-function grip(solver: Solver, state: PoseState, arm: Limb, fingers: V3, palm: V3, bar: { a: V3; b: V3; r: number }, k: number): PoseState {
+function gripAt(solver: Solver, state: PoseState, arm: Limb, fingers: V3, palm: V3, solid: PropSolid, k: number): PoseState {
   const hand = solver.hands.find((h) => h.bone === arm.end);
   if (!hand) return state;
-  const { rig } = solver;
-  // 约定的样子（pose/fingers.ts）：左手四指朝 +X、手心朝下、拇指朝前；右手是它的镜像
-  const back = mul(palm, -1);
-  const want = hand.side > 0 ? quatBasis(fingers, back, cross(fingers, back)) : quatBasis(mul(fingers, -1), back, cross(fingers, palm));
   const turned = cloneState(state);
-  setWorldRot(rig, turned, forward(rig, state), hand.bone, quatMul(want, quatConj(hand.frame)));
-  // 杆越粗，拇指收得越少
-  const ease = Math.max(0.35, Math.min(1, 1.25 - (bar.r / k) * 10));
-  const shape: HandShape = {
-    thumb: { ...GRIP.thumb, curl: [GRIP.thumb.curl[0] * ease, GRIP.thumb.curl[1] * ease] },
-    fingers: GRIP.fingers.map(() => ({ curl: [0, 0, 0], spread: 0 })) as HandShape['fingers'],
-  };
-  const room = (bone: number) => {
-    const posed = shapeHand(solver, turned, hand, shape);
-    return fromLine(tailOf(rig, forward(rig, posed), bone), bar.a, bar.b) - bar.r - FINGER_R * k;
-  };
-  shape.fingers.forEach((finger, i) => {
-    const bones = hand.fingers[i + 1];
-    for (let j = 0; j < 3 && j < bones.length; j++) {
-      let best = 0;
-      let hit = false;
-      for (let deg = CURL_STEP; deg <= CURL_MAX && !hit; deg += CURL_STEP) {
-        finger.curl[j] = deg;
-        if (room(bones[j]) < 0) hit = true;
-        else best = deg;
-      }
-      finger.curl[j] = hit ? best : GRIP.fingers[i].curl[j];
-    }
-  });
-  return shapeHand(solver, turned, hand, shape);
+  setWorldRot(solver.rig, turned, forward(solver.rig, state), hand.bone, handRot(hand, fingers, mul(palm, -1)));
+  return gripHand(solver, turned, hand, solid, k, 1);
 }
 
+/** 做完动作以后，握着道具的那几只手和道具连上（带握紧度：道具改了粗细，手指跟着重新握） */
+const gripLinks = (solver: Solver, state: PoseState, place: Place, prop: SceneProp, arms: readonly Limb[]): PropLink[] => {
+  const f = forward(solver.rig, state);
+  return arms.map((arm) => withGrip(linkTo(prop, arm.name, toScene(place, f.pos[arm.end]), undefined, sceneRot(place, f.rot[arm.end])), 1));
+};
+
 /** 手腕到四指根部多远（握杆时杆在四指根部那里） */
-const palmOf = (solver: Solver, arm: Limb) => len(sub(solver.rig.tail[arm.end], solver.rig.head[arm.end])) * 0.8;
+const palmOf = (solver: Solver, arm: Limb) => {
+  const hand = solver.hands.find((h) => h.bone === arm.end);
+  return hand ? palmLength(solver, hand) : len(sub(solver.rig.tail[arm.end], solver.rig.head[arm.end])) * 0.8;
+};
 
 /** 肘、膝朝 toward 那边弯（手脚不动） */
 const bendTo = (solver: Solver, state: PoseState, limb: Limb, toward: V3) => dragBend(solver, state, limbIndex(solver, limb), toward);
@@ -653,6 +611,74 @@ const bendTo = (solver: Solver, state: PoseState, limb: Limb, toward: V3) => dra
 const rollZ = (deg: number): Quat => [0, 0, Math.sin((deg * RAD) / 2), Math.cos((deg * RAD) / 2)];
 /** 绕左右那根轴（X）转 deg 度：脚尖往下压 */
 const pitchX = (deg: number): Quat => [Math.sin((deg * RAD) / 2), 0, 0, Math.cos((deg * RAD) / 2)];
+
+/* 手扶着的另一种：头顶有根横杆、站着举手够得着（公交车的拉杆）。站到杆下面，一只手举起来握住。不是这种情况返回 null */
+function holdOverhead(c: Ctx, arms: readonly Limb[]): ActionOutcome | null {
+  const bar = thinBar(c.prop);
+  if (!bar || bar.pitch > HANG_PITCH) return null;
+  const { solver, k, prop, height } = c;
+  const { rig } = solver;
+  const flat = Math.hypot(bar.b[0] - bar.a[0], bar.b[2] - bar.a[2]);
+  if (flat < 1e-3) return null;
+  const ux = (bar.b[0] - bar.a[0]) / flat;
+  const uz = (bar.b[2] - bar.a[2]) / flat;
+  const live = liveLinks(c.links, c.props);
+  const riding = Boolean(linkOf(live, BODY_LINK));
+  // 用哪只手：右手；它已经抓着东西了（再点一次）就换另一只
+  const free = (a: Limb) => !linkOf(live, a.name);
+  const arm = arms.find((a) => a.side < 0 && free(a)) ?? arms.find(free) ?? mainArm(arms);
+  const reach = arm.len1 + arm.len2;
+  const palm = palmOf(solver, arm);
+  const back = bar.r + 0.015 * k;
+  /** 肩膀在场景的这里时，握杆上离它最近的那一处：手腕该去哪（场景坐标，还没往后让） */
+  const under = (shoulder: V3): V3 => {
+    const along = within((shoulder[0] - bar.a[0]) * ux + (shoulder[2] - bar.a[2]) * uz, 0, flat, 0.05 * k);
+    const on = lerp(bar.a, bar.b, along / flat);
+    return [on[0], on[1] - palm, on[2]];
+  };
+  /** 举手那边的锁骨抬起来（肩膀高一点，够得更高） */
+  const shrug = (from: PoseState): PoseState => {
+    const collar = rig.parent[arm.upper];
+    if (collar < 0 || !/^Shoulder/.test(rig.names[collar])) return from;
+    const next = cloneState(from);
+    const f = forward(rig, from);
+    setWorldRot(rig, next, f, collar, quatMul(rollZ(arm.side * HANG_COLLAR), f.rot[collar]));
+    return next;
+  };
+  // 杆得比头高、站着举手又够得着，才是这一种
+  const rest = forward(rig, shrug(standing(solver, '自然站立')));
+  const mid = under([c.place.x, 0, c.place.z]);
+  const floor = floorAt(c, [mid[0], mid[2]], mid[1] - bar.r - 0.02);
+  if (mid[1] + palm - bar.r - floor < 0.98 * height || mid[1] - floor > rest.pos[arm.upper][1] + reach * 0.98) return null;
+  let place = c.place;
+  let state = shrug(baseState(c));
+  let walked = false;
+  /** 站在 place、摆着 state 时手腕去哪（角色自己的坐标），离肩膀有手臂的几成远 */
+  const aim = () => {
+    const s = forward(rig, state).pos[arm.upper];
+    const target = fromScene(place, under(toScene(place, s)));
+    target[2] -= back;
+    return { target, far: len(sub(target, s)) / reach };
+  };
+  let got = aim();
+  if (got.far > 0.97) {
+    if (riding) return fail(tk('够不着：先把道具挪近一点'));
+    // 走到杆下面：脸朝和杆垂直的两个方向里离现在近的那个，举着的那只手的肩膀正在杆下面一点
+    let yaw = Math.atan2(-uz, ux) / RAD;
+    if (Math.abs(wrap(yaw - c.place.yaw)) > 90) yaw = wrap(yaw + 180);
+    state = shrug(standing(solver, '自然站立'));
+    const s = forward(rig, state).pos[arm.upper];
+    place = placeFor(yaw, floor, [s[0], 0, s[2] + back + 0.03 * k], [mid[0], mid[2]]);
+    walked = true;
+    got = aim();
+  }
+  // 手举上去：四指朝上、手心朝前，从后面翻过去握；手肘朝外、朝前
+  state = armTo(solver, state, arm, got.target, [0, 1, 0], [0, 0, 1], [arm.side * 0.4, 0.1, 0.4]);
+  const missed = len(sub(forward(rig, state).pos[arm.end], got.target)) > MISS * k ? 1 : 0;
+  const grabbed = grabLink(solver, state, place, prop, arm.name, 1)!;
+  state = holdState(solver, grabbed.state, holdTargets(place, [grabbed.link], [prop]), { grip: 'always' });
+  return { place, posing: posingOf(solver, state, c.posing), links: setLink(walked ? [] : (c.links ?? []), grabbed.link), missed, part: arm.name, walked };
+}
 
 /* ---------------- 吊着 ---------------- */
 
@@ -714,6 +740,7 @@ function hang(c: Ctx): ActionOutcome {
   if (lift > shin * 0.92) return fail(tk('这根杆太矮，吊不起来：把它抬高一点'));
   const place = placeFor(yaw, sole + sink, [0, 0, barZ], [mid[0], mid[2]]);
   if (sink > 0) shiftRoot(rig, state, f, [0, -sink, 0]);
+  const solid = propSolid(prop, place);
   let missed = 0;
   for (const arm of arms) {
     // 每只手握在杆上自己那一处（杆斜着的话两只手不一样高）
@@ -726,7 +753,7 @@ function hang(c: Ctx): ActionOutcome {
     state = bendTo(solver, state, arm, [now.pos[arm.upper][0] + arm.side * 0.5, now.pos[arm.upper][1] + 0.2, now.pos[arm.upper][2] + 0.25]);
     if (len(sub(forward(rig, state).pos[arm.end], target)) > MISS * k) missed++;
     // 正握：手指朝上，手心朝前，四指从杆后面翻过去
-    state = grip(solver, state, arm, [0, 1, 0], [0, 0, 1], { a: fromScene(place, bar.a), b: fromScene(place, bar.b), r: bar.r }, k);
+    state = gripAt(solver, state, arm, [0, 1, 0], [0, 0, 1], solid, k);
   }
   f = forward(rig, state);
   for (const leg of legs) {
@@ -744,7 +771,8 @@ function hang(c: Ctx): ActionOutcome {
     }
   }
   if (c.follow) state = followPair(solver, state, 0);
-  return { place, posing: posingOf(solver, state, c.posing), links: [rideLink(prop, place)], missed };
+  // 整个人跟着杆；两只手另外抓着它（拖胯的时候手留在杆上，杆改了粗细手指跟着握）
+  return { place, posing: posingOf(solver, state, c.posing), links: [rideLink(prop, place), ...gripLinks(solver, state, place, prop, arms)], missed };
 }
 
 /* ---------------- 腿缠杆 ---------------- */
@@ -810,7 +838,6 @@ function wrapPole(c: Ctx): ActionOutcome {
   }
   // 手：右手在上、左手在下，各握在杆自己那一边（手心朝杆，四指从前面绕过去，拇指朝上）
   let f = forward(rig, state);
-  const line = { a: [0, -10, poleZ] as V3, b: [0, 10, poleZ] as V3, r };
   let topHand = 0;
   for (const arm of arms) {
     const upper = arm.side !== high.side;
@@ -821,10 +848,8 @@ function wrapPole(c: Ctx): ActionOutcome {
     state = reachOnly(solver, state, limbIndex(solver, arm), target);
     // 手肘朝下、稍微朝外
     state = bendTo(solver, state, arm, [from[0] + arm.side * 0.25, from[1] - 0.5, from[2] + 0.05]);
-    state = grip(solver, state, arm, [0, 0, 1], [-arm.side, 0, 0], line, k);
     topHand = Math.max(topHand, y + 0.06 * k);
   }
-  if (c.follow) state = followPair(solver, state, 0);
   f = forward(rig, state);
   // 离地多高：脚离地一截；杆不够高就往下挪，脚快碰地了还握不到杆顶以下就是杆太矮
   const below = c.solids.filter((s) => s.id !== prop.id);
@@ -835,10 +860,386 @@ function wrapPole(c: Ctx): ActionOutcome {
   const place = placeFor(yaw, Math.min(most, floor + WRAP_LIFT * k - lowest), [0, 0, poleZ], [cx, cz]);
   let missed = 0;
   for (const arm of arms) if (len(sub(f.pos[arm.end], [arm.side * (r + 0.02 * k), f.pos[arm.end][1], poleZ - 0.045 * k])) > MISS * k) missed++;
-  return { place, posing: posingOf(solver, state, c.posing), links: [rideLink(prop, place)], missed };
+  // 站的地方定了：手心朝杆、四指从前面绕过去，照杆握上
+  const solid = propSolid(prop, place);
+  for (const arm of arms) state = gripAt(solver, state, arm, [0, 0, 1], [-arm.side, 0, 0], solid, k);
+  if (c.follow) state = followPair(solver, state, 0);
+  // 整个人跟着杆；两只手另外抓着它
+  return { place, posing: posingOf(solver, state, c.posing), links: [rideLink(prop, place), ...gripLinks(solver, state, place, prop, arms)], missed };
 }
 
-const SOLVERS: Record<PropAction, (c: Ctx) => ActionOutcome> = { sit, lie, top, hold, lean, hang, wrap: wrapPole };
+/* ---------------- 拿着、两手端着、抱着、举过头顶 ---------------- */
+
+/** 一只手拿：不是杆的道具最长的一边最多多长；最高多高（标准身高时，米） */
+const CARRY_MAX = 0.6;
+const CARRY_TALL = 0.8;
+/** 两只手拿、抱、举：左右最多多宽 */
+const SPAN_MAX = 1.0;
+/** 身体正面比肩膀靠前多少 */
+const FRONT = 0.11;
+/** 一只手握着的杆：比这短的握在正中，长的握在下面三分之一 */
+const STICK = 0.45;
+/** 两只手握横着的杆：各离正中多远；杆至少要比两只手宽出多少 */
+const BAR_SPREAD = 0.22;
+const BAR_END = 0.05;
+/** 举过头顶：手臂伸到几成直、锁骨抬多少度、两只手最远离正中多远 */
+const LIFT_STRETCH = 0.93;
+const LIFT_COLLAR = 15;
+const LIFT_SPREAD = 0.3;
+
+const TOO_BIG_ONE = tk('这件道具太大，一只手拿不了：用「两手端着」');
+const TOO_WIDE = tk('这件道具太宽，两只手够不到两边');
+const BAR_SHORT = tk('这根杆太短，两只手握不下');
+const NEED_TWO = tk('这个动作要两只手');
+const RIDING = tk('这个角色正坐在、站在这件道具上，拿不起来：先在「连着它的」里解开');
+const NO_CHEST = tk('这个身体上没找到胸口，抱不了。');
+
+/** 能握住的杆（太粗的当普通道具端着） */
+const thinBar = (prop: SceneProp): Bar | null => {
+  const bar = barOf(prop);
+  return bar && bar.r <= BAR_R_MAX ? bar : null;
+};
+
+/** 这四个动作一眼看得出做不了的原因（照道具自己的宽、高、深估；歪着的点了以后再量） */
+function pickBlock(action: PropAction, solver: Solver, prop: SceneProp): string | null {
+  const k = tallOf(solver) / STANDARD;
+  if (action !== 'carry' && armsOf(solver).length < 2) return NEED_TWO;
+  const bar = thinBar(prop);
+  if (bar) return action !== 'carry' && action !== 'hug' && bar.length / 2 - BAR_END * k < 0.06 * k ? BAR_SHORT : null;
+  const [w, h, d] = prop.size;
+  if (action === 'carry') return Math.max(w, d) > CARRY_MAX * k || h > CARRY_TALL * k ? TOO_BIG_ONE : null;
+  return Math.min(w, d) > SPAN_MAX * k ? TOO_WIDE : null;
+}
+
+/** 道具换个朝向、挪个地方以后的样子（位置留到毫米、角度留到 0.1°，和清单里记的一样） */
+const movedTo = (prop: SceneProp, pos: V3, rot: Vec3): SceneProp => ({
+  ...prop,
+  pos: [Math.round(pos[0] * 1000) / 1000, Math.round(pos[1] * 1000) / 1000, Math.round(pos[2] * 1000) / 1000],
+  rot: [Math.round(wrap(rot[0]) * 10) / 10, Math.round(wrap(rot[1]) * 10) / 10, Math.round(wrap(rot[2]) * 10) / 10],
+});
+
+/**
+ * 不是杆的道具对着角色摆正：朝向取和角色差 90° 的倍数里离现在最近的那个（quarter：再转 90°），歪着的照样歪着。
+ * ext 是这样摆时它在角色自己的坐标里占的盒子：左右多宽、多高、前后多深
+ */
+function squared(c: Ctx, quarter: number): { rot: Vec3; ext: V3 } {
+  const yaw = c.place.yaw + (Math.round(wrap(c.prop.rot[1] - c.place.yaw) / 90) + quarter) * 90;
+  return turned(c, [c.prop.rot[0], yaw, c.prop.rot[2]]);
+}
+
+/** 道具转成 rot 时在角色自己的坐标里占多大的盒子 */
+function turned(c: Ctx, rot: Vec3): { rot: Vec3; ext: V3 } {
+  const solid = propSolid({ ...c.prop, rot }, c.place);
+  return { rot, ext: sub(solid.max, solid.min) };
+}
+
+/** 道具转成 rot，它占的盒子正中挪到 centre（角色自己的坐标） */
+function boxAt(c: Ctx, rot: Vec3, centre: V3): SceneProp {
+  const turned = { ...c.prop, rot };
+  const solid = propSolid(turned, c.place);
+  const from = toScene(c.place, lerp(solid.min, solid.max, 0.5));
+  const to = toScene(c.place, centre);
+  return movedTo(c.prop, [turned.pos[0] + to[0] - from[0], turned.pos[1] + to[1] - from[1], turned.pos[2] + to[2] - from[2]], rot);
+}
+
+/** 杆竖起来（upright），或者横过来、顺着角色的左右：该转成什么朝向 */
+function barRot(c: Ctx, bar: Bar, upright: boolean): Vec3 {
+  const yaw = c.place.yaw;
+  if (upright) return bar.axis === 1 ? [0, yaw, 0] : bar.axis === 0 ? [0, yaw, 90] : [90, yaw, 0];
+  return bar.axis === 1 ? [0, yaw, 90] : bar.axis === 0 ? [0, yaw, 0] : [0, yaw + 90, 0];
+}
+
+/** 杆转成 rot，中线的正中挪到 centre（角色自己的坐标） */
+function barAt(c: Ctx, rot: Vec3, centre: V3): SceneProp {
+  const turned = { ...c.prop, rot };
+  const bar = barOf(turned)!;
+  const from = lerp(bar.a, bar.b, 0.5);
+  const to = toScene(c.place, centre);
+  return movedTo(c.prop, [turned.pos[0] + to[0] - from[0], turned.pos[1] + to[1] - from[1], turned.pos[2] + to[2] - from[2]], rot);
+}
+
+/** 还没摆过姿势的（手臂张着）先垂下手站好；摆过的照现在的姿势，只动手臂 */
+const baseState = (c: Ctx): PoseState => (c.posing.root || Object.keys(c.posing.bones).length ? stateOf(c.solver, c.posing) : standing(c.solver, '自然站立'));
+
+/** 这个角色整个人正跟着这件道具（坐在、站在它上面） */
+const ridesIt = (c: Ctx): boolean => linkOf(liveLinks(c.links, c.props), BODY_LINK)?.prop === c.prop.id;
+
+/** 一只手伸到 wrist（角色自己的坐标），四指朝 fingers、手心朝 palm（互相垂直）；肘朝肩膀的 elbow 那边弯 */
+function armTo(solver: Solver, state: PoseState, arm: Limb, wrist: V3, fingers: V3, palm: V3, elbow: V3): PoseState {
+  const hand = solver.hands.find((h) => h.bone === arm.end);
+  const reached = reachOnly(solver, state, limbIndex(solver, arm), wrist, hand ? handRot(hand, fingers, mul(palm, -1)) : undefined);
+  const shoulder = forward(solver.rig, reached).pos[arm.upper];
+  return bendTo(solver, reached, arm, [shoulder[0] + elbow[0], shoulder[1] + elbow[1], shoulder[2] + elbow[2]]);
+}
+
+/** 两个肩膀的正中（角色自己的坐标） */
+const shouldersMid = (solver: Solver, state: PoseState, arms: readonly Limb[]): V3 => {
+  const f = forward(solver.rig, state);
+  return mul(arms.map((a) => f.pos[a.upper]).reduce((a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]), 1 / arms.length);
+};
+
+/** 带着道具的是右手（没有右手就第一只） */
+const mainArm = (arms: readonly Limb[]): Limb => arms.find((a) => a.side < 0) ?? arms[0];
+
+/**
+ * 手都伸到位了：照摆好的道具落位（手掌贴上去、杆握在四指根部）、手指握上，记连接。
+ * carrier：道具跟着哪一处走——一只手的名字，或者胸口那根骨骼的名字（抱着）；别的手是抓在它上面。
+ * 这个角色原来连在这件道具上的都换成新的；用到的手原来抓着别的，也换掉
+ */
+function pickUp(c: Ctx, posed: PoseState, held: SceneProp, arms: readonly Limb[], wrists: readonly V3[], carrier: string): ActionResult {
+  const { solver, place, k } = c;
+  let state = posed;
+  const before = forward(solver.rig, state);
+  const missed = arms.filter((arm, i) => len(sub(before.pos[arm.end], wrists[i])) > MISS * k).length;
+  let links: readonly PropLink[] = (c.links ?? []).filter((l) => l.prop !== held.id);
+  for (const arm of arms) {
+    const got = grabLink(solver, state, place, held, arm.name, 1);
+    if (!got) continue;
+    state = got.state;
+    links = setLink(links, arm.name === carrier ? withCarry(got.link, true) : got.link);
+  }
+  const bone = solver.rig.index.get(carrier);
+  if (!arms.some((a) => a.name === carrier) && bone !== undefined) {
+    const f = forward(solver.rig, state);
+    links = setLink(links, withCarry(linkTo(held, carrier, toScene(place, f.pos[bone]), undefined, sceneRot(place, f.rot[bone])), true));
+  }
+  const props = c.props.map((p) => (p.id === held.id ? held : p));
+  state = holdState(solver, state, holdTargets(place, links, props), { grip: 'always' });
+  return { place, posing: posingOf(solver, state, c.posing), links, missed };
+}
+
+/* 拿着：一只手。杆、棍子握着（竖着），别的托在手心上 */
+function carryOne(c: Ctx): ActionOutcome {
+  const { solver, k, prop } = c;
+  const arms = armsOf(solver);
+  if (!arms.length) return fail(NO_ARMS);
+  if (ridesIt(c)) return fail(RIDING);
+  let state = baseState(c);
+  const f = forward(solver.rig, state);
+  // 哪只手：道具在角色哪一边就用哪只（正前方用右手）；这只手已经拿着这一件（再点一次）就换另一只；正抓着别的道具的手不用
+  const live = liveLinks(c.links, c.props);
+  const here = fromScene(c.place, propPoint(prop, [0, prop.size[1] / 2, 0]));
+  const mine = live.find((l) => l.prop === prop.id && l.carry);
+  const free = (a: Limb) => {
+    const link = linkOf(live, a.name);
+    return !link || link.prop === prop.id;
+  };
+  let arm = arms.find((a) => a.side === (here[0] > 0.03 * k ? 1 : -1)) ?? arms[0];
+  if (mine && arms.some((a) => a.name === mine.part)) arm = arms.find((a) => a.name !== mine.part) ?? arm;
+  if (!free(arm)) arm = arms.find(free) ?? arm;
+  // 上臂垂着、前臂朝前平伸
+  const s = f.pos[arm.upper];
+  const wrist: V3 = [s[0] + arm.side * 0.04 * k, s[1] - arm.len1 * 0.93, s[2] + arm.len2 * 0.92];
+  const elbow: V3 = [arm.side * 0.1, -1, -0.3];
+  const bar = thinBar(prop);
+  let held: SceneProp;
+  if (bar) {
+    // 握在哪：短的握正中，长的握在下面三分之一；下头不戳到脚下的地面以下
+    const grip = bar.length <= STICK * k ? bar.length / 2 : Math.min(bar.length * 0.35, Math.max(0, wrist[1] - 0.02));
+    held = barAt(c, barRot(c, bar, true), [wrist[0] - arm.side * (bar.r + 0.02 * k), wrist[1] - grip + bar.length / 2, wrist[2] + 0.045 * k]);
+    // 手心朝里、四指从前面绕过去
+    state = armTo(solver, state, arm, wrist, [0, 0, 1], [-arm.side, 0, 0], elbow);
+  } else {
+    const { rot, ext } = squared(c, 0);
+    if (Math.max(ext[0], ext[2]) > CARRY_MAX * k || ext[1] > CARRY_TALL * k) return fail(TOO_BIG_ONE);
+    // 托在手心上：道具的底在手心上面，大的往前让开身体（手托着它靠里的那一头）
+    const z = Math.max(wrist[2] + palmOf(solver, arm) * 0.6, s[2] + (FRONT + 0.02) * k + ext[2] / 2);
+    held = boxAt(c, rot, [wrist[0], wrist[1] + PALM * k + ext[1] / 2, z]);
+    state = armTo(solver, state, arm, wrist, [0, 0, 1], [0, 1, 0], elbow);
+  }
+  return { ...pickUp(c, state, held, [arm], [wrist], arm.name), part: arm.name };
+}
+
+/* 两手端着：一左一右；长杆横着握 */
+function carryBoth(c: Ctx): ActionOutcome {
+  const { solver, k, prop } = c;
+  const arms = armsOf(solver);
+  if (arms.length < 2) return fail(arms.length ? NEED_TWO : NO_ARMS);
+  if (ridesIt(c)) return fail(RIDING);
+  let state = baseState(c);
+  const f = forward(solver.rig, state);
+  const mid = shouldersMid(solver, state, arms);
+  const wrists: V3[] = [];
+  const bar = thinBar(prop);
+  let held: SceneProp;
+  if (bar) {
+    const spread = Math.min(BAR_SPREAD * k, bar.length / 2 - BAR_END * k);
+    if (spread < 0.06 * k) return fail(BAR_SHORT);
+    // 手臂差不多垂着，杆横在胯前
+    const reach = Math.min(...arms.map((a) => a.len1 + a.len2));
+    const at: V3 = [mid[0], mid[1] - reach * 0.82, mid[2] + (FRONT + 0.1) * k];
+    held = barAt(c, barRot(c, bar, false), at);
+    for (const arm of arms) {
+      // 正握：手从上面、后面过来，手心朝下
+      const wrist: V3 = [at[0] + arm.side * spread, at[1] + 0.03 * k, at[2] - bar.r - 0.04 * k];
+      wrists.push(wrist);
+      state = armTo(solver, state, arm, wrist, [0, 0, 1], [0, -1, 0], [arm.side * 0.3, -0.6, -0.4]);
+    }
+  } else {
+    const limit = SPAN_MAX * k;
+    let sq = squared(c, 0);
+    if (sq.ext[0] > limit) sq = squared(c, 1);
+    if (sq.ext[0] > limit) return fail(TOO_WIDE);
+    const { rot, ext } = sq;
+    // 薄的（盘子、板子）手托在底下，别的手扶在左右两面上、靠下三分之一
+    const flat = ext[1] < 0.08 * k;
+    const wy = mid[1] - Math.max(...arms.map((a) => a.len1)) * 0.8;
+    const cz = mid[2] + (FRONT + 0.03) * k + ext[2] / 2;
+    held = boxAt(c, rot, [mid[0], flat ? wy + PALM * k + ext[1] / 2 : wy + ext[1] * 0.15, cz]);
+    for (const arm of arms) {
+      const s = f.pos[arm.upper];
+      const x = mid[0] + arm.side * (flat ? Math.max(0.06 * k, ext[0] / 2 - 0.06 * k) : ext[0] / 2 + PALM * k);
+      // 前后：扶在正中；手臂够不到那么前就靠里一点
+      const room = Math.sqrt(Math.max(0, ((arm.len1 + arm.len2) * 0.95) ** 2 - (x - s[0]) ** 2 - (wy - s[1]) ** 2));
+      const wrist: V3 = [x, wy, Math.max(cz - ext[2] / 2 + 0.03 * k, Math.min(cz, s[2] + room))];
+      wrists.push(wrist);
+      state = armTo(solver, state, arm, wrist, [0, 0, 1], flat ? [0, 1, 0] : [-arm.side, 0, 0], [arm.side * 0.35, -0.8, -0.4]);
+    }
+  }
+  return pickUp(c, state, held, arms, wrists, mainArm(arms).name);
+}
+
+/* 抱着：道具贴在胸前、跟着胸口走，两只手搂着它 */
+function hugIt(c: Ctx): ActionOutcome {
+  const { solver, k } = c;
+  const arms = armsOf(solver);
+  if (arms.length < 2) return fail(arms.length ? NEED_TWO : NO_ARMS);
+  if (ridesIt(c)) return fail(RIDING);
+  let state = baseState(c);
+  const f = forward(solver.rig, state);
+  const mid = shouldersMid(solver, state, arms);
+  const limit = SPAN_MAX * k;
+  // 宽的那一面贴着胸口；两只手够不到两边就换一面。杆是竖着抱
+  const bar = thinBar(c.prop);
+  let sq = bar ? turned(c, barRot(c, bar, true)) : squared(c, 0);
+  const other = bar ? sq : squared(c, 1);
+  if ((other.ext[0] > sq.ext[0] && other.ext[0] <= limit) || sq.ext[0] > limit) sq = other;
+  if (sq.ext[0] > limit) return fail(TOO_WIDE);
+  const { rot, ext } = sq;
+  // 正中在胸口下面一点；高的往下放，别挡着脸，也别戳到脚下的地面以下
+  const cy = Math.max(ext[1] / 2 + 0.02, Math.min(mid[1] - 0.2 * k, mid[1] + 0.06 * k - ext[1] / 2));
+  const cz = mid[2] + FRONT * k + ext[2] / 2;
+  const held = boxAt(c, rot, [mid[0], cy, cz]);
+  const chest = chestBone(solver.rig, f, [mid[0], cy, mid[2]]);
+  if (chest < 0) return fail(NO_CHEST);
+  const wrists: V3[] = [];
+  const wy = cy - Math.min(ext[1] * 0.2, 0.08 * k);
+  for (const arm of arms) {
+    const s = f.pos[arm.upper];
+    const x = mid[0] + arm.side * (ext[0] / 2 + PALM * k);
+    // 手搂在两面上靠外的地方；够不到那么前就靠里一点
+    const room = Math.sqrt(Math.max(0, ((arm.len1 + arm.len2) * 0.95) ** 2 - (x - s[0]) ** 2 - (wy - s[1]) ** 2));
+    const wrist: V3 = [x, wy, Math.max(cz - ext[2] / 2 + 0.03 * k, Math.min(cz + ext[2] * 0.2, s[2] + room))];
+    wrists.push(wrist);
+    state = armTo(solver, state, arm, wrist, [0, 0, 1], [-arm.side, 0, 0], [arm.side * 0.5, -0.5, -0.3]);
+  }
+  return pickUp(c, state, held, arms, wrists, solver.rig.names[chest]);
+}
+
+/* 举过头顶：两只手举着；长杆横着举 */
+function liftUp(c: Ctx): ActionOutcome {
+  const { solver, k, prop } = c;
+  const { rig } = solver;
+  const arms = armsOf(solver);
+  if (arms.length < 2) return fail(arms.length ? NEED_TWO : NO_ARMS);
+  if (ridesIt(c)) return fail(RIDING);
+  let state = cloneState(baseState(c));
+  let f = forward(rig, state);
+  // 锁骨抬起来一点
+  for (const arm of arms) {
+    const collar = rig.parent[arm.upper];
+    if (collar >= 0 && /^Shoulder/.test(rig.names[collar])) setWorldRot(rig, state, f, collar, quatMul(rollZ(arm.side * LIFT_COLLAR), f.rot[collar]));
+  }
+  f = forward(rig, state);
+  const mid = shouldersMid(solver, state, arms);
+  const cz = mid[2] + 0.02 * k;
+  /** 两只手各离正中 spread、前后在 z 时，手腕最高举到哪（两只手一样高） */
+  const top = (spread: number, z: number) =>
+    Math.min(
+      ...arms.map((arm) => {
+        const s = f.pos[arm.upper];
+        return s[1] + Math.sqrt(Math.max(0, ((arm.len1 + arm.len2) * LIFT_STRETCH) ** 2 - (mid[0] + arm.side * spread - s[0]) ** 2 - (z - s[2]) ** 2));
+      }),
+    );
+  const elbow = (arm: Limb): V3 => [arm.side * 0.5, 0.2, 0.2];
+  const wrists: V3[] = [];
+  const bar = thinBar(prop);
+  let held: SceneProp;
+  if (bar) {
+    const spread = Math.min(LIFT_SPREAD * k, bar.length / 2 - BAR_END * k);
+    if (spread < 0.06 * k) return fail(BAR_SHORT);
+    const back = bar.r + 0.015 * k;
+    const wy = top(spread, cz - back);
+    held = barAt(c, barRot(c, bar, false), [mid[0], wy + Math.min(...arms.map((a) => palmOf(solver, a))), cz]);
+    for (const arm of arms) {
+      // 手在杆下面：四指朝上、手心朝前，从后面翻过去握住
+      const wrist: V3 = [mid[0] + arm.side * spread, wy, cz - back];
+      wrists.push(wrist);
+      state = armTo(solver, state, arm, wrist, [0, 1, 0], [0, 0, 1], elbow(arm));
+    }
+  } else {
+    const limit = SPAN_MAX * k;
+    let sq = squared(c, 0);
+    if (sq.ext[0] > limit) sq = squared(c, 1);
+    if (sq.ext[0] > limit) return fail(TOO_WIDE);
+    const { rot, ext } = sq;
+    // 够宽的托在底下（手心朝上），窄的夹着左右两面
+    const under = ext[0] >= 0.24 * k;
+    const spread = under ? Math.max(0.1 * k, Math.min(LIFT_SPREAD * k, ext[0] / 2 - 0.06 * k)) : ext[0] / 2 + PALM * k;
+    const wy = top(spread, cz);
+    const bottom = under ? wy + PALM * k : wy - Math.min(ext[1] * 0.3, 0.06 * k);
+    held = boxAt(c, rot, [mid[0], bottom + ext[1] / 2, cz]);
+    for (const arm of arms) {
+      const wrist: V3 = [mid[0] + arm.side * spread, wy, cz];
+      wrists.push(wrist);
+      state = under ? armTo(solver, state, arm, wrist, [0, 0, -1], [0, 1, 0], elbow(arm)) : armTo(solver, state, arm, wrist, [0, 1, 0], [-arm.side, 0, 0], elbow(arm));
+    }
+  }
+  return pickUp(c, state, held, arms, wrists, mainArm(arms).name);
+}
+
+/* ---------------- 伸手抓住（AI 助手的「抓住」工具用） ---------------- */
+
+/** 手腕、脚踝离道具比这近（标准身高时，米）算挨着，就在原处抓；远了先伸过去 */
+const GRAB_NEAR = { arm: 0.12, leg: 0.16 } as const;
+
+export interface GrabInput extends ActionInput {
+  /** 哪只手、哪只脚（Limb.name） */
+  part: string;
+  /** 抓住以后道具跟着这只手走（拿着） */
+  carry?: boolean;
+}
+
+/**
+ * 一只手抓住、一只脚踩住一件道具：挨着就在原处抓，离得远先伸过去（身体不动），伸直了也够不着就说够不着。
+ * 落位、握上、记连接和界面上点「抓住」一样（见 follow.ts 的 grabLink）
+ */
+export function solveGrab(input: GrabInput): ActionOutcome {
+  const { solver, place, prop } = input;
+  const index = solver.limbs.findIndex((l) => l.name === input.part);
+  if (index < 0) return fail(tk('这个角色没有这只手（脚）'));
+  const limb = solver.limbs[index];
+  const k = tallOf(solver) / STANDARD;
+  let state = stateOf(solver, input.posing);
+  const solid = propSolid(prop);
+  const at = toScene(place, forward(solver.rig, state).pos[limb.end]);
+  const hit = closestOnSolid(solid, at);
+  if (hit.dist > GRAB_NEAR[limb.kind] * k) {
+    let out: V3 = hit.dist > 1e-6 ? mul(sub(at, hit.point), 1 / hit.dist) : [0, 1, 0];
+    if (insideSolid(solid, at)) out = mul(out, -1);
+    const target = madd(hit.point, out, (limb.kind === 'leg' ? FOOT_ROOM : PALM) * k);
+    state = reachOnly(solver, state, index, fromScene(place, target));
+    if (len(sub(toScene(place, forward(solver.rig, state).pos[limb.end]), target)) > MISS * k) return fail(tk('够不着：先把道具或者角色挪近一点'));
+  }
+  const got = grabLink(solver, state, place, prop, input.part, 1);
+  if (!got) return fail(tk('这个角色没有这只手（脚）'));
+  const link = input.carry ? withCarry(got.link, true) : got.link;
+  const links = setLink(input.carry ? putDown(input.links, prop.id) : input.links, link);
+  state = holdState(solver, got.state, holdTargets(place, links, input.props), { grip: 'always' });
+  return { place, posing: posingOf(solver, state, input.posing), links, missed: 0, part: input.part };
+}
+
+const SOLVERS: Record<PropAction, (c: Ctx) => ActionOutcome> = { sit, lie, top, hold, lean, hang, wrap: wrapPole, carry: carryOne, both: carryBoth, hug: hugIt, lift: liftUp };
 
 /** 做一个动作：返回角色的新位置、新姿势、新的连接；做不了返回原因 */
 export function solvePropAction(action: PropAction, input: ActionInput): ActionOutcome {

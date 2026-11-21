@@ -7,6 +7,7 @@ import type { PropChange, PropInfo, SceneApi } from '../src/ai/workshop';
 function fakeScene() {
   const props: PropInfo[] = [];
   const acted: string[] = [];
+  const attached: { part: string; label: string; prop: string; mode: 'holds' | 'carries' | 'rides'; way?: 'over' | 'under' }[] = [];
   let next = 1;
   const apply = (p: PropInfo, c: PropChange) => {
     if (c.pos) p.pos = c.pos;
@@ -52,8 +53,37 @@ function fakeScene() {
       acted.push(`${id}:${action}`);
       return `做了 ${action}`;
     },
+    limbs: () => [
+      { part: 'Hand_L', label: '左手' },
+      { part: 'Hand_R', label: '右手' },
+      { part: 'Foot_L', label: '左脚' },
+    ],
+    attached: () => attached.map((a) => ({ ...a })),
+    grab(part, id, carry) {
+      if (id === 'far') throw new Error('够不着：先把道具或者角色挪近一点');
+      attached.splice(0, attached.length, ...attached.filter((a) => a.part !== part), { part, label: part, prop: id, mode: carry ? 'carries' : 'holds', ...(part.startsWith('Hand') ? { way: 'over' as const } : {}) });
+      return `${part} 抓住了 ${id}`;
+    },
+    release(part) {
+      const i = attached.findIndex((a) => a.part === part);
+      if (i < 0) throw new Error('这里没有抓着、带着道具');
+      attached.splice(i, 1);
+      return `${part} 松开了`;
+    },
+    setCarry(part, on) {
+      const a = attached.find((x) => x.part === part);
+      if (!a) throw new Error('这里没有抓着、带着道具');
+      a.mode = on ? 'carries' : 'holds';
+      return on ? '道具跟着它走了' : '道具放下了';
+    },
+    gripWay(part, way) {
+      const a = attached.find((x) => x.part === part);
+      if (!a?.way) throw new Error(`${part}没有握着杆`);
+      a.way = way;
+      return way === 'over' ? '换成正手握了' : '换成反手握了';
+    },
   };
-  return { scene, props, acted };
+  return { scene, props, acted, attached };
 }
 
 const tool = (scene: SceneApi, name: string) => sceneTools(scene).find((t) => t.name === name)!;
@@ -63,16 +93,16 @@ async function call(scene: SceneApi, name: string, params: Record<string, unknow
 }
 
 describe('AI 助手的道具工具', () => {
-  it('工坊没给场景那一块：一个工具都没有；给了是五个', () => {
+  it('工坊没给场景那一块：一个工具都没有；给了是九个', () => {
     expect(sceneTools(undefined)).toEqual([]);
-    expect(sceneTools(fakeScene().scene).map((t) => t.name)).toEqual(['list_props', 'add_prop', 'move_prop', 'remove_prop', 'prop_action']);
+    expect(sceneTools(fakeScene().scene).map((t) => t.name)).toEqual(['list_props', 'add_prop', 'move_prop', 'remove_prop', 'prop_action', 'grab_prop', 'release_prop', 'carry_prop', 'grip_way']);
   });
 
   it('list_props：角色站在哪、每件道具和它上面能做的动作；要了才带种类清单', async () => {
     const { scene } = fakeScene();
     await scene.add('chair', {});
     const got = await call(scene, 'list_props', {});
-    expect(got.character).toEqual({ name: '角色 1', x: 0, z: 0, yaw: 0, y: 0 });
+    expect(got.character).toEqual({ name: '角色 1', x: 0, z: 0, yaw: 0, y: 0, limbs: ['Hand_L', 'Hand_R', 'Foot_L'], attached: [] });
     expect(got.props).toEqual([{ id: 'p1', name: '椅子', kind: 'chair', size: [0.4, 0.8, 0.4], pos: [-0.8, 0, 0], rot: [0, 0, 0], color: '#e7eaeb', actions: ['sit', 'hold'] }]);
     expect(got.kinds).toBeUndefined();
     expect(((await call(scene, 'list_props', { kinds: 'true' })).kinds as unknown[]).length).toBe(3);
@@ -112,5 +142,44 @@ describe('AI 助手的道具工具', () => {
     expect(acted).toEqual(['p1:sit']);
     expect((await call(scene, 'remove_prop', { id: 'p1' })).props).toEqual(['p2']);
     expect(props.map((p) => p.id)).toEqual(['p2']);
+  });
+
+  it('grab_prop、carry_prop、release_prop：抓住、换方向、松开；list_props 里看得到连着什么、哪个方向', async () => {
+    const { scene } = fakeScene();
+    await scene.add('pole', {});
+    const grabbed = await call(scene, 'grab_prop', { id: 'p1', part: 'Hand_L' });
+    expect(grabbed.attached).toEqual([{ part: 'Hand_L', prop: 'p1', mode: 'holds', way: 'over' }]);
+    expect(((await call(scene, 'list_props', {})).character as { attached: unknown }).attached).toEqual([{ part: 'Hand_L', prop: 'p1', mode: 'holds', way: 'over' }]);
+    // 换成道具跟着手走，再换回来
+    expect((await call(scene, 'carry_prop', { part: 'Hand_L', on: 'true' })).attached).toEqual([{ part: 'Hand_L', prop: 'p1', mode: 'carries', way: 'over' }]);
+    expect((await call(scene, 'carry_prop', { part: 'Hand_L', on: 'false' })).attached).toEqual([{ part: 'Hand_L', prop: 'p1', mode: 'holds', way: 'over' }]);
+    // 抓的时候直接说拿着
+    expect((await call(scene, 'grab_prop', { id: 'p1', part: 'Hand_R', carry: 'true' })).attached).toEqual([
+      { part: 'Hand_L', prop: 'p1', mode: 'holds', way: 'over' },
+      { part: 'Hand_R', prop: 'p1', mode: 'carries', way: 'over' },
+    ]);
+    expect((await call(scene, 'release_prop', { part: 'Hand_L' })).attached).toEqual([{ part: 'Hand_R', prop: 'p1', mode: 'carries', way: 'over' }]);
+  });
+
+  it('抓不了的把原因告诉模型：没有这只手、没有这件道具、那里没连着东西', async () => {
+    const { scene } = fakeScene();
+    await scene.add('pole', {});
+    await expect(call(scene, 'grab_prop', { id: 'p1', part: 'Tail' })).rejects.toThrow(/No limb "Tail".*Hand_L, Hand_R, Foot_L/);
+    await expect(call(scene, 'grab_prop', { id: 'p9', part: 'Hand_L' })).rejects.toThrow(/No prop "p9"/);
+    await expect(call(scene, 'release_prop', { part: 'Hand_L' })).rejects.toThrow(/Nothing is attached at "Hand_L"/);
+    await expect(call(scene, 'carry_prop', { part: 'Hand_R', on: 'true' })).rejects.toThrow(/Nothing is attached/);
+  });
+
+  it('grip_way：握着杆的手换正手、反手；list_props 里带着是哪种', async () => {
+    const { scene } = fakeScene();
+    await scene.add('pole', {});
+    expect((await call(scene, 'grab_prop', { id: 'p1', part: 'Hand_L' })).attached).toEqual([{ part: 'Hand_L', prop: 'p1', mode: 'holds', way: 'over' }]);
+    expect((await call(scene, 'grip_way', { part: 'Hand_L', way: 'under' })).attached).toEqual([{ part: 'Hand_L', prop: 'p1', mode: 'holds', way: 'under' }]);
+    expect(((await call(scene, 'list_props', {})).character as { attached: unknown }).attached).toEqual([{ part: 'Hand_L', prop: 'p1', mode: 'holds', way: 'under' }]);
+    await expect(call(scene, 'grip_way', { part: 'Hand_L', way: 'sideways' })).rejects.toThrow(/"over" or "under"/);
+    await expect(call(scene, 'grip_way', { part: 'Hand_R', way: 'over' })).rejects.toThrow(/Nothing is attached/);
+    // 不是握着杆的（脚）：工坊说原因
+    await call(scene, 'grab_prop', { id: 'p1', part: 'Foot_L' });
+    await expect(call(scene, 'grip_way', { part: 'Foot_L', way: 'under' })).rejects.toThrow(/没有握着杆/);
   });
 });

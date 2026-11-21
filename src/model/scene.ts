@@ -5,7 +5,7 @@
  * 同一时间只改一个（当前角色）：界面、撤销、摆姿势照旧只对着它；别的角色在屏幕上是定住的网格。
  * 这里只管数据：增删、复制、改名、切换、摆放，存档和读档。都是不可变的值，每次修改返回新的。
  */
-import { type PropLink, normalizeLinks } from './links';
+import { type PropLink, normalizeLinks, usableLink, withCarry } from './links';
 import { type SceneProp, normalizeProps } from './props';
 import type { BodySpec } from './spec';
 
@@ -225,6 +225,7 @@ export function normalizeScene(data: unknown, readSpec: (raw: unknown) => { spec
   const used = new Set<string>();
   const figures: SceneFigure[] = [];
   const props = normalizeProps((data as { props?: unknown }).props);
+  const carried = new Set<string>();
   let n = 0;
   for (const item of raw) {
     if (typeof item !== 'object' || item === null) continue;
@@ -236,7 +237,15 @@ export function normalizeScene(data: unknown, readSpec: (raw: unknown) => { spec
     }
     used.add(id);
     const { spec, text } = readSpec(f.spec);
-    const links = normalizeLinks(f.links, props);
+    // 一件道具只能跟着一个角色的一个部位：前面的角色已经带着的，这里的只算抓着
+    const links = normalizeLinks(f.links, props)
+      .map((l) => {
+        if (!l.carry) return l;
+        if (carried.has(l.prop)) return withCarry(l, false);
+        carried.add(l.prop);
+        return l;
+      })
+      .filter(usableLink);
     figures.push({ id, name: cleanName(f.name), spec, text, place: clampPlace(f.place as Partial<Place>), ...(links.length ? { links } : {}) });
   }
   if (!figures.length) return null;

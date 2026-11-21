@@ -4,7 +4,7 @@
 
 ## 现状（2026-11-19）
 
-- 分支 `feature/props`、worktree `F:\Downloads\多tool-props`（从 a470143 开的）。都还没提交。
+- 分支 `feature/props`、worktree `F:\Downloads\多tool-props`（从 a470143 开的）。七期提交在 b06e256；后面的抓住道具（docs/grab-plan.md）、自己导入素材（docs/import-plan.md）也提交在这个分支上。没推、没合进主线、没发版。
 - **第 0、1 期做完**（2026-11-19），等用户看。做成什么样见文末「做成了：第 1 期」。
 - 第 2–7 期没动。
 - 单独的预览在 5185 端口（会话目录 `.claude/launch.json` 的 `props-check`）。
@@ -193,7 +193,7 @@
 
 - 布景：房间、背景、灯光。
 - 手里拿的东西（留了接口）。
-- 自己导入 GLB/OBJ（2026-11-20 用户要了，排在 `docs/grab-plan.md` 的第 4 期）。
+- 自己导入 GLB/OBJ（2026-11-20 用户要了，单独的功能，方案在 `docs/import-plan.md`）。
 - 多胯、人马、前后排、围成一圈、连体的一键动作。
 - 道具之间互相吸附、堆叠。
 

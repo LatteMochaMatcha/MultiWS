@@ -237,9 +237,9 @@ describe('跟随：钉着的手脚', () => {
   it('两只手各钉各的；骨架上没有的那条不管', () => {
     const right = solver.limbs.findIndex((l) => l.name === 'Hand_R');
     const targets = [
-      { part: 'Hand_L', target: [end()[0], end()[1] + 0.1, end()[2] + 0.1] as V3 },
-      { part: 'Hand_R', target: [end(rest, right)[0], end(rest, right)[1] + 0.2, end(rest, right)[2]] as V3 },
-      { part: 'Hand_L.009', target: [0, 0, 0] as V3 },
+      { part: 'Hand_L', prop: 'p1', target: [end()[0], end()[1] + 0.1, end()[2] + 0.1] as V3 },
+      { part: 'Hand_R', prop: 'p1', target: [end(rest, right)[0], end(rest, right)[1] + 0.2, end(rest, right)[2]] as V3 },
+      { part: 'Hand_L.009', prop: 'p1', target: [0, 0, 0] as V3 },
     ];
     const next = holdState(solver, rest, targets);
     expect(dist(end(next), targets[0].target)).toBeLessThan(1e-6);

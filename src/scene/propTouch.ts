@@ -9,7 +9,7 @@
  *   数「穿过几个面」会数错，绕数不会；有缺口的网格得到的是小数，过半就算在里面。
  * 都是纯函数。坐标是调用的人定的：main.ts 里把道具换到当前角色的坐标（它站在原点）再来问。
  */
-import { type V3, add, cross, dot, len, madd, mul, sub } from '../geometry/vec';
+import { type V3, add, cross, dot, len, madd, mul, norm, sub } from '../geometry/vec';
 import { propWorldPoints, touchShapeOf } from '../geometry/propMesh';
 import type { SceneProp } from '../model/props';
 import type { Place } from '../model/scene';
@@ -101,6 +101,248 @@ export function closestOnSolid(solid: PropSolid, p: V3): { point: V3; dist: numb
     }
   }
   return { point: best, dist: bestD };
+}
+
+/** 差得比这个还少（米）算一样近：点在棱上时两边的面都算数 */
+const TIE = 1e-3;
+
+/**
+ * 表面上离 p 最近的那一点、那里的面朝外的方向。几个面差不多一样近时（p 在棱的外面）取朝 prefer 的那一面；
+ * 不给 prefer 就取朝着 p 的。没有面返回 null
+ */
+export function surfaceAt(solid: PropSolid, p: V3, prefer?: V3): { point: V3; normal: V3; dist: number } | null {
+  const { points, indices } = solid;
+  const found: { point: V3; normal: V3; dist: number }[] = [];
+  let least = Infinity;
+  for (let i = 0; i < indices.length; i += 3) {
+    const a = at(points, indices[i]);
+    const b = at(points, indices[i + 1]);
+    const c = at(points, indices[i + 2]);
+    const q = closestOnTriangle(p, a, b, c);
+    const d = len(sub(p, q));
+    if (d > least + TIE) continue;
+    const n = cross(sub(b, a), sub(c, a));
+    const area = len(n);
+    // 面积是零的面没有朝向
+    if (area < 1e-12) continue;
+    least = Math.min(least, d);
+    found.push({ point: q, normal: mul(n, 1 / area), dist: d });
+  }
+  let best: { point: V3; normal: V3; dist: number } | null = null;
+  let score = -Infinity;
+  for (const one of found) {
+    if (one.dist > least + TIE) continue;
+    const toward = prefer ?? sub(p, one.point);
+    const s = dot(one.normal, toward);
+    if (s > score) {
+      score = s;
+      best = one;
+    }
+  }
+  return best;
+}
+
+/** 这件道具离 centre 不到 radius 的那一部分面（量手指碰没碰着用：只在手边的面里找，快） */
+export function nearPart(solid: PropSolid, centre: V3, radius: number): PropSolid {
+  const { points, indices } = solid;
+  const keep: number[] = [];
+  for (let i = 0; i < indices.length; i += 3) {
+    let near = true;
+    for (let k = 0; k < 3 && near; k++) {
+      const a = points[indices[i] * 3 + k];
+      const b = points[indices[i + 1] * 3 + k];
+      const c = points[indices[i + 2] * 3 + k];
+      if (Math.min(a, b, c) > centre[k] + radius || Math.max(a, b, c) < centre[k] - radius) near = false;
+    }
+    if (near) keep.push(indices[i], indices[i + 1], indices[i + 2]);
+  }
+  return { id: solid.id, points, indices: Uint32Array.from(keep), min: solid.min, max: solid.max };
+}
+
+/** p 离这件道具的表面是不是不到 r：只问有没有，找到一个面就停（量手指碰没碰着用，问得多） */
+export function touchesSolid(solid: PropSolid, p: V3, r: number): boolean {
+  const { points, indices } = solid;
+  for (let i = 0; i < indices.length; i += 3) {
+    const ia = indices[i] * 3;
+    const ib = indices[i + 1] * 3;
+    const ic = indices[i + 2] * 3;
+    // 先看这个面的盒子够不够近
+    let far = false;
+    for (let k = 0; k < 3 && !far; k++) {
+      const a = points[ia + k];
+      const b = points[ib + k];
+      const c = points[ic + k];
+      if (Math.min(a, b, c) > p[k] + r || Math.max(a, b, c) < p[k] - r) far = true;
+    }
+    if (far) continue;
+    const q = closestOnTriangle(p, [points[ia], points[ia + 1], points[ia + 2]], [points[ib], points[ib + 1], points[ib + 2]], [points[ic], points[ic + 1], points[ic + 2]]);
+    if ((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2 < r * r) return true;
+  }
+  return false;
+}
+
+/** 两个面的朝向差得比这个少（点积比这个大）不算棱；背对背的两面（薄板的正反面）也不算 */
+const FOLD_MIN = Math.cos((50 * Math.PI) / 180);
+const FOLD_MAX = -0.5;
+
+/**
+ * p 在朝 normal 的一个面上（或者在它的延长面上、刚出了边）：旁边不到 reach 远有没有一条往外凸的棱
+ * （桌沿、盒子边、椅背顶）。有就返回棱上离 p 最近的那一点，和「在这个面里朝棱外面」的方向 over（单位长，垂直于 normal）。
+ * 往里凹的折角（地面碰到墙根）不算
+ */
+export function edgeAt(solid: PropSolid, p: V3, normal: V3, reach: number): { point: V3; over: V3 } | null {
+  const part = nearPart(solid, p, reach);
+  const { points, indices } = part;
+  let best: { point: V3; over: V3 } | null = null;
+  let least = reach;
+  let onFace: boolean | null = null;
+  for (let i = 0; i < indices.length; i += 3) {
+    const a = at(points, indices[i]);
+    const b = at(points, indices[i + 1]);
+    const c = at(points, indices[i + 2]);
+    const n = cross(sub(b, a), sub(c, a));
+    const area = len(n);
+    if (area < 1e-12) continue;
+    const side = mul(n, 1 / area);
+    const fold = dot(side, normal);
+    if (fold > FOLD_MIN || fold < FOLD_MAX) continue;
+    const q = closestOnTriangle(p, a, b, c);
+    const d = len(sub(p, q));
+    if (d > least) continue;
+    // 往里凹的：p 在这个面上，又在旁边那个面的正面
+    if (dot(sub(p, q), side) > 1e-3) {
+      onFace ??= closestOnSolid(part, p).dist < 1e-3;
+      if (onFace) continue;
+    }
+    const over = sub(side, mul(normal, fold));
+    if (len(over) < 1e-6) continue;
+    least = d;
+    best = { point: q, over: norm(over) };
+  }
+  return best;
+}
+
+/**
+ * 道具在 centre 附近（radius 以内）的那一截是不是细长的（椅子腿、扶手、栏杆）：是就返回它的中线两头（只到 radius 那么远）和半径。
+ * 做法：把附近的面切碎成小块（每块不超过 step），小块的中心照面积算主方向；小块离中线都不到 thick
+ * （旁边连着的一点别的东西先去掉）、沿中线又够长、四周是空的，才算。平的面、粗的东西、短的东西、大箱子的棱返回 null
+ */
+export function thinPart(solid: PropSolid, centre: V3, radius: number, thick: number, step: number): { a: V3; b: V3; r: number } | null {
+  const { points, indices } = nearPart(solid, centre, radius);
+  if (!indices.length) return null;
+  const bits: number[] = [];
+  const r2 = radius * radius;
+  const visit = (a: V3, b: V3, c: V3, depth: number) => {
+    for (let k = 0; k < 3; k++) {
+      if (Math.min(a[k], b[k], c[k]) > centre[k] + radius || Math.max(a[k], b[k], c[k]) < centre[k] - radius) return;
+    }
+    const ab = len(sub(b, a));
+    const bc = len(sub(c, b));
+    const ca = len(sub(a, c));
+    const longest = Math.max(ab, bc, ca);
+    if (depth >= 24 || longest <= step) {
+      const m: V3 = [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3];
+      if ((m[0] - centre[0]) ** 2 + (m[1] - centre[1]) ** 2 + (m[2] - centre[2]) ** 2 > r2) return;
+      const w = len(cross(sub(b, a), sub(c, a))) / 2;
+      if (w > 0) bits.push(m[0], m[1], m[2], w);
+      return;
+    }
+    // 从最长的那条边的中点对半切（切出来的小块不会又细又长）
+    if (longest === ab) {
+      const m = mul(add(a, b), 0.5);
+      visit(a, m, c, depth + 1);
+      visit(m, b, c, depth + 1);
+    } else if (longest === bc) {
+      const m = mul(add(b, c), 0.5);
+      visit(a, b, m, depth + 1);
+      visit(a, m, c, depth + 1);
+    } else {
+      const m = mul(add(c, a), 0.5);
+      visit(a, b, m, depth + 1);
+      visit(m, b, c, depth + 1);
+    }
+  };
+  for (let i = 0; i < indices.length; i += 3) visit(at(points, indices[i]), at(points, indices[i + 1]), at(points, indices[i + 2]), 0);
+  // 照面积算中心和最长的那个方向（协方差反复乘几十遍），再量每一小块离中线多远
+  const fit = (use: readonly number[]) => {
+    let total = 0;
+    const mean: V3 = [0, 0, 0];
+    for (let i = 0; i < use.length; i += 4) {
+      total += use[i + 3];
+      for (let k = 0; k < 3; k++) mean[k] += use[i + k] * use[i + 3];
+    }
+    if (use.length < 32 || total <= 0) return null;
+    for (let k = 0; k < 3; k++) mean[k] /= total;
+    const cov = [0, 0, 0, 0, 0, 0];
+    for (let i = 0; i < use.length; i += 4) {
+      const x = use[i] - mean[0];
+      const y = use[i + 1] - mean[1];
+      const z = use[i + 2] - mean[2];
+      const w = use[i + 3];
+      cov[0] += w * x * x;
+      cov[1] += w * x * y;
+      cov[2] += w * x * z;
+      cov[3] += w * y * y;
+      cov[4] += w * y * z;
+      cov[5] += w * z * z;
+    }
+    let u: V3 = cov[0] >= cov[3] && cov[0] >= cov[5] ? [1, 0, 0] : cov[3] >= cov[5] ? [0, 1, 0] : [0, 0, 1];
+    for (let i = 0; i < 40; i++) {
+      const v: V3 = [cov[0] * u[0] + cov[1] * u[1] + cov[2] * u[2], cov[1] * u[0] + cov[3] * u[1] + cov[4] * u[2], cov[2] * u[0] + cov[4] * u[1] + cov[5] * u[2]];
+      const l = len(v);
+      if (l < 1e-18) return null;
+      u = mul(v, 1 / l);
+    }
+    const along: number[] = [];
+    const off: number[] = [];
+    for (let i = 0; i < use.length; i += 4) {
+      const rel: V3 = [use[i] - mean[0], use[i + 1] - mean[1], use[i + 2] - mean[2]];
+      const s = dot(rel, u);
+      along.push(s);
+      off.push(len(sub(rel, mul(u, s))));
+    }
+    return { total, mean, u, along, off };
+  };
+  let use: number[] = bits;
+  let got = fit(use);
+  if (!got) return null;
+  const whole = got.total;
+  // 旁边连着一点别的东西（椅子腿上的横撑、扶手连着的立柱）会把中线带偏：分三遍去掉离中线远的，一遍比一遍严，每遍重新算中线；
+  // 去掉的超过三成、最后还有离得远的，就不算细长
+  for (const loose of [1.6, 1.25, 1]) {
+    if (!got.off.some((d) => d > thick * loose)) continue;
+    const kept: number[] = [];
+    got.off.forEach((d, i) => {
+      if (d <= thick * loose) kept.push(use[i * 4], use[i * 4 + 1], use[i * 4 + 2], use[i * 4 + 3]);
+    });
+    use = kept;
+    got = fit(use);
+    if (!got || got.total < whole * 0.7) return null;
+  }
+  if (got.off.some((d) => d > thick * 1.05)) return null;
+  let lo = Infinity;
+  let hi = -Infinity;
+  let far = 0;
+  let sum = 0;
+  got.along.forEach((s, i) => {
+    lo = Math.min(lo, s);
+    hi = Math.max(hi, s);
+    far = Math.max(far, got!.off[i]);
+    sum += got!.off[i] * use[i * 4 + 3];
+  });
+  if (hi - lo < radius * 0.9 || hi - lo < far * 3) return null;
+  // 四周得是空的才握得住：沿中线取三处，各往四个方向走到比它粗一点的地方，都出了道具才算（至少两处）。
+  // 大箱子的一条棱、贴在板子上的线条，往里走还在道具里面，不算
+  const { mean, u } = got;
+  const e1 = norm(Math.abs(u[1]) < 0.9 ? cross(u, [0, 1, 0]) : cross(u, [1, 0, 0]));
+  const e2 = cross(u, e1);
+  let clear = 0;
+  for (const s of [0.25, 0.5, 0.75]) {
+    const on = madd(mean, u, lo + (hi - lo) * s);
+    if ([e1, mul(e1, -1), e2, mul(e2, -1)].every((dir) => !insideSolid(solid, madd(on, dir, far + 0.01)))) clear++;
+  }
+  if (clear < 2) return null;
+  return { a: madd(mean, u, lo), b: madd(mean, u, hi), r: sum / got.total };
 }
 
 /** 点在不在道具里面（绕数过半） */

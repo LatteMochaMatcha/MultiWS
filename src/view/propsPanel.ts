@@ -27,11 +27,16 @@ import {
 } from '../model/props';
 import { type Place, absolutePlace, relativePlace } from '../model/scene';
 import type { Vec3 } from '../model/spec';
-import { PROP_ASSETS, PROP_ASSET_GROUPS, type PropAssetGroup, REAL_ASSETS, realAsset } from '../props/catalog';
+import { PROP_ASSETS, PROP_ASSET_GROUPS, type PropAssetGroup, REAL_ASSETS, isUserAssetId, realAsset, skinnedAsset, userAsset, userAssets } from '../props/catalog';
 import { loadPropAssets, propAssetsReady, realAssetFile } from '../props/library';
 import { loadKeptRealAssets, loadRealAsset, realState, watchRealAssets } from '../props/realLoad';
+import { IMPORT_BATCH, type ImportEntry, bundleFiles, bundleModels, importStarts, importWanted, isZip, unzipEntries } from '../props/importBundle';
+import type { ImportFiles } from '../props/importMesh';
+import { IMPORT_ACCEPT } from '../props/importShape';
+import { loadUserAsset, loadUserAssets, loadUserIndex, regroupUserAsset, removeUserAsset, watchUserAssets } from '../props/userStore';
 import { GIZMO_MODES, type GizmoMode } from './gizmo';
 import { PropGizmo } from './propGizmo';
+import { importPropFile } from './propImport';
 import { PROP_GROUP_LABEL, PROP_LABEL, propAssetLabel, propKindLabel, propLabel } from './propNames';
 import { renderPropThumbs } from './propThumbs';
 import { PropsModel } from './propsModel';
@@ -56,7 +61,9 @@ export interface PropsHost {
   /** 道具变了。step：记了新的一步撤销（不是并进上一步，也不是撤销、重做带来的） */
   edited(step: boolean): void;
   status(message: string, warn?: boolean): void;
-  /** 连着这件道具的：谁的哪里（整个人跟着它的、手脚钉在它上面的） */
+  /** 问一句「要不要」：ok 是确定那个按钮上的字 */
+  confirm(message: string, ok: string): Promise<boolean>;
+  /** 连着这件道具的：谁的哪里（整个人跟着它的、手抓着它的、脚踩着它的） */
   links(prop: string): { figure: string; part: string; label: string }[];
   /** 解开一个连接 */
   unlink(figure: string, part: string): void;
@@ -64,6 +71,10 @@ export interface PropsHost {
   rideLabel(prop: string): string | null;
   /** 让当前角色整个人跟着这件道具 */
   ride(prop: string): void;
+  /** 当前角色叫什么（「让它抱着这件道具」的按钮上写）；它已经抱着这件了返回 null */
+  hugLabel(prop: string): string | null;
+  /** 让这件道具跟着当前角色的胸口走（抱着） */
+  hug(prop: string): void;
   /** 当前角色叫什么（一键动作那一行开头写「让「角色 1」」） */
   actor(): string;
   /** 当前角色能对这件道具做的一键动作：名字、说明；block 是现在做不了的原因（按钮变灰），能做是 null */
@@ -85,10 +96,10 @@ const PROP_TIP: Record<PropKind, string> = {
   ball: t('一个球：压扁、拉长都行'),
   wall: t('一面墙板：能靠、能撑，放平了就是地台、床板'),
 };
-/** 道具栏里「现成的家具」分的几组：低模的四组，清单里有写实款时再加一组 */
-type TileGroup = PropAssetGroup | 'real';
-const TILE_GROUPS: readonly TileGroup[] = REAL_ASSETS.length ? [...PROP_ASSET_GROUPS, 'real'] : PROP_ASSET_GROUPS;
-const TILE_GROUP_LABEL: Record<TileGroup, string> = { ...PROP_GROUP_LABEL, real: t('写实款') };
+/** 道具栏里「现成的家具」分的几组：低模的四组，清单里有写实款时再加一组，最后是用户自己导入的 */
+type TileGroup = PropAssetGroup | 'real' | 'mine';
+const TILE_GROUPS: readonly TileGroup[] = [...PROP_ASSET_GROUPS, ...(REAL_ASSETS.length ? (['real'] as const) : []), 'mine'];
+const TILE_GROUP_LABEL: Record<TileGroup, string> = { ...PROP_GROUP_LABEL, real: t('写实款'), mine: t('我的@@道具') };
 /** 文件多大，写给人看 */
 const megabytes = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
 const GIZMO_LABEL: Record<GizmoMode, string> = { translate: t('移动'), rotate: t('旋转'), scale: t('缩放') };
@@ -137,7 +148,7 @@ export class PropsPanel {
     const prop = this.selected;
     if (prop?.kind === 'pole') this.edit(turnPole(prop));
   });
-  /** 「连着它的」：谁跟着这件道具、谁的手脚钉在上面 */
+  /** 「连着它的」：谁跟着这件道具、谁的手抓着它、脚踩着它 */
   private readonly linkBox = el('div', 'field prop-links');
   /** 一键动作：让当前角色坐上去、躺上去、撑着、扶着、靠着 */
   private readonly actBox = el('div', 'field prop-acts');
@@ -150,8 +161,10 @@ export class PropsPanel {
   /** 素材的网格取到了、小图画过了、屏幕上顶着的方块换掉了 */
   private assetsShown = false;
   private readonly syncGroup: (value: TileGroup, enabled: boolean) => void;
-  /** 场景里的写实款：这台设备上存没存过，已经看过的那几件（不用每次都去翻） */
+  /** 场景里的写实款、导入的素材：这台设备上存没存过，已经看过的那几件（不用每次都去翻） */
   private readonly realSeen = new Set<string>();
+  /** 「导入…」用的选文件的框（不显示，点按钮时替用户点它） */
+  private readonly filePick = el('input');
 
   constructor(private readonly host: PropsHost) {
     this.history = new History<readonly SceneProp[]>(host.read(), { equals: sameProps });
@@ -280,6 +293,18 @@ export class PropsPanel {
       ),
     );
     host.panel.append(addField, assetField, this.list, this.body, note);
+    this.filePick.type = 'file';
+    this.filePick.accept = IMPORT_ACCEPT;
+    // 能一次选好几个：模型和它旁边的 .bin、.mtl、贴图
+    this.filePick.multiple = true;
+    this.filePick.hidden = true;
+    this.filePick.addEventListener('change', () => {
+      const files = [...(this.filePick.files ?? [])];
+      // 清空：同一个文件再选一次也要有反应
+      this.filePick.value = '';
+      if (files.length) void this.importFiles(files.map((file) => ({ path: file.name, file })));
+    });
+    host.panel.append(this.filePick);
     this.syncMode(this.mode, true);
     this.syncGroup(this.group, true);
     this.renderTiles();
@@ -295,6 +320,14 @@ export class PropsPanel {
       this.renderReal(prop);
       this.renderActions(prop);
     });
+    // 「我的」变了（从本机读回来了、导入了、删了）：格子、屏幕上顶着的方块、名字跟着换
+    watchUserAssets(() => {
+      if (this.group === 'mine') this.renderTiles();
+      this.show(true);
+      this.renderList();
+    });
+    // 本机存着的清单读回来（读到了上面那个会叫一声）；场景里用到的那几件由 refresh 去读文件
+    void loadUserIndex();
   }
 
   /* ---------------- 给 main.ts 用的 ---------------- */
@@ -328,6 +361,7 @@ export class PropsPanel {
     this.show(true);
     this.renderList();
     void this.wakeReal();
+    void this.wakeMine();
   }
 
   /** 场景里用到的写实款：这台设备上存过的读进来（不联网）；没存过的先用方块顶着，说一声 */
@@ -341,6 +375,22 @@ export class PropsPanel {
     if (missing.length) this.host.status(t('场景里有 {n} 件写实款这台设备上还没下载，先用方块顶着：选中它，点「下载」。', { n: missing.length }), true);
   }
 
+  /** 场景里用到的导入的素材：这台设备上有的读进来；没有的先用方块顶着，说是哪几件 */
+  private async wakeMine() {
+    const ids = this.host.read().flatMap((p) => (p.kind === 'asset' && isUserAssetId(p.asset) && !realAssetFile(p.asset) && !this.realSeen.has(p.asset) ? [p.asset] : []));
+    if (!ids.length) return;
+    for (const id of ids) this.realSeen.add(id);
+    const missing = await loadUserAssets(ids);
+    this.show(true);
+    this.renderList();
+    if (!missing.length) return;
+    const names = [...new Set(this.host.read().flatMap((p) => (p.asset && missing.includes(p.asset) ? [propKindLabel(p)] : [])))];
+    this.host.status(
+      t('场景里有 {n} 件导入的素材这台设备上没有（{names}），先用方块顶着：在「现成的家具 → 我的」里重新导入同一个文件就对上了。', { n: missing.length, names: names.join(t('、')) }),
+      true,
+    );
+  }
+
   /** 当前角色的身体变了（加了腿、没了手臂）：一键动作哪些能点跟着变 */
   syncActions() {
     const prop = this.selected;
@@ -351,6 +401,20 @@ export class PropsPanel {
   follow() {
     this.view.setOrigin(this.host.here());
     this.gizmo?.sync(this.selected ?? null);
+  }
+
+  /** 带着的道具跟着手挪了（拖着手的每一下）：屏幕上的道具、操纵杆、选中那一件的几格数字跟上，别的不动 */
+  moved() {
+    this.show(false);
+  }
+
+  /**
+   * 清单被换成了 state，但不算新的一步：是别处那一步的后果（角色的手带着道具走了；道具被挪到手够不着的地方、拉回了手上）。
+   * 撤销历史里现在这一步换成它
+   */
+  amend(state: readonly SceneProp[]) {
+    this.history.amend(state);
+    this.show(false);
   }
 
   /** 道具这一条撤销历史现在这一步的记号（AI 助手核对「这一轮之后有没有人改过」用） */
@@ -370,6 +434,8 @@ export class PropsPanel {
       if (realAsset(kind)) {
         // 写实款：这台设备上没有就先下（联网没取到会抛出原因）
         if (!realAssetFile(kind)) await loadRealAsset(kind);
+      } else if (userAsset(kind)) {
+        if (!(await loadUserAsset(kind))) throw new Error(t('「{name}」的文件这台设备上没有了，要重新导入', { name: userAsset(kind)?.name ?? kind }));
       } else if (PROP_ASSETS.some((a) => a.id === kind)) await this.loadAssets();
       else throw new Error(t('没有「{kind}」这种道具', { kind }));
       make = (at) => makeAssetProp(this.host.read(), kind, at);
@@ -410,8 +476,9 @@ export class PropsPanel {
     this.history.seal();
     this.commit(items.reduce((list, prop) => addProp(list, prop), this.host.read()));
     this.history.seal();
-    if (items.some((p) => p.kind === 'asset' && !realAsset(p.asset))) void this.loadAssets().catch(() => undefined);
+    if (items.some((p) => p.kind === 'asset' && !skinnedAsset(p.asset))) void this.loadAssets().catch(() => undefined);
     void this.wakeReal();
+    void this.wakeMine();
   }
 
   /** 整个场景换了一份（打开场景文件）：撤销历史从头开始 */
@@ -554,6 +621,8 @@ export class PropsPanel {
       // 写实款：这台设备上没有就先下；正在下的时候再点同一件不重复放
       if (realState(id).state === 'loading') return this.host.status(t('「{name}」还在下载，下完会自己放进场景。', { name: propAssetLabel(id) || id }));
       if (!(await this.fetchReal(id))) return;
+    } else if (isUserAssetId(id)) {
+      if (!(await loadUserAsset(id))) return this.host.status(t('「{name}」的文件这台设备上没有了，要重新导入', { name: userAsset(id)?.name ?? id }), true);
     } else {
       try {
         await this.loadAssets();
@@ -596,7 +665,7 @@ export class PropsPanel {
     this.show(true);
     if (!this.inView(this.view.boxOf(prop.id))) this.host.refit();
     this.host.status(
-      realAsset(prop.asset)
+      skinnedAsset(prop.asset)
         ? t('放了一件{kind}。在 3D 视图里拖箭头挪它，面板里能改尺寸；勾上「刷成灰色」就和别的道具一样能挑颜色。', { kind: propKindLabel(prop) })
         : t('放了一个{kind}。在 3D 视图里拖箭头挪它，面板里能改尺寸、颜色。', { kind: propKindLabel(prop) }),
     );
@@ -616,6 +685,7 @@ export class PropsPanel {
   /** 「现成的家具」那几格：只摆现在这一组的 */
   private renderTiles() {
     if (this.group === 'real') return this.renderRealTiles();
+    if (this.group === 'mine') return this.renderMineTiles();
     const tiles = PROP_ASSETS.filter((a) => a.group === this.group).map((asset) => {
       const label = propAssetLabel(asset.id) || asset.id;
       const size = asset.size.map((v) => Math.round(v * 100)).join(' × ');
@@ -656,13 +726,127 @@ export class PropsPanel {
     this.tiles.replaceChildren(...tiles, note);
   }
 
-  /** 选中的是写实款时的那一节：刷成灰色的开关；这台设备上还没有它的文件时说一声、给个下载的按钮 */
+  /** 「我的」那几格：第一格是「导入…」，后面是导入过的，每件右上角能删 */
+  private renderMineTiles() {
+    const add = button('', t('把自己的模型文件（GLB、glTF、OBJ、STL、FBX，或者装着它们的 zip 包）导进来当道具用。模型旁边有 .bin、.mtl、贴图的，一起选上；电脑上也能把文件、整个文件夹直接拖进窗口'), () => this.filePick.click(), 'prop-tile prop-tile-add');
+    add.append(el('b', '', '+'), el('span', '', t('导入…')));
+    const tiles = userAssets().map((asset) => {
+      const size = asset.size.map((v) => Math.round(v * 1000) / 10).join(' × ');
+      const wrap = el('div', 'prop-tile-wrap');
+      const tile = button('', t('放一件{name}（{size} 厘米）', { name: asset.name, size }), () => void this.addAsset(asset.id), 'prop-tile');
+      if (asset.thumb) {
+        const img = el('img');
+        img.src = asset.thumb;
+        img.alt = '';
+        tile.append(img);
+      }
+      tile.append(el('span', '', asset.name));
+      const del = button('✕', t('从「我的」里删掉「{name}」', { name: asset.name }), () => void this.removeMine(asset.id), 'icon prop-tile-del');
+      del.setAttribute('aria-label', del.title);
+      wrap.append(tile, del);
+      return wrap;
+    });
+    const note = el('p', 'note', t('自己的模型文件当道具用：认 GLB、glTF、OBJ、STL、FBX，和装着它们的 zip 包。模型旁边有 .bin、.mtl、贴图的要一起选上（或者把整个文件夹拖进来）。文件存在这台设备上，不上传；存档里只记是哪一件，换一台设备打开要重新导入同一个文件。'));
+    this.tiles.replaceChildren(add, ...tiles, note);
+  }
+
+  /** 这个文件是不是能导入的东西（模型，或者 zip 包；拖文件进来时先问一句） */
+  accepts(name: string): boolean {
+    return importStarts(name);
+  }
+
+  /**
+   * 导入一组文件（一次选的、拖进来的）：里面的 zip 解开，找出模型，一个个出导入框；
+   * 别的文件（.bin、.mtl、贴图）是给模型配的。path 是它在这一组里的路径（拖文件夹进来时带着文件夹）
+   */
+  async importFiles(picked: readonly { path: string; file: File }[]) {
+    let entries: ImportEntry[] = [];
+    let models: ImportEntry[] = [];
+    try {
+      for (const { path, file } of picked) {
+        // 用不上的不读进来
+        if (!importWanted(path)) continue;
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (isZip(path)) entries = entries.concat(await unzipEntries(bytes, path.replace(/\.zip$/i, '')));
+        else entries.push({ path, bytes });
+      }
+      models = bundleModels(entries);
+      if (!models.length)
+        throw new Error(
+          picked.some((p) => isZip(p.path))
+            ? t('这个 zip 包里没找到模型文件：认 GLB、glTF、OBJ、STL、FBX')
+            : t('没找到能导入的模型文件：认 GLB、glTF、OBJ、STL、FBX，和装着它们的 zip 包'),
+        );
+      if (models.length > IMPORT_BATCH) throw new Error(t('这一次有 {n} 个模型文件，太多了：一次最多导 {max} 个，挑着来', { n: models.length, max: IMPORT_BATCH }));
+    } catch (error) {
+      this.host.status(error instanceof Error ? error.message : String(error), true);
+      return;
+    }
+    for (const main of models) await this.importOne(main, entries.length > 1 ? bundleFiles(entries, main) : null);
+  }
+
+  /** 导入一个模型：出导入框，导进来以后放一件到场景里 */
+  private async importOne(main: ImportEntry, files: ImportFiles | null) {
+    let outcome: Awaited<ReturnType<typeof importPropFile>>;
+    try {
+      // 这个文件以前导入过、文件也还在：不再问一遍，直接放
+      const waiting = (id: string) => this.host.read().filter((p) => p.asset === id).length;
+      outcome = await importPropFile(main, files, { waiting, known: async (id) => ((await loadUserAsset(id)) ? (userAsset(id) ?? null) : null), confirm: (message, ok) => this.host.confirm(message, ok) });
+    } catch (error) {
+      this.host.status(error instanceof Error ? error.message : String(error), true);
+      return;
+    }
+    if (!outcome) return;
+    const { asset, kept, fresh } = outcome;
+    this.view.forget(asset.id);
+    this.realSeen.delete(asset.id);
+    this.group = 'mine';
+    this.syncGroup('mine', true);
+    this.renderTiles();
+    // 场景里已经有在等它的（存档里用了它）：不另放一件，方块换成真的样子就行
+    const waited = this.host.read().some((p) => p.asset === asset.id);
+    if (waited && fresh) this.show(true);
+    else await this.addAsset(asset.id);
+    this.host.status(
+      !fresh
+        ? t('这个文件已经在「我的」里了（「{name}」），直接放了一件。想换大小、朝向：先在「我的」里删掉它，再导入一次。', { name: asset.name })
+        : !kept
+          ? t('「{name}」导入了，但这台设备存不下（或者浏览器不让存）：这一次能用，关掉工坊以后要重新导入。', { name: asset.name })
+          : waited
+            ? t('「{name}」导入了：场景里等着它的道具换成了真的样子。', { name: asset.name })
+            : t('「{name}」导入了，存在这台设备上，以后在「我的」里点它就能再放。', { name: asset.name }),
+      fresh && !kept,
+    );
+  }
+
+  /** 从「我的」里删一件：这个场景里正用着的不让删 */
+  private async removeMine(id: string) {
+    const asset = userAsset(id);
+    if (!asset) return;
+    const using = this.host.read().filter((p) => p.asset === id);
+    if (using.length)
+      return this.host.status(t('「{name}」这个场景里正用着（{props}），先把它们删掉再来删。', { name: asset.name, props: using.map((p) => propLabel(p)).join(t('、')) }), true);
+    const sure = await this.host.confirm(
+      t('从这台设备上删掉「{name}」？别的存档里用了它的，打开时会用方块顶着，要重新导入才回来。', { name: asset.name }),
+      t('删掉'),
+    );
+    if (!sure) return;
+    await removeUserAsset(id);
+    this.view.forget(id);
+    this.host.status(t('「{name}」从这台设备上删掉了。', { name: asset.name }));
+  }
+
+  /**
+   * 选中的是写实款、导入的素材时的那一节：刷成灰色的开关；这台设备上还没有它的文件时说一声，
+   * 写实款给个下载的按钮，导入的给个重新导入的按钮
+   */
   private renderReal(prop: SceneProp) {
     const entry = realAsset(prop.asset);
-    this.realBox.hidden = !entry;
+    const mine = prop.kind === 'asset' && isUserAssetId(prop.asset);
+    this.realBox.hidden = !entry && !mine;
     // 带着贴图时颜色用不上：刷成灰色以后才能挑
-    this.colorField.hidden = Boolean(entry) && !prop.gray;
-    if (!entry) return;
+    this.colorField.hidden = (Boolean(entry) || mine) && !prop.gray;
+    if (!entry && !mine) return;
     const check = el('label', 'check');
     check.title = t('不用它自己的贴图，和别的道具一样刷成一个颜色；导出的文件里也是');
     const box = el('input');
@@ -676,6 +860,35 @@ export class PropsPanel {
     });
     check.append(box, ` ${t('刷成灰色')}`);
     const nodes: HTMLElement[] = [check];
+    if (!entry) {
+      const asset = userAsset(prop.asset);
+      // 只有形状的（OBJ、STL）本来就是一个颜色：不用勾
+      if (asset?.plain && prop.gray) nodes.length = 0;
+      if (asset) {
+        const row = el('label', 'link-row');
+        row.title = t('选了「坐的」「躺的」「桌柜」，一键动作会照形状自己找坐面、床面、台面');
+        const pick = el('select');
+        for (const g of PROP_ASSET_GROUPS) {
+          const option = el('option', '', PROP_GROUP_LABEL[g]);
+          option.value = g;
+          pick.append(option);
+        }
+        pick.value = asset.group;
+        pick.addEventListener('change', () => void regroupUserAsset(asset.id, pick.value as PropAssetGroup));
+        row.append(el('span', '', t('分类')), pick);
+        nodes.push(row);
+      }
+      if (!realAssetFile(prop.asset)) {
+        const row = el('div', 'link-row');
+        row.append(
+          el('span', '', t('这台设备上没有这件的文件，先用方块顶着')),
+          button(t('重新导入…'), t('选当初导入的那个文件：编号对得上，方块就换成它'), () => this.filePick.click()),
+        );
+        nodes.push(row);
+      }
+      this.realBox.replaceChildren(el('span', '', t('导入的素材')), ...nodes);
+      return;
+    }
     if (!realAssetFile(entry.id)) {
       const state = realState(entry.id);
       const row = el('div', 'link-row');
@@ -796,11 +1009,17 @@ export class PropsPanel {
     });
     const who = this.host.rideLabel(prop.id);
     const ride = who
-      ? button(t('让「{name}」跟着它', { name: who }), t('坐着、躺着、站在这件道具上时用：挪它、转它，整个人跟着走。只让一只手、一只脚跟着：在「摆姿势」里点中那只手脚，再点「钉在…上」'), () =>
+      ? button(t('让「{name}」跟着它', { name: who }), t('坐着、躺着、站在这件道具上时用：挪它、转它，整个人跟着走。只让一只手、一只脚跟着：在「摆姿势」里点中那只手脚，再点「抓住」「踩住」'), () =>
           this.host.ride(prop.id),
         )
       : null;
-    this.linkBox.replaceChildren(el('span', '', t('连着它的')), ...rows, ...(ride ? [ride] : []));
+    const hugger = this.host.hugLabel(prop.id);
+    const hug = hugger
+      ? button(t('让「{name}」抱着它', { name: hugger }), t('抱在怀里、顶在身前的东西用：先把它摆到身前再点，之后它跟着胸口走——弯腰、转身、挪角色都带着。再把手拖到它上面抓住，手也跟着它'), () =>
+          this.host.hug(prop.id),
+        )
+      : null;
+    this.linkBox.replaceChildren(el('span', '', t('连着它的')), ...rows, ...(ride ? [ride] : []), ...(hug ? [hug] : []));
   }
 
   private renderList() {

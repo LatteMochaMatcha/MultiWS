@@ -109,7 +109,9 @@ describe('吊着', () => {
     const prop = bar(2.1);
     const got = act('hang', prop);
     expect(got.missed).toBe(0);
-    expect(got.links.map((l) => l.part)).toEqual([BODY_LINK]);
+    // 整个人跟着杆；两只手另外抓着它，带着握紧度
+    expect(got.links.map((l) => l.part)).toEqual([BODY_LINK, 'Hand_L', 'Hand_R']);
+    expect(got.links.slice(1).map((l) => l.grip)).toEqual([1, 1]);
     // 脸朝和杆垂直的方向（照原来的朝向挑近的那一个），吊在杆的正下面
     expect(Math.abs(got.place.yaw)).toBe(180);
     expect(boneAt(got, 'Hips')[2]).toBeCloseTo(0, 1);
@@ -192,7 +194,9 @@ describe('腿缠杆', () => {
   it('面朝杆、身体离地，两只手握在杆上，两条腿一高一低都贴着杆，整个人跟着杆', () => {
     const got = act('wrap', pole);
     expect(got.missed).toBe(0);
-    expect(got.links.map((l) => l.part)).toEqual([BODY_LINK]);
+    // 整个人跟着杆；两只手另外抓着它，带着握紧度
+    expect(got.links.map((l) => l.part)).toEqual([BODY_LINK, 'Hand_L', 'Hand_R']);
+    expect(got.links.slice(1).map((l) => l.grip)).toEqual([1, 1]);
     const solid = propSolid(pole);
     // 面朝杆：从角色站的地方到杆的方向就是它的朝向
     const yaw = (got.place.yaw * Math.PI) / 180;

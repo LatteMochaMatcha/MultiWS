@@ -65,8 +65,8 @@ export interface PropChange {
 
 export interface SceneApi {
   props(): PropInfo[];
-  /** 能放的种类：基本体和现成的家具（real：写实款，第一次用要下载） */
-  kinds(): { kind: string; name: string; size: [number, number, number]; real?: true }[];
+  /** 能放的种类：基本体和现成的家具（real：写实款，第一次用要下载；mine：用户自己导入的） */
+  kinds(): { kind: string; name: string; size: [number, number, number]; real?: true; mine?: true }[];
   /** 当前角色站在哪（左右、前后，米）、朝哪（度）、离地多高（米） */
   figure(): { name: string; x: number; z: number; yaw: number; y: number };
   /** 放一件；没给位置的放在当前角色旁边的空地上。放不了抛出原因 */
@@ -78,4 +78,19 @@ export interface SceneApi {
   actions(id: string): { key: string; label: string; block: string | null }[];
   /** 做一个一键动作，返回做成了的那句话；做不了抛出原因 */
   act(id: string, action: string): string;
+  /** 当前角色能抓东西的手、能踩东西的脚（part 是工具里用的名字） */
+  limbs(): { part: string; label: string }[];
+  /**
+   * 当前角色现在连着道具的地方。mode：holds 是这只手（脚）留在道具上、道具不动；carries 是道具跟着这一处（手、脚、胸口）走；
+   * rides 是整个人跟着道具（坐着、躺着、吊着，part 是 body）
+   */
+  attached(): { part: string; label: string; prop: string; mode: 'holds' | 'carries' | 'rides'; way?: 'over' | 'under' }[];
+  /** 一只手抓住（脚踩住）一件道具：够得着就伸过去抓；carry 是抓住以后道具跟着它走。返回那句话；做不了抛出原因 */
+  grab(part: string, id: string, carry: boolean): string;
+  /** 松开一个连接（手、脚、胸口，或者 body） */
+  release(part: string): string;
+  /** 一个连接换方向：on 是道具跟着这一处走，不然道具留在原地、这一处留在它上面 */
+  setCarry(part: string, on: boolean): string;
+  /** 握着杆的一只手换握法：over 是正手（拇指朝里、朝上），under 是反手。attached() 里握着杆的手带着 way */
+  gripWay(part: string, way: 'over' | 'under'): string;
 }

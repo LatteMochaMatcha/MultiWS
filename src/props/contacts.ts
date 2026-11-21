@@ -6,8 +6,12 @@
  * 所以道具拉宽、拉长了照样对得上。面有多高不标：用的时候从上往下照网格量（scene/follow.ts 的 topUnder）。
  * 基本体照种类自动认；现成的家具逐件标（照 tools 里量出来的顶面高度图标的：靠背都在后面，也就是 -Z 那一头）。
  * 手扶、背靠不用标：哪件道具都行，照网格找最近的面。
+ * 用户自己导入的素材没人标：照它的分类和形状自己找（autoContacts.ts），找不出来就什么都没有。
  */
 import type { SceneProp } from '../model/props';
+import { autoContacts } from './autoContacts';
+import { type PropAssetGroup, userAsset } from './catalog';
+import { propTouchShape } from './library';
 
 /** 一块长方形的地方：左右从哪到哪、前后从哪到哪（占宽、深的几成） */
 export interface ContactRect {
@@ -107,9 +111,24 @@ const ASSET_CONTACTS: Record<string, PropContacts> = {
 /** 多长的箱子才躺得下（米）：再短就只能坐 */
 const LIE_MIN = 1.2;
 
-/** 这件道具的接触面。基本体照种类和尺寸定；清单里没有的素材什么都没有 */
+/** 导入的素材找过的接触面：照网格记着（文件换了网格就是新的），分类改了重找 */
+const found = new WeakMap<object, { group: PropAssetGroup; contacts: PropContacts }>();
+
+/** 导入的素材的接触面：文件读进来了才找得出来 */
+function userContacts(id: string): PropContacts {
+  const entry = userAsset(id);
+  const shape = propTouchShape(id);
+  if (!entry || !shape) return {};
+  const had = found.get(shape);
+  if (had && had.group === entry.group) return had.contacts;
+  const contacts = autoContacts(shape, entry.size, entry.group);
+  found.set(shape, { group: entry.group, contacts });
+  return contacts;
+}
+
+/** 这件道具的接触面。基本体照种类和尺寸定；现成的家具照上面标的；导入的自己找；别的什么都没有 */
 export function propContacts(prop: Pick<SceneProp, 'kind' | 'asset' | 'size'>): PropContacts {
-  if (prop.kind === 'asset') return (prop.asset && ASSET_CONTACTS[prop.asset]) || {};
+  if (prop.kind === 'asset') return (prop.asset && (ASSET_CONTACTS[prop.asset] ?? userContacts(prop.asset))) || {};
   if (prop.kind === 'box') {
     const long = Math.max(prop.size[0], prop.size[2]);
     return {

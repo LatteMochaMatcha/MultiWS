@@ -7,6 +7,7 @@
  * - 手够不着的时候，锁骨、脊柱一节一节朝目标转一点，胯再跟过去一些，这样反复几轮；
  *   每一节能出多少力、最多转多少都有上限，所以是「身体跟过去」，不是把人折起来。
  * - 钉住的手脚（平时是脚）留在原地：胯挪动以后重新算那条腿；腿伸直了还够不着，胯就被拉回来。
+ *   抓着道具的手（Pin.firm）也一样：手臂伸直了，身体就被拉住。
  * 骨头的长度从头到尾不变：改的只有每根骨骼的旋转和胯的位置。
  *
  * 每次拖动都是从「按下去那一刻的姿势」算起的，和中间经过哪里无关：拖出去再拖回来，就回到原样。
@@ -25,6 +26,8 @@ export interface Pin {
   rot: Quat;
   /** 钉住的那一刻，这条肢体从根部到末端有多远：本来就伸得这么直的，不算够不着 */
   span: number;
+  /** 够不着时把身体拉住（抓着道具的手）。脚不用写，本来就拉得住；没写的手够不着就伸直了悬着 */
+  firm?: boolean;
 }
 
 const DEG = Math.PI / 180;
@@ -160,9 +163,9 @@ function shortfall(from: V3, target: V3, reach: number): V3 | null {
   return dist > reach ? mul(d, 1 - reach / dist) : null;
 }
 
-/** 钉着的脚够不着了：把胯拉回到每条腿都够得着的地方 */
+/** 钉着的脚、抓着道具的手够不着了：把胯拉回到它们都够得着的地方 */
 function settleRoot(solver: Solver, state: PoseState, pins: readonly Pin[]) {
-  const legs = pins.filter((pin) => solver.limbs[pin.limb].kind === 'leg');
+  const legs = pins.filter((pin) => pin.firm || solver.limbs[pin.limb].kind === 'leg');
   if (!legs.length) return;
   const f = forward(solver.rig, state);
   let shift: V3 = [0, 0, 0];
@@ -248,29 +251,64 @@ export function capturePins(solver: Solver, frame: Frame, names: ReadonlySet<str
 /**
  * 拖手、拖脚：第 limb 条肢体的末端去 target。
  * 够得着时只有这条肢体动；够不着时身体跟过去。手跟着前臂转，脚保持原来的朝向（抬腿时脚掌不会跟着小腿翻）。
+ * endRot：末端那根骨骼（手、脚）朝这个方向（吸到道具上时用）
  */
-export function dragReach(solver: Solver, start: PoseState, limb: number, target: V3, pins: readonly Pin[]): PoseState {
+export function dragReach(solver: Solver, start: PoseState, limb: number, target: V3, pins: readonly Pin[], endRot?: Quat): PoseState {
   const { rig, limbs } = solver;
   const one = limbs[limb];
   const others = pins.filter((pin) => pin.limb !== limb);
   const f0 = forward(rig, start);
   const state = cloneState(start);
   pull(solver, state, start, one, target, others);
-  placeLimb(rig, state, forward(rig, state), one, holdOf(one, f0), target, one.kind === 'leg' ? { endRot: f0.rot[one.end] } : {});
+  placeLimb(rig, state, forward(rig, state), one, holdOf(one, f0), target, endRot ? { endRot } : one.kind === 'leg' ? { endRot: f0.rot[one.end] } : {});
   keepPins(solver, state, f0, others);
   return state;
 }
 
 /**
  * 只动这一条肢体：末端去 target，够不着就朝它伸直，身体不跟过去
- * （手脚钉在道具上、道具挪了：只有那只手、那只脚跟着，见 scene/follow.ts）
+ * （手脚钉在道具上、道具挪了：只有那只手、那只脚跟着，见 scene/follow.ts）。
+ * endRot：末端那根骨骼（手、脚）朝这个方向；不给的话手跟着前臂转、脚保持原来的朝向
  */
-export function reachOnly(solver: Solver, start: PoseState, limb: number, target: V3): PoseState {
+export function reachOnly(solver: Solver, start: PoseState, limb: number, target: V3, endRot?: Quat): PoseState {
   const { rig, limbs } = solver;
   const one = limbs[limb];
   const f0 = forward(rig, start);
   const state = cloneState(start);
-  placeLimb(rig, state, f0, one, holdOf(one, f0), target, one.kind === 'leg' ? { endRot: f0.rot[one.end] } : {});
+  placeLimb(rig, state, f0, one, holdOf(one, f0), target, endRot ? { endRot } : one.kind === 'leg' ? { endRot: f0.rot[one.end] } : {});
+  return state;
+}
+
+/** 绕 axis 拧的那一部分是多少（弧度，−π…π）：q 是世界里的旋转 */
+const twistAbout = (q: Quat, axis: V3): number => {
+  const a = 2 * Math.atan2(q[0] * axis[0] + q[1] * axis[1] + q[2] * axis[2], q[3]);
+  return a > Math.PI ? a - 2 * Math.PI : a <= -Math.PI ? a + 2 * Math.PI : a;
+};
+
+/**
+ * 第 limb 条肢体下面那一节（前臂、小腿）和末端（手、脚）各绕这一节的长轴拧了多少（弧度，−π…π）：
+ * lower 是这一节在「照关节位置摆出来的朝向」之外拧的，end 是末端相对这一节拧的（手腕、脚踝上拧的）
+ */
+export function limbTwist(solver: Solver, state: PoseState, limb: number): { lower: number; end: number } {
+  const one = solver.limbs[limb];
+  const f = forward(solver.rig, state);
+  const v = norm(sub(f.pos[one.end], f.pos[one.lower]));
+  const plain = turnTo(v, holdOf(one, f).normal, one.baseLower);
+  return { lower: twistAbout(quatMul(f.rot[one.lower], quatConj(plain)), v), end: twistAbout(quatMul(f.rot[one.end], quatConj(f.rot[one.lower])), v) };
+}
+
+/** 下面那一节（前臂、小腿）再绕自己的长轴拧 angle（弧度）；末端那根骨骼（手、脚）在世界里的朝向不变，关节都在原处 */
+export function twistLower(solver: Solver, start: PoseState, limb: number, angle: number): PoseState {
+  const { rig } = solver;
+  const one = solver.limbs[limb];
+  const f = forward(rig, start);
+  const v = norm(sub(f.pos[one.end], f.pos[one.lower]));
+  const half = angle / 2;
+  const s = Math.sin(half);
+  const lower = quatMul([v[0] * s, v[1] * s, v[2] * s, Math.cos(half)], f.rot[one.lower]);
+  const state = cloneState(start);
+  setWorldRot(rig, state, f, one.lower, lower);
+  state.local[one.end] = quatUnit(quatMul(quatConj(lower), f.rot[one.end]));
   return state;
 }
 

@@ -255,5 +255,9 @@
   "解开以后它回到原来长的那个部件上，位置不变": "After detaching, it goes back to the part it originally grew on, without moving",
   "解开": "Detach",
   "勾着的时候：点「接到…」再点目标，点在接口（肩、髋、脖子根、尾巴根、骨骼的关节）附近，部件的根就吸到那个接口上；拖着部件松手时，它的根离别的部件上的接口很近也会自动接上去。接口在挑目标、拖动的时候显示成小圆点。吸在接口上的部件，以后体型变了接口挪了它跟着挪": "When ticked: after \"Attach to…\", clicking the target near a connection point (shoulder, hip, neck base, tail root, a bone joint) snaps the root of the part onto that point; releasing a dragged part with its root very close to a connection point on another part also attaches it automatically. Connection points are shown as small dots while choosing a target or dragging. A part snapped to a connection point moves along when the body shape changes and the point moves",
-  "吸到接口上（肩、髋、脖子根、关节）": "Snap to connection points (shoulder, hip, neck base, joints)"
+  "吸到接口上（肩、髋、脖子根、关节）": "Snap to connection points (shoulder, hip, neck base, joints)",
+  "手、脚拖到道具跟前自己吸上去：杆是握住，面是手掌贴上去，棱是手指扣住，脚是脚底贴着面；道具上亮一圈就是吸上了，松手就抓住（踩住）。这台设备自己记着": "Hands and feet snap onto a prop when dragged close to it: a pole is gripped, a flat face gets the palm laid on it, an edge is hooked with the fingers, and a foot is laid flat on the surface. A ring lights up on the prop when it has snapped; let go and it grabs (or stands on) the prop. Remembered on this device",
+  "吸附：手脚拖到道具跟前自己吸上去，松手就抓住": "Snap: hands and feet snap onto a prop when dragged close, and grab it when you let go",
+  "握法": "Grip style",
+  "握着杆的手怎么握：正手是拇指朝里、朝上（单杠的正握，竖着的棍子拇指在上），反手是翻过来（单杠的反握、反手握刀）。换的时候手掌翻过去、手腕挪到杆的另一侧，道具不动": "How a hand grips a bar: overhand has the thumb pointing inwards or up (as in a pull-up; thumb on top on an upright stick), underhand is the other way round (as in a chin-up; a reverse grip on a stick or knife). When you switch, the palm flips over and the wrist moves to the other side of the bar; the prop does not move"
 }

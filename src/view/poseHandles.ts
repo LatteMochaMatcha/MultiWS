@@ -85,6 +85,8 @@ export class PoseHandles {
   private moveFrom: THREE.Vector3 | null = null;
   private moveMoved = false;
   private readonly materials: Record<Look, THREE.SpriteMaterial>;
+  /** 手脚吸到道具上时，道具上亮的那一圈 */
+  private readonly glow: THREE.Mesh;
   private dots: Dot[] = [];
   private on = false;
   private coarse = window.matchMedia('(pointer: coarse)').matches;
@@ -103,6 +105,12 @@ export class PoseHandles {
       ]),
     ) as Record<Look, THREE.SpriteMaterial>;
     this.root.visible = false;
+    this.glow = new THREE.Mesh(
+      new THREE.TorusGeometry(1, 0.1, 8, 48),
+      new THREE.MeshBasicMaterial({ color: 0xff9b21, depthTest: false, depthWrite: false, transparent: true, opacity: 0.95 }),
+    );
+    this.glow.visible = false;
+    this.glow.renderOrder = 4;
 
     this.turner = new TransformControls(viewport.camera, dom);
     this.turner.setMode('rotate');
@@ -114,7 +122,8 @@ export class PoseHandles {
     this.mover.setSpace('local');
     this.mover.setSize(this.coarse ? 0.95 : 0.6);
     this.mover.enabled = false;
-    viewport.overlay.add(this.root, this.grip, this.hold, this.turner.getHelper(), this.mover.getHelper());
+    // 亮圈不放进 root：圆点重摆时 root 会清空
+    viewport.overlay.add(this.root, this.glow, this.grip, this.hold, this.turner.getHelper(), this.mover.getHelper());
 
     this.turner.addEventListener('dragging-changed', (event) => {
       const active = event.value === true;
@@ -264,6 +273,7 @@ export class PoseHandles {
   set enabled(on: boolean) {
     this.on = on;
     this.root.visible = on;
+    if (!on) this.glow.visible = false;
     if (!on) {
       this.letGo();
       this.ring(null);
@@ -325,6 +335,15 @@ export class PoseHandles {
     const perPixel = (2 * Math.tan((this.viewport.camera.fov * Math.PI) / 360)) / height;
     const grow = this.coarse ? 1.35 : 1;
     for (const dot of this.dots) dot.sprite.scale.setScalar(LOOKS[dot.look].size * grow * perPixel);
+  }
+
+  /** 手脚吸到道具上了：在道具上亮一圈（圆心、圈所在平面的法线、半径；和圆点同一个坐标）；null 是收起来 */
+  snap(at: { at: V3; axis: V3; radius: number } | null) {
+    this.glow.visible = Boolean(at) && this.on;
+    if (!at) return;
+    this.glow.position.set(at.at[0], at.at[1], at.at[2]);
+    this.glow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(at.axis[0], at.axis[1], at.axis[2]).normalize());
+    this.glow.scale.setScalar(at.radius);
   }
 
   /** 旋转环放在哪、朝哪（绿色那一圈绕着骨头自己转）；null 是收起来。正转着的时候不去动它 */
