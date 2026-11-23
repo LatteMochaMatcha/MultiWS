@@ -141,6 +141,8 @@ Section by section:
                      The last one, Chu Yunxuan (six heads in front-and-back rows), is assembled from copied blocks
                      on the Anime body: nine pelvises, nine ribcages, twelve arms and thirty breasts, each of
                      which can be selected, moved, rotated or deleted under Manual tweak.
+                     The whole upper body is one piece, "Chu Yunxuan torso": select it under Manual tweak to
+                     move, rotate or scale it as a whole. The upper body is as long as the legs.
                      If you then drag a body-shape slider or change the number of heads or arms, the blocks are
                      arranged again to fit; once you have edited a block by hand they are no longer re-arranged.
                      On the Mannequin and ready-made characters it uses the "Front-and-back rows" ring layout.
@@ -186,11 +188,13 @@ Section by section:
                      Pushed to either end they give very exaggerated cartoon proportions (limbs up to 3 times
                      thicker or down to 0.35 times).
                      Leg length doesn't change the height: when the legs are lengthened, the whole figure is scaled
-                     down proportionally so it is still as tall as set.
+                     down proportionally so it is still as tall as set. The same goes for torso length.
+                     Torso length lengthens or shortens the lower belly; it only works on the Anime body
+                     (and not when arms or breasts are in several rows).
                      On the Anime body, once the bust size is raised past 1.1 it gradually changes to a
                      large-breast shape (taken from a ready-made CC0 base body: two round breasts, slightly
                      drooping, with a fold below them), fully changed at 1.6.
-                     Ready-made characters can be adjusted in everything except "Build"; these sliders stretch the
+                     Ready-made characters can be adjusted in everything except Build, Thigh thickness and Torso length; these sliders stretch the
                      body together with its clothes, and the patterns on the clothes distort if you push them far.
   Manual tweaks      Click a part on the model (a particular arm, head or tail) and you can move, rotate and scale
                      it on its own (move up to 3 m, rotate ±180°, size 0.05-10 times).

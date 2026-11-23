@@ -10,7 +10,7 @@ import type { HairShape } from '../hair/shapes';
 import { LANG, t } from '../i18n';
 import type { PortMessage } from './eval.worker';
 import type { FuseJob, FuseResult } from './job';
-import type { CancelMessage, GenitalMessage, HairMessage, HelpersMessage, MeshReply, MeshRequest, PhoneMessage, ShapesMessage, SpreadMessage } from './mesh.worker';
+import type { CancelMessage, ChuTorsoMessage, GenitalMessage, HairMessage, HelpersMessage, MeshReply, MeshRequest, PhoneMessage, ShapesMessage, SpreadMessage } from './mesh.worker';
 
 /** 采样好的形状（二次元素体）的数据。主线程载入以后交到这里，每个 Worker 接下一个任务之前先收到一份 */
 let shapes: ArrayBuffer | null = null;
@@ -33,6 +33,14 @@ let genital: ArrayBuffer | null = null;
 export function provideGenital(buffer: ArrayBuffer) {
   genital = buffer;
   const message: GenitalMessage = { genital };
+  for (const helper of helpers ?? []) helper.postMessage(message);
+}
+
+/** 「楚云萱躯干」的格子（见 anime/chuTorso.ts）。同样是主线程载入以后交到这里，每个 Worker 用到之前先收到 */
+let chuTorso: ArrayBuffer | null = null;
+export function provideChuTorso(buffer: ArrayBuffer) {
+  chuTorso = buffer;
+  const message: ChuTorsoMessage = { chuTorso };
   for (const helper of helpers ?? []) helper.postMessage(message);
 }
 
@@ -73,6 +81,10 @@ function startHelpers(): Worker[] {
     }
     if (genital) {
       const message: GenitalMessage = { genital };
+      helper.postMessage(message);
+    }
+    if (chuTorso) {
+      const message: ChuTorsoMessage = { chuTorso };
       helper.postMessage(message);
     }
   }
@@ -129,6 +141,7 @@ export class MeshClient {
   private hairsSent = new Set<HairShape>();
   /** 阴囊的数据给过这个 Worker 了没有 */
   private genitalSent = false;
+  private chuTorsoSent = false;
 
   private start(): Worker {
     const worker = new Worker(new URL('./mesh.worker.ts', import.meta.url), { type: 'module', name: WORKER_NAME });
@@ -185,6 +198,11 @@ export class MeshClient {
       const message: GenitalMessage = { genital };
       this.worker.postMessage(message);
       this.genitalSent = true;
+    }
+    if (chuTorso && !this.chuTorsoSent) {
+      const message: ChuTorsoMessage = { chuTorso };
+      this.worker.postMessage(message);
+      this.chuTorsoSent = true;
     }
     const request: MeshRequest = { id: ++this.id, ...this.running.job };
     this.worker.postMessage(request);

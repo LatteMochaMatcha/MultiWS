@@ -127,6 +127,12 @@ const STRETCH: [number, number] = [0.99, 1.23];
  * 直筒上下两头各在加长以后 ROW_RAMP 那么长里渐渐变回原样（见 sdf/stretch.ts）：不然背上直筒的两头各一道硬边
  */
 const ROW_STRETCH = 0.05;
+/**
+ * 「躯干长短」滑块：在腰下面、胯上面的小腹这一段接长（缩短）；滑块每多 1 接长 TORSO_SPAN（差不多是裆到肩膀那么长）。
+ * 胯、屁股、腰最细的地方、肋骨、胸都不变形，胸、肩膀、头整个跟着上去
+ */
+const TORSO_BAND: [number, number] = [0.92, 0.99];
+const TORSO_SPAN = 0.5;
 const ROW_RAMP = 0.04;
 /**
  * 多排胸时相邻两排隔多远：上一排的下沿到下一排的上沿，下一排上半截的 rowTuck 收在上一排底下（再留 ROW_ROOM）——大胸上排胸底压在下排上缘；
@@ -438,10 +444,12 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
   const gap = chestCount > 1 ? reachDown + (1 - rowTuck(rowSize)) * reachUp + ROW_ROOM : GAP;
   /** 手臂沿躯干上下排时隔多远 */
   const armGap = chestCount > 1 ? Math.min(gap, ARM_ROW) : gap;
-  const extra = gap * (rows - 1);
-  /** 躯干在哪一段拉长（见 STRETCH、ROW_STRETCH） */
-  const band: [number, number] = chestCount > 1 ? [chestV - ROW_STRETCH, chestV] : STRETCH;
-  const stretch: Stretch | undefined = extra ? (chestCount > 1 ? [band[0], band[1], extra, ROW_RAMP] : [band[0], band[1], extra]) : undefined;
+  /** 「躯干长短」接长多少。只在一排胸、手臂不沿躯干上下排的时候用（那两样自己要在别的一段接长，一块格子只能接一段） */
+  const torsoExtra = rows > 1 ? 0 : (sh.torso - 1) * TORSO_SPAN;
+  const extra = gap * (rows - 1) + torsoExtra;
+  /** 躯干在哪一段拉长（见 STRETCH、ROW_STRETCH、TORSO_BAND） */
+  const band: [number, number] = torsoExtra ? TORSO_BAND : chestCount > 1 ? [chestV - ROW_STRETCH, chestV] : STRETCH;
+  const stretch: Stretch | undefined = extra ? (chestCount > 1 || torsoExtra > 0 ? [band[0], band[1], extra, ROW_RAMP] : [band[0], band[1], extra]) : undefined;
   /** 素体上的高度加长胸腔以后在哪 */
   const raised = (y: number) => restretch(y, stretch);
   const shoulderY = SHOULDER[1] + extra;
@@ -1124,8 +1132,8 @@ export function layoutAnime(spec: BodySpec, twin = false): Figure {
   const drop = human ? SOLE + palmDrop : 0;
   if (drop) for (const part of parts) if (!part.parent) part.pos = [part.pos[0], part.pos[1] - drop, part.pos[2]];
 
-  // 身高照旧是设定的那么高（腿末端接手矮了一截的，整个人照比例放大一点，和腿长短一样）
-  const scale = sh.height / (baseHeight - SOLE - palmDrop);
+  // 身高照旧是设定的那么高（腿末端接手矮了一截的，整个人照比例放大一点，和腿长短一样；「躯干长短」接长的那一截也算在身高里，整个人照比例缩小）
+  const scale = sh.height / (baseHeight + torsoExtra - SOLE - palmDrop);
   const height = (crown - drop) * scale;
   const headHeight = 2 * HEAD_H * hs * scale;
   return { parts, scale, metrics: { height, headHeight, headRatio: height / headHeight, legForm: form } };

@@ -2,9 +2,9 @@
 // 挤在一起的腿都摆成一样、手臂照整个身子的左右；手臂夹在胸中间也摆得动（pose/clear.ts）；三十只胸是同一种形状（geometry/clone.ts 的 plainPieces）
 import { describe, expect, it } from 'vitest';
 import { plainPieces } from '../src/geometry/clone';
-import type { ChestShape, Figure, Part } from '../src/geometry/figure';
+import { type ChestShape, type Figure, type Part, shapeInverse, shapeMatrix } from '../src/geometry/figure';
 import { buildFigure } from '../src/geometry/layout';
-import { type Quat, type V3, quatConj, rotate, sub } from '../src/geometry/vec';
+import { type Quat, type V3, mat3Apply, quatConj, rotate, sub } from '../src/geometry/vec';
 import { addBlock, setSplitTorso } from '../src/model/blocks';
 import { chuSpec } from '../src/model/chu';
 import { type BodySpec, defaultSpec, normalizeSpec } from '../src/model/spec';
@@ -131,7 +131,8 @@ describe('楚云萱套现成姿势', () => {
   it('放宽的只是上臂和前臂：摆过去的手臂，手腕不插在身体里（插着的话那里没有一圈干净的断口，手缝不上、掉成单独一块）', () => {
     const body = bodyDist(figure, spec.blend);
     // 手腕的中心线离身体表面至少多远（按标准人台的米）。整条手臂都照埋得最深的那一点放宽的时候，弯腰拿东西有两只手腕在身体里面 1.4 厘米
-    for (const [name, room] of [['弯腰拿东西', 0.015], ['蹲着', 0.005]] as const) {
+    // 十二条手臂里至少有几条摆得过去：照他存的体型（手臂长、胸大）弯腰拿东西只有四条让得开，别的留在原位
+    for (const [name, room, least] of [['弯腰拿东西', 0.015, 4], ['蹲着', 0.005, 6]] as const) {
       const { posing, followers } = followArms(solver, fitArms(solver, fitRing(solver, preset(name))));
       // 和工坊里一样：手腕周围连融合时腿还跟着胯的样子也量（sdf/posedBody.ts 的 wristBodyDist）
       const posedDist = wristBodyDist(figure, spec.blend, poseMatrices(rig, forward(rig, stateOf(solver, posing)), figure.scale))!;
@@ -140,7 +141,7 @@ describe('楚云萱套现成姿势', () => {
       // 让开以后身体没动（背不弯、胯不转），量手腕离身体多远还用同一个场
       const arms = solver.limbs.filter((limb) => limb.kind === 'arm');
       const moved = arms.filter((limb) => quatAngle(stateOf(solver, cleared).local[limb.upper]) > 0.05);
-      expect(moved.length, name).toBeGreaterThanOrEqual(6);
+      expect(moved.length, name).toBeGreaterThanOrEqual(least);
       for (const limb of moved) {
         const w = after.pos[limb.end];
         expect(posedDist(w[0], w[1], w[2]) / figure.scale, `${name} ${rig.names[limb.end]}`).toBeGreaterThan(room);
@@ -177,9 +178,14 @@ describe('整只搬过去的胸（piece）', () => {
         // 原来：部件里的 p 量的是躯干里退回去以后的那一点
         warp.map(p[0] + o[0], p[1] + o[1], p[2] + o[2], out);
         // 现在：同一个地方（胸腔的坐标里）换到新的部件坐标里，量的是它加上 o
-        const turned = rotate(before.quat ?? ID, [p[0] * s, p[1] * s, p[2] * s]);
+        // （他手调的胸前后拉长过：部件里的一点先照 resize 拉伸，再缩放、转、挪；换过去以后拉长的那组轴跟着转了）
+        const wide = shapeMatrix(before);
+        const q = wide ? mat3Apply(wide, p) : p;
+        const turned = rotate(before.quat ?? ID, [q[0] * s, q[1] * s, q[2] * s]);
         const where: V3 = [before.pos[0] + turned[0], before.pos[1] + turned[1], before.pos[2] + turned[2]];
-        const local = rotate(quatConj(after.quat ?? ID), sub(where, after.pos)).map((v) => v / s);
+        const flat = rotate(quatConj(after.quat ?? ID), sub(where, after.pos)).map((v) => v / s) as V3;
+        const narrow = shapeInverse(after);
+        const local = narrow ? mat3Apply(narrow, flat) : flat;
         for (let k = 0; k < 3; k++) expect(local[k] + o[k]).toBeCloseTo(out[k], 6);
       }
     }

@@ -5,6 +5,7 @@ import { type Lang, LANG, LANGS, setLang, t, tk, translatePage, variants } from 
 import { Box3, Group, Matrix4, type Mesh, Plane, Raycaster, Vector2, Vector3 } from 'three';
 import { TORSO_CREDIT, animeGrid, animeReady, loadAnimeBody } from './anime/body';
 import { FOOT_CREDIT } from './anime/foot';
+import { chuTorsoReady, loadChuTorso } from './anime/chuTorso';
 import { GENITAL_CREDIT, genitalReady, loadGenital } from './anime/genital';
 import { adultOn, keepAdult, restoreAdult, setAdult, withoutAdult } from './model/adult';
 import type { AiDock } from './ai/dock';
@@ -23,6 +24,7 @@ import { describeClashes, findClashes } from './geometry/clash';
 import { SOCKET_FOR, nearestSocket } from './geometry/sockets';
 import { type Figure, type FigureMetrics, type Part, type PartType, nthName, worldTransforms } from './geometry/figure';
 import { buildFigure } from './geometry/layout';
+import { isTrunkGhost, wantsTrunk } from './geometry/trunk';
 import { type PartFrame, deletable, partFrame } from './geometry/tweak';
 import { type Quat, type V3, Q_ID, UP, len, norm, quatBetween, quatConj, quatEuler, quatMul, rotate, sub } from './geometry/vec';
 import { cleanFileName, inAndroidShell, saveBlob, saveText } from './io/download';
@@ -81,7 +83,7 @@ import {
 } from './model/overrides';
 import { SNAP_NEAR, attachParts, attachedTo, canAttach, detachParts, isAttachable, placedSockets } from './model/attach';
 import { PELVIS, RIBCAGE, addBlock, canCopy, canSplitTorso, copyShift, isBlockRoot, removeBlockAt, setSplitTorso, torsoSplit } from './model/blocks';
-import { labelSplitTorso, partLabel } from './model/partLabel';
+import { labelSplitTorso, labelTrunk, partLabel } from './model/partLabel';
 import { chuRefit } from './model/chu';
 import { PRESETS, applyPreset, styledPreset } from './model/presets';
 import {
@@ -220,7 +222,7 @@ import { type Skeleton, buildSkeleton } from './rig/skeleton';
 import { bindPartGrafts, skinVertices } from './rig/skin';
 import { type HairShape, hairReady, loadHairShape } from './hair/shapes';
 import { compileField, fieldAt } from './sdf/field';
-import { provideGenital, provideHair, provideShapes, spreadWork } from './sdf/meshClient';
+import { provideChuTorso, provideGenital, provideHair, provideShapes, spreadWork } from './sdf/meshClient';
 import { type Picker, makePicker } from './sdf/pick';
 import { posedBodyDist, wristBodyDist } from './sdf/posedBody';
 import { refusable } from './sdf/posedField';
@@ -283,9 +285,9 @@ const GENDER_LABEL: Record<Gender, string> = { female: t('女性'), male: t('男
 const BODY_LABEL: Record<BodyStyle, string> = { mannequin: t('白模人台'), anime: t('二次元素体'), character: t('成品角色') };
 /** 这几个滑块对这种身体不起作用 */
 const FIXED_SHAPES: Record<BodyStyle, ReadonlySet<ShapeDef['key']>> = {
-  mannequin: new Set(),
+  mannequin: new Set(['torso']),
   anime: new Set(),
-  character: new Set(['build', 'thighs']),
+  character: new Set(['build', 'thighs', 'torso']),
 };
 const BODY_NOTE: Record<BodyStyle, string> = {
   mannequin: '',
@@ -2391,6 +2393,12 @@ function giveGenital(buffer: ArrayBuffer) {
   genitalGiven = true;
   provideGenital(buffer);
 }
+let chuTorsoGiven = false;
+function giveChuTorso(buffer: ArrayBuffer) {
+  if (chuTorsoGiven) return;
+  chuTorsoGiven = true;
+  provideChuTorso(buffer);
+}
 
 function ensureAnimeBody() {
   if (animeLoading || animeReady()) return;
@@ -2551,6 +2559,25 @@ function ensureHairShape() {
     });
 }
 
+/** 「楚云萱躯干」的数据（6 MB）只有预设「楚云萱」用，用到时才取；取回来之前上半身还是九个胸腔各是各的（见 geometry/trunk.ts） */
+let chuTorsoLoading = false;
+function ensureChuTorso() {
+  if (chuTorsoLoading || chuTorsoReady() || !wantsTrunk(spec)) return;
+  chuTorsoLoading = true;
+  loadChuTorso(import.meta.env.BASE_URL)
+    .then((buffer) => {
+      giveChuTorso(buffer);
+      scheduleRebuild();
+    })
+    .catch((err: unknown) => {
+      retryOnReturn = err instanceof OfflineError;
+      setStatus(t('楚云萱躯干的数据没载入成功，上半身先照九块拼：{err}', { err: errText(err) }), true);
+    })
+    .finally(() => {
+      chuTorsoLoading = false;
+    });
+}
+
 /** 阴囊的数据（不到 0.5 MB）也是用到时才取，取回来之前先不长阴茎、阴囊（见 geometry/layout.ts） */
 let genitalLoading = false;
 function ensureGenital() {
@@ -2642,6 +2669,7 @@ function bodyKeyOf(): string {
     spec.bodyStyle === 'character' && hairSources().map((source) => Boolean(source && hairLit(source))),
     style === 'own' || hairReady(style),
     genitalReady(),
+    chuTorsoReady(),
   ]);
 }
 let bodyKey = '';
@@ -2666,6 +2694,7 @@ function rebuildBody() {
   const t0 = performance.now();
   if (spec.bodyStyle === 'character') {
     labelSplitTorso(false);
+    labelTrunk(false);
     ensureCharacter();
     ensureHair();
     ensureHairLight();
@@ -2683,8 +2712,10 @@ function rebuildBody() {
   if (spec.bodyStyle === 'anime') ensureAnimeBody();
   if (spec.bodyStyle !== 'character') ensureHairShape();
   ensureGenital();
+  ensureChuTorso();
   figure = buildFigure(spec);
   labelSplitTorso(figure.parts.some((p) => p.name === RIBCAGE && p.parent === undefined));
+  labelTrunk(figure.parts.some(isTrunkGhost));
   picker = null;
   metrics = figure.metrics;
   scheduleClashCheck(figure);
@@ -3264,7 +3295,8 @@ let partListKey = '';
 
 /** 能单独微调的部件：白模人台、二次元素体是摆好的部件，成品角色是按骨骼分的部件（见 character/tweak.ts） */
 function tweakable(): readonly { name: string; type: PartType }[] {
-  return figure ? figure.parts : (tweaked?.parts ?? []);
+  // 换成「楚云萱躯干」以后另外八个胸腔只剩落脚处，不列出来（见 geometry/trunk.ts）
+  return figure ? figure.parts.filter((p) => !isTrunkGhost(p)) : (tweaked?.parts ?? []);
 }
 
 /** 「已删除」「已微调」的名字多过这么多个就先收着（体块拼的预设一套就是上百个，全摊开面板拉得老长），点一下再展开 */
@@ -5610,6 +5642,7 @@ async function loadAssetsFor(s: BodySpec): Promise<void> {
   if (s.bodyStyle !== 'mannequin' && !animeReady()) jobs.push(loadAnimeBody(base).then(giveShapes));
   if (s.bodyStyle !== 'character' && style !== 'own' && !hairReady(style)) jobs.push(loadHairShape(style, base).then((b) => giveHair(style, b)));
   if (s.counts.penises && !genitalReady()) jobs.push(loadGenital(base).then(giveGenital));
+  if (wantsTrunk(s) && !chuTorsoReady()) jobs.push(loadChuTorso(base).then(giveChuTorso));
   if (s.bodyStyle === 'character') {
     for (const id of charactersOf(s)) {
       if (characterSource(id)) continue;

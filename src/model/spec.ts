@@ -114,6 +114,7 @@ export type ShapeKey =
   | 'hips'
   | 'limbs'
   | 'thighs'
+  | 'torso'
   | 'armLength'
   | 'legLength'
   | 'tailFluff'
@@ -151,6 +152,8 @@ export const SHAPE_DEFS: readonly ShapeDef[] = [
   { key: 'limbs', label: t('四肢粗细'), min: 0.5, max: 2, step: 0.01, def: 1, safe: [0.8, 1.3] },
   // 只动大腿（膝盖往上），小腿、脚照旧；叠在四肢粗细上面。成品角色不跟着变
   { key: 'thighs', label: t('大腿粗细'), min: 0.7, max: 1.8, step: 0.01, def: 1, safe: [0.85, 1.15] },
+  // 躯干长短：在腰下面、胯上面的小腹那一段接长（缩短），胸、肩、头整个跟着上去；只有二次元素体照着变
+  { key: 'torso', label: t('躯干长短'), min: 0.92, max: 1.6, step: 0.01, def: 1, safe: [1, 1] },
   { key: 'armLength', label: t('手臂长短'), min: 0.5, max: 2, step: 0.01, def: 1, safe: [1, 1] },
   { key: 'legLength', label: t('腿长短'), min: 0.5, max: 1.8, step: 0.01, def: 1, safe: [1, 1] },
   { key: 'tailFluff', label: t('尾巴蓬松'), min: 0, max: 3, step: 0.01, def: 0.4, safe: [0, 2] },
@@ -475,6 +478,11 @@ export interface Blocks {
   splitTorso?: boolean;
   /** 缝合：部件名 → 它接在哪个部件上（见 Attached、geometry/attach.ts）。没有接过的不在里面 */
   attach?: Record<string, Attached>;
+  /**
+   * 上半身换成一整块现成的模型：'chu' 是「楚云萱躯干」（预设「楚云萱」套上去的，界面上没有单独的入口；见 geometry/trunk.ts）。
+   * 九个胸腔还在预设摆的位置上才换，不然还是九个胸腔各是各的
+   */
+  trunk?: 'chu';
 }
 
 /**
@@ -531,6 +539,7 @@ export function cleanBlocks(value: unknown): Blocks {
     added,
     ...(isRecord(value) && value.splitTorso === true && { splitTorso: true }),
     ...(Object.keys(attach).length > 0 && { attach }),
+    ...(isRecord(value) && value.trunk === 'chu' && { trunk: 'chu' as const }),
   };
 }
 

@@ -40,7 +40,7 @@ describe('楚云萱：删体块', () => {
   it('删一副胯：接在它上面的胸腔（连同头、手臂、胸）跟着走，不会回到正中那副胯上多出一个上半身', () => {
     const out = removeBlockAt(spec, figure, 'Torso_201');
     const left = names(out);
-    for (const gone of ['Torso_201', 'Leg_201_L', 'Leg_201_R', 'UpperBody_1001', 'Head_1001', 'Arm_1001_L', 'Chest_2201_C', 'Chest_2701_C']) expect(left.has(gone), gone).toBe(false);
+    for (const gone of ['Torso_201', 'Leg_201_L', 'Leg_201_R', 'UpperBody_1001', 'Head_1001', 'Arm_1001_L', 'Chest_1701_C', 'Chest_2301_C']) expect(left.has(gone), gone).toBe(false);
     expect(count(out, 'torso')).toBe(16);
     expect(count(out, 'head')).toBe(5);
     expect(count(out, 'arm')).toBe(9);
@@ -48,6 +48,8 @@ describe('楚云萱：删体块', () => {
     // 记在这些部件上的微调、缝合也清掉了：号以后再用到时不会带着旧的
     expect(Object.keys(out.overrides).filter((k) => /_(2|10)\d\d(_|$)/.test(k))).toEqual([]);
     expect(out.blocks!.attach!.UpperBody_1001).toBeUndefined();
+    // 缝在这个胸腔上的那只胸的缝合也清掉了
+    expect(out.blocks!.attach!.Chest_2301_C).toBeUndefined();
     // 照它上面那只删掉了的胸复制的两块也不留在设定里
     expect(out.blocks!.added.filter((b) => /_10\d\d_/.test(b.from))).toEqual([]);
     expect(out.blocks!.added).toHaveLength(spec.blocks!.added.length - 4);
@@ -126,7 +128,7 @@ describe('楚云萱：套完以后拖体型滑块、改头和手臂的数量', (
 });
 
 describe('分部件：形状一样的部件共用一份网格', () => {
-  it('楚云萱三十只胸只算一份，十八条腿两份', () => {
+  it('楚云萱三十只胸只照形状算一次，十八条腿两份', () => {
     const model = new PartsModel();
     model.update(figure);
     const geometries = (type: string) => {
@@ -137,7 +139,11 @@ describe('分部件：形状一样的部件共用一份网格', () => {
       });
       return seen.size;
     };
-    expect(geometries('chest')).toBe(1);
+    // 他手调的胸前后拉长得不一样，网格有好几份，但都是同一份没拉长的拉伸出来的：照形状算（采样、抽面）只算了一次
+    expect(geometries('chest')).toBeLessThanOrEqual(30);
+    const bare = new PartsModel();
+    bare.update({ ...figure, parts: figure.parts.filter((p) => p.type !== 'chest') });
+    expect(model.builds - bare.builds).toBe(1);
     expect(geometries('leg')).toBe(2);
     // 再画一遍照用上一遍的
     const before = new Set<unknown>();

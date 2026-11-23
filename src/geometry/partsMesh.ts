@@ -256,6 +256,13 @@ export function buildPartGeometry(part: Part, rough = false): THREE.BufferGeomet
   // 拉伸只作用在部件自己的基本体上
   if (m) for (const g of prims) g.applyMatrix4(new THREE.Matrix4().set(m[0], m[1], m[2], 0, m[3], m[4], m[5], 0, m[6], m[7], m[8], 0, 0, 0, 0, 1));
   const geos = [...prims, ...grafts.map((graft) => graftGeo(part, graft))];
+  // 没有形状的部件（换成「楚云萱躯干」以后另外八个胸腔只剩落脚处，见 trunk.ts）：一张空网格
+  if (!geos.length) {
+    const empty = new THREE.BufferGeometry();
+    empty.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+    empty.setAttribute('normal', new THREE.Float32BufferAttribute([], 3));
+    return empty;
+  }
   let geo = geos[0];
   if (geos.length > 1) {
     // 合并要求各块的顶点属性一致：白模用不到 UV，统一去掉

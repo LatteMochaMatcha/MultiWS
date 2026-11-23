@@ -44,7 +44,14 @@ export function labelSplitTorso(on: boolean) {
   splitTorso = on;
 }
 
+/** 上半身换成了一整块「楚云萱躯干」（见 geometry/trunk.ts）：UpperBody 叫这个名字（界面每次重建模型以后告诉一声） */
+let trunk = false;
+export function labelTrunk(on: boolean) {
+  trunk = on;
+}
+
 export function partLabel(name: string): string {
+  if (trunk && name === 'UpperBody') return t('楚云萱躯干');
   if (splitTorso && name === 'UpperBody') return t('胸腔@@躯干分成两块时上面那块');
   if (splitTorso && name === 'Torso') return t('胯和小腹');
   // 手工复制出来的胸腔、胯（UpperBody_101、Torso_201，见 geometry/clone.ts）

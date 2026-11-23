@@ -28,51 +28,58 @@ export const CHU = {
   /** 中间一排两头的光胸腔：后背朝外，往中间歪多少度 */
   midInward: 10,
   /**
-   * 胸：前后两面各排成上宽下尖、隔一排错开半只的一片，从上到下每排 CHEST_ROWS 只。都是整只的原胸型（见 AddedBlock.piece），
-   * 不贴在哪个胸腔的表面上——贴在表面上的每多一排胸腔就长一截，也跨不过自己那块胸腔的正中线。
-   * 最下面一排的中心比髋关节高 chestLow（负的是低：裆比髋关节低几厘米，大腿根正在这一排胸的一半上下）；
-   * 最上面一排比本来的胸口高 chestTop；胸根沉进身体表面 chestSink；chestGap 是一只胸占多宽（交界左右这么宽以内渐渐换到另一个胸腔上）
-   */
-  chestLow: -0.03,
-  chestTop: 0.05,
-  chestGap: 0.15,
-  chestSink: 0.02,
-  /** 每只缩到几成（一只原胸型连胸根二十多厘米宽，一排六只排不下） */
-  chestScale: 0.75,
-  /** 一只胸在它那个胸腔上离中轴每远一米，多往外撇多少度（本来贴在胸腔上的一对胸各往外撇） */
-  chestFan: 200,
-  /** 过了两头那个胸腔的中轴以后绕着它往侧面拐：每远一米多转多少度（参考图里每排两头那只快到正侧面了） */
-  chestWrap: 450,
-  /** 找坐在哪时左右各多照多远 */
-  chestProbe: 0.05,
-  /** 胸口的表面离胸腔的中轴大概多远（算拐过交界要多绕多少用） */
-  chestDepth: 0.1,
-  /**
-   * 从上到下每排两头那只落在两头胸腔的中轴外面多远（负的是还没到中轴）；每排比第一排大几成
-   * （第二排五只要排到两头，大一点才排得满；最下面一排他定了不放大、往中间收到一只挨一只，所以两头那只没到两头胸腔的中轴）
-   */
-  chestEnds: [0.08, 0.08, -0.12],
-  chestGrow: [1, 1.12, 1],
-  /**
    * 留下的三条手臂从上到下各抬多少度（从水平算，往上为正），各往自己那一排（前排往前、后排往后）偏多少度：前后两把分得开。
    * 最上面一排两头那只胸绕到了肩膀底下的侧面，最下面那条手臂抬到差不多水平、从它上面伸出去（再往下就从胸里穿过去了）
    */
   arms: [40, 16, -8],
-  armFront: [10, 5, 0],
+  armFront: [14, 5, 0],
 };
 
 /**
- * 楚云萱的数量、排法、体型（照参考图）：每个胸腔三对手臂（肩部聚拢）、正中一只胸（左右对称、没有切面的那种，
- * 前后两面的胸都是照它整只复制的，见 chuBlocks），大胸、粗大腿
+ * 楚云萱的数量、排法、体型：每个胸腔三对手臂（肩部聚拢）、正中一只胸（左右对称、没有切面的那种，
+ * 前后两面的胸都是照它整只复制的，见 chuBlocks）。体型是他在工坊里调好存下来的那一份（楚云萱 ver1）的：高个子、长腿、大胸、粗大腿
  */
 export const CHU_BODY = {
   counts: { torsos: 1, heads: 1, armPairs: 3, breasts: 1, legs: 2 },
   armLayout: 'fan',
   chestRow: 1,
-  shape: { bust: 3, hips: 1, thighs: 1.45 },
+  shape: { height: 1.98, headRatio: 7.5, build: 1.1, bust: 3.4, hips: 1, thighs: 1.45, armLength: 1.19, legLength: 1.2 },
 } as const;
+
+/** 一面的一只胸：挂在哪一列的胸腔上（背面那一面的；前面是对面那一列），照那个胸腔正中那只原胸型挪多少、再怎么微调，有的还整只缝在胸腔上 */
+interface ChuChest {
+  row: number;
+  col: -1 | 0 | 1;
+  shift: V3;
+  position?: V3;
+  rotation?: V3;
+  scale: V3;
+  /** 整只缝在胸腔上的（他点「接到…」吸在胸口那个接口上的）：离原胸多远（和 shift 一样跟着原胸走，躯干接长了一起上去）、朝向、大小 */
+  sewn?: { offset: V3; quat: Quat; scale: number };
+}
+/**
+ * 一面的 15 只胸（从上到下 6、5、4 只）：他手调好的背面那一面，原样照抄（左右不完全对称也照抄）。
+ * 数都在挂着它的那个胸腔自己的坐标里，前后两面共用（见 chuBlocks）
+ */
+export const CHU_CHESTS: readonly ChuChest[] = [
+  { row: 0, col: -1, shift: [0.059, 0.0406, -0.0521], position: [-0.0169, 0, 0.0172], rotation: [0, 36, 0], scale: [0.75, 0.75, 1] },
+  { row: 0, col: 0, shift: [0.219, 0.0443, -0.0185], position: [-0.0112, 0, 0.0237], rotation: [-3.96, 38.97, 7.09], scale: [0.75, 0.75, 1] },
+  { row: 0, col: 0, shift: [0.071, 0.0454, -0.0323], position: [0, 0, 0.0769], rotation: [0, 15.24, 0], scale: [0.75, 0.75, 1] },
+  { row: 0, col: 0, shift: [-0.071, 0.0454, -0.0321], position: [0, 0, 0.0735], rotation: [0, -15.24, 0], scale: [0.75, 0.75, 1] },
+  { row: 0, col: 0, shift: [-0.219, 0.0443, -0.0187], position: [-0.024, 0, 0.0222], rotation: [-3.96, -38.97, -7.09], scale: [0.75, 0.75, 0.85] },
+  { row: 0, col: 1, shift: [-0.0591, 0.0406, -0.0519], position: [0.0249, 0, 0.0072], rotation: [0, -36, 0], scale: [0.75, 0.75, 1] },
+  { row: 1, col: -1, shift: [0.0662, -0.1414, -0.0361], position: [-0.0431, 0, 0.0054], scale: [0.909, 0.909, 1.211], sewn: { offset: [0, -0.1278, -0.0924], quat: [0, 0.03106, 0, 0.99952], scale: 0.8263 } },
+  { row: 1, col: 0, shift: [0.2026, -0.1257, -0.0069], position: [-0.0398, 0, 0], rotation: [0, 14.93, 0], scale: [0.75, 0.75, 1] },
+  { row: 1, col: 0, shift: [0, -0.1246, -0.0203], position: [0, 0, 0.0172], scale: [0.75, 0.75, 1] },
+  { row: 1, col: 0, shift: [-0.2026, -0.1257, -0.0073], position: [0.0439, 0, 0], rotation: [0, -18.16, 0], scale: [0.75, 0.75, 1] },
+  { row: 1, col: 1, shift: [-0.0663, -0.1414, -0.036], position: [0.0388, 0, 0.0202], scale: [0.909, 0.909, 1.211], sewn: { offset: [0, -0.1278, -0.0924], quat: [0, -0.11121, 0, 0.9938], scale: 0.8258 } },
+  { row: 2, col: 0, shift: [0.2672, -0.2937, -0.021], position: [-0.0215, 0.0423, -0.0515], rotation: [12.25, 21.99, -4.45], scale: [0.75, 0.75, 1] },
+  { row: 2, col: 0, shift: [0.0882, -0.293, -0.0288], position: [0, 0.0418, 0], rotation: [8.87, 18.73, -2.87], scale: [0.75, 0.75, 0.8] },
+  { row: 2, col: 0, shift: [-0.0882, -0.293, -0.0287], position: [0, 0.0356, 0], rotation: [7.67, -18.78, 2.48], scale: [0.75, 0.75, 0.8] },
+  { row: 2, col: 0, shift: [-0.2672, -0.2937, -0.021], position: [0, 0.0372, 0], rotation: [10.93, -27.63, 4.92], scale: [0.75, 0.75, 0.75] },
+];
 /** 一面的胸从上到下每排几只 */
-export const CHEST_ROWS = [6, 5, 4];
+export const CHEST_ROWS = [0, 1, 2].map((r) => CHU_CHESTS.filter((e) => e.row === r).length);
 
 /**
  * 照楚云萱的数量、体型摆好，再拼成体块（别的设定：身高、头发、样式……照 base 的）。
@@ -81,12 +88,10 @@ export const CHEST_ROWS = [6, 5, 4];
  */
 export function chuSpec(base: BodySpec): BodySpec {
   if (!buildable({ ...base, conjoined: 'none', ring: 'none' })) return base;
+  const shaped: BodySpec = { ...base, counts: { ...base.counts, ...CHU_BODY.counts }, armLayout: CHU_BODY.armLayout, chestRow: CHU_BODY.chestRow, shape: clampShape({ ...base.shape, ...CHU_BODY.shape }) };
   return chuBlocks({
-    ...base,
-    counts: { ...base.counts, ...CHU_BODY.counts },
-    armLayout: CHU_BODY.armLayout,
-    chestRow: CHU_BODY.chestRow,
-    shape: clampShape({ ...base.shape, ...CHU_BODY.shape }),
+    ...shaped,
+    shape: clampShape({ ...shaped.shape, torso: evenTorso(shaped) }),
   });
 }
 
@@ -129,6 +134,38 @@ function hipBulk(parts: readonly Part[]): { wide: number; thick: number } {
   return { wide: wide > 0.05 ? wide : 0.3, thick: thick > 0.05 ? thick : 0.2 };
 }
 
+/**
+ * 一副没拼体块的身体（一个头、直着站）头顶到裆比裆到地面长多少（负的是短）。
+ * 头顶是从头的正上方照下来碰到的地方；裆只量胯自己的底——大腿粗的时候两条腿在膝盖上面一点就并在一起了，连腿一起量会量到那里去
+ */
+function upperOverLegs(spec: BodySpec): number | null {
+  const figure = buildFigure({ ...spec, conjoined: 'none', ring: 'none', torsoCounts: {}, blocks: undefined, overrides: {} });
+  const body = figure.parts.filter((p) => p.type === 'torso' || p.type === 'leg' || p.type === 'neck' || p.type === 'head');
+  const leg = body.find((p) => p.type === 'leg' && p.parent === undefined);
+  const head = worldTransforms({ parts: figure.parts, scale: 1 }).get('Head_01')?.pos;
+  if (!leg || !head) return null;
+  const all = compileField({ scale: 1, parts: body }, { blend: 0 });
+  const hips = compileField({ scale: 1, parts: body.filter((p) => p.type === 'torso') }, { blend: 0 });
+  const FAR = 3;
+  const above = castRay(all, [head[0], head[1] + 1, head[2]], [0, -1, 0], FAR);
+  const below = castRay(hips, [0, -0.5, leg.pos[2]], [0, 1, 0], FAR);
+  if (!(above < FAR && below < FAR)) return null;
+  const top = head[1] + 1 - above;
+  const crotch = below - 0.5;
+  return top - crotch - crotch;
+}
+
+/**
+ * 「躯干长短」取多少，上半身和腿才一样长（头顶到裆 = 裆到地面，参考的线稿就是这个比例）：三排胸排在肩膀和裆之间，
+ * 最下面一排不压在屁股上。躯干是在小腹那一段接长的（见 animeLayout.ts 的 TORSO_BAND），差多少和滑块是一条直线，量两个值就解得出
+ */
+function evenTorso(spec: BodySpec): number {
+  const at = (torso: number) => upperOverLegs({ ...spec, shape: { ...spec.shape, torso } });
+  const [a, b] = [at(1), at(1.3)];
+  if (a === null || b === null || Math.abs(b - a) < 1e-6) return spec.shape.torso;
+  return Math.round((1 - (a * 0.3) / (b - a)) * 100) / 100;
+}
+
 /** 躯干分成两块、手工的体块清空以后，照前后排的样子把胯、胸腔一块一块复制出来摆好 */
 export function chuBlocks(given: BodySpec): BodySpec {
   // 连体、围成一圈、每个上半身单独设的数量和体块拼不到一起：先去掉
@@ -143,9 +180,14 @@ export function chuBlocks(given: BodySpec): BodySpec {
   /** 胸腔本来坐在胯上的位置（胯的坐标里） */
   const seat = { pos: rotate(back, sub(rib.pos, hip.pos)) as V3, quat: quatMul(back, rib.quat) };
   /** 腰上那一点（胸腔绕它歪、转），胯的坐标里 */
-  const fork = plain.parts.find((p) => p.name === 'UpperBody')!.prims.flatMap((q) => ((q.kind === 'grid' || q.kind === 'loft') && q.fork ? [q.fork] : []))[0];
-  const waist = add(seat.pos, rotate(seat.quat, fork?.pivot ?? [0, 0.96, 0]));
-  const hipJoint = plain.parts.find((p) => p.type === 'leg' && p.parent === undefined)?.pos[1] ?? waist[1];
+  const ribGrid = plain.parts.find((p) => p.name === 'UpperBody')!.prims.find((q) => q.kind === 'grid');
+  const fork = ribGrid?.kind === 'grid' ? ribGrid.fork : undefined;
+  /**
+   * 「躯干长短」接长的那一截在腰下面，是直的；胸腔从它顶上才往中间斜（斜的支点抬这么高）：
+   * 往上斜成什么样和没接长时一样（ver1 那样，侧面看中间一排的后背露得出来），只是整个上半身高了这一截
+   */
+  const lift = ribGrid?.kind === 'grid' ? (ribGrid.stretchY?.[2] ?? 0) : 0;
+  const waist = add(seat.pos, rotate(seat.quat, add(fork?.pivot ?? [0, 0.96, 0], [0, lift, 0])));
 
   const bulk = hipBulk(plain.parts);
   const stepX = bulk.wide * CHU.fitX;
@@ -238,113 +280,31 @@ export function chuBlocks(given: BodySpec): BodySpec {
     if (gone) hidden[p.name] = { ...spec.overrides[p.name], hidden: true };
   }
   /*
-   * 胸：每个带头的胸腔正中那只原胸型不要了，照它整只复制，前后两面各排成 6、5、4 只（隔一排错开半只）。
-   * 每一面是绕着三个胸腔的一圈：正中的胸腔朝正前，两头的往外转了 yaw，过了两个胸腔的交界就拐到两头那个胸腔的正前方去——
-   * 每只照它那个胸腔的朝向、歪法摆，像本来贴在那个胸腔上一样，所以两头的朝外、绕到身子两侧（外扩）；
-   * 胸腔是往中间歪着的，越往下三个胸腔分得越开、越往前，下面的排跟着往外。
-   * 一排从这一头排到那一头正好等间隔：两头那只落在两头胸腔的中轴外面 chestEnds 的地方（负的是还没到中轴）；
-   * 落在交界上的两边各算一遍、渐渐换过去。挂在占得多的那个胸腔上，跟着它动
+   * 胸：每个带头的胸腔正中那只原胸型不要了，照它整只复制。前后两面各 15 只（从上到下 6、5、4 只），
+   * 位置、朝向、大小是他在工坊里手调好的背面那一面（CHU_CHESTS，量在挂着它的那个胸腔自己的坐标里）；
+   * 后排是前排整个绕竖轴转了半圈，所以前面照同一份数摆在对面那一列的胸腔上，两面一样。
+   * 胸跟着胸口走：躯干在小腹那一段接长（「躯干长短」，见 chuSpec）以后整片胸一起上去，不压在屁股上
    */
   const placed = worldTransforms({ parts: figure.parts, scale: 1 });
   const heads = ribs.filter((b) => b.rz !== 0);
   const sources = new Map(heads.map((b) => [b.name, figure.parts.find((p) => p.parent === b.name && p.type === 'chest')]));
-  const bare = compileField({ scale: 1, parts: figure.parts.filter((p) => !hidden[p.name]?.hidden && (p.type === 'torso' || p.type === 'leg')) }, { blend: 0 });
-  const FAR = 2;
-  const natural = Math.max(...[...sources.values()].map((p) => (p ? rib.pos[1] + p.pos[1] : -Infinity)));
-  const low = hipJoint + CHU.chestLow;
-  const high = Math.max(low, natural + CHU.chestTop);
   const turned: Record<string, PartOverride> = {};
-  /** 拐过交界多绕的那一段：两个胸腔的正前方（各离中轴 chestDepth）在交界上对齐，各让出 chestDepth·tan(yaw / 2) */
-  const corner = CHU.chestDepth * Math.tan((CHU.yaw * DEG) / 2);
+  const sewn: Record<string, Attached> = {};
   for (const rz of [1, -1]) {
     const row = heads.filter((b) => b.rz === rz);
-    if (!Number.isFinite(natural) || row.some((b) => !sources.get(b.name))) continue;
-    /** cx 这一列的胸腔的中轴在 y 这么高上的那一点，和它自己的右、上、前 */
-    const axisOf = (cx: number, y: number) => {
-      const on = row.find((b) => b.cx === cx);
-      const frame = on && placed.get(on.name);
-      if (!on || !frame) return null;
-      const [right, up, front] = ([[1, 0, 0], [0, 1, 0], [0, 0, 1]] as V3[]).map((axis) => rotate(frame.quat, axis));
-      const lift = (y - frame.pos[1]) / (Math.abs(up[1]) > 0.2 ? up[1] : 1);
-      return { name: on.name, frame, right, front, at: add(frame.pos, [up[0] * lift, up[1] * lift, up[2] * lift]) };
-    };
-    /**
-     * 照 cx 这一列的胸腔摆一只：在整个身子的左右上离它的中轴 u（往身子的 +X 为正），顺着它的正前照到身体表面上
-     * （左右各偏几厘米也照一下，取最靠外的：坐在鼓出来的地方，不陷进两副胯中间的沟里），
-     * 脸朝胸腔的正前、再照 u 往外撇 chestFan（本来贴在胸腔上的一对胸就是各往外撇的）
-     */
-    const onRib = (cx: number, u: number, y: number): { pos: V3; quat: Quat; name: string } | null => {
-      // 胸腔是歪着的，顺着它的正前照过去落点会高一点或者低一点：照差的那一点挪了再照一遍，落在 y 这么高上
-      const first = seatOn(cx, u, y);
-      return first && (seatOn(cx, u, y - (first.pos[1] - y)) ?? first);
-    };
-    const seatOn = (cx: number, u: number, y: number): { pos: V3; quat: Quat; name: string } | null => {
-      const rib0 = axisOf(cx, y);
-      if (!rib0) return null;
-      const { right, front, at: axis } = rib0;
-      // 后排的胸腔转过去了，它自己的左右和整个身子的反着
-      const own = u * Math.sign(right[0] || 1);
-      const ray = (from: V3, dir: V3): number => castRay(bare, [from[0] + dir[0] * FAR, from[1] + dir[1] * FAR, from[2] + dir[2] * FAR], [-dir[0], -dir[1], -dir[2]], 2 * FAR);
-      const along = (from: V3, dir: V3, far: number): V3 => [from[0] + dir[0] * far, from[1] + dir[1] * far, from[2] + dir[2] * far];
-      if (cx !== 0 && u * cx > 0) {
-        // 过了两头那个胸腔的中轴：绕着它往侧面拐（每远一米多转 chestWrap 度，也就是绕着一根半径 1 / chestWrap 的柱子）
-        const round = 1 / (CHU.chestWrap * DEG);
-        const quat = quatMul(rib0.frame.quat, aboutY(own * CHU.chestWrap * DEG));
-        const out = rotate(quat, [0, 0, 1]);
-        const ahead = ray(axis, front);
-        if (!(ahead < 2 * FAR)) return null;
-        // 柱子的轴：胸腔正前的表面往里一个半径
-        const core = along(axis, front, FAR - ahead - round);
-        const near = ray(core, out);
-        const deep = near < 2 * FAR ? FAR - near : round;
-        return { pos: along(core, out, deep - CHU.chestSink), quat, name: rib0.name };
-      }
-      let near = Infinity;
-      for (const du of [-CHU.chestProbe, 0, CHU.chestProbe]) near = Math.min(near, ray(along(axis, right, own + du), front));
-      if (!(near < 2 * FAR)) return null;
-      const quat = quatMul(rib0.frame.quat, aboutY(own * CHU.chestFan * DEG));
-      const out = rotate(quat, [0, 0, 1]);
-      return { pos: along(along(along(axis, right, own), front, FAR - near), out, -CHU.chestSink), quat, name: rib0.name };
-    };
-    CHEST_ROWS.forEach((count, r) => {
-      const y = CHEST_ROWS.length > 1 ? high + ((low - high) * r) / (CHEST_ROWS.length - 1) : high;
-      const grow = CHU.chestGrow[Math.min(r, CHU.chestGrow.length - 1)] ?? 1;
-      /** 两头的胸腔的中轴在这一排的高度上离正中多远（三个胸腔往中间歪着，越往下分得越开） */
-      const [mid, end] = [axisOf(0, y), axisOf(1, y)];
-      const apart = mid && end ? Math.abs(end.at[0] - mid.at[0]) : 2 * CHU.chestGap;
-      /** 沿着这一圈量，交界离正中多远；这一排两头那只离正中多远、相邻两只隔多远 */
-      const border = apart + corner / 2;
-      const reachOut = apart + 2 * corner + (CHU.chestEnds[Math.min(r, CHU.chestEnds.length - 1)] ?? 0);
-      const gap = count > 1 ? (2 * reachOut) / (count - 1) : 0;
-      for (let i = 0; i < count; i++) {
-        const along = (i - (count - 1) / 2) * gap;
-        const side = Math.sign(along) || 1;
-        // 交界左右半只宽以内两边各算一遍、渐渐换过去
-        const t = Math.max(0, Math.min(1, (Math.abs(along) - border) / CHU.chestGap + 0.5));
-        const share = t * t * (3 - 2 * t);
-        const inner = share < 1 ? onRib(0, along, y) : null;
-        const outer = share > 0 ? onRib(side, side * (Math.abs(along) - apart - 2 * corner), y) : null;
-        const [a, b] = [inner ?? outer, outer ?? inner];
-        if (!a || !b) continue;
-        const k = inner && outer ? share : 0;
-        const world: V3 = [a.pos[0] + (b.pos[0] - a.pos[0]) * k, a.pos[1] + (b.pos[1] - a.pos[1]) * k, a.pos[2] + (b.pos[2] - a.pos[2]) * k];
-        const dot = a.quat[0] * b.quat[0] + a.quat[1] * b.quat[1] + a.quat[2] * b.quat[2] + a.quat[3] * b.quat[3];
-        const mixed = a.quat.map((v, n) => v + ((dot < 0 ? -b.quat[n] : b.quat[n]) - v) * k);
-        const length = Math.hypot(...mixed) || 1;
-        const facing = mixed.map((v) => v / length) as Quat;
-        const host = k > 0.5 ? b.name : a.name;
-        const frame = placed.get(host)!;
-        const source = sources.get(host)!;
-        const local = rotate(quatConj(frame.quat), sub(world, frame.pos));
-        const made = addBlock(spec, [{ from: source.name, shift: sub(local, source.pos), plain: true, piece: true }]);
-        spec = made.spec;
-        const e = eulerOf(quatMul(quatConj(frame.quat), facing));
-        const size = CHU.chestScale * grow;
-        turned[made.names[0]] = { rotation: [e[0] / DEG, e[1] / DEG, e[2] / DEG], ...(size !== 1 ? { scale: [size, size, size] } : {}) };
-      }
-    });
+    if (row.some((b) => !sources.get(b.name))) continue;
+    for (const e of CHU_CHESTS) {
+      const host = row.find((b) => b.cx === (rz < 0 ? e.col : -e.col));
+      if (!host) continue;
+      const source = sources.get(host.name)!;
+      const made = addBlock(spec, [{ from: source.name, shift: e.shift, plain: true, piece: true }]);
+      spec = made.spec;
+      turned[made.names[0]] = { ...(e.position && { position: e.position }), ...(e.rotation && { rotation: e.rotation }), scale: e.scale };
+      if (e.sewn) sewn[made.names[0]] = { to: host.name, pos: add(source.pos, e.sewn.offset), quat: e.sewn.quat, scale: e.sewn.scale };
+    }
     for (const b of row) hidden[sources.get(b.name)!.name] = { hidden: true };
   }
+  if (Object.keys(sewn).length) spec = { ...spec, blocks: { ...spec.blocks!, attach: { ...spec.blocks!.attach, ...sewn } } };
   /* 留下的手臂：每个胸腔朝外那一侧三条，朝整个身子的正侧面排成上、中、下一把（照整个身子的方向定，不照歪着、转过的胸腔定） */
   for (const on of ribs) {
     const kept = figure.parts.filter((p) => p.parent === on.name && p.type === 'arm' && !hidden[p.name]).sort((a, b) => a.name.localeCompare(b.name));
@@ -361,13 +321,35 @@ export function chuBlocks(given: BodySpec): BodySpec {
       hidden[arm.name] = { ...spec.overrides[arm.name], rotation: [e[0] / DEG, e[1] / DEG, e[2] / DEG] };
     });
   }
+  /*
+   * 两边四个头的脖子竖起来：胸腔往中间歪，脖子跟着歪了十几度，看着是歪的。脖子绕根部转到竖直，
+   * 头接在脖子上（和手动「接到…」一样，见 Attached），跟着一起转
+   */
+  const upright: Record<string, Attached> = {};
+  for (const on of ribs) {
+    if (on.rz === 0 || on.cx === 0) continue;
+    const neck = figure.parts.find((p) => p.parent === on.name && p.type === 'neck');
+    const head = figure.parts.find((p) => p.parent === on.name && p.type === 'head');
+    const frame = placed.get(on.name);
+    const bone = neck?.bones?.[0];
+    if (!neck || !head || !frame || !bone) continue;
+    const now = norm(rotate(neck.quat, sub(bone.tail, bone.head)));
+    const e = eulerOf(quatBetween(now, norm(rotate(quatConj(frame.quat), [0, 1, 0]))));
+    hidden[neck.name] = { ...spec.overrides[neck.name], rotation: [e[0] / DEG, e[1] / DEG, e[2] / DEG] };
+    const back = quatConj(neck.quat);
+    const k = neck.scale ?? 1;
+    const pos = rotate(back, sub(head.pos, neck.pos));
+    upright[head.name] = { to: neck.name, pos: [pos[0] / k, pos[1] / k, pos[2] / k], quat: quatMul(back, head.quat), scale: (head.scale ?? 1) / k };
+  }
+  if (Object.keys(upright).length) spec = { ...spec, blocks: { ...spec.blocks!, attach: { ...spec.blocks!.attach, ...upright } } };
   // 和存档读回来的一样去掉多余的小数、等于没改的分量（spec.ts 的 cleanOverride）：存一遍再读，拼出来的还是这一份
   const tidy: Record<string, PartOverride> = {};
   for (const [name, o] of Object.entries({ ...spec.overrides, ...hidden, ...turned })) {
     const clean = cleanOverride(o);
     if (clean) tidy[name] = clean;
   }
-  return { ...spec, overrides: tidy };
+  // 二次元素体上整个上半身换成一整块「楚云萱躯干」（数据取回来以后；见 geometry/trunk.ts）
+  return { ...spec, blocks: { ...spec.blocks!, ...(spec.bodyStyle === 'anime' && { trunk: 'chu' as const }) }, overrides: tidy };
 }
 
 /* ---------------- 套完以后又拖了体型滑块：照新的体型重新摆 ---------------- */
@@ -419,6 +401,11 @@ export function chuRefit(was: BodySpec, now: BodySpec): BodySpec {
   if (now.blocks !== was.blocks || now.overrides !== was.overrides || !chuLike(was) || !canSplitTorso(now)) return now;
   const fixed = (spec: BodySpec) => JSON.stringify([spec.counts.legs, spec.counts.breasts, spec.chestRow, spec.legLayout, spec.hipLegs, spec.bodyStyle]);
   if (fixed(was) !== fixed(now)) return now;
-  return sameBuild(chuBlocks(was), was) ? chuBlocks(now) : now;
+  if (!sameBuild(chuBlocks(was), was)) return now;
+  const next = chuBlocks(now);
+  // 以前存下来的（上半身还是九个胸腔各是各的那种）不趁机换成一整块
+  if (was.blocks?.trunk || !next.blocks?.trunk) return next;
+  const { trunk: _trunk, ...blocks } = next.blocks;
+  return { ...next, blocks };
 }
 

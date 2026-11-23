@@ -14,7 +14,7 @@ import { BONE_FIRST, BONE_LAST, BONE_STEP, ordinal } from './cloneNames';
 import { hostBoneAt } from './hostBone';
 import { isPelvis, isRibcage, isSplit, pelvisOf } from './pelvis';
 import { forkWarp } from '../sdf/fork';
-import { type V3, Q_ID, add, mul, quatBasis, quatConj, quatMul, rotate, sub } from './vec';
+import { type V3, Q_ID, add, mat3Apply, mul, quatBasis, quatConj, quatMul, rotate, sub } from './vec';
 
 /**
  * 复制出来的部件用的号：第 id 块是 100·id 加上原来的号（Arm_02_L 的第 1 份是 Arm_102_L）。
@@ -251,7 +251,7 @@ function moundReach(part: Part): number {
  * 是一个不变形的转动加挪动。同一个胸腔上的十几只胸摆在不同的高度，形状的参数就各不一样，要各烤一份
  * （sdf/grids.ts 的 chestDist，一份十几 MB、两秒）：楚云萱三十只胸有十六种，缓存装不下，每融合一次、每套一个姿势都在重烤。
  * 这里把那个转动、挪动算出来挪到部件自己的摆放上，形状里不留——摆出来和原来一模一样，三十只是同一种形状。
- * 在 refork 之后做（见 layout.ts 的 buildFigure）。部件被压扁拉长过的、分叉带着别的坐标系或者和旁边的上半身有分界的照旧不动
+ * 在 refork 之后做（见 layout.ts 的 buildFigure）。分叉带着别的坐标系或者和旁边的上半身有分界的照旧不动
  */
 export function plainPieces(figure: Figure): Figure {
   const out = new Float64Array(4);
@@ -259,7 +259,7 @@ export function plainPieces(figure: Figure): Figure {
   const parts = figure.parts.map((part): Part => {
     const shape = part.type === 'chest' ? part.prims.find((q): q is ChestShape => q.kind === 'chest') : undefined;
     const fork = shape?.piece ? shape.body.fork : undefined;
-    if (!shape || !fork || fork.freeze === undefined || fork.frame || fork.split?.length || shapeMatrix(part)) return part;
+    if (!shape || !fork || fork.freeze === undefined || fork.frame || fork.split?.length || part.stretch) return part;
     // 胸腔里的一点 x 退回去是 R·x + t：照四个点量出来
     const warp = forkWarp(fork);
     const at = (x: number, y: number, z: number): V3 => {
@@ -272,12 +272,16 @@ export function plainPieces(figure: Figure): Figure {
     // 部件里的一点 p 原来量的是 d(R·(p + o) + t)，现在量 d(p′ + o)：p′ = R·(p + o) + t − o，部件的摆放跟着换
     const quat = part.quat ?? Q_ID;
     const o = shape.origin;
-    const pos = add(part.pos, rotate(quat, mul(sub(rotate(back, sub(o, t)), o), part.scale ?? 1)));
+    // 手动微调压扁拉长过的（resize，沿 axes 这组轴）：部件里的一点先乘上 M 再转、挪，M 换成 R·M·R⁻¹——拉长的那组轴跟着转过去
+    const stretched = shapeMatrix(part);
+    const moved = sub(rotate(back, sub(o, t)), o);
+    const pos = add(part.pos, rotate(quat, mul(stretched ? mat3Apply(stretched, moved) : moved, part.scale ?? 1)));
     changed = true;
     return {
       ...part,
       pos,
       quat: quatMul(quat, back),
+      ...(part.resize ? { axes: quatMul(turn, part.axes ?? Q_ID) } : {}),
       prims: part.prims.map((q): Prim => (q === shape ? { ...q, body: { ...q.body, fork: undefined } } : q)),
     };
   });

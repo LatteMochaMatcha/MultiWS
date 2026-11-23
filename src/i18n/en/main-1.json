@@ -146,5 +146,6 @@
   "软": "Soft",
   "{side}边的上半身用哪个角色": "Character for the {side} upper body",
   "跟身子一样": "Same as body",
-  "角色「{label}」没载入成功，那个上半身先照身子的角色拼：{err}": "Couldn't load the character \"{label}\", so that upper body uses the body's character for now: {err}"
+  "角色「{label}」没载入成功，那个上半身先照身子的角色拼：{err}": "Couldn't load the character \"{label}\", so that upper body uses the body's character for now: {err}",
+  "楚云萱躯干的数据没载入成功，上半身先照九块拼：{err}": "Couldn't load the Chu Yunxuan torso data, so the upper body is built from nine ribcages for now: {err}"
 }

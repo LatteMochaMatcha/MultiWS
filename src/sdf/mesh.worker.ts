@@ -5,6 +5,7 @@
  */
 import '../polyfill';
 import { installAnimeBody } from '../anime/body';
+import { installChuTorso } from '../anime/chuTorso';
 import { installGenital } from '../anime/genital';
 import { type HairShape, installHairShape } from '../hair/shapes';
 import type { SkinWeights } from '../rig/skin';
@@ -32,6 +33,11 @@ export interface HairMessage {
 /** 开工前先送来的数据：阴囊的格子（见 anime/genital.ts） */
 export interface GenitalMessage {
   genital: ArrayBuffer;
+}
+
+/** 开工前先送来的数据：「楚云萱躯干」的格子（见 anime/chuTorso.ts） */
+export interface ChuTorsoMessage {
+  chuTorso: ArrayBuffer;
 }
 
 /** 界面送来的：连着几个帮手线程的端口 */
@@ -87,11 +93,12 @@ function link(port: MessagePort): HelperLink {
   return helper;
 }
 
-scope.onmessage = (event: MessageEvent<MeshRequest | ShapesMessage | HairMessage | GenitalMessage | HelpersMessage | CancelMessage | SpreadMessage | PhoneMessage>) => {
+scope.onmessage = (event: MessageEvent<MeshRequest | ShapesMessage | HairMessage | GenitalMessage | ChuTorsoMessage | HelpersMessage | CancelMessage | SpreadMessage | PhoneMessage>) => {
   const data = event.data;
   if ('shapes' in data) installAnimeBody(data.shapes);
   else if ('hair' in data) installHairShape(data.hair, data.data);
   else if ('genital' in data) installGenital(data.genital);
+  else if ('chuTorso' in data) installChuTorso(data.chuTorso);
   else if ('helpers' in data) helpers = data.helpers.map(link);
   else if ('cancel' in data) dropped ||= data.cancel === current;
   else if ('spread' in data) spread = data.spread;

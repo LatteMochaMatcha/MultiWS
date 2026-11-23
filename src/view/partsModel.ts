@@ -2,9 +2,10 @@
  * 把 Figure 变成 three.js 场景里的一组物体（分部件模式）：每个部件一个网格，父子关系照搬。
  * 几何体按形状缓存：拖滑块时只有形状真的变了的部件才重建；形状一样的部件（体块组装复制出来的胸、腿、胯）共用一份，
  * 不各算一遍（楚云萱九十块里三十只胸是同一种，各算一遍要十几秒）。
+ * 手动微调压扁拉长过的（resize）：先照没拉长的样子算一份（也是共用的），再把顶点拉伸过去——拉伸只是乘一个矩阵，不用重新采样。
  */
 import * as THREE from 'three';
-import type { Figure, Material, Part } from '../geometry/figure';
+import { type Figure, type Material, type Part, shapeMatrix } from '../geometry/figure';
 import { buildPartGeometry, triangleCount } from '../geometry/partsMesh';
 import { MATERIALS } from './materials';
 
@@ -19,9 +20,40 @@ export function shapeKey(part: Part): string {
   return `${JSON.stringify(part.prims)}|${part.stretch ?? ''}|${resize}`;
 }
 
+/** 没有手动拉伸时的样子（同一种形状拉伸得不一样的部件共用这一份）。带着现成的手的不算：手不跟着拉长，要整个重算（见 buildPartGeometry） */
+const unstretched = (part: Part): Part | null => {
+  if (!part.resize || part.grafts?.length) return null;
+  const { resize: _resize, axes: _axes, ...plain } = part;
+  return plain;
+};
+
 export class PartsModel {
   readonly root = new THREE.Group();
   private cache = new Map<string, THREE.BufferGeometry>();
+  /** 一共照形状算过几次网格（采样、抽面那种费时间的；拉伸现成的不算） */
+  builds = 0;
+
+  /** 这个部件的网格：缓存里有就用缓存的；压扁拉长过的拿没拉长的那一份拉伸过去 */
+  private geometryOf(part: Part, next: Map<string, THREE.BufferGeometry>): THREE.BufferGeometry {
+    const key = shapeKey(part);
+    const known = this.cache.get(key) ?? next.get(key);
+    if (known) {
+      next.set(key, known);
+      return known;
+    }
+    const plain = unstretched(part);
+    let geo: THREE.BufferGeometry;
+    if (plain) {
+      // 只有 resize 那一份：stretch 已经在没拉长的那一份里了（shapeMatrix 是先 stretch 再 resize）
+      const m = shapeMatrix({ resize: part.resize, axes: part.axes })!;
+      geo = this.geometryOf(plain, next).clone().applyMatrix4(new THREE.Matrix4().set(m[0], m[1], m[2], 0, m[3], m[4], m[5], 0, m[6], m[7], m[8], 0, 0, 0, 0, 1));
+    } else {
+      geo = buildPartGeometry(part);
+      this.builds++;
+    }
+    next.set(key, geo);
+    return geo;
+  }
 
   constructor() {
     this.root.name = 'OC_BaseMesh';
@@ -35,9 +67,7 @@ export class PartsModel {
     let triangles = 0;
 
     for (const part of figure.parts) {
-      const key = shapeKey(part);
-      const geo = this.cache.get(key) ?? next.get(key) ?? buildPartGeometry(part);
-      next.set(key, geo);
+      const geo = this.geometryOf(part, next);
       triangles += triangleCount(geo);
 
       const mesh = new THREE.Mesh(geo, MATERIALS[part.material]);
@@ -93,7 +123,8 @@ export class PartsModel {
     this.root.updateMatrixWorld(true);
     const out: BakedMesh[] = [];
     this.root.traverse((o) => {
-      if (!(o instanceof THREE.Mesh)) return;
+      // 没有形状的部件（「楚云萱躯干」另外八个胸腔的落脚处）不导出
+      if (!(o instanceof THREE.Mesh) || !(o.geometry as THREE.BufferGeometry).attributes.position.count) return;
       const geo = (o.geometry as THREE.BufferGeometry).clone().applyMatrix4(o.matrixWorld);
       const positions = new Float32Array(geo.attributes.position.array);
       const normals = new Float32Array(geo.attributes.normal.array);

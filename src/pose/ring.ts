@@ -109,13 +109,19 @@ function peopleOf(rig: Pick<PoseRig, 'names' | 'parent' | 'hips'>) {
 
 /**
  * 这个人脸朝哪（水平的单位向量）：脊柱（腰 → 脖子根）和脖子这两根线都在他的正中面里，和它们都垂直的是他的左右方向，
- * 再和脊柱垂直的就是脸朝的方向。没有脖子、两根线几乎平行看不出来的是 null
+ * 再和脊柱垂直的就是脸朝的方向。没有脖子、两根线几乎平行看不出来的是 null。
+ * chain（用体块拼的）：先照他自己脊柱的胸、上胸两节（也在正中面里，上胸往后仰一点）定左右——脖子可能被扳过
+ * （楚云萱两边的脖子扳成竖直的了，见 model/chu.ts），不在正中面里了；两节看不出来再照脖子
  */
-function facingOf(rig: Bones, root: number, top: (j: number) => number): V3 | null {
+function facingOf(rig: Bones, root: number, top: (j: number) => number, chain = false): V3 | null {
   const neck = rig.names.findIndex((name, j) => /^Neck/.test(name) && top(j) === root);
   if (neck < 0) return null;
   const spine = norm(sub(rig.head[neck], rig.head[root]));
-  const side = cross(spine, norm(sub(rig.tail[neck], rig.head[neck])));
+  const dir = (j: number) => norm(sub(rig.tail[j], rig.head[j]));
+  const chest = chain ? rig.names.findIndex((name, j) => /^Chest/.test(name) && top(j) === root) : -1;
+  const upper = chain ? rig.names.findIndex((name, j) => /^UpperChest/.test(name) && top(j) === root) : -1;
+  const bent = chest >= 0 && upper >= 0 ? cross(dir(upper), dir(chest)) : ([0, 0, 0] as V3);
+  const side = Math.hypot(bent[0], bent[1], bent[2]) > FACING ? bent : cross(spine, dir(neck));
   if (Math.hypot(side[0], side[1], side[2]) <= FACING) return null;
   const ahead = cross(norm(side), spine);
   const flat = Math.hypot(ahead[0], ahead[2]);
@@ -137,7 +143,7 @@ export function isBlockRig(rig: Bones): boolean {
 function backToBack(rig: Bones): boolean {
   const { top, roots } = peopleOf(rig);
   if (!roots.some((root) => copied(rig.names[root]))) return false;
-  const faces = roots.map((root) => facingOf(rig, root, top)).filter((f): f is V3 => f !== null);
+  const faces = roots.map((root) => facingOf(rig, root, top, true)).filter((f): f is V3 => f !== null);
   return faces.some((a, i) => faces.some((b, k) => k > i && a[0] * b[0] + a[2] * b[2] < 0));
 }
 
@@ -213,7 +219,7 @@ export function fitRing(solver: Solver, posing: Posing): Posing {
   const bodies = roots.map((root): Quat | null => {
     const top = names.findIndex((name, j) => /^Head/.test(name) && topOf(j) === root);
     const out = outward(head[root]);
-    const ahead = facingOf(solver.rig, root, topOf);
+    const ahead = facingOf(solver.rig, root, topOf, blocks);
     // 用体块拼的：量出来的就是（见文件开头）；量不出来的（没有头的光胸腔）没有要照朝向套的骨骼
     if (blocks ? !ahead : !out) return null;
     const y = top >= 0 ? norm(sub(head[top], head[root])) : ([0, 1, 0] as V3);

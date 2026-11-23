@@ -5,10 +5,11 @@
  */
 import '../polyfill';
 import { installAnimeBody } from '../anime/body';
+import { installChuTorso } from '../anime/chuTorso';
 import { installGenital } from '../anime/genital';
 import { installHairShape } from '../hair/shapes';
 import { onPhone } from './grids';
-import type { GenitalMessage, HairMessage, PhoneMessage, ShapesMessage } from './mesh.worker';
+import type { ChuTorsoMessage, GenitalMessage, HairMessage, PhoneMessage, ShapesMessage } from './mesh.worker';
 import { helperDesk } from './parallel';
 
 /** 界面送来的：一个连着网格 Worker 的端口 */
@@ -18,11 +19,12 @@ export interface PortMessage {
 
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 
-scope.onmessage = (event: MessageEvent<ShapesMessage | HairMessage | GenitalMessage | PortMessage | PhoneMessage>) => {
+scope.onmessage = (event: MessageEvent<ShapesMessage | HairMessage | GenitalMessage | ChuTorsoMessage | PortMessage | PhoneMessage>) => {
   const data = event.data;
   if ('shapes' in data) installAnimeBody(data.shapes);
   else if ('hair' in data) installHairShape(data.hair, data.data);
   else if ('genital' in data) installGenital(data.genital);
+  else if ('chuTorso' in data) installChuTorso(data.chuTorso);
   else if ('port' in data) listen(data.port);
   else if ('phone' in data) onPhone();
 };

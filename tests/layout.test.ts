@@ -68,7 +68,8 @@ function expectSound(f: Figure) {
     expect(p.prims.length).toBeGreaterThan(0);
   }
   expect(Number.isFinite(f.metrics.height)).toBe(true);
-  expect(f.scale).toBeGreaterThan(0.5);
+  // 身高调到最矮、躯干和腿又都调到最长时整个人缩得最小（躯干长短、腿长短都不改身高）
+  expect(f.scale).toBeGreaterThan(0.4);
   // 腿缩短以后身高还是设定的那么高：整个人放大一些
   expect(f.scale).toBeLessThan(2);
 }

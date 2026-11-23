@@ -4,6 +4,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { installAnimeBody } from '../src/anime/body';
+import { installChuTorso } from '../src/anime/chuTorso';
 import { worldTransforms } from '../src/geometry/figure';
 import { buildPartGeometry } from '../src/geometry/partsMesh';
 import { rotate } from '../src/geometry/vec';
@@ -13,7 +14,7 @@ import { CHU, chuBlocks, chuRefit, chuSpec } from '../src/model/chu';
 import { hidePart, setOverride } from '../src/model/overrides';
 import { PRESETS, applyPreset } from '../src/model/presets';
 import { POSE_LIBRARY } from '../src/pose/library';
-import { type BodySpec, defaultSpec, normalizeSpec } from '../src/model/spec';
+import { type BodySpec, defaultSpec, normalizeSpec, parseSpecJson } from '../src/model/spec';
 import { buildSkeleton } from '../src/rig/skeleton';
 import { figureBody } from './overview';
 import { type V3, frameFor, png, render } from './softRender';
@@ -92,6 +93,11 @@ export async function main(args: string[], root: string) {
   mkdirSync(dir, { recursive: true });
   const bytes = readFileSync(join(root, 'public/anime/body.bin'));
   installAnimeBody(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+  // 「楚云萱躯干」（上半身换成一整块，见 src/geometry/trunk.ts）；--notrunk 不装，照九个胸腔各是各的拼
+  if (!args.includes('--notrunk')) {
+    const trunk = readFileSync(join(root, 'public/anime/chu-torso.bin'));
+    installChuTorso(trunk.buffer.slice(trunk.byteOffset, trunk.byteOffset + trunk.byteLength) as ArrayBuffer);
+  }
   // --chu：临时改 CHU 里的数（试摆位用）
   if (opt('--chu')) Object.assign(CHU as Record<string, unknown>, JSON.parse(opt('--chu')!));
   const bodyStyle = (opt('--style') ?? 'anime') as BodySpec['bodyStyle'];
@@ -105,6 +111,8 @@ export async function main(args: string[], root: string) {
       : chuSpec(d);
   // --edit：套完预设以后照页面上「手动微调」的做法动一下（挪、转、放大、删、复制），几样用逗号隔开
   for (const key of (opt('--edit') ?? '').split(',').filter(Boolean)) spec = EDITS[key](spec);
+  // --file：不套预设，读一份工坊里存出来的 json（别人调过的楚云萱）
+  if (opt('--file')) spec = parseSpecJson(readFileSync(opt('--file')!, 'utf8'));
   let figure = buildFigure(spec);
   // --nochest：不要胸，看底下的身体
   if (args.includes('--nochest')) {

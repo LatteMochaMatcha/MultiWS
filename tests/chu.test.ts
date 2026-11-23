@@ -5,7 +5,7 @@ import { type Figure, worldTransforms } from '../src/geometry/figure';
 import { buildFigure } from '../src/geometry/layout';
 import { isPelvis } from '../src/geometry/pelvis';
 import { rotate } from '../src/geometry/vec';
-import { CHEST_ROWS, CHU, chuSpec } from '../src/model/chu';
+import { CHEST_ROWS, CHU, CHU_CHESTS, chuRefit, chuSpec } from '../src/model/chu';
 import { PRESETS, applyPreset } from '../src/model/presets';
 import { type BodySpec, defaultSpec, normalizeSpec } from '../src/model/spec';
 import { buildSkeleton } from '../src/rig/skeleton';
@@ -60,8 +60,10 @@ describe('楚云萱用体块拼', () => {
     for (const head of heads) {
       const { pos, quat } = at.get(head.name)!;
       const row = Math.sign(pos[2]);
-      expect(Math.abs(pos[2]), head.name).toBeCloseTo(CHU.headBack, 2);
-      expect([0, CHU.headApart].some((x) => Math.abs(Math.abs(pos[0]) - x) < 0.01), head.name).toBe(true);
+      expect(Math.abs(Math.abs(pos[2]) - CHU.headBack), head.name).toBeLessThan(0.015);
+      // 正中两个在正中；两边四个本来落在离正中 headApart 的地方，脖子扳成竖直以后（chu.ts 的 upright）往外让了几厘米
+      const x = Math.abs(pos[0]);
+      expect(x < 0.01 || (x > CHU.headApart && x < CHU.headApart + 0.06), head.name).toBe(true);
       // 脸朝自己那一排的外面
       expect(rotate(quat, [0, 0, 1])[2] * row, head.name).toBeGreaterThan(0.5);
     }
@@ -88,7 +90,7 @@ describe('楚云萱用体块拼', () => {
     }
   });
 
-  it('胸前后两面各 15 只：从上到下 6、5、4 只，隔一排错开，都是整只的原胸型（不是圆包）；照各自的胸腔往外撇、绕到身子两侧', () => {
+  it('胸前后两面各 15 只：从上到下 6、5、4 只，都是整只的原胸型；照他手调好的那一面摆，前面和背面一样', () => {
     const chests = of(figure, 'chest');
     expect(chests).toHaveLength(30);
     for (const p of chests) {
@@ -99,67 +101,48 @@ describe('楚云萱用体块拼', () => {
       // 挂在一个带头的胸腔上，跟着它动
       expect(isRib(figure.parts.find((q) => q.name === p.parent)!), p.name).toBe(true);
     }
-    for (const side of [1, -1]) {
-      const face = chests.filter((p) => Math.sign(at.get(p.name)!.pos[2]) === side).sort((a, b) => at.get(b.name)!.pos[1] - at.get(a.name)!.pos[1]);
+    const faces = [1, -1].map((side) => chests.filter((p) => Math.sign(at.get(p.name)!.pos[2]) === side).sort((a, b) => at.get(b.name)!.pos[1] - at.get(a.name)!.pos[1]));
+    for (const face of faces) {
       expect(face).toHaveLength(15);
-      // 从高到低分成 6、5、4 只的三排，每排里从左到右
+      // 从高到低分成 6、5、4 只的三排，一排比一排低
       let from = 0;
-      const rows = CHEST_ROWS.map((count) => face.slice(from, (from += count)).sort((a, b) => at.get(a.name)!.pos[0] - at.get(b.name)!.pos[0]));
-      const xOf = (p: { name: string }) => at.get(p.name)!.pos[0];
+      const rows = CHEST_ROWS.map((count) => face.slice(from, (from += count)));
       const yOf = (p: { name: string }) => at.get(p.name)!.pos[1];
-      /** 这只胸的脸朝哪 */
-      const out = (p: { name: string }) => rotate(at.get(p.name)!.quat, [0, 0, 1]);
       rows.forEach((row, r) => {
-        // 一排差不多一样高，和下一排分得开
-        expect(Math.max(...row.map(yOf)) - Math.min(...row.map(yOf))).toBeLessThan(0.03);
-        if (r > 0) expect(Math.min(...rows[r - 1].map(yOf)) - Math.max(...row.map(yOf))).toBeGreaterThan(0.1);
-        // 左右对称，一只挨一只（不叠在一起、也不隔开一只多）
-        row.forEach((p, i) => expect(xOf(p) + xOf(row[row.length - 1 - i]), p.name).toBeCloseTo(0, 2));
-        for (let i = 1; i < row.length; i++) {
-          expect(xOf(row[i]) - xOf(row[i - 1]), row[i].name).toBeGreaterThan(0.08);
-          // 一只胸鼓出来的那一块二十厘米上下宽（第二排照 chestGrow 放大了）：一只挨一只，中间不露身体
-          expect(xOf(row[i]) - xOf(row[i - 1]), row[i].name).toBeLessThan(0.2 * CHU.chestGrow[r]);
-        }
-        // 和上一排错开：每只都在上一排相邻两只的中间（两头那只绕到侧面去了，从正面量不出来，不算）
-        if (r > 0) row.slice(1, -1).forEach((p, n) => {
-          expect(xOf(p), p.name).toBeGreaterThan(xOf(rows[r - 1][n + 1]));
-          expect(xOf(p), p.name).toBeLessThan(xOf(rows[r - 1][n + 2]));
-        });
-        // 上面两排排到身子两边（外扩）：两头那只在两头那副胯的正前方；最下面一排不放大、往中间收到挨着，窄一些
-        expect(xOf(row[row.length - 1]), `第 ${r + 1} 排`).toBeGreaterThan(r < 2 ? 0.3 : 0.25);
-        // 脸朝这一面的外面；越靠两头越往外撇，两头那只朝着旁边——上面两排的快到正侧面了（七十多度），最下面一排五十多度
-        const half = row.slice(Math.floor(row.length / 2));
-        for (const p of row) expect(out(p)[2] * side, p.name).toBeGreaterThan(0.1);
-        // （长在从胯上渐渐分出去的胸腔上的胸，部件的摆放里带着那一段在它那个高度上退回去的一点转动，见 clone.ts 的 plainPieces：
-        //   和摆位时定的朝向差几度，所以相邻两只之间让 0.15）
-        for (let i = 1; i < half.length; i++) expect(out(half[i])[0], half[i].name).toBeGreaterThan(out(half[i - 1])[0] - 0.15);
-        // 正面第二排两头那只实际只撇到三十多度：它长在从胯上渐渐分出去的胸腔上、摆在腰那么高，那一段在这个高度上还没分足，
-        // 把它往回转了四十来度（他认可的图里就是这样，没动；背面的胸腔是整块接的，没有这回事）
-        const turned = r === 1 && side > 0 ? 0.5 : r < 2 ? 0.9 : 0.6;
-        expect(out(row[row.length - 1])[0], `第 ${r + 1} 排`).toBeGreaterThan(turned);
-        expect(out(row[0])[0], `第 ${r + 1} 排`).toBeLessThan(-turned);
-        // 每排多大照 chestGrow：第二排大一点，最下面一排和第一排一样大
-        for (const p of row) expect(figure.parts.find((q) => q.name === p.name)!.scale, p.name).toBeCloseTo(CHU.chestScale * CHU.chestGrow[r], 9);
+        expect(Math.max(...row.map(yOf)) - Math.min(...row.map(yOf)), `第 ${r + 1} 排`).toBeLessThan(0.08);
+        if (r > 0) expect(Math.min(...rows[r - 1].map(yOf)) - Math.max(...row.map(yOf)), `第 ${r + 1} 排`).toBeGreaterThan(0.03);
       });
     }
+    // 后排是前排整个绕竖轴转了半圈：前面每一只在背面都有一只在转过去的那个位置上
+    // （前排的胸腔是从胯上渐渐分出去的，带着那一段退回去的一点挪动，见 clone.ts 的 plainPieces：差两三厘米）
+    for (const p of faces[0]) {
+      const [x, y, z] = at.get(p.name)!.pos;
+      const twin = Math.min(...faces[1].map((q) => Math.hypot(at.get(q.name)!.pos[0] + x, at.get(q.name)!.pos[1] - y, at.get(q.name)!.pos[2] + z)));
+      expect(twin, p.name).toBeLessThan(0.05);
+    }
+    // 位置、朝向、大小是照抄的：每一只的微调就是 CHU_CHESTS 里的那一条，前后两面各用一遍
+    const tuned = Object.entries(spec.overrides).filter(([name, o]) => /^Chest_/.test(name) && !o.hidden);
+    expect(tuned).toHaveLength(30);
+    for (const e of CHU_CHESTS) expect(tuned.filter(([, o]) => JSON.stringify(o.scale) === JSON.stringify(e.scale) && JSON.stringify(o.rotation) === JSON.stringify(e.rotation) && JSON.stringify(o.position) === JSON.stringify(e.position)).length % 2, JSON.stringify(e)).toBe(0);
     // 每个胸腔本来正中的那一只都不要了
     expect(Object.entries(spec.overrides).filter(([name, o]) => /^Chest_/.test(name) && o.hidden)).toHaveLength(9);
   });
 
-  it('上半身不拉长：胸腔上不排胸，头和只有一排胸的人一样高；最下面一排胸的中心在大腿根那么高', () => {
+  it('上半身和腿一样长：躯干在小腹那一段接长（躯干长短），身高还是设定的那么高；最下面一排胸在屁股上面', () => {
+    expect(spec.shape.torso).toBeGreaterThan(1.2);
+    expect(figure.metrics.height).toBeCloseTo(spec.shape.height, 1);
+    // 头顶到裆、裆到地面（米）：裆比髋关节低四五厘米
     const hipY = Math.max(...of(figure, 'leg').filter((p) => p.parent === undefined).map((p) => at.get(p.name)!.pos[1]));
-    const ys = of(figure, 'chest').map((p) => at.get(p.name)!.pos[1]);
-    // 裆比髋关节低几厘米：最下面一排的中心比髋关节高 chestLow
-    // （同上，带着退回去的那一点挪动：差不到一厘米）
-    expect(Math.abs(Math.min(...ys) - hipY - CHU.chestLow * figure.scale)).toBeLessThan(0.01);
+    const crotch = hipY - 0.045;
     const top = Math.max(...of(figure, 'head').map((p) => at.get(p.name)!.pos[1])) + 0.11;
-    expect(hipY / top).toBeGreaterThan(0.52);
-    const single = buildFigure(normalizeSpec({ ...base(), counts: { ...base().counts, breasts: 2 }, shape: spec.shape }));
-    const natural = worldTransforms(single);
-    expect(Math.abs(top - 0.11 - natural.get('Head_01')!.pos[1])).toBeLessThan(0.03);
-    // 最上面一排比本来的胸口高 chestTop
-    const chest = single.parts.find((p) => p.type === 'chest')!;
-    expect(Math.max(...ys) - natural.get(chest.name)!.pos[1]).toBeCloseTo(CHU.chestTop * figure.scale, 2);
+    expect(Math.abs(top - crotch - crotch)).toBeLessThan(0.06);
+    // 屁股最鼓的地方在髋关节上下：最下面一排胸的中心比髋关节高出十厘米以上，不压在屁股上
+    const ys = of(figure, 'chest').map((p) => at.get(p.name)!.pos[1]);
+    expect(Math.min(...ys) - hipY).toBeGreaterThan(0.1);
+    // 躯干长短调回 1（照体块平常的规矩重新摆）：胸跟着胸口落回去，又到胯那么高了
+    const short = buildFigure(chuRefit(spec, { ...spec, shape: { ...spec.shape, torso: 1 } }));
+    const low = Math.min(...of(short, 'chest').map((p) => worldTransforms(short).get(p.name)!.pos[1]));
+    expect(low - Math.max(...of(short, 'leg').filter((p) => p.parent === undefined).map((p) => worldTransforms(short).get(p.name)!.pos[1]))).toBeLessThan(0.08);
   });
 
   it('静止时没有穿模报警；骨架只有一根根骨骼', () => {
@@ -171,7 +154,9 @@ describe('楚云萱用体块拼', () => {
 
   it('转过去的胸腔（中间一排两头、后排）整块接在胯上，腰不拧；没转多少的（前排、中间一排正中）还是从胯上渐渐分出去', () => {
     const forked = (name: string) => figure.parts.find((p) => p.name === name)!.prims.some((q) => (q.kind === 'grid' || q.kind === 'loft') && !!q.fork);
-    const entries = Object.entries(spec.blocks!.attach!);
+    // 只看胸腔的（另外有四只胸是整只缝在胸腔上的，见下一条）
+    const entries = Object.entries(spec.blocks!.attach!).filter(([name]) => /^UpperBody/.test(name));
+    expect(entries).toHaveLength(9);
     expect(entries.filter(([, a]) => a.whole)).toHaveLength(5);
     for (const [name, a] of entries) {
       // 相对它那副胯转了多少：胸腔自己的正前在胯的正前上还剩多少
@@ -190,7 +175,9 @@ describe('楚云萱用体块拼', () => {
     expect(spec.blocks!.added.filter((b) => b.from === 'UpperBody')).toHaveLength(8);
     // 30 只胸都是照胸腔正中那只整只复制的
     expect(spec.blocks!.added.filter((b) => b.piece)).toHaveLength(30);
-    expect(Object.keys(spec.blocks!.attach ?? {})).toHaveLength(9);
+    // 九个胸腔各接在自己那副胯上；每面第二排两头那只胸是整只缝在胸腔上的（他手调时接上去的），前后一共四只
+    expect(Object.keys(spec.blocks!.attach ?? {}).filter((name) => /^UpperBody/.test(name))).toHaveLength(9);
+    expect(Object.keys(spec.blocks!.attach ?? {}).filter((name) => /^Chest_/.test(name))).toHaveLength(4);
     // 存成设定再读回来还是一样的
     expect(buildFigure(normalizeSpec(JSON.parse(JSON.stringify(spec)))).parts.length).toBe(figure.parts.length);
   });

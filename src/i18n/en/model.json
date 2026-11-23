@@ -127,6 +127,7 @@
   "胯宽": "Hip width",
   "四肢粗细": "Limb thickness",
   "大腿粗细": "Thigh thickness",
+  "躯干长短": "Torso length",
   "手臂长短": "Arm length",
   "腿长短": "Leg length",
   "尾巴蓬松": "Tail fluffiness",
@@ -258,5 +259,7 @@
   "ピカピカ": "Pikapika",
   "加{n}@@手工复制出来的部件": "+{n}",
   "胸腔@@躯干分成两块时上面那块": "Ribcage",
-  "胯和小腹": "Pelvis and lower belly"
+  "胯和小腹": "Pelvis and lower belly",
+  "楚云萱躯干数据": "Chu Yunxuan torso data",
+  "楚云萱躯干": "Chu Yunxuan torso"
 }

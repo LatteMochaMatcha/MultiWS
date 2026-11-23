@@ -20,6 +20,7 @@ import { ringAt, smoothRings } from './torso';
 import { SLOT_SIDE, refork, seatRibcages, splitTorsos, torsoSlots } from './torsos';
 import { conjoin } from './conjoined';
 import { liveAttach, rehost, withAttach } from './attach';
+import { TRUNK_PART, trunkOverrides, wantsTrunk, withTrunk } from './trunk';
 import { cloneRootName, plainPieces, withBlocks } from './clone';
 import { ringBuild, ringRows } from './ring';
 
@@ -817,7 +818,16 @@ export function beforeAttach(spec: BodySpec): Figure {
 }
 
 /** 摆位，再套上手动微调：界面、网格、导出用的都是这个结果 */
-export function buildFigure(spec: BodySpec): Figure {
+export function buildFigure(given: BodySpec): Figure {
+  if (!wantsTrunk(given) || !given.overrides[TRUNK_PART]) return withTrunk(tweaked(given), given).figure;
+  // 上半身要换成一整块（「楚云萱躯干」，见 trunk.ts）：它自己的手动微调在换好以后才套，整个上半身一起走
+  const { [TRUNK_PART]: _own, ...rest } = given.overrides;
+  const swapped = withTrunk(tweaked({ ...given, overrides: rest }), given);
+  return swapped.ghosts.length ? applyOverrides(swapped.figure, trunkOverrides(given.overrides, swapped.ghosts)) : tweaked(given);
+}
+
+/** 摆位、套上手动微调（上半身还没换成一整块的） */
+function tweaked(spec: BodySpec): Figure {
   const figure = planFigure(spec);
   // 手动挪过、转过的上半身：从胯上分出去的那一段跟着改（见 torsos.ts）；接出去的部件、复制出来的胸照最后的位置定骨骼接在哪
   const attached = new Set(liveAttach(figure, spec.blocks?.attach).keys());
