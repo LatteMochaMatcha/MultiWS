@@ -7,7 +7,7 @@
 import { animeReady } from '../anime/body';
 import { type Part, worldTransforms } from '../geometry/figure';
 import { buildFigure } from '../geometry/layout';
-import { type Quat, type V3, add, eulerOf, norm, quatBetween, quatConj, quatEuler, quatMul, rotate, sub } from '../geometry/vec';
+import { type Quat, type V3, add, eulerOf, mul, norm, quatBetween, quatConj, quatEuler, quatMul, rotate, sub } from '../geometry/vec';
 import { castRay, compileField } from '../sdf/field';
 import { addBlock, canSplitTorso, setSplitTorso } from './blocks';
 import { type Attached, type BodySpec, type PartOverride, clampShape, cleanOverride } from './spec';
@@ -28,11 +28,20 @@ export const CHU = {
   /** 中间一排两头的光胸腔：后背朝外，往中间歪多少度 */
   midInward: 10,
   /**
-   * 留下的三条手臂从上到下各抬多少度（从水平算，往上为正），各往自己那一排（前排往前、后排往后）偏多少度：前后两把分得开。
-   * 最上面一排两头那只胸绕到了肩膀底下的侧面，最下面那条手臂抬到差不多水平、从它上面伸出去（再往下就从胸里穿过去了）
+   * 留下的三条手臂从上到下各抬多少度（从水平算，往上为正），各往自己那一排（前排往前、后排往后）偏多少度。
+   * 试玩的人要「统一向斜下方」「再分开一点」：三条都往下斜，从上到下一条比一条斜（扇开），再往前后分开（上面那条分得最开）；
+   * 往前后分得少了，上面两条手臂根会扎进躯干两侧（躯干上窄下宽）；最下面那条再斜，手就碰到胯了
    */
-  arms: [40, 16, -8],
-  armFront: [14, 5, 0],
+  arms: [-18, -34, -50],
+  armFront: [38, 22, 6],
+  /** 上半身（头顶到裆）是腿（裆到地面）的多少倍：参考线稿差不多一样长，试玩的人说再短一成 */
+  upper: 0.9,
+  /**
+   * 两边的胸腔（腰）离正中多远：一列胯隔多远的多少倍（1 是正坐在自己那副胯上）。
+   * 参考图每一面上半身只有两个胸腔宽、跨在三副胯上（上窄下宽）：两边的往里挪半列，正中那个只托着头、脖子、胸，
+   * 烤「楚云萱躯干」时不出形状（见 tools/build-chu-torso.ts）
+   */
+  ribX: 0.35,
 };
 
 /**
@@ -43,7 +52,7 @@ export const CHU_BODY = {
   counts: { torsos: 1, heads: 1, armPairs: 3, breasts: 1, legs: 2 },
   armLayout: 'fan',
   chestRow: 1,
-  shape: { height: 1.98, headRatio: 7.5, build: 1.1, bust: 3.4, hips: 1, thighs: 1.45, armLength: 1.19, legLength: 1.2 },
+  shape: { height: 1.98, headRatio: 7.5, build: 1.1, bust: 3.4, hips: 1, thighs: 1.45, armLength: 1.6, legLength: 1.2 },
 } as const;
 
 /** 一面的一只胸：挂在哪一列的胸腔上（背面那一面的；前面是对面那一列），照那个胸腔正中那只原胸型挪多少、再怎么微调，有的还整只缝在胸腔上 */
@@ -135,7 +144,7 @@ function hipBulk(parts: readonly Part[]): { wide: number; thick: number } {
 }
 
 /**
- * 一副没拼体块的身体（一个头、直着站）头顶到裆比裆到地面长多少（负的是短）。
+ * 一副没拼体块的身体（一个头、直着站）头顶到裆比裆到地面的 CHU.upper 倍长多少（负的是短）。
  * 头顶是从头的正上方照下来碰到的地方；裆只量胯自己的底——大腿粗的时候两条腿在膝盖上面一点就并在一起了，连腿一起量会量到那里去
  */
 function upperOverLegs(spec: BodySpec): number | null {
@@ -152,11 +161,11 @@ function upperOverLegs(spec: BodySpec): number | null {
   if (!(above < FAR && below < FAR)) return null;
   const top = head[1] + 1 - above;
   const crotch = below - 0.5;
-  return top - crotch - crotch;
+  return top - crotch - CHU.upper * crotch;
 }
 
 /**
- * 「躯干长短」取多少，上半身和腿才一样长（头顶到裆 = 裆到地面，参考的线稿就是这个比例）：三排胸排在肩膀和裆之间，
+ * 「躯干长短」取多少，上半身是腿的 CHU.upper 倍（头顶到裆 : 裆到地面）：三排胸排在肩膀和裆之间，
  * 最下面一排不压在屁股上。躯干是在小腹那一段接长的（见 animeLayout.ts 的 TORSO_BAND），差多少和滑块是一条直线，量两个值就解得出
  */
 function evenTorso(spec: BodySpec): number {
@@ -166,8 +175,8 @@ function evenTorso(spec: BodySpec): number {
   return Math.round((1 - (a * 0.3) / (b - a)) * 100) / 100;
 }
 
-/** 躯干分成两块、手工的体块清空以后，照前后排的样子把胯、胸腔一块一块复制出来摆好 */
-export function chuBlocks(given: BodySpec): BodySpec {
+/** 躯干分成两块、手工的体块清空以后，照前后排的样子把胯、胸腔一块一块复制出来摆好（ribX 见 CHU.ribX） */
+export function chuBlocks(given: BodySpec, ribX = CHU.ribX): BodySpec {
   // 连体、围成一圈、每个上半身单独设的数量和体块拼不到一起：先去掉
   const base: BodySpec = { ...given, conjoined: 'none', ring: 'none', torsoCounts: {} };
   if (!buildable(base)) return given;
@@ -249,6 +258,8 @@ export function chuBlocks(given: BodySpec): BodySpec {
     return dir;
   };
   const attach: Record<string, Attached> = {};
+  /** 往里挪过的胸腔没挪的话接在哪（见 CHU.ribX）：挂在它上面的胸照这个摆，留在原来的地方 */
+  const unmoved = new Map<string, Attached>();
   /** 每个胸腔：名字、在哪一列、哪一排 */
   const ribs: { name: string; cx: number; rz: number }[] = [];
   ROWS.forEach((rz, r) => {
@@ -260,11 +271,17 @@ export function chuBlocks(given: BodySpec): BodySpec {
         name = made.names[0];
       }
       ribs.push({ name, cx, rz });
+      // 两边的胸腔往里挪多少（胯的左右方向，胯只绕左右的轴斜，挪的方向不变）
+      const inward = -cx * stepX * (1 - ribX);
       if (rz !== 0) {
         const yaw = rz > 0 ? cx * CHU.yaw * DEG : Math.PI - cx * CHU.yaw * DEG;
+        const tilt = quatEuler(-rz * CHU.legLean * DEG, 0, 0);
+        const dz = rz * (CHU.headBack - stepZ - drift) - waist[2];
         // 头要落在哪（离这副胯的腰多远）：左右离正中 headApart（正中那列就在正中）、前后离正中 headBack
-        attach[name] = seated(pelvis[r][c], yaw, aimed(yaw, quatEuler(-rz * CHU.legLean * DEG, 0, 0), cx * (CHU.headApart - stepX) - waist[0], rz * (CHU.headBack - stepZ - drift) - waist[2]));
+        attach[name] = seated(pelvis[r][c], yaw, aimed(yaw, tilt, cx * CHU.headApart - (cx * stepX + inward) - waist[0], dz));
+        if (inward) unmoved.set(name, seated(pelvis[r][c], yaw, aimed(yaw, tilt, cx * (CHU.headApart - stepX) - waist[0], dz)));
       } else attach[name] = seated(pelvis[r][c], (-cx * Math.PI) / 2, [-cx * Math.tan(CHU.midInward * DEG), 1, 0]);
+      attach[name] = { ...attach[name], pos: add(attach[name].pos, [inward, 0, 0]) };
     });
   });
   spec = { ...spec, blocks: { ...spec.blocks!, attach }, overrides: { ...spec.overrides, ...overrides } };
@@ -290,6 +307,8 @@ export function chuBlocks(given: BodySpec): BodySpec {
   const sources = new Map(heads.map((b) => [b.name, figure.parts.find((p) => p.parent === b.name && p.type === 'chest')]));
   const turned: Record<string, PartOverride> = {};
   const sewn: Record<string, Attached> = {};
+  /** 挂在往里挪过的胸腔上的胸 */
+  const shifted: string[] = [];
   for (const rz of [1, -1]) {
     const row = heads.filter((b) => b.rz === rz);
     if (row.some((b) => !sources.get(b.name))) continue;
@@ -300,7 +319,17 @@ export function chuBlocks(given: BodySpec): BodySpec {
       const made = addBlock(spec, [{ from: source.name, shift: e.shift, plain: true, piece: true }]);
       spec = made.spec;
       turned[made.names[0]] = { ...(e.position && { position: e.position }), ...(e.rotation && { rotation: e.rotation }), scale: e.scale };
-      if (e.sewn) sewn[made.names[0]] = { to: host.name, pos: add(source.pos, e.sewn.offset), quat: e.sewn.quat, scale: e.sewn.scale };
+      const at: Attached = e.sewn
+        ? { to: host.name, pos: add(source.pos, e.sewn.offset), quat: e.sewn.quat, scale: e.sewn.scale }
+        : { to: host.name, pos: add(source.pos, e.shift), quat: source.quat, scale: source.scale ?? 1 };
+      // 胸腔往里挪过的（CHU.ribX）：照它没挪时的样子摆，换算到挪过的胸腔上——这只胸留在原来的地方，不跟着叠到旁边那只里去
+      const was = unmoved.get(host.name);
+      const now = attach[host.name];
+      if (was && now) {
+        const back = quatConj(now.quat);
+        sewn[made.names[0]] = { ...at, pos: rotate(back, add(sub(was.pos, now.pos), rotate(was.quat, at.pos))), quat: quatMul(quatMul(back, was.quat), at.quat) };
+        shifted.push(made.names[0]);
+      } else if (e.sewn) sewn[made.names[0]] = at;
     }
     for (const b of row) hidden[sources.get(b.name)!.name] = { hidden: true };
   }
@@ -348,8 +377,30 @@ export function chuBlocks(given: BodySpec): BodySpec {
     const clean = cleanOverride(o);
     if (clean) tidy[name] = clean;
   }
+  spec = { ...spec, overrides: tidy };
+  // 挂在往里挪过的胸腔上的胸：上面照胸腔没挪时换算过来，可缝在腰上那一段的（跟着胯渐渐弯）还差几厘米。
+  // 照没挪的摆法实际拼一遍，量出每只原来在哪，差多少挪多少（复制的胸名字两边一样，加的先后一样）
+  if (shifted.length) {
+    const old = chuBlocks(given, 1);
+    const ref = buildFigure({ ...old, blocks: { ...old.blocks!, trunk: undefined } });
+    const was = worldTransforms({ parts: ref.parts, scale: 1 });
+    // 缝的地方是弯的，挪一次还差一两厘米：挪三次
+    for (let round = 0; round < 3; round++) {
+      const now = worldTransforms({ parts: buildFigure(spec).parts, scale: 1 });
+      const fixed: Record<string, Attached> = {};
+      for (const name of shifted) {
+        const a = was.get(name);
+        const b = now.get(name);
+        const at = spec.blocks!.attach![name];
+        const host = now.get(at.to);
+        if (!a || !b || !host) continue;
+        fixed[name] = { ...at, pos: add(at.pos, mul(rotate(quatConj(host.quat), sub(a.pos, b.pos)), 1 / host.scale)) };
+      }
+      spec = { ...spec, blocks: { ...spec.blocks!, attach: { ...spec.blocks!.attach, ...fixed } } };
+    }
+  }
   // 二次元素体上整个上半身换成一整块「楚云萱躯干」（数据取回来以后；见 geometry/trunk.ts）
-  return { ...spec, blocks: { ...spec.blocks!, ...(spec.bodyStyle === 'anime' && { trunk: 'chu' as const }) }, overrides: tidy };
+  return { ...spec, blocks: { ...spec.blocks!, ...(spec.bodyStyle === 'anime' && { trunk: 'chu' as const }) } };
 }
 
 /* ---------------- 套完以后又拖了体型滑块：照新的体型重新摆 ---------------- */

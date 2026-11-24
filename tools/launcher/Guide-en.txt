@@ -142,7 +142,8 @@ Section by section:
                      on the Anime body: nine pelvises, nine ribcages, twelve arms and thirty breasts, each of
                      which can be selected, moved, rotated or deleted under Manual tweak.
                      The whole upper body is one piece, "Chu Yunxuan torso": select it under Manual tweak to
-                     move, rotate or scale it as a whole. The upper body is as long as the legs.
+                     move, rotate or scale it as a whole. The upper body is a little shorter than the legs;
+                     each side has two ribcages and narrows towards the top; all arms point down and out.
                      If you then drag a body-shape slider or change the number of heads or arms, the blocks are
                      arranged again to fit; once you have edited a block by hand they are no longer re-arranged.
                      On the Mannequin and ready-made characters it uses the "Front-and-back rows" ring layout.

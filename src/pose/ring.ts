@@ -54,6 +54,8 @@ const SPINE_PART = /^(Spine|Chest|UpperChest)$/;
 const CENTER = 0.03;
 /** 脊柱和脖子这两根线的夹角的正弦不到这么多的，看不出这个人脸朝哪：照从圈心朝外 */
 const FACING = 0.05;
+/** 一侧好几条手臂挑哪条照姿势摆：离姿势要的方向差不到这么多弧度（1°）的算一样近 */
+const TIE = 0.0175;
 
 /** 胯：Hips，和手工复制出来的那几副（Hips.101 …，见 geometry/cloneNames.ts） */
 const PELVIS = /^Hips(\.\d{3})?$/;
@@ -302,7 +304,10 @@ export function fitRing(solver: Solver, posing: Posing): Posing {
         const rest = way(upper, lowerOf(upper)!);
         return Math.acos(Math.max(-1, Math.min(1, rest[0] * want[0] + rest[1] * want[1] + rest[2] * want[2])));
       };
-      const lead = column.reduce((a, b) => (off(b) < off(a) ? b : a));
+      // 差不到 TIE 的算一样近，挑排在前面的那一条：前后排对着的两组（一组朝前、一组朝后）摆位只差一点点，
+      // 两条差不多近的时候各挑各的，一组就整个比另一组高一档
+      const least = Math.min(...column.map(off));
+      const lead = column.find((upper) => off(upper) <= least + TIE)!;
       // 这一组第一条上的每根骨骼：最接近的那条正好摆成这样，别的相对自己静止时转同样多
       const told = Object.entries(bones).filter(([name]) => ARM_PART.exec(baseName(name))?.[3] === tag && suffixOf2(name) === suffixOf(first));
       for (const [name, pose] of told) {

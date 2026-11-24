@@ -60,10 +60,13 @@ describe('楚云萱用体块拼', () => {
     for (const head of heads) {
       const { pos, quat } = at.get(head.name)!;
       const row = Math.sign(pos[2]);
-      expect(Math.abs(Math.abs(pos[2]) - CHU.headBack), head.name).toBeLessThan(0.015);
+      // 两边的胸腔往里挪了半列（CHU.ribX），头的前后跟着差一两厘米
+      expect(Math.abs(Math.abs(pos[2]) - CHU.headBack), head.name).toBeLessThan(0.025);
       // 正中两个在正中；两边四个本来落在离正中 headApart 的地方，脖子扳成竖直以后（chu.ts 的 upright）往外让了几厘米
       const x = Math.abs(pos[0]);
-      expect(x < 0.01 || (x > CHU.headApart && x < CHU.headApart + 0.06), head.name).toBe(true);
+      // （每面两个胸腔的时候两边的胸腔差不多直着，脖子本来就差不多竖直，几乎不让）
+      // （往里挪得多的时候脖子扳竖直反而往里收两三厘米）
+      expect(x < 0.01 || (x > CHU.headApart - 0.03 && x < CHU.headApart + 0.06), head.name).toBe(true);
       // 脸朝自己那一排的外面
       expect(rotate(quat, [0, 0, 1])[2] * row, head.name).toBeGreaterThan(0.5);
     }
@@ -118,7 +121,7 @@ describe('楚云萱用体块拼', () => {
     for (const p of faces[0]) {
       const [x, y, z] = at.get(p.name)!.pos;
       const twin = Math.min(...faces[1].map((q) => Math.hypot(at.get(q.name)!.pos[0] + x, at.get(q.name)!.pos[1] - y, at.get(q.name)!.pos[2] + z)));
-      expect(twin, p.name).toBeLessThan(0.05);
+      expect(twin, p.name).toBeLessThan(0.06);
     }
     // 位置、朝向、大小是照抄的：每一只的微调就是 CHU_CHESTS 里的那一条，前后两面各用一遍
     const tuned = Object.entries(spec.overrides).filter(([name, o]) => /^Chest_/.test(name) && !o.hidden);
@@ -128,14 +131,14 @@ describe('楚云萱用体块拼', () => {
     expect(Object.entries(spec.overrides).filter(([name, o]) => /^Chest_/.test(name) && o.hidden)).toHaveLength(9);
   });
 
-  it('上半身和腿一样长：躯干在小腹那一段接长（躯干长短），身高还是设定的那么高；最下面一排胸在屁股上面', () => {
+  it('上半身是腿的 CHU.upper 倍：躯干在小腹那一段接长（躯干长短），身高还是设定的那么高；最下面一排胸在屁股上面', () => {
     expect(spec.shape.torso).toBeGreaterThan(1.2);
     expect(figure.metrics.height).toBeCloseTo(spec.shape.height, 1);
     // 头顶到裆、裆到地面（米）：裆比髋关节低四五厘米
     const hipY = Math.max(...of(figure, 'leg').filter((p) => p.parent === undefined).map((p) => at.get(p.name)!.pos[1]));
     const crotch = hipY - 0.045;
     const top = Math.max(...of(figure, 'head').map((p) => at.get(p.name)!.pos[1])) + 0.11;
-    expect(Math.abs(top - crotch - crotch)).toBeLessThan(0.06);
+    expect(Math.abs(top - crotch - CHU.upper * crotch)).toBeLessThan(0.06);
     // 屁股最鼓的地方在髋关节上下：最下面一排胸的中心比髋关节高出十厘米以上，不压在屁股上
     const ys = of(figure, 'chest').map((p) => at.get(p.name)!.pos[1]);
     expect(Math.min(...ys) - hipY).toBeGreaterThan(0.1);
@@ -177,7 +180,8 @@ describe('楚云萱用体块拼', () => {
     expect(spec.blocks!.added.filter((b) => b.piece)).toHaveLength(30);
     // 九个胸腔各接在自己那副胯上；每面第二排两头那只胸是整只缝在胸腔上的（他手调时接上去的），前后一共四只
     expect(Object.keys(spec.blocks!.attach ?? {}).filter((name) => /^UpperBody/.test(name))).toHaveLength(9);
-    expect(Object.keys(spec.blocks!.attach ?? {}).filter((name) => /^Chest_/.test(name))).toHaveLength(4);
+    // 缝在胸腔上的 4 只，加上挂在往里挪过的胸腔上、照原位换算过去的 8 只（chu.ts 的 shifted；有 4 只两样都是）
+    expect(Object.keys(spec.blocks!.attach ?? {}).filter((name) => /^Chest_/.test(name))).toHaveLength(8);
     // 存成设定再读回来还是一样的
     expect(buildFigure(normalizeSpec(JSON.parse(JSON.stringify(spec)))).parts.length).toBe(figure.parts.length);
   });

@@ -132,7 +132,8 @@ describe('楚云萱套现成姿势', () => {
     const body = bodyDist(figure, spec.blend);
     // 手腕的中心线离身体表面至少多远（按标准人台的米）。整条手臂都照埋得最深的那一点放宽的时候，弯腰拿东西有两只手腕在身体里面 1.4 厘米
     // 十二条手臂里至少有几条摆得过去：照他存的体型（手臂长、胸大）弯腰拿东西只有四条让得开，别的留在原位
-    for (const [name, room, least] of [['弯腰拿东西', 0.015, 4], ['蹲着', 0.005, 6]] as const) {
+    // 每面两个胸腔（CHU.ribX）以后手臂根往里挪了、挨着两头那几只胸，蹲着让得开的从 6 条少到 4 条（最上面那对还举着）
+    for (const [name, room, least] of [['弯腰拿东西', 0.015, 4], ['蹲着', 0.005, 4]] as const) {
       const { posing, followers } = followArms(solver, fitArms(solver, fitRing(solver, preset(name))));
       // 和工坊里一样：手腕周围连融合时腿还跟着胯的样子也量（sdf/posedBody.ts 的 wristBodyDist）
       const posedDist = wristBodyDist(figure, spec.blend, poseMatrices(rig, forward(rig, stateOf(solver, posing)), figure.scale))!;
