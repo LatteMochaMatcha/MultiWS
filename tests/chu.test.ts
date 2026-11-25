@@ -151,6 +151,11 @@ describe('楚云萱用体块拼', () => {
   it('静止时没有穿模报警；骨架只有一根根骨骼', () => {
     // 整只搬过去的胸是坐进身体表面、一只挨一只排的，和胯、旁边的胸腔、肩膀底下的手臂根挨着不算穿模（见 clone.ts 的 PIECE_FREE）
     expect(findClashes(figure).map((c) => `${c.a}×${c.b}`)).toEqual([]);
+    // 胸平常不算（rootFree 很大）；把胸也算上，手臂和胸之间也不许穿（试玩的人说手臂穿进胸里）
+    const strict = { ...figure, parts: figure.parts.map((p) => (p.type === 'chest' ? { ...p, rootFree: 0 } : p)) };
+    const type = new Map(figure.parts.map((p) => [p.name, p.type]));
+    const armChest = findClashes(strict).filter((c) => [type.get(c.a), type.get(c.b)].sort().join() === 'arm,chest');
+    expect(armChest.map((c) => `${c.a}×${c.b}`)).toEqual([]);
     const bones = buildSkeleton(figure).bones;
     expect(bones.filter((b) => b.parent === undefined || b.parent === null || (b.parent as unknown) === -1)).toHaveLength(1);
   });
