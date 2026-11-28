@@ -27,7 +27,7 @@ OC 白模工坊 v2：多肢体角色白模生成器（Vite + TypeScript + three.
 ## 仓库和本地文件的规矩
 
 - 渲染图、前后对比图放 `.harness-tmp/`，不进仓库。要进 `docs/` 的图必须被某份 md 引用、一张缩到 300 KB 以内；没有文档引用的图不提交（仓库里已经有 170 MB 图，别再加）。
-- `release/` 在本地（.gitignore 里），只留最近两版的安装包和加密 zip（现在是 2.8.5.2、2.8.5.3），发新版时把更老的移到回收站；`release/update/`（发自动更新的产物）和三份说明 txt 留着。
+- `release/` 在本地（.gitignore 里），只留最近两版的安装包和加密 zip（现在是 2.8.5.3、2.8.6），发新版时把更老的移到回收站；`release/update/`（发自动更新的产物）和三份说明 txt 留着。
 - 仓库在 GitHub 上叫 `LatteMochaMatcha/MultiWS`（2026-11-08 从打错的 MutliWS 改的，旧名会跳转）；写地址用新名。
 - `CHANGELOG.md` 会打包进工坊，每次打开时弹给用户看（`src/view/changelog.ts`，只认「## 版本（日期）」「### 小标题」「- 一条」「**一行粗体**」这几种写法，`tests/changelog.test.ts` 会查）。还没发的改动写在最上面的「## 下一个版本号（未发布）」里，用给用户看的话写；发版时把「未发布」换成日期。
 
@@ -45,6 +45,7 @@ OC 白模工坊 v2：多肢体角色白模生成器（Vite + TypeScript + three.
 | `docs/fusion-optimization.md` | 11-01 融合提速（分叉缓存、Surface Nets 查表） | 做完，在用 |
 | `docs/perf-plan.md` | 拖动卡顿优化：量法、分期、每期结果 | 第 0–4 期做完（d058630）；只剩 3c 显卡蒙皮、撤销不再整份比较两条 |
 | `docs/genital-plan.md` | 多阴茎（成人部件，默认关） | 五期做完并合入主线（8cccbaa）；疲软形态、关掉只藏不删后来也做了 |
+| `docs/lock-freeze-plan.md` | 锁定（场景位置、道具、摆姿势按头/躯干/左右手臂/腿五个部位不能拖）和冻结（整个角色或道具什么都不能改） | 四期 11-28 做完，随 2.8.6 发布 |
 | `docs/per-torso-plan.md` | 每个上半身单独设数量；每个上半身换成别的角色（男女连体） | 做完（d8cc35f、73476c8、d37ed65），成品角色也做了 |
 | `docs/vrm-plan.md` | 导出 VRM 0.x 四期；成品角色许可表 | 四期做完（a2a68a0…74ce48f）；VRM 1.0 导出没做 |
 | `docs/i18n.md` | 中英日三语：包字符串和翻译的规矩、术语表 | 做完并合入（e4c527d）；加界面文字时照它 |
