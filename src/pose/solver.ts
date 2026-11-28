@@ -8,6 +8,7 @@
  * 手掌和手指另有自己的起点（手心朝下、四指并拢伸直，见 fingers.ts）：
  * 静止时手掌歪着一点、手指张着弯着的骨架，手心的朝向和手势照样对得上。
  */
+import type { PoseRegion } from './blend';
 import { cloneBoneSource } from '../geometry/cloneNames';
 import { type Quat, type V3, Q_ID, mul, quatBasis, quatConj, quatMul } from '../geometry/vec';
 import { type Hand, extraFingerTwin, findHands } from './fingers';
@@ -29,6 +30,12 @@ export interface Solver {
   main: boolean[];
   /** 躯干锁定（见 model/torsoHold.ts）：拖手脚时胯、脊柱不跟着转，胯也不挪。照当前角色的设定随时改（main.ts 的 syncTorsoLock） */
   lockTorso?: boolean;
+  /** 锁定的部位（见 model/poseLock.ts）：圆点不给，拖完换回拖之前的（相对父骨骼，见 solve.ts 的 keepLocked）。躯干锁了 lockTorso 也是 true */
+  locked?: ReadonlySet<PoseRegion>;
+  /** 整个角色冻结：一点都不动，圆点一个不给 */
+  lockAll?: boolean;
+  /** 每根骨骼属于哪个部位（第一次用时照骨骼名算好留着） */
+  boneRegions?: (PoseRegion | null)[];
 }
 
 const MAIN = /^(Hips|Spine|Chest|UpperChest|Neck|Head|Shoulder|UpperArm|LowerArm|Hand|UpperLeg|LowerLeg|Foot|Toes|ToeBase)(_[LR])?(\.\d+)?$/;

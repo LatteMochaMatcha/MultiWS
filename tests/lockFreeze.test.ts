@@ -1,69 +1,61 @@
-// 锁定、冻结：场景里的角色、道具（站的地方、哪一项能改），躯干（摆姿势时不动、冻结时照冻结时的写回去）。
+// 锁定、冻结（见 docs/lock-freeze-plan.md）：
+// 锁定 = 不能挪、不能拖（场景里站的地方、道具的位置、摆姿势时的部位）；冻结 = 整个角色、整个道具什么都不能改。
 import { describe, expect, it } from 'vitest';
 import { buildFigure } from '../src/geometry/layout';
-import { add } from '../src/geometry/vec';
+import { type Quat, add, quatConj, quatMul } from '../src/geometry/vec';
+import { holdFrozen, setWholeFreeze } from '../src/model/freeze';
+import { boneRegion, isTorsoBone, lockedRegions, setPoseLock } from '../src/model/poseLock';
 import { canMoveProp, copyProp, makeProp, normalizeProps, removeProp, setPropFlag, updateProp } from '../src/model/props';
-import { canMoveFigure, normalizeScene, serializeScene, setCurrent, setFigureFlag, singleScene, addFigure, restoreFigure } from '../src/model/scene';
-import { defaultSpec, normalizeSpec, serializeSpec } from '../src/model/spec';
-import { captureTorso, holdTorso, isTorsoBone, setTorsoHold, torsoLocked } from '../src/model/torsoHold';
+import { addFigure, canMoveFigure, isFrozen, normalizeScene, serializeScene, setCurrent, setFigureLock, singleScene, updateFigure } from '../src/model/scene';
+import { type BodySpec, defaultSpec, normalizeSpec, serializeSpec } from '../src/model/spec';
+import { guardPosing } from '../src/pose/guard';
 import { buildHandles } from '../src/pose/handles';
 import { quatAngle } from '../src/pose/math';
-import { emptyPosing } from '../src/pose/posing';
+import { type Posing, emptyPosing } from '../src/pose/posing';
 import { forward, restState } from '../src/pose/rig';
-import { capturePins, dragAim, dragReach } from '../src/pose/solve';
-import { type Solver, makeSolver } from '../src/pose/solver';
+import { capturePins, dragAim, dragReach, turnSpine } from '../src/pose/solve';
+import { type Solver, makeSolver, posingOf, stateOf } from '../src/pose/solver';
 import { buildSkeleton } from '../src/rig/skeleton';
 
 const twoFigures = () => {
   const s = singleScene(defaultSpec(), '');
   return addFigure(s, { name: '乙', spec: defaultSpec(), text: '', place: { x: 1, z: 0, yaw: 0 } });
 };
+const readScene = (text: string) => normalizeScene(JSON.parse(text), (raw) => ({ spec: normalizeSpec(raw), text: '' }))!;
+/** 两个旋转差多少（弧度） */
+const diff = (a: Quat, b: Quat) => quatAngle(quatMul(quatConj(a), b));
 
-describe('场景里的角色：锁定、冻结', () => {
-  it('锁定、冻结的站的地方挪不了；冻结的切不过去', () => {
+describe('场景里的角色：锁定站的地方，冻结记在它自己的设定里', () => {
+  it('锁定的站的地方挪不了；冻结的也挪不了，但切得过去', () => {
     let s = twoFigures();
-    expect(s.current).toBe('f2');
-    s = setFigureFlag(s, 'f1', 'locked', true);
+    s = setFigureLock(s, 'f1', true);
     expect(canMoveFigure(s.figures[0])).toBe(false);
-    s = setFigureFlag(s, 'f1', 'frozen', true);
-    expect(setCurrent(s, 'f1').current).toBe('f2');
-    s = setFigureFlag(s, 'f1', 'frozen', false);
-    expect(s.figures[0].frozen).toBeUndefined();
+    s = setFigureLock(s, 'f1', false);
+    expect(s.figures[0].locked).toBeUndefined();
+    s = updateFigure(s, 'f1', { spec: setWholeFreeze(s.figures[0].spec, true) });
+    expect(isFrozen(s.figures[0])).toBe(true);
+    expect(canMoveFigure(s.figures[0])).toBe(false);
     expect(setCurrent(s, 'f1').current).toBe('f1');
   });
 
-  it('冻结当前角色：换成别的没冻结的；只剩它能改时不冻结', () => {
-    let s = twoFigures();
-    s = setFigureFlag(s, 'f2', 'frozen', true);
-    expect(s.current).toBe('f1');
-    expect(setFigureFlag(s, 'f1', 'frozen', true)).toBe(s);
-    expect(setFigureFlag(singleScene(defaultSpec(), ''), 'f1', 'frozen', true).figures[0].frozen).toBeUndefined();
-  });
-
-  it('冻结的放回去不当当前角色', () => {
-    let s = twoFigures();
-    s = setFigureFlag(s, 'f1', 'frozen', true);
-    const gone = s.figures[0];
-    const without = { ...s, figures: [s.figures[1]] };
-    expect(restoreFigure(without, gone, 0).current).toBe('f2');
-  });
-
-  it('存档读回来照旧；没锁的不写这两项；全都冻结了的第一个解冻', () => {
-    let s = setFigureFlag(twoFigures(), 'f1', 'locked', true);
-    s = setFigureFlag(s, 'f2', 'frozen', true);
-    const text = serializeScene(s, (spec) => spec);
-    const back = normalizeScene(JSON.parse(text), (raw) => ({ spec: normalizeSpec(raw), text: '' }))!;
-    expect(back.figures.map((f) => [f.locked, f.frozen])).toEqual([
-      [true, undefined],
+  it('存档读回来照旧；全都冻结了也照旧（冻结的也切得过去，在那里解冻）', () => {
+    let s = setFigureLock(twoFigures(), 'f1', true);
+    for (const id of ['f1', 'f2']) s = updateFigure(s, id, { spec: setWholeFreeze(s.figures.find((f) => f.id === id)!.spec, true) });
+    const back = readScene(serializeScene(s, (spec) => spec));
+    expect(back.figures.map((f) => [f.locked, isFrozen(f)])).toEqual([
+      [true, true],
       [undefined, true],
     ]);
-    expect(back.current).toBe('f1');
-    expect(serializeScene(twoFigures(), (spec) => spec)).not.toMatch(/locked|frozen/);
-    const all = JSON.parse(text);
-    for (const f of all.figures) f.frozen = true;
-    const fixed = normalizeScene(all, (raw) => ({ spec: normalizeSpec(raw), text: '' }))!;
-    expect(fixed.figures[0].frozen).toBeUndefined();
-    expect(fixed.current).toBe('f1');
+    expect(back.current).toBe(s.current);
+    expect(serializeScene(twoFigures(), (spec) => spec)).not.toMatch(/locked|frozen|wholeFreeze/);
+  });
+
+  it('以前的版本把冻结记在角色上（frozen: true）：读成它自己设定里的冻结', () => {
+    const raw = JSON.parse(serializeScene(twoFigures(), (spec) => spec));
+    raw.figures[1].frozen = true;
+    const back = readScene(JSON.stringify(raw));
+    expect(isFrozen(back.figures[1])).toBe(true);
+    expect(back.figures[1]).not.toHaveProperty('frozen');
   });
 });
 
@@ -97,103 +89,149 @@ describe('道具：锁定、冻结', () => {
   });
 });
 
-describe('躯干：冻结时照冻结时的写回去', () => {
-  const posed = () => {
-    const spec = defaultSpec();
-    return {
-      ...spec,
-      posing: { version: 3 as const, bones: { Hips: [0, 0.2, 0, 0.98] as [number, number, number, number], Spine: [0.1, 0, 0, 0.995] as [number, number, number, number], UpperArm_L: [0, 0, 0.3, 0.95] as [number, number, number, number] }, root: [0, -0.1, 0] as [number, number, number] },
-    };
-  };
-
-  it('冻结以后套别的姿势、拖体型滑块：躯干的骨骼、整个人的位置、躯干体型、数量照冻结时的，别的照新的', () => {
-    const frozen = setTorsoHold(posed(), 'freeze', true);
-    expect(torsoLocked(frozen)).toBe(true);
-    const changed = holdTorso({
-      ...frozen,
-      posing: { version: 3, bones: { Chest: [0, 0, 0.2, 0.98], UpperArm_L: [0, 0, -0.3, 0.95] } },
-      shape: { ...frozen.shape, bust: 2, waist: 1.4, height: 1.8 },
-      counts: { ...frozen.counts, torsos: 2, breasts: 4, heads: 2 },
-      chestRow: 3,
-    });
-    expect(changed.posing.bones.Hips).toEqual([0, 0.2, 0, 0.98]);
-    expect(changed.posing.bones.Spine).toEqual([0.1, 0, 0, 0.995]);
-    // 冻结时没转的躯干骨骼：去掉（没写和「没转」是一回事）
-    expect(changed.posing.bones.Chest).toBeUndefined();
-    expect(changed.posing.bones.UpperArm_L).toEqual([0, 0, -0.3, 0.95]);
-    expect(changed.posing.root).toEqual([0, -0.1, 0]);
-    expect([changed.shape.bust, changed.shape.waist, changed.shape.height]).toEqual([1, 1, 1.8]);
-    expect([changed.counts.torsos, changed.counts.breasts, changed.counts.heads]).toEqual([1, 2, 2]);
-    expect(changed.chestRow).toBe(frozen.chestRow);
+describe('整个角色冻结：设定整份照冻结时的', () => {
+  it('改了哪一项都换回去；本来就一样的原样返回；解冻以后又能改', () => {
+    const frozen = setWholeFreeze(setPoseLock(defaultSpec(), 'torso', true), true);
+    expect(holdFrozen(frozen)).toBe(frozen);
+    const changed = holdFrozen({ ...frozen, shape: { ...frozen.shape, bust: 2 }, counts: { ...frozen.counts, heads: 3 }, posing: { version: 3, bones: { Head: [0, 0.3, 0, 0.95] } }, hands: 'mitten', poseLock: undefined });
+    expect(changed.shape).toBe(frozen.shape);
+    expect(changed.counts).toBe(frozen.counts);
+    expect(changed.posing).toBe(frozen.posing);
+    expect(changed.hands).toBe(frozen.hands);
+    expect(changed.poseLock).toEqual(['torso']);
+    const thawed = setWholeFreeze(changed, false);
+    expect(thawed.wholeFreeze).toBeUndefined();
+    expect(holdFrozen({ ...thawed, shape: { ...thawed.shape, bust: 2 } }).shape.bust).toBe(2);
   });
 
-  it('本来就一样的原样返回；没冻结的不动', () => {
-    const frozen = setTorsoHold(posed(), 'freeze', true);
-    expect(holdTorso(frozen)).toBe(frozen);
-    const plain = { ...posed(), posing: emptyPosing() };
-    expect(holdTorso(plain)).toBe(plain);
-  });
-
-  it('解冻后锁定照旧（单独勾过的话）；存档读回来照旧，没设的不写', () => {
-    const both = setTorsoHold(setTorsoHold(posed(), 'lock', true), 'freeze', true);
-    const back = normalizeSpec(JSON.parse(serializeSpec(both)));
-    expect(back.torsoLock).toBe(true);
-    expect(back.torsoFreeze).toEqual(captureTorso(posed()));
-    const thawed = setTorsoHold(both, 'freeze', false);
-    expect([thawed.torsoLock, thawed.torsoFreeze]).toEqual([true, undefined]);
-    expect(serializeSpec(defaultSpec())).not.toMatch(/torsoLock|torsoFreeze/);
-  });
-
-  it('读存档时冻结的体型照范围收，照它写回去', () => {
-    const raw = JSON.parse(serializeSpec(defaultSpec()));
-    raw.torsoFreeze = { bones: {}, shape: { bust: 99 }, counts: { torsos: 9 }, chestRow: 9 };
-    const back = normalizeSpec(raw);
-    expect(back.shape.bust).toBe(3.4);
-    expect(back.counts.torsos).toBe(3);
-    expect(back.chestRow).toBe(4);
-  });
-
-  it('躯干骨骼认得出来：胯、脊柱、胸，好几个上半身的、复制出来的也算；锁骨、脖子不算', () => {
-    expect(['Hips', 'Spine', 'Chest_L', 'UpperChest.002', 'Spine.101'].every(isTorsoBone)).toBe(true);
-    expect(['Shoulder_L', 'Neck', 'Head', 'UpperArm_R'].some(isTorsoBone)).toBe(false);
+  it('存档读回来照旧', () => {
+    const frozen = setWholeFreeze({ ...defaultSpec(), shape: { ...defaultSpec().shape, bust: 1.5 } }, true);
+    const back = normalizeSpec(JSON.parse(serializeSpec(frozen)));
+    expect(back.wholeFreeze?.spec.shape.bust).toBe(1.5);
+    expect(back.shape.bust).toBe(1.5);
+    expect(serializeSpec(defaultSpec())).not.toMatch(/poseLock|wholeFreeze/);
   });
 });
 
-describe('躯干：锁定时摆姿势不动', () => {
-  const solverOf = (lock: boolean): Solver => {
-    const s = makeSolver(buildSkeleton(buildFigure(defaultSpec())).bones);
-    s.lockTorso = lock;
-    return s;
-  };
-  const torsoTurns = (s: Solver, local: readonly [number, number, number, number][]) =>
-    s.rig.names.flatMap((name, i) => (isTorsoBone(name) && quatAngle(local[i]) > 1e-9 ? [name] : []));
+describe('按部位锁定：记法、读旧存档', () => {
+  it('照「头、躯干、左手臂、右手臂、腿」的顺序记，一个都没锁就不写', () => {
+    let spec = setPoseLock(defaultSpec(), 'legs', true);
+    spec = setPoseLock(spec, 'head', true);
+    expect(spec.poseLock).toEqual(['head', 'legs']);
+    expect([...lockedRegions(spec)]).toEqual(['head', 'legs']);
+    spec = setPoseLock(setPoseLock(spec, 'head', false), 'legs', false);
+    expect(spec).not.toHaveProperty('poseLock');
+    expect(normalizeSpec(JSON.parse(serializeSpec(setPoseLock(defaultSpec(), 'armR', true)))).poseLock).toEqual(['armR']);
+  });
 
-  it('手够不着、脚钉着：没锁时脊柱帮着够、胯跟过去；锁了以后躯干一点不动', () => {
+  it('11-28 那两版的躯干锁定、躯干冻结、四肢冻结：读成那几个部位锁定，体型不再定住', () => {
+    const raw = JSON.parse(serializeSpec(defaultSpec()));
+    expect(normalizeSpec({ ...raw, torsoLock: true }).poseLock).toEqual(['torso']);
+    const old = normalizeSpec({ ...raw, torsoFreeze: { bones: {}, shape: { bust: 2 } }, limbFreeze: { bones: {}, shape: { armLength: 2 } } });
+    expect(old.poseLock).toEqual(['torso', 'armL', 'armR', 'legs']);
+    expect(old.shape.bust).toBe(1);
+    expect(old).not.toHaveProperty('torsoFreeze');
+    expect(old).not.toHaveProperty('limbFreeze');
+    expect(normalizeSpec({ ...raw, poseLock: ['legs', 'nonsense', 'head'] }).poseLock).toEqual(['head', 'legs']);
+  });
+
+  it('骨骼归哪个部位：好几对手臂、好几个上半身的也认得；ToeBase 算腿；尾巴不归哪个', () => {
+    expect(['Hips', 'Spine_L', 'Chest.002'].every(isTorsoBone)).toBe(true);
+    expect(['Neck', 'Head.002'].map(boneRegion)).toEqual(['head', 'head']);
+    expect(['Shoulder_L', 'UpperArm_L.002', 'Index2_L'].map(boneRegion)).toEqual(['armL', 'armL', 'armL']);
+    expect(['Hand_R', 'Foot_R', 'ToeBase_L', 'LegThumb1_R'].map(boneRegion)).toEqual(['armR', 'legs', 'legs', 'legs']);
+    expect(boneRegion('Tail_1_01')).toBeNull();
+  });
+});
+
+const solverFor = (spec: BodySpec = defaultSpec(), extra: Partial<Solver> = {}): Solver =>
+  Object.assign(makeSolver(buildSkeleton(buildFigure(spec)).bones), { lockTorso: lockedRegions(spec).has('torso'), locked: lockedRegions(spec), ...extra });
+/** 哪几根骨骼在这个部位里、相对父骨骼转过 */
+const regionTurns = (s: Solver, local: readonly Quat[], region: string) =>
+  s.rig.names.flatMap((name, i) => (boneRegion(name) === region && quatAngle(local[i]) > 1e-9 ? [name] : []));
+
+describe('摆姿势：锁定的部位拖不动、拖别处时跟着身子走', () => {
+  it('躯干锁了：手够不着、脚钉着，脊柱不帮着够、胯不跟过去', () => {
     for (const lock of [false, true]) {
-      const s = solverOf(lock);
+      const s = solverFor(lock ? setPoseLock(defaultSpec(), 'torso', true) : defaultSpec());
       const rest = restState(s.rig);
       const f0 = forward(s.rig, rest);
       const hand = s.limbs.findIndex((l) => l.name === 'Hand_L');
       const pins = capturePins(s, f0, new Set(s.limbs.filter((l) => l.kind === 'leg').map((l) => l.name)));
-      const target = add(f0.pos[s.limbs[hand].upper], [0.9, 0.2, 0.5]);
-      const state = dragReach(s, rest, hand, target, pins);
+      const state = dragReach(s, rest, hand, add(f0.pos[s.limbs[hand].upper], [0.9, 0.2, 0.5]), pins);
       if (lock) {
-        expect(torsoTurns(s, state.local)).toEqual([]);
+        expect(regionTurns(s, state.local, 'torso')).toEqual([]);
         expect(state.root).toEqual([0, 0, 0]);
-      } else expect(torsoTurns(s, state.local).length).toBeGreaterThan(0);
+      } else expect(regionTurns(s, state.local, 'torso').length).toBeGreaterThan(0);
     }
   });
 
-  it('锁了以后：胯、腰、胸的圆点不给；拖肩膀只有锁骨转', () => {
-    const s = solverOf(true);
-    const handles = buildHandles(s);
-    expect(handles.some((h) => h.group === 'torso')).toBe(false);
-    const shoulder = handles.find((h) => h.label.includes('肩') && h.kind === 'aim')!;
-    expect(shoulder.links.every((l) => !isTorsoBone(s.rig.names[l.bone]))).toBe(true);
-    // 就算给了带脊柱的连接，求解器也不转脊柱
+  it('锁了的部位圆点不给；别的照给', () => {
+    const s = solverFor(setPoseLock(setPoseLock(defaultSpec(), 'armL', true), 'legs', true));
+    const regions = new Set(buildHandles(s).map((h) => boneRegion(s.rig.names[h.anchor])));
+    expect(regions.has('armL') || regions.has('legs')).toBe(false);
+    expect(regions.has('armR') && regions.has('torso') && regions.has('head')).toBe(true);
+  });
+
+  it('左手臂锁了：转腰时它相对身子不动（跟着胸口转），右手臂照常', () => {
+    const s = solverFor(setPoseLock(defaultSpec(), 'armL', true));
+    const waist = buildHandles(s).find((h) => h.group === 'torso' && h.kind === 'aim' && h.twist.length > 1)!;
+    const state = turnSpine(s, restState(s.rig), waist.turn, waist.twist, [0, 0.38, 0, 0.92], []);
+    expect(regionTurns(s, state.local, 'armL')).toEqual([]);
+    expect(regionTurns(s, state.local, 'torso').length).toBeGreaterThan(0);
+  });
+
+  it('腿锁了：「脚留在原地」不钉腿', () => {
+    const s = solverFor(setPoseLock(defaultSpec(), 'legs', true));
+    const pins = capturePins(s, forward(s.rig, restState(s.rig)), new Set(s.limbs.map((l) => l.name)));
+    expect(pins.length).toBeGreaterThan(0);
+    expect(pins.every((p) => s.limbs[p.limb].kind !== 'leg')).toBe(true);
+  });
+
+  it('就算给了带锁定骨骼的连接，求解器也不转它', () => {
+    const s = solverFor(setPoseLock(defaultSpec(), 'torso', true));
+    const shoulder = buildHandles(s).find((h) => h.label.includes('肩') && h.kind === 'aim')!;
     const rest = restState(s.rig);
     const spine = s.rig.index.get('Spine')!;
     const state = dragAim(s, rest, [{ bone: spine, weight: 1 }], { bone: shoulder.anchor, rest: shoulder.rest }, add(forward(s.rig, rest).pos[shoulder.anchor], [0.3, 0, 0.3]), []);
     expect(quatAngle(state.local[spine])).toBe(0);
+  });
+
+  it('整个角色冻结：一个圆点都不给，拖了也不动', () => {
+    const s = solverFor(defaultSpec(), { lockAll: true });
+    expect(buildHandles(s)).toEqual([]);
+    const rest = restState(s.rig);
+    const hand = s.limbs.findIndex((l) => l.name === 'Hand_L');
+    expect(dragReach(s, rest, hand, [1, 1, 1], [])).toEqual(rest);
+  });
+});
+
+describe('锁定的部位：套姿势、还原这些都不改它（guardPosing）', () => {
+  const s = solverFor();
+  const posed = (bones: Record<string, Quat>, root?: [number, number, number]): Posing => posingOf(s, stateOf(s, { version: 1, bones, ...(root ? { root } : {}) }));
+
+  it('套了别的姿势：锁了的左手臂相对身子照原来的，别的照新的；躯干锁了整个人的位置也不挪', () => {
+    const prev = posed({ UpperArm_L: [0, 0, 0.4, 0.92] });
+    const next = posed({ Spine: [0.2, 0, 0, 0.98], UpperArm_L: [0, 0, -0.4, 0.92], UpperArm_R: [0, 0, 0.3, 0.95] }, [0, -0.2, 0]);
+    const kept = guardPosing(s, prev, next, new Set(['torso', 'armL'] as const))!;
+    expect(kept.touched).toEqual(['torso', 'armL']);
+    const a = stateOf(s, prev);
+    const b = stateOf(s, kept.posing);
+    for (const name of ['UpperArm_L', 'LowerArm_L', 'Spine']) {
+      const j = s.rig.index.get(name)!;
+      expect(diff(a.local[j], b.local[j])).toBeLessThan(2e-3);
+    }
+    const right = s.rig.index.get('UpperArm_R')!;
+    expect(diff(stateOf(s, next).local[right], b.local[right])).toBeLessThan(2e-3);
+    expect(b.root.map((v) => Math.abs(v) < 1e-6)).toEqual([true, true, true]);
+  });
+
+  it('还原姿势（空姿势）：锁了的照留；没改到锁了的部位时返回 null', () => {
+    const prev = posed({ UpperLeg_L: [0.3, 0, 0, 0.95] });
+    const kept = guardPosing(s, prev, emptyPosing(), new Set(['legs'] as const))!;
+    expect(kept.touched).toEqual(['legs']);
+    const j = s.rig.index.get('UpperLeg_L')!;
+    expect(quatAngle(stateOf(s, kept.posing).local[j])).toBeGreaterThan(0.5);
+    expect(guardPosing(s, prev, posed({ UpperLeg_L: [0.3, 0, 0, 0.95], Head: [0, 0.3, 0, 0.95] }), new Set(['legs'] as const))).toBeNull();
   });
 });

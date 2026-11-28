@@ -12,7 +12,7 @@ import type { V3 } from '../geometry/vec';
 import { t } from '../i18n';
 import { cap } from '../model/partLabel';
 import { FINGER_LABEL, FINGER_NAMES, fingerHinge } from './fingers';
-import type { AimLink } from './solve';
+import { type AimLink, lockedBone } from './solve';
 import { isRingRig } from './ring';
 import type { Solver } from './solver';
 
@@ -85,6 +85,8 @@ function chainLabel(name: string): { group: HandleGroup; label: string } {
 }
 
 export function buildHandles(solver: Solver): Handle[] {
+  // 整个角色冻结了：一个点都不给
+  if (solver.lockAll) return [];
   const { rig, limbs, main } = solver;
   const handles: Handle[] = [];
   const kids: number[][] = rig.names.map(() => []);
@@ -216,5 +218,6 @@ export function buildHandles(solver: Solver): Handle[] {
     const links = [...chain].reverse().map((bone, k) => ({ bone, weight: chain.length === 1 ? 1 : Math.max(0.3, 0.6 - 0.08 * k) }));
     handles.push(joint(root, { id: `${rig.names[tip]}:tip`, kind: 'aim', anchor: tip, rest: rig.tail[tip], links, ...chainLabel(name) }));
   });
-  return handles;
+  // 锁定的部位：点不给（拖不动）。看这个点长在哪根骨骼上、转的是哪根
+  return solver.locked?.size ? handles.filter((h) => !lockedBone(solver, h.anchor) && !lockedBone(solver, h.turn)) : handles;
 }

@@ -15,7 +15,7 @@
 import { type Quat, type V3, add, cross, dot, len, mul, norm, quatBetween, quatConj, quatMul, rotate, sub } from '../geometry/vec';
 import { type Limb, STRAIGHT, limbFrame } from './limbs';
 import { anyPerp, quatAngle, quatLimit, quatPart, quatUnit, reject } from './math';
-import { isTorsoBone } from '../model/torsoHold';
+import { boneRegion, isTorsoBone } from '../model/poseLock';
 import { isRingRig, isSpineBone } from './ring';
 import { type Frame, type PoseRig, type PoseState, cloneState, forward, pointOn, setWorldRot, shiftRoot } from './rig';
 import type { Solver } from './solver';
@@ -247,7 +247,8 @@ export const limbWith = (solver: Solver, bone: number): number =>
 export function capturePins(solver: Solver, frame: Frame, names: ReadonlySet<string>): Pin[] {
   const pins: Pin[] = [];
   solver.limbs.forEach((limb, i) => {
-    if (names.has(limb.name)) {
+    // 锁了的部位动不了，钉着也没用（别的部位为了它挪身子反倒不对）
+    if (names.has(limb.name) && !lockedBone(solver, limb.end)) {
       pins.push({ limb: i, pos: frame.pos[limb.end], rot: frame.rot[limb.end], span: len(sub(frame.pos[limb.end], frame.pos[limb.upper])) });
     }
   });
@@ -259,7 +260,7 @@ export function capturePins(solver: Solver, frame: Frame, names: ReadonlySet<str
  * 够得着时只有这条肢体动；够不着时身体跟过去。手跟着前臂转，脚保持原来的朝向（抬腿时脚掌不会跟着小腿翻）。
  * endRot：末端那根骨骼（手、脚）朝这个方向（吸到道具上时用）
  */
-export function dragReach(solver: Solver, start: PoseState, limb: number, target: V3, pins: readonly Pin[], endRot?: Quat): PoseState {
+function dragReachRaw(solver: Solver, start: PoseState, limb: number, target: V3, pins: readonly Pin[], endRot?: Quat): PoseState {
   const { rig, limbs } = solver;
   const one = limbs[limb];
   const others = pins.filter((pin) => pin.limb !== limb);
@@ -276,7 +277,7 @@ export function dragReach(solver: Solver, start: PoseState, limb: number, target
  * （手脚钉在道具上、道具挪了：只有那只手、那只脚跟着，见 scene/follow.ts）。
  * endRot：末端那根骨骼（手、脚）朝这个方向；不给的话手跟着前臂转、脚保持原来的朝向
  */
-export function reachOnly(solver: Solver, start: PoseState, limb: number, target: V3, endRot?: Quat): PoseState {
+function reachOnlyRaw(solver: Solver, start: PoseState, limb: number, target: V3, endRot?: Quat): PoseState {
   const { rig, limbs } = solver;
   const one = limbs[limb];
   const f0 = forward(rig, start);
@@ -304,7 +305,7 @@ export function limbTwist(solver: Solver, state: PoseState, limb: number): { low
 }
 
 /** 下面那一节（前臂、小腿）再绕自己的长轴拧 angle（弧度）；末端那根骨骼（手、脚）在世界里的朝向不变，关节都在原处 */
-export function twistLower(solver: Solver, start: PoseState, limb: number, angle: number): PoseState {
+function twistLowerRaw(solver: Solver, start: PoseState, limb: number, angle: number): PoseState {
   const { rig } = solver;
   const one = solver.limbs[limb];
   const f = forward(rig, start);
@@ -319,7 +320,7 @@ export function twistLower(solver: Solver, start: PoseState, limb: number, angle
 }
 
 /** 拖肘、拖膝：手脚不动，中间那个关节绕着「根部 → 末端」这根线转到朝 toward 的那一边 */
-export function dragBend(solver: Solver, start: PoseState, limb: number, toward: V3): PoseState {
+function dragBendRaw(solver: Solver, start: PoseState, limb: number, toward: V3): PoseState {
   const { rig, limbs } = solver;
   const one = limbs[limb];
   const f0 = forward(rig, start);
@@ -332,7 +333,7 @@ export function dragBend(solver: Solver, start: PoseState, limb: number, toward:
 }
 
 /** 拖胯：整个人跟着走，钉着的手脚留在原地；腿伸直了还够不着，胯就到此为止 */
-export function dragBody(solver: Solver, start: PoseState, target: V3, pins: readonly Pin[]): PoseState {
+function dragBodyRaw(solver: Solver, start: PoseState, target: V3, pins: readonly Pin[]): PoseState {
   const { rig } = solver;
   const f0 = forward(rig, start);
   const state = cloneState(start);
@@ -362,7 +363,7 @@ export interface AimLink {
  * 只有一节时就是「这节骨头指向手指」；几节一起时（拖胸口弯腰），越靠前的出力越多，反复几轮凑过去。
  * 拖肩膀时第一节是锁骨，它转到上限、或者够不着（锁骨长短不变）的那部分由后面几节脊柱补上（上身跟着转）。
  */
-export function dragAim(
+function dragAimRaw(
   solver: Solver,
   start: PoseState,
   links: readonly AimLink[],
@@ -372,8 +373,8 @@ export function dragAim(
 ): PoseState {
   const { rig } = solver;
   const state = cloneState(start);
-  // 躯干锁定了：要转的那几节里的脊柱、胯不转（拖肩膀只有锁骨转，拖脖子只有脖子转）
-  if (solver.lockTorso) links = links.filter((link) => !isTorsoBone(rig.names[link.bone]));
+  // 锁定的部位不转：躯干锁了，拖肩膀只有锁骨转，拖脖子只有脖子转
+  if (solver.locked?.size) links = links.filter((link) => !lockedBone(solver, link.bone));
   // 一节的转一下就到位；几节的反复几轮凑过去，节数多的（尾巴）多凑几轮
   const rounds = links.length > 1 ? Math.max(4, links.length * 2) : 1;
   for (let round = 0; round < rounds; round++) {
@@ -417,7 +418,7 @@ export function dragAim(
  * 有哪条腿伸直了也够不着地面（跳起来、踮着脚的姿势），整个人先往下落到每条都够得着、膝盖还留一点弯。
  * 上半身不动。floor：地面多高（米）；脚踝离地多高照静止姿势（静止时站在 y = 0 上）。没有腿的原样返回
  */
-export function plantFeet(solver: Solver, start: PoseState, floor = 0): PoseState {
+function plantFeetRaw(solver: Solver, start: PoseState, floor = 0): PoseState {
   const { rig, limbs } = solver;
   // 没有腿、靠手撑在地上的（连体，静止时手就在地上）：踩的是手
   const standing = limbs.filter((limb) => limb.kind === 'leg');
@@ -463,12 +464,12 @@ const PALM_REST = 0.15;
 const PLANT_BEND = 0.97;
 
 /** 用旋转环转一根骨骼：让它在世界里朝 rot。它自己所在的那条肢体不再钉着，别的钉着的照旧 */
-export function turnBone(solver: Solver, start: PoseState, bone: number, rot: Quat, pins: readonly Pin[]): PoseState {
+function turnBoneRaw(solver: Solver, start: PoseState, bone: number, rot: Quat, pins: readonly Pin[]): PoseState {
   const { rig } = solver;
   const f0 = forward(rig, start);
   const state = cloneState(start);
-  // 躯干锁定了：胯、脊柱转不动（旋转环本来也不给）
-  if (solver.lockTorso && isTorsoBone(rig.names[bone])) return state;
+  // 锁定的部位转不动（旋转环本来也不给）
+  if (lockedBone(solver, bone)) return state;
   setWorldRot(rig, state, f0, bone, rot);
   const own = limbWith(solver, bone);
   const others = pins.filter((pin) => pin.limb !== own);
@@ -487,7 +488,7 @@ const LOW_TWIST = 0.2;
  * 见 LOW_TWIST），越往上转得越多，最上面那节转满；往前后左右倒的那一部分照旧从点中的那一节起转。
  * 最上面那节（连着脖子、手臂的）最后转的和只转点中那一节时一样
  */
-export function turnSpine(solver: Solver, start: PoseState, bone: number, chain: readonly number[], delta: Quat, pins: readonly Pin[]): PoseState {
+function turnSpineRaw(solver: Solver, start: PoseState, bone: number, chain: readonly number[], delta: Quat, pins: readonly Pin[]): PoseState {
   const { rig } = solver;
   if (solver.lockTorso) return cloneState(start);
   const at = chain.indexOf(bone);
@@ -518,3 +519,42 @@ export function turnSpine(solver: Solver, start: PoseState, bone: number, chain:
   keepPins(solver, state, f0, pins);
   return state;
 }
+
+/** 每根骨骼属于哪个部位（算一次留在求解器上） */
+const regionsOf = (solver: Solver) => (solver.boneRegions ??= solver.rig.names.map(boneRegion));
+
+/** 这根骨骼所在的部位锁了没有 */
+export const lockedBone = (solver: Solver, bone: number): boolean => {
+  const region = solver.locked?.size ? regionsOf(solver)[bone] : null;
+  return region !== null && Boolean(solver.locked?.has(region));
+};
+
+/**
+ * 锁定的部位（见 model/poseLock.ts、Solver.locked）：拖完以后那几个部位的骨骼换回拖之前的——相对父骨骼不变，
+ * 跟着身子走；躯干锁了，整个人的位置也换回去
+ */
+export function keepLocked(solver: Solver, start: PoseState, state: PoseState): PoseState {
+  const locked = solver.locked;
+  if (!locked?.size) return state;
+  const out: PoseState = { local: state.local.slice(), root: locked.has('torso') ? [start.root[0], start.root[1], start.root[2]] : state.root };
+  regionsOf(solver).forEach((region, j) => {
+    if (region && locked.has(region)) out.local[j] = start.local[j];
+  });
+  return out;
+}
+
+/** 拖、转都先过这一层：整个角色冻结了一点不动；锁定的部位换回去（见 keepLocked） */
+const held =
+  <A extends unknown[]>(fn: (solver: Solver, start: PoseState, ...rest: A) => PoseState) =>
+  (solver: Solver, start: PoseState, ...rest: A): PoseState =>
+    solver.lockAll ? cloneState(start) : keepLocked(solver, start, fn(solver, start, ...rest));
+
+export const dragReach = held(dragReachRaw);
+export const reachOnly = held(reachOnlyRaw);
+export const twistLower = held(twistLowerRaw);
+export const dragBend = held(dragBendRaw);
+export const dragBody = held(dragBodyRaw);
+export const dragAim = held(dragAimRaw);
+export const plantFeet = held(plantFeetRaw);
+export const turnBone = held(turnBoneRaw);
+export const turnSpine = held(turnSpineRaw);

@@ -7,6 +7,7 @@
  */
 import { type PropLink, normalizeLinks, usableLink, withCarry } from './links';
 import { type SceneProp, normalizeProps } from './props';
+import { setWholeFreeze } from './freeze';
 import type { BodySpec } from './spec';
 
 /** 在地上站在哪（米）、朝哪（度，从上往下看逆时针为正；0 是脸朝 +Z，也就是正面视图里朝着镜头） */
@@ -35,31 +36,25 @@ export interface SceneFigure {
   links?: readonly PropLink[];
   /** 锁定：站在哪、朝哪不能改（拖不动底座圈，道具挪了也不跟着走）；造型、姿势照样能改。没锁就不写 */
   locked?: true;
-  /** 冻结：整个人定成现在的样子，切不过去改，也不跟着道具、双人动作变；只能看、导出。冻结的也算锁定了。没冻结就不写 */
-  frozen?: true;
+  // 冻结（什么都不能改）记在角色自己的设定里：spec.wholeFreeze（见 model/freeze.ts），只有一个角色时也一样
 }
 
-/** 这个角色站的地方能不能挪（锁定、冻结的都不能） */
-export const canMoveFigure = (f: Pick<SceneFigure, 'locked' | 'frozen'>): boolean => !f.locked && !f.frozen;
+/** 这个角色冻结着没有 */
+export const isFrozen = (f: Pick<SceneFigure, 'spec'>): boolean => Boolean(f.spec.wholeFreeze);
 
-/**
- * 锁定、冻结开关。冻结当前角色时换成别的没冻结的当前角色；没有别的可换（只剩它能改）时不冻结，返回原样
- */
-export function setFigureFlag(scene: Scene, id: string, flag: 'locked' | 'frozen', on: boolean): Scene {
+/** 这个角色站的地方能不能挪（锁定、冻结的都不能） */
+export const canMoveFigure = (f: Pick<SceneFigure, 'locked' | 'spec'>): boolean => !f.locked && !isFrozen(f);
+
+/** 站的地方锁定开关 */
+export function setFigureLock(scene: Scene, id: string, on: boolean): Scene {
   const f = figureOf(scene, id);
-  if (!f || Boolean(f[flag]) === on) return scene;
-  let current = scene.current;
-  if (flag === 'frozen' && on && id === current) {
-    const next = scene.figures.find((o) => o.id !== id && !o.frozen);
-    if (!next) return scene;
-    current = next.id;
-  }
+  if (!f || Boolean(f.locked) === on) return scene;
   const figures = scene.figures.map((o) => {
     if (o.id !== id) return o;
-    const { [flag]: _, ...rest } = o;
-    return on ? { ...rest, [flag]: true as const } : rest;
+    const { locked: _, ...rest } = o;
+    return on ? { ...rest, locked: true as const } : rest;
   });
-  return { ...scene, figures, current };
+  return { ...scene, figures };
 }
 
 export interface Scene {
@@ -155,14 +150,13 @@ export function restoreFigure(scene: Scene, figure: SceneFigure, at: number): Sc
   if (figureOf(scene, figure.id)) return scene;
   const figures = [...scene.figures];
   figures.splice(Math.max(0, Math.min(at, figures.length)), 0, figure);
-  // 冻结的放回去不当当前角色（冻结的改不了）
-  return { ...scene, figures, current: figure.frozen ? scene.current : figure.id };
+  return { ...scene, figures, current: figure.id };
 }
 
-/** 换当前角色（不认得的 id、冻结的不换） */
+/** 换当前角色（不认得的 id 不换；冻结的也切得过去，只是改不了） */
 export function setCurrent(scene: Scene, id: string): Scene {
   const f = figureOf(scene, id);
-  return f && !f.frozen && scene.current !== id ? { ...scene, current: id } : scene;
+  return f && scene.current !== id ? { ...scene, current: id } : scene;
 }
 
 /** 往前、往后挪一格（角色条上的顺序） */
@@ -240,7 +234,6 @@ export function serializeScene(scene: Scene, specData: (spec: BodySpec, text: st
         spec: specData(f.spec, f.text),
         ...(links.length ? { links } : {}),
         ...(f.locked ? { locked: true } : {}),
-        ...(f.frozen ? { frozen: true } : {}),
       };
     }),
     // 没有道具就不写这一项：和加道具以前的文件一模一样
@@ -273,7 +266,10 @@ export function normalizeScene(data: unknown, readSpec: (raw: unknown) => { spec
       while (used.has(id) || raw.some((r) => (r as { id?: unknown })?.id === id));
     }
     used.add(id);
-    const { spec, text } = readSpec(f.spec);
+    const read = readSpec(f.spec);
+    // 以前的版本把冻结记在角色上（frozen: true）：换成记在它自己的设定里
+    const spec = f.frozen === true && !read.spec.wholeFreeze ? setWholeFreeze(read.spec, true) : read.spec;
+    const { text } = read;
     // 一件道具只能跟着一个角色的一个部位：前面的角色已经带着的，这里的只算抓着
     const links = normalizeLinks(f.links, props)
       .map((l) => {
@@ -291,14 +287,10 @@ export function normalizeScene(data: unknown, readSpec: (raw: unknown) => { spec
       place: clampPlace(f.place as Partial<Place>),
       ...(links.length ? { links } : {}),
       ...(f.locked === true ? { locked: true as const } : {}),
-      ...(f.frozen === true ? { frozen: true as const } : {}),
     });
   }
   if (!figures.length) return null;
-  // 全都冻结了（手改过的文件）：第一个解冻，总得有一个能改
-  if (figures.every((f) => f.frozen)) delete figures[0].frozen;
   const want = (data as { current?: unknown }).current;
-  // 当前角色不能是冻结的：换成第一个没冻结的
-  const current = typeof want === 'string' && used.has(want) && !figures.find((f) => f.id === want)?.frozen ? want : figures.find((f) => !f.frozen)!.id;
+  const current = typeof want === 'string' && used.has(want) ? want : figures[0].id;
   return { figures, current, props };
 }
