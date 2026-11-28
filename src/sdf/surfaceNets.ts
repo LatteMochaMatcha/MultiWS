@@ -116,6 +116,12 @@ export interface FusedMesh {
    * 每个顶点 4 根骨骼：joints 是 bones 里的下标，bones 里是骨架里的骨骼名；weights 加起来是 1
    */
   bound?: { start: number; bones: string[]; joints: Uint16Array; weights: Float32Array };
+  /**
+   * 从挖出来的槽壁上挪回原来表面的顶点（见 uncarve.ts）：all 是全部，floor 是其中收到阴茎长着的那块身体表面上的，
+   * hinted 是其中说得出是哪条腿的皮、挪回那条腿表面的（见 legSlit.ts），from 是 all 里每一个挪之前在哪（各 3 个数）。
+   * 算完权重就拿掉。没有就没有这一项
+   */
+  restored?: { all: Uint32Array; floor: Uint32Array; hinted: Uint32Array; from: Float32Array };
   info: FusedMeshInfo;
 }
 

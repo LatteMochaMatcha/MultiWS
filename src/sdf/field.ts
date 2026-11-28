@@ -141,6 +141,11 @@ export interface Clearance {
   reach: number;
   carve: boolean;
   list: Int32Array;
+  /**
+   * 同一段圆柱里 carve 是 false 的那几个部件只是不挖：挖出来的槽填回去时（uncarve.ts），槽壁照样挪回原来的表面，
+   * 不收到它们身上（阴囊周围只挖大腿：大腿上的槽壁该回大腿，见 geometry/genital.ts 的 genitalRooms）
+   */
+  spare?: boolean;
 }
 
 /** 一个还没排进场里的基本体（摆好姿势以后的距离场 posedField.ts 也要自己拼这个） */
@@ -577,10 +582,14 @@ export function draftDist(d: Draft): Dist {
   return (x, y, z) => evalPrims(one, one.all, 1, x, y, z);
 }
 
-/** 把单独一个部件编译成距离场（点选部件时用）。xf 是它在世界里的变换 */
-export function compilePartField(part: Part, xf: WorldXf): CompiledField {
+/**
+ * 把单独一个部件编译成距离场（点选部件时用）。xf 是它在世界里的变换。
+ * cuts：和它算同一类融合、只带着挖掉的基本体的部件（大腿之间的刀，见 legSlit.ts），给了就照挖过的样子
+ */
+export function compilePartField(part: Part, xf: WorldXf, cuts?: readonly { part: Part; xf: WorldXf }[]): CompiledField {
   const drafts: Draft[] = [];
   partDrafts(part, xf, 0, 0, drafts);
+  if (cuts) for (const cut of cuts) partDrafts(cut.part, cut.xf, 0, 0, drafts);
   return pack(drafts, [0]);
 }
 

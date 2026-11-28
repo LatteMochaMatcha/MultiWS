@@ -19,7 +19,7 @@ import * as THREE from 'three';
 import { type Figure, type Part, worldTransforms } from '../geometry/figure';
 import { buildPartGeometry } from '../geometry/partsMesh';
 import type { SkinWeights } from '../rig/skin';
-import { hasBindPose } from '../sdf/bindPose';
+import { hasBindPose, turnedParts } from '../sdf/bindPose';
 import { VOXEL } from '../sdf/fuse';
 import { type VertexLabels, followInto, followMatrices, outline, pieceFrames } from '../sdf/labels';
 import { MeshClient, Superseded } from '../sdf/meshClient';
@@ -154,6 +154,13 @@ export class FusedModel {
   private exactVoxel = Infinity;
   private poseTimer = 0;
   /**
+   * 带权重的那张照阴茎、阴囊转成什么样融合（见 turn）：想要的转法和照它转好的部件（没转过是 ''、null）、屏幕上那张的转法
+   */
+  private turnWant = '';
+  private turnParts: Part[] | null = null;
+  private turnShown = '';
+  private turnTimer = 0;
+  /**
    * 换网格时的过渡（见 view/morph.ts）：base 是这张网格该在的位置（整块挪过的），off 是贴到原来那张表面上要挪的，
    * 从 t0 起 ms 毫秒收回到 0。没在过渡是 null
    */
@@ -211,6 +218,10 @@ export class FusedModel {
       this.posing = null;
       this.dropExact();
       this.preview.cancel((job) => job.voxel < VOXEL.preview);
+      // 转好的部件是照旧身体算的：先照没转过的来，摆姿势时会再叫 turn
+      window.clearTimeout(this.turnTimer);
+      this.turnWant = '';
+      this.turnParts = null;
     }
     this.wantKey = key;
     this.wantSkin = skin;
@@ -246,12 +257,16 @@ export class FusedModel {
 
   private send(key: string, voxel: number) {
     const withSkin = this.wantSkin;
-    const parts = this.parts;
+    // 带权重的：阴茎、阴囊照转好的样子融合（见 turn）
+    const turn = withSkin ? this.turnWant : '';
+    const parts = (turn && this.turnParts) || this.parts;
     const shape = this.shape;
     const serial = ++this.sent;
     this.preview.run({ parts, voxel, blend: this.blend, skin: withSkin, labels: !withSkin }).then(
       ({ mesh, skin, labels }) => {
-        if (skin && voxel === VOXEL.preview) {
+        // 等它算完，转法又变了：不要了（新的那张已经在算）
+        if (turn !== (this.wantSkin ? this.turnWant : '')) return;
+        if (skin && voxel === VOXEL.preview && !turn) {
           this.bind = { shape, mesh: { positions: mesh.positions.slice(), normals: mesh.normals.slice(), joints: skin.joints, weights: skin.weights } };
         }
         if (voxel === VOXEL.preview) this.previewMs = mesh.info.ms;
@@ -263,7 +278,7 @@ export class FusedModel {
         // 要权重时（摆姿势）带着权重的那张总要换上，哪怕比屏幕上的粗：屏幕上那张是造型时算的更细的、没权重的，
         // 不换的话一直等不到权重（连体的身体没有「先张开再融合」，要不要权重是同一个 key，就会这样），随后再细一档
         const brings = Boolean(skin) && !this.skin && (this.wantSkin || voxel <= this.shownVoxel);
-        if (fresh ? key === this.shownKey && voxel >= this.shownVoxel && !brings : serial < this.shownSent || this.wantSkin) return;
+        if (fresh ? key === this.shownKey && turn === this.turnShown && voxel >= this.shownVoxel && !brings : serial < this.shownSent || this.wantSkin) return;
         // 屏幕上原来那张现在的样子（整块挪过的、过渡到一半的都算）：新网格从贴着它开始过渡。要权重的（摆姿势）不过渡
         const before = this.info && !skin && !this.wantSkin ? (this.body.geometry.getAttribute('position')?.array as Float32Array | undefined) : undefined;
         this.morph = null;
@@ -271,6 +286,7 @@ export class FusedModel {
         this.body.geometry = toGeometry(mesh);
         if (before) this.startMorph(before);
         this.shownKey = key;
+        this.turnShown = turn;
         this.shownVoxel = voxel;
         this.shownSent = serial;
         this.shownParts = parts;
@@ -435,6 +451,29 @@ export class FusedModel {
     this.poseTimer = window.setTimeout(() => this.sendPosed(serial, VOXEL.preview), POSE_SETTLE_MS);
   }
 
+  /**
+   * 摆姿势、照权重弯的那种身体（不照姿势重新融合的）：matrices 同 pose；null 是不摆了，或者这副身体不这么办。
+   * 阴茎、阴囊绕根转过的话，停下来以后带权重的那张照它们转好的样子重新融合一遍换上（见 sdf/bindPose.ts 的 turnedParts）：
+   * 根部是在转好的地方和身体融合的，不是靠那一圈皮硬弯过去的。再拖别处时用的就是这一张，不会变回去
+   */
+  turn(matrices: Float64Array | null) {
+    const parts = matrices && this.wantSkin ? turnedParts(this.parts, matrices) : null;
+    // 转了多少记到小数点后三位：手一抖差一点点的不重算
+    const want = parts ? JSON.stringify(parts.flatMap((part) => (part.type === 'genital' && part.bind ? [part.name, ...part.bind.map((q) => Math.round(q * 1000))] : []))) : '';
+    if (want === this.turnWant) return;
+    this.turnWant = want;
+    this.turnParts = parts;
+    window.clearTimeout(this.turnTimer);
+    const key = this.wantKey;
+    // 不摆了的马上换回没转过的；还在摆的等停下来
+    this.turnTimer = window.setTimeout(
+      () => {
+        if (key === this.wantKey && want === this.turnWant && want !== this.turnShown) this.send(key, VOXEL.preview);
+      },
+      matrices ? POSE_SETTLE_MS : 0,
+    );
+  }
+
   /** 摆好以后重新融合的那张作废（藏起来，还在算的也停下：再松手时新的一张不用等它算完） */
   private dropExact() {
     window.clearTimeout(this.poseTimer);
@@ -517,10 +556,11 @@ export class FusedModel {
    * 导出用：按当前参数重新算一张精细的网格，整体缩放已经乘进顶点（单位米）。
    * 只有身体这一整块，不带眼睛标记。skin：顺便算出蒙皮权重。
    * pose：照这个姿势融合（每根骨骼的蒙皮矩阵，这张网格自己的单位）；这时不算权重。
+   * turned：带权重、随后要照这个姿势搬过去的：阴茎、阴囊照它们在这个姿势里转好的样子融合（见 sdf/bindPose.ts 的 turnedParts）
    */
-  async exportData(options: { skin?: boolean; pose?: Float64Array } = {}): Promise<FusedExport> {
+  async exportData(options: { skin?: boolean; pose?: Float64Array; turned?: Float64Array } = {}): Promise<FusedExport> {
     const { mesh, skin } = await this.exporter.run({
-      parts: this.parts,
+      parts: (options.turned && !options.pose && turnedParts(this.parts, options.turned)) || this.parts,
       voxel: VOXEL.fine,
       blend: this.blend,
       skin: options.skin,

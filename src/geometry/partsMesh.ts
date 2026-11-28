@@ -6,7 +6,9 @@ import { t } from '../i18n';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { graftMeshOf } from '../anime/grafts';
+import { FOOT_CUFF, FOOT_STUMP } from '../anime/foot';
 import { HAND_CUFF, HAND_STUMP } from '../anime/hand';
+import { ankleToWrist } from '../anime/swap';
 import { fieldFromFunction } from '../sdf/field';
 import { chestDist, getGrid, gridDist } from '../sdf/grids';
 import { meshField } from '../sdf/surfaceNets';
@@ -167,7 +169,7 @@ function wingGeo(p: Wing) {
 
 /** cuff：见 gridGeo */
 /** rough：粗一档（选中部件的高亮外壳用，见 view/gizmo.ts）：格子做的胸、躯干、手臂在主线程上现算，细的要一两秒 */
-function primGeos(p: Prim, cuff = 1, rough = false): THREE.BufferGeometry[] {
+function primGeos(p: Prim, cuff = 1, rough = false, tip?: Graft['mesh']): THREE.BufferGeometry[] {
   switch (p.kind) {
     case 'ellipsoid':
       // 挖掉的体块（眼窝）只在融合网格里有意义
@@ -181,7 +183,7 @@ function primGeos(p: Prim, cuff = 1, rough = false): THREE.BufferGeometry[] {
     case 'wing':
       return [wingGeo(p)];
     case 'grid':
-      return p.cut ? [] : [gridGeo(p, cuff, rough)];
+      return p.cut ? [] : [gridGeo(p, cuff, rough, tip)];
     case 'chest':
       return [chestGeo(p, rough)];
   }
@@ -202,10 +204,20 @@ function chestGeo(p: ChestShape, rough = false) {
  * 采样好的形状：从它的距离场里取一张网格出来（和格子差不多细）。
  * cuff：手的袖口相对手臂（沿手臂的方向）是原来的几分之几长——手臂被手动拉长以后手不跟着拉长，袖口就显得短了
  */
-function gridGeo(p: GridShape, cuff: number, rough = false) {
+function gridGeo(p: GridShape, cuff: number, rough = false, tip?: Graft['mesh']) {
   const grid = getGrid(p.grid);
-  // 手臂的格子在融合时多留了一截伸进手里（见 anime/hand.ts）；这里不融合，切到手的切口里面一点就够了，免得和手叠着
-  const d = gridDist(grid, p.clipTo === undefined ? p : { ...p, clipTo: p.clipTo - HAND_STUMP - HAND_CUFF * cuff + 0.003 });
+  // 手臂的格子在融合时多留了一截伸进手里（见 anime/hand.ts）；这里不融合，切到手的切口里面一点就够了，免得和手叠着。
+  // 接着脚的腿也一样：融合时切在脚踝下面（见 anime/foot.ts 的 FOOT_STUMP），这里切到脚的袖口里面一点。
+  // 手脚互换了的（anime/swap.ts）：接上去的那只照切口的粗细放大缩小过，袖口也跟着长短
+  let use: GridShape = p;
+  if (p.clipTo !== undefined) {
+    const sleeve = tip === 'foot' ? FOOT_CUFF / ankleToWrist() : HAND_CUFF;
+    use = { ...p, clipTo: p.clipTo - HAND_STUMP - sleeve * cuff + 0.003 };
+  } else if ((tip === 'foot' || tip === 'palm') && p.clipBelow !== undefined) {
+    const sleeve = tip === 'palm' ? HAND_CUFF * ankleToWrist() : FOOT_CUFF;
+    use = { ...p, clipBelow: p.clipBelow + FOOT_STUMP + sleeve * cuff - 0.003 };
+  }
+  const d = gridDist(grid, use);
   const mesh = meshField(fieldFromFunction(d.fn, d.min, d.max), grid.cell * (rough ? ROUGH_GRID : 1.2));
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
@@ -252,7 +264,7 @@ export function buildPartGeometry(part: Part, rough = false): THREE.BufferGeomet
     const stretched = before.clone().applyMatrix3(new THREE.Matrix3().set(...m));
     cuff = fore.clone().applyMatrix3(kept).length() / stretched.length();
   }
-  const prims = part.prims.flatMap((p) => primGeos(p, cuff, rough));
+  const prims = part.prims.flatMap((p) => primGeos(p, cuff, rough, grafts[0]?.mesh));
   // 拉伸只作用在部件自己的基本体上
   if (m) for (const g of prims) g.applyMatrix4(new THREE.Matrix4().set(m[0], m[1], m[2], 0, m[3], m[4], m[5], 0, m[6], m[7], m[8], 0, 0, 0, 0, 1));
   const geos = [...prims, ...grafts.map((graft) => graftGeo(part, graft))];

@@ -39,6 +39,8 @@ export const PENIS_LINE = penis.line as V3[];
 /** 阴囊格子的原点（贴着身体那一面的正中）在模型里的位置；阴囊的半宽 */
 export const SCROTUM_ROOT = meta.scrotum.root as V3;
 export const SCROTUM_HALF = (meta.scrotum.bounds.max[0] - meta.scrotum.bounds.min[0]) / 2;
+/** 阴囊的包围盒（照 SCROTUM_ROOT 为原点；z 是从贴着身体那一面往外） */
+export const SCROTUM_BOUNDS = meta.scrotum.bounds as { min: V3; max: V3 };
 let cached: GraftMesh | null = null;
 
 /**

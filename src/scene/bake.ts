@@ -31,6 +31,7 @@ import { type Skeleton, buildSkeleton } from '../rig/skeleton';
 import { bindPartGrafts, skinVertices } from '../rig/skin';
 import { VOXEL } from '../sdf/fuse';
 import { MeshClient } from '../sdf/meshClient';
+import { turnedParts } from '../sdf/bindPose';
 import { refusable } from '../sdf/posedField';
 import { CharacterModel } from '../view/characterModel';
 import { MATERIALS, MATERIAL_INFO } from '../view/materials';
@@ -185,10 +186,12 @@ function eyesOf(target: Figure, rest: Skeleton, pose: PoseOf | null): NonNullabl
 async function bakeFused(spec: BodySpec, target: Figure, options: BakeOptions): Promise<Baked> {
   const rest = buildSkeleton(target);
   const pose = poseOf(spec, rest);
-  // 摆过姿势、不带骨骼的：照摆好的姿势重新融合；带骨骼的（或者这副身体不这么办，见 refusable）：静止的网格照权重搬过去
-  const exactMatrices = pose && !options.rig ? poseMatrices(pose.rig, pose.frame, target.scale) : undefined;
-  const exact = exactMatrices && refusable(target, exactMatrices) ? exactMatrices : undefined;
-  const parts = target.parts.filter((p) => p.material !== 'eye');
+  // 摆过姿势、不带骨骼的：照摆好的姿势重新融合；带骨骼的（或者这副身体不这么办，见 refusable）：静止的网格照权重搬过去——
+  // 阴茎、阴囊转过的话，静止的那张照它们转好的样子融合（见 turnedParts）
+  const unitMatrices = pose ? poseMatrices(pose.rig, pose.frame, target.scale) : undefined;
+  const exact = !options.rig && unitMatrices && refusable(target, unitMatrices) ? unitMatrices : undefined;
+  const plain = target.parts.filter((p) => p.material !== 'eye');
+  const parts = (!exact && unitMatrices && turnedParts(plain, unitMatrices)) || plain;
   const { mesh, skin } = await fuseOne(() =>
     client.run({ parts, voxel: options.fine ? VOXEL.fine : VOXEL.preview, blend: spec.blend, skin: options.rig || Boolean(pose && !exact), pose: exact }),
   );

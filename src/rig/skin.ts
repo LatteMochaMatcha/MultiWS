@@ -26,6 +26,7 @@
 import { t } from '../i18n';
 import { graftMeshOf } from '../anime/grafts';
 import { type Figure, type Part, worldTransforms } from '../geometry/figure';
+import { isPenis } from '../geometry/genital';
 import { quatMul, rotate } from '../geometry/vec';
 import { type CompiledField, compilePartField, fieldAt } from '../sdf/field';
 import type { FusedMesh } from '../sdf/surfaceNets';
@@ -86,6 +87,20 @@ const PELVIS = { ramp: 0.06 };
  * 照平常那么宽的过渡带，每根各带一个的小阴囊大半跟着大腿走，转它的骨骼时被扯成一根根尖刺
  */
 const GENITAL_BAND = 0.3;
+/**
+ * 融合成一整块时，阴茎、阴囊靠根的那一截跟着身体（它接着的那根骨骼），顺着自己最靠根的那节骨骼往外，
+ * 过了骨骼长度的 from ~ to 才渐渐换成跟自己的骨骼（根骨骼的头埋在身体里，露在外面的表面大约从 0.4 起）。
+ * 以前整根只跟它自己的骨骼：骨骼一转过几十度，根部那圈皮就整片跟着翻起来，支出一块硬板。
+ * 阴囊让得更多：它是贴在身上的一团，周围又不挖空（见 geometry/genital.ts 的 genitalRooms），只有靠外的那头跟着自己的骨骼
+ */
+const GENITAL_ROOT: { penis: [from: number, to: number]; scrotum: [from: number, to: number] } = { penis: [0.35, 1.1], scrotum: [0.3, 1.2] };
+/**
+ * 融合成一整块、要算权重时，阴茎周围是挖空了的（见 geometry/genital.ts 的 genitalRooms）：夹着它的大腿、贴着它的肚子
+ * 在网格上已经和它分开了。可是算「离哪个部件近」用的是没挖过的形状，杆身上的顶点照样落在大腿里面、紧挨着大腿，
+ * 大半份额就归了大腿，腿一摆杆身被扯成一片片的。所以顶点离阴茎的表面不到过渡带的这么几成时，
+ * 它就只算这根阴茎的，别的部件都不算；根部该跟着身体的那一截另外让（见 GENITAL_ROOT）
+ */
+const GENITAL_SKIN = 0.15;
 
 interface Entry {
   field: CompiledField;
@@ -223,6 +238,11 @@ export interface SkinPlan {
   partings: { c: number[]; n: number[]; u: number[]; w: number[]; ru: number; rw: number }[];
   /** 每一伙最靠根的那节骨骼的根（腿就是髋关节），看它在刀的哪一边 */
   rootAt: Float64Array;
+  /** 每一伙最靠根的那节骨骼朝哪（单位向量）、多长，见 GENITAL_ROOT */
+  rootAxis: Float64Array;
+  rootLong: Float64Array;
+  /** 每一伙是不是阴茎（见 GENITAL_SKIN、GENITAL_ROOT） */
+  shaft: Uint8Array;
   /** 骨盆（见 PELVIS）：髋关节多高、胯是哪根骨骼、哪些是脊柱（1 是）。腿不直接接在胯上的（人马、蛛形）、不是站着的没有 */
   pelvis: { hip: number; hips: number; spine: Uint8Array } | null;
 }
@@ -258,6 +278,14 @@ export function planSkin(
   };
   const xfs = worldTransforms(figure);
   let mostStrands = 0;
+  // 只带着挖掉的基本体、没有骨骼、直接放在世界里的部件（大腿之间的刀，见 sdf/legSlit.ts）：和它同一类融合的部件，
+  // 「离它的表面多远」照挖过的样子算。不然挖开以后露出来的那片身体（胯的底面）静止时在大腿原来的体积里，会被算成大腿的皮
+  const cutters = figure.parts.filter((part) => !part.parent && !part.bones?.length && part.prims.length > 0 && part.prims.every((prim) => 'cut' in prim && prim.cut));
+  const cutsFor = (part: Part) => {
+    if (!cutters.length || cutters.includes(part)) return undefined;
+    const mine = cutters.filter((cutter) => (cutter.fuseAs ?? cutter.type) === (part.fuseAs ?? part.type));
+    return mine.length ? mine.map((cutter) => ({ part: cutter, xf: xfs.get(cutter.name)! })) : undefined;
+  };
   const entries: Entry[] = figure.parts
     .filter((part) => part.material !== 'eye')
     .map((part) => {
@@ -273,7 +301,7 @@ export function planSkin(
       let group = groupIds.get(bones);
       if (group === undefined) groupIds.set(bones, (group = groupIds.size));
       const outer = Int32Array.from(bones, (b) => (bones.includes(skeleton.bones[b].parent) ? -1 : skeleton.bones[b].parent));
-      return { field: compilePartField(part, xfs.get(part.name)!), bones, outer, group, strand, strands: names.length };
+      return { field: compilePartField(part, xfs.get(part.name)!, cutsFor(part)), bones, outer, group, strand, strands: names.length };
     });
 
   // 每一伙接在哪根骨骼上（它最靠根的那节骨骼的父骨骼；根骨骼所在的那一伙是 -1）、是哪一类部件（带着这些骨骼的那个部件的类型）、
@@ -282,12 +310,15 @@ export function planSkin(
   const parentBone = new Int32Array(groups).fill(-1);
   const kind: string[] = new Array(groups).fill('');
   const sample = new Int32Array(groups).fill(-1);
+  const shaft = new Uint8Array(groups);
   entries.forEach((entry, e) => {
     if (sample[entry.group] >= 0) return;
     sample[entry.group] = e;
     const first = skeleton.bones[entry.bones[0]];
     parentBone[entry.group] = first.parent;
-    kind[entry.group] = byName.get(first.part)?.type ?? '';
+    const owner = byName.get(first.part);
+    kind[entry.group] = owner?.type ?? '';
+    shaft[entry.group] = owner && isPenis(owner) ? 1 : 0;
   });
 
   // 分部件：每个顶点是哪一伙的网格上的（不知道就是 -1），它认哪几伙的骨骼
@@ -299,6 +330,8 @@ export function planSkin(
     // kin[g * groups + h]：g 这一伙的网格认不认 h 这一伙的骨骼。认自己的，和一路往上接着的那几伙的
     for (let g = 0; g < groups; g++) {
       kin[g * groups + g] = 1;
+      // 阴茎、阴囊的壳只认自己的骨骼：它是整个绕着根转的（常常转上一百多度），根上那一圈要是跟着身体，一转壳就被撕成两半
+      if (kind[g] === 'genital') continue;
       for (let b = parentBone[g]; b >= 0; b = skeleton.bones[b].parent) {
         const above = boneGroup[b];
         if (above >= 0) kin[g * groups + above] = 1;
@@ -428,7 +461,16 @@ export function planSkin(
     }
   }
   const rootAt = new Float64Array(groups * 3);
-  for (let g = 0; g < groups; g++) rootAt.set(skeleton.bones[entries[sample[g]].bones[0]].head, g * 3);
+  const rootAxis = new Float64Array(groups * 3);
+  const rootLong = new Float64Array(groups);
+  for (let g = 0; g < groups; g++) {
+    const { head, tail } = skeleton.bones[entries[sample[g]].bones[0]];
+    rootAt.set(head, g * 3);
+    const along = [tail[0] - head[0], tail[1] - head[1], tail[2] - head[2]];
+    const length = Math.hypot(along[0], along[1], along[2]);
+    rootLong[g] = length;
+    if (length > 0) rootAxis.set([along[0] / length, along[1] / length, along[2] / length], g * 3);
+  }
   // 骨盆（见 PELVIS）：直接接在胯上的那几条腿的髋关节
   let pelvis: SkinPlan['pelvis'] = null;
   {
@@ -469,6 +511,9 @@ export function planSkin(
     seams,
     partings,
     rootAt,
+    rootAxis,
+    rootLong,
+    shaft,
     pelvis,
   };
 }
@@ -539,6 +584,23 @@ export function nearParts(plan: SkinPlan, from: number, to: number): NearParts {
         best = e;
       }
     }
+    // 这个顶点就在阴茎的表面上（见 GENITAL_SKIN）：别的部件不算
+    if (home[v] < 0 && best >= 0) {
+      const start = offsets[v - from];
+      const skin = band * GENITAL_SKIN;
+      let on = -1;
+      for (let k = start; k < used; k++) {
+        if (!plan.shaft[entries[nearEntry[k]].group] || Math.abs(nearDist[k]) > skin) continue;
+        if (on < 0 || Math.abs(nearDist[k]) < Math.abs(nearDist[on])) on = k;
+      }
+      if (on >= 0) {
+        best = nearEntry[on];
+        closest = nearDist[on];
+        nearEntry[start] = best;
+        nearDist[start] = closest;
+        used = start + 1;
+      }
+    }
     if (best < 0) {
       // 离所有部件都远（缝上去的手：它不在哪个部件的距离场里）：老老实实找最近的那个
       for (let e = 0; e < entries.length; e++) {
@@ -603,7 +665,7 @@ export function weighVertices(
   joints: Uint16Array,
   weights: Float32Array,
 ) {
-  const { positions, entries, rep, band, soft, groups, parentBone, kind, sample, home, socket, lead, groupOf, body, torso, seams, partings, rootAt, pelvis } = plan;
+  const { positions, entries, rep, band, soft, groups, parentBone, kind, sample, home, socket, lead, groupOf, body, torso, seams, partings, rootAt, rootAxis, rootLong, shaft, pelvis } = plan;
   /** 这个顶点在哪几刀的刀面范围里、在刀的哪一边（见 PARTING）：刀的下标、正负号 */
   const cutBy: number[] = [];
   /** g 这一伙的根在不在这个顶点隔着的哪一刀的另一边 */
@@ -710,7 +772,8 @@ export function weighVertices(
       // 接在同一根骨骼上的同类也在这里（另一条手臂、另一条腿）：被挤得多厉害（挤它的那一伙占的 / 它自己占的，最多算 1）
       let crowd = 0;
       const up = parentBone[group];
-      if (up >= 0) {
+      // 分部件时阴茎、阴囊自己的壳不算被挤着（阴茎和阴囊接在同一根骨骼上、又是同类）：整个跟自己的骨骼，理由同上面的 kin
+      if (up >= 0 && !(kind[group] === 'genital' && home[v] === group)) {
         let rival = 0;
         for (let j = 0; j < here.length; j++) {
           const other = here[j];
@@ -718,6 +781,19 @@ export function weighVertices(
         }
         crowd = Math.min(1, rival / part);
         if (seamKeep > 0 && up === seamParent && kind[group] === 'leg') crowd *= 1 - seamKeep;
+      }
+      // 阴茎、阴囊的根部：这一伙的份额让给它接着的那根骨骼多少（见 GENITAL_ROOT）。分部件时不让：那是它自己的一块壳
+      let rooted = 0;
+      if (up >= 0 && kind[group] === 'genital' && home[v] < 0 && rootLong[group] > 0) {
+        const o = group * 3;
+        const along = ((x - rootAt[o]) * rootAxis[o] + (y - rootAt[o + 1]) * rootAxis[o + 1] + (z - rootAt[o + 2]) * rootAxis[o + 2]) / rootLong[group];
+        const zone = shaft[group] ? GENITAL_ROOT.penis : GENITAL_ROOT.scrotum;
+        const t = (along - zone[0]) / (zone[1] - zone[0]);
+        rooted = t <= 0 ? 1 : t >= 1 ? 0 : 1 - smooth(t);
+        if (rooted > 0) {
+          if (total[up] === 0) touched.push(up);
+          total[up] += part * rooted;
+        }
       }
       // 这一伙的份额摊到它的骨骼上
       const { bones, outer, strand, strands } = entries[sample[group]];
@@ -747,7 +823,8 @@ export function weighVertices(
       }
       if (!(sum > 0)) continue;
       for (let j = 0; j < bones.length; j++) {
-        let amount = (part * share[j]) / sum;
+        if (rooted >= 1) break;
+        let amount = (part * (1 - rooted) * share[j]) / sum;
         // 被挤着的：最靠根的那节骨骼的份额让一部分给父骨骼
         const above = crowd > 0 ? outer[j] : -1;
         if (above >= 0) {

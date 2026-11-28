@@ -430,6 +430,28 @@ describe('手臂手动拉长、加粗以后的手', () => {
     expect((size(long) * long.scale!) / size(plain)).toBeCloseTo(1, 1);
   });
 
+  // 腿的格子融合时切在脚踝下面（多留一截伸进脚里好缝），分部件不融合：原来照那里切，小腿末端和脚的袖口叠成两层，
+  // 一块块从对方里面露出来。现在切到接上去那一只的袖口里面一点，和手臂接手一样
+  for (const legEnd of ['foot', 'hand'] as const) {
+    it(`分部件：二次元素体的腿（末端接${legEnd === 'foot' ? '脚' : '手'}）切到袖口里面一点，不和它叠两层`, () => {
+      const figure = buildFigure({ ...defaultSpec(), bodyStyle: 'anime', legEnd });
+      const leg = part(figure, 'Leg_01_L');
+      const graft = leg.grafts![0];
+      const geo = buildPartGeometry(leg);
+      const p = geo.getAttribute('position').array;
+      const from = p.length / 3 - graftMeshOf(graft.mesh, graft.digits).positions.length / 3;
+      let legLow = Infinity;
+      let cuffTop = -Infinity;
+      for (let v = 0; v < p.length / 3; v++) {
+        if (v < from) legLow = Math.min(legLow, p[v * 3 + 1]);
+        else cuffTop = Math.max(cuffTop, p[v * 3 + 1]);
+      }
+      geo.dispose();
+      expect(cuffTop - legLow).toBeGreaterThan(0);
+      expect(cuffTop - legLow).toBeLessThan(0.012);
+    });
+  }
+
   it('手臂加粗 1.5 倍（长短不变）：手跟着大到 1.5 倍，还缝得上', () => {
     const plain = buildFigure(defaultSpec());
     const thick = buildFigure({ ...defaultSpec(), overrides: { Arm_01_L: { scale: [1.5, 1, 1.5] } } });

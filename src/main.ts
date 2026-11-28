@@ -3814,10 +3814,12 @@ function showPose() {
   if (figure && !character && spec.meshMode === 'fused') {
     const unit = figure.scale;
     // 屏幕上先是照权重跟着骨骼动的那张；姿势停下来以后，后台照它重新融合一张换上（见 FusedModel.pose）。
-    // 有的身体不这么办（见 refusable）：那就一直是照权重的这一张
+    // 有的身体不这么办（见 refusable）：那就一直是照权重的这一张——阴茎、阴囊转过的，停下来以后这一张照它们转好的样子重新融合（见 FusedModel.turn）
     if (posed) {
       const exact = poseMatrices(rig, frame, unit);
-      fused.pose(refusable(figure, exact) ? exact : null);
+      const refuse = refusable(figure, exact);
+      fused.pose(refuse ? exact : null);
+      fused.turn(refuse ? null : exact);
     }
     const eyes = kit.eyeBone;
     fused.poseEyes((part) => {
@@ -3958,6 +3960,7 @@ function leavePose() {
   flatParts.clear();
   fused.poseEyes(null);
   fused.pose(null);
+  fused.turn(null);
   poseState = null;
   poseFrame = null;
   poseWaiting = false;
@@ -5301,10 +5304,11 @@ async function exportFused(kind: ExportKind, target: Figure, pose: ExportPose | 
   setStatus(t('正在生成精细网格，稍等几秒…'));
   // 摆过姿势、不带骨骼的：照摆好的姿势重新融合（各部件的形状照骨骼搬过去再融合），不是把静止的网格扯过去——
   // 和屏幕上松手以后换上的那张一样；不这么办的身体（见 refusable）屏幕上是照权重的那张，导出也是。
-  // 带骨骼的要权重：还是静止的那张网格照权重搬过去，这样权重、骨架、网格是配套的
-  const posedMatrices = pose && kind !== 'rig' ? poseMatrices(pose.rig, pose.frame, target.scale) : undefined;
-  const exact = posedMatrices && refusable(target, posedMatrices) ? posedMatrices : undefined;
-  const data = await fused.exportData({ skin: kind === 'rig' || Boolean(pose && !exact), pose: exact });
+  // 带骨骼的要权重：还是静止的那张网格照权重搬过去，这样权重、骨架、网格是配套的。
+  // 照权重搬的，阴茎、阴囊转过的话，静止的那张照它们转好的样子融合（见 sdf/bindPose.ts 的 turnedParts），和屏幕上一样
+  const unitMatrices = pose ? poseMatrices(pose.rig, pose.frame, target.scale) : undefined;
+  const exact = kind !== 'rig' && unitMatrices && refusable(target, unitMatrices) ? unitMatrices : undefined;
+  const data = await fused.exportData({ skin: kind === 'rig' || Boolean(pose && !exact), pose: exact, turned: exact ? undefined : unitMatrices });
   if (pose && !exact) {
     if (!data.skin) throw new Error(t('没有拿到蒙皮数据'));
     skinInPlace(WHITE_BLEND, data.positions, data.normals, data.skin.joints, data.skin.weights, pose.matrices);

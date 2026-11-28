@@ -13,6 +13,7 @@ import {
   PENIS_GRID,
   PENIS_JOINTS,
   PENIS_LINE,
+  SCROTUM_BOUNDS,
   SCROTUM_GRID,
   SCROTUM_HALF,
   SCROTUM_ROOT,
@@ -21,7 +22,7 @@ import {
 } from '../anime/genital';
 import type { PenisLayout, ScrotumMode } from '../model/spec';
 import { gridDist, getGrid } from '../sdf/grids';
-import type { BoneHint, Graft, Part } from './figure';
+import { type BoneHint, type Graft, type Part, worldTransforms } from './figure';
 import { type Quat, type V3, Q_ID, add, dot, len, mul, norm, quatConj, quatEuler, quatMul, rotate, sub } from './vec';
 
 // 同 layout.ts 的 pad、bone（layout.ts 要引这个文件，不反过来引它）
@@ -508,3 +509,81 @@ function arrange(o: GenitalOptions, droop: Quat, ps: number): { parts: Part[]; s
   return { parts, settled };
 }
 
+/**
+ * 做摆姿势用的网格时（带权重融合，见 sdf/bindPose.ts）阴茎周围要空出来的地方：离根部 from 往外的那一截，
+ * 从那里起顺着它自己的方向到切口再过去 beyond、半径 radius 的一段圆柱（素体的单位，照部件的大小放大）。
+ * 胯挤得紧、阴茎调大了、手动挪过以后，整根常常贴着肚子、夹在大腿中间：照原样融合，它从根部往外好几厘米都和身体长成一张皮，
+ * 摆姿势时把它转开、把腿摆开，这张皮被带着翻起来，裆部支出一层层碎片。空出来以后只有根部那一小段连着。
+ * 分两截：根部往里 back、往外 from 那一截只挖别的部件（大腿、旁边那根），它长着的那块身体和阴囊留着——
+ * 根就是从那块身体上长出来的；再往外那一截周围什么都挖开。
+ * 挖出来的槽不留在身上：网格出来以后槽壁挪回原来的表面（见 sdf/uncarve.ts），挖只是为了让两张皮分开。
+ * 阴囊周围只挖大腿（SAC_ROOM）：大腿粗、胯挤的时候，两条大腿内侧的顶端静止时就贴着阴囊两边，照原样融合是一张皮，
+ * 腿一抬一张开，阴囊跟着胯、大腿跟着腿，中间那片皮扯成从阴囊散开的一扇竖褶。它长着的那块身体、阴茎不挖（挖了是身上一个坑），
+ * 挖出来的槽壁回大腿原来的表面（spare）
+ */
+const ROOM = { from: 0.03, back: 0.03, beyond: 0.02, radius: 0.06 };
+/** 阴囊那一处：圆柱从贴着身体那一面往里 back 起、到包围盒外面再过去 beyond，半径是包围盒的半对角再加 beyond（素体的单位） */
+const SAC_ROOM = { back: 0.01, beyond: 0.01 };
+const SHAFT_LONG = len(sub(PENIS_CUT, PENIS_BASE));
+
+/** 这个部件是不是阴茎（阴囊也是 genital，但不是） */
+export const isPenis = (part: Pick<Part, 'name' | 'type'>): boolean => part.type === 'genital' && part.name.startsWith('Penis_');
+
+/**
+ * 一处要空出来的地方：名叫 part 的部件在一段圆柱（从 a 起、沿单位向量 axis 长 length、半径 radius）里的那一截（见 sdf/posedField.ts 的 Room）。
+ * keep：这一处不挖的部件（名字）
+ */
+export interface GenitalRoom {
+  part: string;
+  a: V3;
+  axis: V3;
+  length: number;
+  radius: number;
+  keep?: string[];
+  /** keep 里的只是不挖：槽壁回原来的表面，不收到它们身上（见 sdf/field.ts 的 Clearance.spare） */
+  spare?: boolean;
+}
+
+/** 这副身体上每根阴茎周围要空出来的地方（见 ROOM）；没有阴茎就是空的 */
+export function genitalRooms(parts: readonly Part[]): GenitalRoom[] {
+  if (!parts.some(isPenis)) return [];
+  const xfs = worldTransforms({ parts: [...parts], scale: 1 });
+  const rooms: GenitalRoom[] = [];
+  const sacs = parts.filter((part) => part.type === 'genital' && !isPenis(part)).map((part) => part.name);
+  for (const part of parts) {
+    if (!isPenis(part)) continue;
+    const xf = xfs.get(part.name);
+    if (!xf) continue;
+    const axis = rotate(xf.quat, HARD_DIR);
+    const from = ROOM.from * xf.scale;
+    const back = ROOM.back * xf.scale;
+    const radius = ROOM.radius * xf.scale;
+    // 根部那一截：只把别的（大腿、旁边那根）挖开，它长着的那块身体和阴囊留着
+    const own = new Set(part.bones?.map((b) => b.name));
+    const up = part.bones?.find((b) => b.parent && !own.has(b.parent))?.parent;
+    const host = up ? parts.find((p) => p !== part && p.bones?.some((b) => b.name === up))?.name : undefined;
+    rooms.push({ part: part.name, a: add(xf.pos, mul(axis, -back)), axis, length: from + back, radius, keep: host ? [host, ...sacs] : sacs });
+    rooms.push({ part: part.name, a: add(xf.pos, mul(axis, from)), axis, length: (SHAFT_LONG + ROOM.beyond) * xf.scale - from, radius });
+  }
+  // 阴囊周围：只挖腿
+  const { min, max } = SCROTUM_BOUNDS;
+  const spread = Math.hypot(Math.max(-min[0], max[0]), Math.max(-min[1], max[1]));
+  for (const part of parts) {
+    if (part.type !== 'genital' || isPenis(part)) continue;
+    const xf = xfs.get(part.name);
+    if (!xf) continue;
+    const axis = rotate(xf.quat, [0, 0, 1]);
+    // 身体、阴茎、别的阴囊护着（只列挨得着阴囊的这几类：每多一个，场里每一点都要多算一遍它）
+    const keep = parts.filter((other) => other !== part && (other.type === 'torso' || other.type === 'lower' || other.type === 'genital')).map((other) => other.name);
+    rooms.push({
+      part: part.name,
+      a: add(xf.pos, mul(axis, (min[2] - SAC_ROOM.back) * xf.scale)),
+      axis,
+      length: (max[2] - min[2] + SAC_ROOM.back + SAC_ROOM.beyond) * xf.scale,
+      radius: (spread + SAC_ROOM.beyond) * xf.scale,
+      keep,
+      spare: true,
+    });
+  }
+  return rooms;
+}

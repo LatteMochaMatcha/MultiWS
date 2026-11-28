@@ -7,9 +7,10 @@ import type { Figure, Part } from '../geometry/figure';
 import { buildSkeleton } from '../rig/skeleton';
 import { type CompiledField, compileField } from './field';
 import { graftMeshes, wristRooms } from './graft';
-import { type PoseMatrices, compilePosedField } from './posedField';
+import { type PoseMatrices, type Room, compilePosedField } from './posedField';
 import { type BlockMemo, type FusedMesh, meshField } from './surfaceNets';
 import { refineSurface, settleSurface, surfaceLocks } from './surfaceQuality';
+import { restoreCarved } from './uncarve';
 
 /** 体素大小（按 1.76 m 的人台算）：拖动时用 draft，停下来换 preview，导出用 fine */
 export const VOXEL = { draft: 0.02, preview: 0.012, fine: 0.006 } as const;
@@ -29,6 +30,17 @@ export interface FuseOptions {
    * 那时手腕插在它里面是假的（腿搬走以后就不挨着了），挖了的话，挖掉的坑跟着腿搬过去，露在腿上
    */
   keep?: string[];
+  /**
+   * 另外要空出来的地方（见 posedField.ts 的 Room）：这些部件在各自那段圆柱里的那一截，周围别的部件挤进来的都挖掉。
+   * 带权重融合时阴茎用（见 bindPose.ts）。给了的话，静止的也照「每根骨骼都不动」的姿势走摆姿势那条路（只有那条路会挖）
+   */
+  rooms?: (Omit<Room, 'carve'> & { keep?: string[] })[];
+  /**
+   * 把 rooms 挖出来的槽填回去时（见 uncarve.ts），这一点上的皮是哪个部件的（parts 里的下标；说不出就是 -1）：
+   * 大腿之间切开的地方，刀哪一边就是哪条腿的（见 legSlit.ts）。toward 里写上它的表面大概在哪个方向（单位向量，见 uncarve.ts 的 landOn）。
+   * 只在本线程里用，不随任务传
+   */
+  owner?: (x: number, y: number, z: number, toward: number[]) => number;
 }
 
 /**
@@ -52,7 +64,12 @@ export function stageParts(parts: Part[], options: FuseOptions): Staged<FusedMes
   // 细长的东西（角尖、尾尖、耳尖）至少留一个体素那么粗的半径，不然取出来的网格会一节一节的
   const figure = { parts, scale: 1 };
   const shape = { blend: options.blend, minRadius: options.voxel };
-  const { pose, voxel } = options;
+  const { voxel } = options;
+  /** 一直要空着的那几处（阴茎周围） */
+  const always: Room[] = (options.rooms ?? []).flatMap(({ keep, ...room }) => [{ ...room, carve: true }, ...(keep ?? []).map((part) => ({ ...room, part, carve: false }))]);
+  const pose = options.pose ?? (always.length ? restMatrices(figure) : undefined);
+  // 静止的二次元素体：缝合完成后校正身体曲面，避免改变缝合圈的选取。
+  const refine = !options.pose && voxel <= VOXEL.preview && parts.some((p) => p.prims.some((shape) => shape.kind === 'grid' && shape.grid.startsWith('anime/')));
   if (!pose) {
     const field = compileField(figure, shape);
     // 手不进距离场：身体出来以后，把现成的手在手腕处缝上去。
@@ -64,8 +81,6 @@ export function stageParts(parts: Part[], options: FuseOptions): Staged<FusedMes
       const still = stageParts(parts, { ...options, pose: restMatrices(figure) }).finish();
       return still.info.components < mesh.info.components ? still : mesh;
     };
-    // 静止的二次元素体：缝合完成后校正身体曲面，避免改变缝合圈的选取。
-    const refine = voxel <= VOXEL.preview && parts.some((p) => p.prims.some((shape) => shape.kind === 'grid' && shape.grid.startsWith('anime/')));
     if (!refine) return { field, voxel, finish };
     return {
       field,
@@ -74,7 +89,7 @@ export function stageParts(parts: Part[], options: FuseOptions): Staged<FusedMes
       refine: { rough: finish, polish: (mesh, moved) => settleSurface(mesh, moved, surfaceLocks(mesh), performance.now()) },
     };
   }
-  const field = compilePosedField(figure, shape, pose);
+  const field = compilePosedField(figure, shape, pose, always);
   const finish = (memo: BlockMemo = {}) => {
     const first = { loose: [] as number[] };
     let best = graftMeshes(meshField(field, voxel, memo), parts, voxel, pose, first);
@@ -86,7 +101,7 @@ export function stageParts(parts: Part[], options: FuseOptions): Staged<FusedMes
     const rooms = wristRooms(parts, pose, voxel);
     const keep = options.keep ?? [];
     for (const soft of [false, true]) {
-      const list = rooms.map((room, i) => ({ ...room, carve: first.loose.includes(i), soft }));
+      const list: Room[] = [...always, ...rooms.map((room, i) => ({ ...room, carve: first.loose.includes(i), soft }))];
       // 不许挖的部件：要挖的那几处也护着它们
       for (const room of rooms.filter((_, i) => first.loose.includes(i))) for (const part of keep) list.push({ ...room, part, carve: false, soft });
       const carved = compilePosedField(figure, shape, pose, list);
@@ -101,7 +116,11 @@ export function stageParts(parts: Part[], options: FuseOptions): Staged<FusedMes
     }
     return best;
   };
-  return { field, voxel, finish };
+  // 一直要空着的那几处：挖出来的槽填回去（见 uncarve.ts）
+  const settle = (mesh: FusedMesh) => (always.length ? restoreCarved(mesh, field, options.owner) : mesh);
+  // 静止的、只是为了挖空才走这条路的：身体曲面照样校正
+  if (refine) return { field, voxel, finish: (memo) => settle(refineSurface(finish(memo), field)) };
+  return { field, voxel, finish: (memo) => settle(finish(memo)) };
 }
 
 export function fuseParts(parts: Part[], options: FuseOptions): FusedMesh {

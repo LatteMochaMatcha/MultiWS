@@ -12,6 +12,8 @@ import { flipPosing, placedTwins } from '../src/pose/posing';
 import { forward, poseMatrices, restState } from '../src/pose/rig';
 import { makeSolver, mirrorState } from '../src/pose/solver';
 import { buildSkeleton } from '../src/rig/skeleton';
+import { skinVerticesDualInPlace } from '../src/character/pose';
+import { turnedParts } from '../src/sdf/bindPose';
 import { compileField } from '../src/sdf/field';
 import { VOXEL, fuseParts } from '../src/sdf/fuse';
 import { graftMeshes } from '../src/sdf/graft';
@@ -256,6 +258,131 @@ describe('摆姿势', () => {
       for (let k = 0; k < 4; k++) if (skin!.joints[nearest * 4 + k] === index) own += skin!.weights[nearest * 4 + k];
       expect(own, name).toBeGreaterThan(0.8);
     }
+  });
+
+  it('带骨骼融合：夹在大腿中间的阴茎，杆身不和大腿连着（腿一摆不会把它扯碎）', () => {
+    useAnimeBody();
+    useGenital();
+    const base = defaultSpec();
+    // 人腿人马、胯挤扁了、阴茎调大：后面两根整根贴着肚子、夹在大腿中间
+    const spec = normalizeSpec({
+      ...base,
+      bodyStyle: 'anime',
+      legLayout: 'humantaur',
+      hipLegs: 2,
+      scrotum: 'each',
+      counts: { ...base.counts, legs: 6, penises: 1 },
+      shape: { ...base.shape, penisSize: 1.6 },
+      overrides: {
+        LowerBody: { position: [0, 0, 0.0253], scale: [0.9, 0.85, 0.55] },
+        Leg_01_L: { scale: [1.1, 1, 1.05] },
+        Leg_01_R: { scale: [1.1, 1, 1.05] },
+        Leg_02_L: { position: [0, 0, 0.2213], scale: [1.1, 1, 1.05] },
+        Leg_02_R: { position: [0, 0, 0.2213], scale: [1.1, 1, 1.05] },
+        Leg_03_L: { position: [0, 0, 0.4625], scale: [1.1, 1, 1.05] },
+        Leg_03_R: { position: [0, 0, 0.4625], scale: [1.1, 1, 1.05] },
+        Penis_03: { position: [0, 0, 0.2594] },
+        Scrotum_03: { position: [0, 0, 0.2594] },
+      },
+    });
+    const figure = buildFigure(spec);
+    const skeleton = buildSkeleton({ parts: figure.parts, scale: 1 });
+    const { mesh, skin } = runJob({ parts: figure.parts, voxel: VOXEL.preview, blend: spec.blend, skin: true });
+    const count = mesh.positions.length / 3;
+    const roots = skeleton.bones.filter((b) => /^Penis_\d+_01$/.test(b.name));
+    expect(roots.length).toBe(3);
+    for (const root of roots) {
+      const own = new Float32Array(count);
+      for (let v = 0; v < count; v++)
+        for (let k = 0; k < 4; k++) if (skeleton.bones[skin!.joints[v * 4 + k]].part === root.part) own[v] += skin!.weights[v * 4 + k];
+      const axis = sub(root.tail, root.head);
+      const long = Math.hypot(...axis);
+      // 一条边一头几乎全跟着这根、另一头大半跟着别的：杆身在这里还和别的部件连着，一转就扯开。
+      // 只数根骨骼一倍往外的（再靠根是它和身体接着的地方，本来就连着）
+      let torn = 0;
+      for (let t = 0; t < mesh.triangles.length; t += 3)
+        for (let e = 0; e < 3; e++) {
+          const a = mesh.triangles[t + e];
+          const b = mesh.triangles[t + ((e + 1) % 3)];
+          if (Math.abs(own[a] - own[b]) < 0.5) continue;
+          const hi = own[a] > own[b] ? a : b;
+          const at: [number, number, number] = [mesh.positions[hi * 3], mesh.positions[hi * 3 + 1], mesh.positions[hi * 3 + 2]];
+          if (dot(sub(at, root.head), axis) / (long * long) >= 1) torn++;
+        }
+      expect(torn, root.part).toBe(0);
+    }
+  });
+
+  it('阴茎绕根往下转六十度：照转好的样子带权重融合，搬到姿势以后还是完整的一根，没有被扯长、留一截在原地', () => {
+    useAnimeBody();
+    useGenital();
+    const spec = normalizeSpec({ ...make({ penises: 1 }, { bodyStyle: 'anime', scrotum: 'each' }) });
+    const figure = buildFigure(spec);
+    const unit = { parts: figure.parts, scale: 1 };
+    const skeleton = buildSkeleton(unit);
+    const solver = makeSolver(skeleton.bones);
+    const root = skeleton.bones.findIndex((b) => b.name === 'Penis_01_01');
+    const state = restState(solver.rig);
+    state.local[root] = quatEuler((60 * Math.PI) / 180, 0, 0);
+    const matrices = poseMatrices(solver.rig, forward(solver.rig, state));
+
+    // 没转过的不用另外融合；转过的只有这一根带上了 bind
+    expect(turnedParts(figure.parts, poseMatrices(solver.rig, forward(solver.rig, restState(solver.rig))))).toBeNull();
+    const turned = turnedParts(figure.parts, matrices)!;
+    expect(turned.filter((p) => p.bind && p.type === 'genital').map((p) => p.name)).toEqual(['Penis_01']);
+
+    /** 几乎只跟着这根阴茎的顶点，顺着 axis（从根起）排到多远、离轴最远多少 */
+    const extent = (parts: typeof figure.parts, posed: boolean) => {
+      const { mesh, skin } = runJob({ parts, voxel: VOXEL.preview, blend: spec.blend, skin: true });
+      expect(mesh.info.components).toBe(1);
+      expect(mesh.restored).toBeUndefined();
+      const head = skeleton.bones[root].head;
+      let axis = norm(sub(skeleton.bones[root].tail, head));
+      if (posed) {
+        skinVerticesDualInPlace(mesh.positions, mesh.normals, skin!.joints, skin!.weights, Float64Array.from(matrices));
+        axis = rotate(quatEuler((60 * Math.PI) / 180, 0, 0), axis);
+      }
+      let far = 0;
+      let wide = 0;
+      let low = Infinity;
+      let n = 0;
+      for (let v = 0; v < mesh.positions.length / 3; v++) {
+        let own = 0;
+        for (let k = 0; k < 4; k++) if (skeleton.bones[skin!.joints[v * 4 + k]].part === 'Penis_01') own += skin!.weights[v * 4 + k];
+        if (own < 0.99) continue;
+        const at = sub([mesh.positions[v * 3], mesh.positions[v * 3 + 1], mesh.positions[v * 3 + 2]], head);
+        const along = dot(at, axis);
+        far = Math.max(far, along);
+        low = Math.min(low, along);
+        wide = Math.max(wide, Math.sqrt(Math.max(0, dot(at, at) - along * along)));
+        n++;
+      }
+      /** 根骨骼三成到七成那一段（靠根、权重让给身体的那一截），离轴不到 reach 的顶点有几个：不管它跟着谁 */
+      const long = Math.hypot(...sub(skeleton.bones[root].tail, head));
+      const band = (reach: number) => {
+        let count = 0;
+        for (let v = 0; v < mesh.positions.length / 3; v++) {
+          const at = sub([mesh.positions[v * 3], mesh.positions[v * 3 + 1], mesh.positions[v * 3 + 2]], head);
+          const along = dot(at, axis);
+          if (along < 0.3 * long || along > 0.7 * long) continue;
+          if (Math.sqrt(Math.max(0, dot(at, at) - along * along)) < reach) count++;
+        }
+        return count;
+      };
+      return { far, wide, low, n, band };
+    };
+    const rest = extent(figure.parts, false);
+    const posed = extent(turned, true);
+    expect(rest.n).toBeGreaterThan(200);
+    // 靠根的那一截还是一圈完整的管壁：照没转过的样子融合、全靠权重弯的话，这一截的皮被斜着拉过去，有十来个顶点横在轴线旁边
+    const inner = rest.wide * 0.6;
+    const bent = extent(figure.parts, true);
+    expect(posed.band(inner)).toBeLessThanOrEqual(rest.band(inner) + 3);
+    expect(bent.band(inner)).toBeGreaterThan(posed.band(inner) + 5);
+    // 一样长、一样粗（转好再融合，根部接的地方不一样，差几毫米）
+    expect(Math.abs(posed.far - rest.far)).toBeLessThan(0.01);
+    expect(posed.wide).toBeLessThan(rest.wide + 0.01);
+    expect(Math.abs(posed.low - rest.low)).toBeLessThan(0.02);
   });
 
   it('弯中间那一节、龟头、转根部：缝口还在，一整块', () => {

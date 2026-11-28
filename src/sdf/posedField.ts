@@ -765,6 +765,16 @@ export function heldLegs(figure: Pick<Figure, 'parts' | 'scale'>, matrices: Pose
  * matrices 只用来核对骨骼数。
  */
 export function refusable(figure: Pick<Figure, 'parts' | 'scale'>, matrices: PoseMatrices): boolean {
+  const known = bodyKind(figure);
+  if (matrices.length !== known.bones * 12) return false;
+  return !known.sampled || known.crowded || known.bodies;
+}
+/** 不看姿势：这副身体是不是摆了姿势要重新融合的那种（见 refusable） */
+export function refusesPosed(figure: Pick<Figure, 'parts' | 'scale'>): boolean {
+  const known = bodyKind(figure);
+  return !known.sampled || known.crowded || known.bodies;
+}
+function bodyKind(figure: Pick<Figure, 'parts' | 'scale'>) {
   let known = sampledBodies.get(figure.parts);
   if (!known) {
     // 有没有两条手臂的肩关节挨着（长在同一个部件上、同一侧、离得不到 CROWDED）
@@ -775,8 +785,7 @@ export function refusable(figure: Pick<Figure, 'parts' | 'scale'>, matrices: Pos
     known = { bones: buildSkeleton(figure).bones.length, sampled: isSampled(figure.parts), crowded, bodies: severalBodies(figure.parts) || ringBodies(figure.parts).length > 0 };
     sampledBodies.set(figure.parts, known);
   }
-  if (matrices.length !== known.bones * 12) return false;
-  return !known.sampled || known.crowded || known.bodies;
+  return known;
 }
 /** 每副身体只看一遍：骨架多少根骨骼、是不是采样出来的、手臂挤不挤、是不是好几个上半身 */
 const sampledBodies = new WeakMap<object, { bones: number; sampled: boolean; crowded: boolean; bodies: boolean }>();
@@ -802,6 +811,8 @@ export interface Room {
   carve: boolean;
   /** 挖开的边上圆个圆角（CARVE_SOFT 个 margin）。圆了以后有的手腕缝得上，有的反而缝不上（见 fuse.ts） */
   soft?: boolean;
+  /** 见 Clearance.spare */
+  spare?: boolean;
 }
 
 /** 胸那一带离躯干多远的格子隔多远一格（按标准人台的尺寸）：只用来定胸上一点跟躯干还是跟自己的上半身（见 SHARED_LIFT），粗一点没关系 */
@@ -1252,6 +1263,7 @@ export function compilePosedField(
         // 离那段圆柱三个体素以外，改了也碰不到表面；圆角大的，要管到比圆角还远一个体素
         reach: Math.max(3 * minR, soft + minR),
         carve: room.carve,
+        ...(room.spare ? { spare: true } : {}),
         list: field.owned?.get(indexOf.get(room.part) ?? -1) ?? new Int32Array(0),
       };
     });
