@@ -27,6 +27,8 @@ export interface Solver {
   frames2: Quat[];
   /** 是不是身上的主要骨骼（脊柱、脖子、头、锁骨、四肢、手脚）：摆过姿势以后，这些骨骼每根都记 */
   main: boolean[];
+  /** 躯干锁定（见 model/torsoHold.ts）：拖手脚时胯、脊柱不跟着转，胯也不挪。照当前角色的设定随时改（main.ts 的 syncTorsoLock） */
+  lockTorso?: boolean;
 }
 
 const MAIN = /^(Hips|Spine|Chest|UpperChest|Neck|Head|Shoulder|UpperArm|LowerArm|Hand|UpperLeg|LowerLeg|Foot|Toes|ToeBase)(_[LR])?(\.\d+)?$/;

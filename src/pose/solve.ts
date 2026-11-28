@@ -15,6 +15,7 @@
 import { type Quat, type V3, add, cross, dot, len, mul, norm, quatBetween, quatConj, quatMul, rotate, sub } from '../geometry/vec';
 import { type Limb, STRAIGHT, limbFrame } from './limbs';
 import { anyPerp, quatAngle, quatLimit, quatPart, quatUnit, reject } from './math';
+import { isTorsoBone } from '../model/torsoHold';
 import { isRingRig, isSpineBone } from './ring';
 import { type Frame, type PoseRig, type PoseState, cloneState, forward, pointOn, setWorldRot, shiftRoot } from './rig';
 import type { Solver } from './solver';
@@ -165,6 +166,8 @@ function shortfall(from: V3, target: V3, reach: number): V3 | null {
 
 /** 钉着的脚、抓着道具的手够不着了：把胯拉回到它们都够得着的地方 */
 function settleRoot(solver: Solver, state: PoseState, pins: readonly Pin[]) {
+  // 躯干锁定了：胯不挪（够不着的手脚就伸直着够不着）
+  if (solver.lockTorso) return;
   const legs = pins.filter((pin) => pin.firm || solver.limbs[pin.limb].kind === 'leg');
   if (!legs.length) return;
   const f = forward(solver.rig, state);
@@ -207,8 +210,10 @@ function pull(solver: Solver, state: PoseState, start: PoseState, limb: Limb, ta
   // 手臂够不着、又有脚钉着：骨盆也跟着转（腿会重新摆回脚的位置）。脚都没钉的话骨盆一转腿就甩出去了，不转
   const planted = pins.some((pin) => solver.limbs[pin.limb].kind === 'leg');
   // 围成一圈的背不弯（见 pose/ring.ts）：脊柱不帮着够，只有锁骨（和胯）帮
-  const chain = isRingRig(rig) ? limb.chain.filter((bone) => !isSpineBone(rig.names[bone])) : limb.chain;
-  const helpers = chain.length && planted ? [...chain, rig.hips] : chain;
+  // 躯干锁定了（见 model/torsoHold.ts）：脊柱、胯都不帮着够，也不跟过去，只有锁骨帮
+  const locked = Boolean(solver.lockTorso);
+  const chain = locked ? limb.chain.filter((bone) => !isTorsoBone(rig.names[bone])) : isRingRig(rig) ? limb.chain.filter((bone) => !isSpineBone(rig.names[bone])) : limb.chain;
+  const helpers = chain.length && planted && !locked ? [...chain, rig.hips] : chain;
   for (const give of ROOT_GIVE) {
     let f = forward(rig, state);
     let gap = shortfall(f.pos[limb.upper], target, reach);
@@ -228,6 +233,7 @@ function pull(solver: Solver, state: PoseState, start: PoseState, limb: Limb, ta
       gap = shortfall(f.pos[limb.upper], target, reach);
       if (!gap) return;
     }
+    if (locked) return;
     shiftRoot(rig, state, f, mul(gap, give));
     settleRoot(solver, state, pins);
   }
@@ -330,6 +336,8 @@ export function dragBody(solver: Solver, start: PoseState, target: V3, pins: rea
   const { rig } = solver;
   const f0 = forward(rig, start);
   const state = cloneState(start);
+  // 躯干锁定了：胯拖不动（圆点本来也不给）
+  if (solver.lockTorso) return state;
   shiftRoot(rig, state, f0, sub(target, f0.pos[rig.hips]));
   settleRoot(solver, state, pins);
   keepPins(solver, state, f0, pins);
@@ -364,6 +372,8 @@ export function dragAim(
 ): PoseState {
   const { rig } = solver;
   const state = cloneState(start);
+  // 躯干锁定了：要转的那几节里的脊柱、胯不转（拖肩膀只有锁骨转，拖脖子只有脖子转）
+  if (solver.lockTorso) links = links.filter((link) => !isTorsoBone(rig.names[link.bone]));
   // 一节的转一下就到位；几节的反复几轮凑过去，节数多的（尾巴）多凑几轮
   const rounds = links.length > 1 ? Math.max(4, links.length * 2) : 1;
   for (let round = 0; round < rounds; round++) {
@@ -457,6 +467,8 @@ export function turnBone(solver: Solver, start: PoseState, bone: number, rot: Qu
   const { rig } = solver;
   const f0 = forward(rig, start);
   const state = cloneState(start);
+  // 躯干锁定了：胯、脊柱转不动（旋转环本来也不给）
+  if (solver.lockTorso && isTorsoBone(rig.names[bone])) return state;
   setWorldRot(rig, state, f0, bone, rot);
   const own = limbWith(solver, bone);
   const others = pins.filter((pin) => pin.limb !== own);
@@ -477,6 +489,7 @@ const LOW_TWIST = 0.2;
  */
 export function turnSpine(solver: Solver, start: PoseState, bone: number, chain: readonly number[], delta: Quat, pins: readonly Pin[]): PoseState {
   const { rig } = solver;
+  if (solver.lockTorso) return cloneState(start);
   const at = chain.indexOf(bone);
   const f0 = forward(rig, start);
   if (at < 0 || chain.length < 2) return turnBone(solver, start, bone, quatMul(delta, f0.rot[bone]), pins);

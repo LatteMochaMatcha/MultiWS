@@ -710,7 +710,7 @@ button,label,summary,select,input{touch-action:manipulation}
 /* 「道具」那一节（view/propsPanel.ts 现做的）：和别的栏一样一行一行隔开；清单只有名字和删除两格 */
 .props-panel{display:flex;flex-direction:column;gap:10px;min-width:0}
 .props-panel>[hidden]{display:none}
-.figure-row.prop-row{grid-template-columns:minmax(0,1fr) auto}
+.figure-row.prop-row{grid-template-columns:minmax(0,1fr) repeat(3,auto)}
 /* 道具的位置、尺寸常是「193.5」这样五位的数：格子窄，去掉上下小箭头、收一点边距才显示得全 */
 .props-panel .triple label{gap:3px}
 .props-panel .triple input{padding-inline:4px;-moz-appearance:textfield;appearance:textfield}
@@ -739,7 +739,7 @@ button,label,summary,select,input{touch-action:manipulation}
 .prop-import-stage img[hidden]{display:none}
 .prop-import-notes{margin:0;padding-left:1.2em}
 .prop-import .triple{grid-template-columns:3.6em repeat(3,minmax(0,1fr))}
-.figure-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:4px;align-items:stretch}
+.figure-row{display:grid;grid-template-columns:minmax(0,1fr) repeat(5,auto);gap:4px;align-items:stretch}
 .figure-pick{display:flex;flex-direction:column;align-items:flex-start;min-width:0;font:inherit;text-align:left;padding:6px 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);cursor:pointer}
 .figure-pick .figure-name{max-width:100%;font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .figure-pick .figure-style{font-size:11.5px;color:var(--muted)}
@@ -750,6 +750,16 @@ button,label,summary,select,input{touch-action:manipulation}
 @media (hover:hover){.figure-row .icon:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}}
 .figure-row .icon:disabled{opacity:.35;cursor:default}
 .figure-pick:focus-visible,.figure-row .icon:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+/* 锁定、冻结（view/flagIcons.ts）：一把锁、一片雪花；开着的是按下去的样子。冻结的角色、道具名字淡一点 */
+.flag-ico{width:15px;height:15px;vertical-align:middle;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.figure-row .icon.flag{display:grid;place-items:center;padding:0}
+.figure-row .icon.flag[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.figure-row .icon.flag[aria-pressed="true"]:disabled{opacity:.5}
+.figure-row.frozen .figure-pick{border-style:dashed}
+.figure-row.frozen .figure-name{color:var(--muted)}
+.scene-chip .flag-ico{width:12px;height:12px;margin-left:4px;vertical-align:-1px}
+.scene-chip.frozen:not([aria-pressed="true"]){color:var(--muted)}
+.prop-held{margin:0}
 #askDialog p{margin:0 0 14px;font-size:14px;line-height:1.6}
 #figureName,.props-panel .prop-name{width:100%;font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:7px 10px}
 #figureName:focus-visible,.props-panel .prop-name:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}

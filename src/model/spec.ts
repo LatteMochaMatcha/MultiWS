@@ -8,6 +8,7 @@ import { FINGER_COUNT, TOE_COUNT } from '../anime/digits';
 import { t } from '../i18n';
 import { cap } from './partLabel';
 import { type Posing, cleanPosing, emptyPosing } from '../pose/posing';
+import { TORSO_COUNT_KEYS, TORSO_SHAPE_KEYS, type TorsoFreeze, cleanTorsoFreeze, holdTorso } from './torsoHold';
 
 /* ---------------- 部件数量 ---------------- */
 
@@ -631,6 +632,10 @@ export interface BodySpec {
   torsoCharacters?: TorsoCharacters;
   /** 体块组装：手工加的部件（见 Blocks）。成品角色不看它 */
   blocks?: Blocks;
+  /** 躯干锁定：摆姿势时胯、腰、胸不跟着动（见 model/torsoHold.ts）。没锁就不写 */
+  torsoLock?: true;
+  /** 躯干冻结：冻结那一刻躯干的姿势、体型、数量，改设定时照它写回去（见 model/torsoHold.ts）。没冻结就不写 */
+  torsoFreeze?: TorsoFreeze;
 }
 
 /** 每个上半身换成了哪个成品角色（见 BodySpec.torsoCharacters） */
@@ -971,7 +976,7 @@ export function normalizeSpec(input: unknown): BodySpec {
 
   const v1Layout = src.layout === 'shoulder' ? 'fan' : src.layout;
 
-  return {
+  const out: BodySpec = {
     version: SPEC_VERSION,
     counts: clampCounts(counts),
     shape: clampShape(shape),
@@ -1015,6 +1020,17 @@ export function normalizeSpec(input: unknown): BodySpec {
     torsoCharacters: cleanTorsoCharacters(src.torsoCharacters),
     blocks: cleanBlocks(src.blocks),
   };
+  // 躯干锁定、冻结（见 model/torsoHold.ts）：没有就不写这两项，和以前的存档一模一样
+  if (src.torsoLock === true) out.torsoLock = true;
+  const freeze = cleanTorsoFreeze(src.torsoFreeze, out);
+  if (!freeze) return out;
+  // 冻结时的数也照这一版的范围收
+  const shapeHeld = clampShape({ ...out.shape, ...freeze.shape });
+  const countsHeld = clampCounts({ ...out.counts, ...freeze.counts });
+  for (const k of TORSO_SHAPE_KEYS) freeze.shape[k] = shapeHeld[k];
+  for (const k of TORSO_COUNT_KEYS) freeze.counts[k] = countsHeld[k];
+  freeze.chestRow = clampChestRow(freeze.chestRow);
+  return holdTorso({ ...out, torsoFreeze: freeze });
 }
 
 export function serializeSpec(spec: BodySpec, text?: string): string {

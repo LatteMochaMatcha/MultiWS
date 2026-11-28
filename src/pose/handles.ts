@@ -103,11 +103,13 @@ export function buildHandles(solver: Solver): Handle[] {
   });
 
   const hips = rig.hips;
-  handles.push(joint(hips, { kind: 'body', group: 'torso', label: cap(t('胯')) }));
+  // 躯干锁定了（见 model/torsoHold.ts）：胯、腰、胸的圆点都不给，拖肩膀、脖子时脊柱也不跟着转
+  const locked = Boolean(solver.lockTorso);
+  if (!locked) handles.push(joint(hips, { kind: 'body', group: 'torso', label: cap(t('胯')) }));
 
   // 脊柱：从胯往上一节一节，走到带着脖子的那一节为止。好几个上半身时胯上长着好几串，各有各的腰和胸。
   // 围成一圈的背不弯（见 pose/ring.ts）：不给腰、胸的圆点，拖肩膀时脊柱也不跟着转
-  const stiff = isRingRig(rig);
+  const stiff = locked || isRingRig(rig);
   const roots = stiff ? [] : kids[hips].filter((k) => SPINE.test(rig.names[k]));
   for (const root of roots) {
     const spine: number[] = [];

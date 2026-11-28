@@ -44,6 +44,8 @@ export class SceneFigures {
   /** 底座圈显不显示（场景里只有一个角色时不显示） */
   private ringsOn = false;
   private active: string | null = null;
+  /** 锁定、冻结了的（站的地方挪不了）：底座圈、小球不显示，也点不中 */
+  private readonly fixed = new Set<string>();
 
   constructor() {
     this.root.name = 'SceneFigures';
@@ -210,9 +212,16 @@ export class SceneFigures {
     this.syncRings();
   }
 
+  /** 哪几个站的地方挪不了（锁定、冻结的） */
+  setFixed(ids: Iterable<string>) {
+    this.fixed.clear();
+    for (const id of ids) this.fixed.add(id);
+    this.syncRings();
+  }
+
   private syncRings() {
     for (const [id, e] of this.entries) {
-      e.ring.visible = e.knob.visible = this.ringsOn;
+      e.ring.visible = e.knob.visible = this.ringsOn && !this.fixed.has(id);
       const on = id === this.active;
       e.ring.material = on ? RING_ON : RING;
       e.knob.material = on ? KNOB_ON : KNOB;
@@ -256,6 +265,7 @@ export class SceneFigures {
     if (!this.ringsOn) return null;
     let best: { id: string; part: RingPart; distance: number } | null = null;
     for (const [id, e] of this.entries) {
+      if (this.fixed.has(id)) continue;
       for (const [part, mesh] of [
         ['knob', e.knob],
         ['ring', e.ring],

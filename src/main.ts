@@ -45,6 +45,7 @@ import {
   absolutePlace,
   addFigure,
   besideAll,
+  canMoveFigure,
   cleanName,
   currentOf,
   figureOf,
@@ -58,6 +59,7 @@ import {
   restoreFigure,
   serializeScene,
   setCurrent,
+  setFigureFlag,
   singleScene,
   updateFigure,
 } from './model/scene';
@@ -204,6 +206,7 @@ import {
   withSpread,
 } from './pose/fingers';
 import { type Handle, type HandleGroup, HANDLE_GROUPS, buildHandles } from './pose/handles';
+import { flagButton, flagIcon } from './view/flagIcons';
 import { type BodyDist, clearArms } from './pose/clear';
 import { rootReach, settleCollars } from './pose/collar';
 import { type PoseRegion, POSE_REGIONS, armPairOf, blendPose, regionOf } from './pose/blend';
@@ -251,7 +254,8 @@ import { loadPropAssets } from './props/library';
 import { loadRealAsset } from './props/realLoad';
 import { loadUserAssets } from './props/userStore';
 import { type PropClash, type PropSolid, propClashes, propSolid, pushOutOfSolids, slideOutOfSolids, solidDistance } from './scene/propTouch';
-import { PROP_KINDS, PROP_SIZE, type SceneProp, propOf, propPoint } from './model/props';
+import { PROP_KINDS, PROP_SIZE, type SceneProp, canMoveProp, propOf, propPoint } from './model/props';
+import { TORSO_COUNT_KEYS, TORSO_SHAPE_KEYS, holdTorso, setTorsoHold, torsoLocked } from './model/torsoHold';
 import { BODY_LINK, type PropLink, dropLink, isLimbPart, linkOf, linkPoint, liveLinks, putDown, sameLinks, setLink, turnLink, withCarry, withGrip } from './model/links';
 import { type Carrier, carrierIn, carryLoops, placeCarried, samePose } from './scene/carry';
 import { type GripWay, type HoldTarget, barGripWay, chestBone, flipGrip, followPlace, grabLink, holdPosing, holdState, holdTargets, linkTo, nearestSolid, rideLink, sceneRot, snapReach, swingReach, topUnder } from './scene/follow';
@@ -365,7 +369,11 @@ function readText(value: string) {
  * 免得开关关着时看不见的设定还留在存档、撤销历史里（见 model/adult.ts）。
  * 成品角色时设定照留（切回白模还在），只是不长、几项也不显示（见 adultShown）
  */
-const gate = (next: BodySpec): BodySpec => (adultOn() ? next : withoutAdult(next));
+const gate = (next: BodySpec): BodySpec => holdTorso(adultOn() ? next : withoutAdult(next));
+/** 躯干冻结了：躯干的体型、上半身和胸的数量不能改（见 model/torsoHold.ts） */
+const TORSO_FROZEN_TIP = tk('躯干冻结了：点顶栏的「冻结躯干」解冻以后才能改');
+const TORSO_LOCK_TIP = tk('拖手、脚、肩膀、脖子时，胯、腰、胸不跟着转，胯也不挪，只动四肢和头；胯、腰、胸的圆点不显示');
+const TORSO_FREEZE_TIP = tk('冻结躯干：躯干的姿势（胯、腰、胸朝哪、整个人在哪）和体型（肩宽、胸部大小、腰宽、胯宽、躯干长短，上半身和胸的数量）定成现在的样子。套现成姿势、还原姿势、初始化都不改它；冻结的也算锁定');
 /** 成人部件的几项要不要显示 */
 const adultShown = () => adultOn() && spec.bodyStyle !== 'character';
 
@@ -599,6 +607,13 @@ const redo = () => stepEdit(false);
 function syncUndo() {
   btnUndo.disabled = !(history.canUndo || propsPanel.canUndo);
   btnRedo.disabled = !(history.canRedo || propsPanel.canRedo);
+  syncTorsoFreeze();
+}
+/** 顶栏「冻结躯干」跟上这个角色的设定（撤销、切角色、读存档以后） */
+function syncTorsoFreeze() {
+  const on = Boolean(spec.torsoFreeze);
+  btnTorsoFreeze.setAttribute('aria-pressed', String(on));
+  btnTorsoFreeze.title = on ? t('解冻躯干：姿势、体型又能改了') : t(TORSO_FREEZE_TIP);
 }
 
 /** 用户改了文字：重新解析，文字本身不动 */
@@ -727,8 +742,11 @@ const steppers = COUNT_DEFS.map((d) => {
     out.title = mixed ? t('有的上半身单独设过；在「全部一样」下加减会把它们都改成一样') : '';
     row.classList.toggle('per-torso', !!side());
     card?.classList.toggle('per-torso', !!side());
-    minus.disabled = v <= d.min;
-    plus.disabled = v >= d.max;
+    // 躯干冻结了：上半身、胸的数量不能改
+    const frozen = Boolean(spec.torsoFreeze) && (TORSO_COUNT_KEYS as readonly string[]).includes(d.key);
+    minus.disabled = v <= d.min || frozen;
+    plus.disabled = v >= d.max || frozen;
+    stepper.title = frozen ? t(TORSO_FROZEN_TIP) : '';
   };
 });
 
@@ -926,8 +944,10 @@ const syncChestRow = (() => {
     $('chestRowField').hidden = most < 2 || ringActive(spec);
     const rows = chestPlan(spec.counts.breasts, spec.chestRow);
     out.textContent = t('{n}（{rows} 排）', { n: spec.chestRow, rows: rows.length });
-    minus.disabled = spec.chestRow <= CHEST_ROW.min;
-    plus.disabled = spec.chestRow >= CHEST_ROW.max;
+    const frozen = Boolean(spec.torsoFreeze);
+    minus.disabled = spec.chestRow <= CHEST_ROW.min || frozen;
+    plus.disabled = spec.chestRow >= CHEST_ROW.max || frozen;
+    $('chestRow').title = frozen ? t(TORSO_FROZEN_TIP) : '';
   };
 })();
 
@@ -1530,9 +1550,11 @@ function shapeSlider(d: ShapeDef, host: HTMLElement, id: string, inCard: boolean
     const v = spec.shape[d.key];
     if (Number(input.value) !== v) input.value = String(v);
     out.textContent = shapeText(d, v);
-    const fixed = FIXED_SHAPES[spec.bodyStyle].has(d.key);
+    const frozen = Boolean(spec.torsoFreeze) && (TORSO_SHAPE_KEYS as readonly string[]).includes(d.key);
+    const fixed = FIXED_SHAPES[spec.bodyStyle].has(d.key) || frozen;
     input.disabled = fixed;
     row.classList.toggle('off', fixed);
+    row.title = frozen ? t(TORSO_FROZEN_TIP) : '';
     if (d.key === 'penisSize') row.hidden = !adultShown() || spec.counts.penises === 0;
     if (!inCard) return;
     // 卡片里的那一份：没有这个部件就不出
@@ -1547,6 +1569,8 @@ const sliders = SHAPE_DEFS.flatMap((d) => {
 });
 const btnUndo = $<HTMLButtonElement>('btnUndo');
 const btnRedo = $<HTMLButtonElement>('btnRedo');
+/** 顶栏的「冻结躯干」：按下去的样子 = 冻结着 */
+const btnTorsoFreeze = $<HTMLButtonElement>('btnTorsoFreeze');
 btnUndo.addEventListener('click', undo);
 btnRedo.addEventListener('click', redo);
 
@@ -1562,10 +1586,13 @@ $<HTMLButtonElement>('btnReset').addEventListener('click', async () => {
   select(null);
   selectJoint(null);
   torsoEdit = 'all';
-  spec = applyParse(defaultSpec(), readText(START_TEXT));
+  // 躯干锁定、冻结着的照旧锁定、冻结：冻结的躯干照冻结时的样子留着（见 gate）
+  const { torsoLock, torsoFreeze } = spec;
+  spec = { ...applyParse(defaultSpec(), readText(START_TEXT)), ...(torsoLock ? { torsoLock } : {}), ...(torsoFreeze ? { torsoFreeze } : {}) };
   desc.value = text;
   refitNext = true;
   commit();
+  if (torsoFreeze) setStatus(t('其余都恢复了；躯干冻结着，照冻结时的样子留着。'));
 });
 
 // 还没有现成的姿势可选：那一栏就不出现
@@ -1664,11 +1691,16 @@ const workshop: WorkshopApi = {
     add: async (kind, change) => propInfo(await propsPanel.create(kind, change)),
     change(id, change) {
       const { lift: _lift, ...patch } = change;
+      const was = propOf(propsNow(), id);
+      if (was?.frozen) throw new Error(t('「{name}」冻结了，哪一项都改不了；要改先让用户在道具清单里解冻', { name: propLabel(was) }));
+      if (was?.locked && (patch.pos || patch.rot)) throw new Error(t('「{name}」锁定了，位置、朝向、倾斜改不了；要挪先让用户在道具清单里解锁', { name: propLabel(was) }));
       const next = propsPanel.change(id, patch);
       if (!next) throw new Error(t('场景里没有这件道具'));
       return propInfo(next);
     },
     remove(id) {
+      const was = propOf(propsNow(), id);
+      if (was?.frozen) throw new Error(t('「{name}」冻结了，删不掉；要删先让用户在道具清单里解冻', { name: propLabel(was) }));
       if (!propsPanel.discard(id)) throw new Error(t('场景里没有这件道具'));
     },
     actions: (id) => propActionList(id).map((a) => ({ key: a.key, label: a.label, block: a.block })),
@@ -1917,6 +1949,10 @@ const propsPanel = new PropsPanel({
   unlink: (figure, part) => unlinkPart(figure, part),
   rideLabel: (prop) => (linkOf(myLinks(), BODY_LINK)?.prop === prop ? null : figureLabel(currentOf(scene))),
   ride: (prop) => rideProp(prop),
+  carriedBy(prop) {
+    const by = carrierIn(scene.figures, prop);
+    return by ? t('「{who}」的{part}', { who: figureLabel(figureOf(scene, by.figure)!), part: linkPartLabel(by.link.part) }) : null;
+  },
   hugLabel: (prop) => (hugging(prop) ? null : figureLabel(currentOf(scene))),
   hug: (prop) => hugProp(prop),
   actor: () => figureLabel(currentOf(scene)),
@@ -3677,7 +3713,10 @@ const limbOf = (handle: Handle) => (kit && handle.limb >= 0 ? kit.solver.limbs[h
 function ensureKit(): PoseKit | null {
   const body = character ?? figure;
   if (!body) return null;
-  if (kit?.body === body) return kit;
+  if (kit?.body === body) {
+    syncTorsoLock();
+    return kit;
+  }
   const skeleton: Skeleton = character ? characterSkeleton(character) : buildSkeleton(figure!);
   const solver = makeSolver(skeleton.bones);
   const { limbs } = solver;
@@ -3701,6 +3740,8 @@ function ensureKit(): PoseKit | null {
       }
     }
   }
+  // 躯干锁定了：拖手脚时胯、脊柱不跟着转，胯、腰、胸的圆点不给（见 model/torsoHold.ts）
+  solver.lockTorso = torsoLocked(spec);
   kit = { solver, handles: buildHandles(solver), eyeBone, body };
   poseHandles?.setHandles(kit.handles);
   if (joint && !kit.handles.some((h) => h.id === joint)) joint = null;
@@ -5088,6 +5129,45 @@ const posePinHands = $<HTMLInputElement>('posePinHands');
 posePinFeet.addEventListener('change', () => pinAll('leg', posePinFeet.checked));
 posePinHands.addEventListener('change', () => pinAll('arm', posePinHands.checked));
 
+/* ---- 躯干锁定、冻结（见 model/torsoHold.ts）：记在这个角色的设定里，能撤销、跟着存档 ---- */
+const poseTorsoLock = $<HTMLInputElement>('poseTorsoLock');
+poseTorsoLock.addEventListener('change', () => {
+  if (poseHandles?.busy) return renderPosePanel();
+  history.seal();
+  spec = setTorsoHold(spec, 'lock', poseTorsoLock.checked);
+  commit();
+  syncTorsoLock();
+  setStatus(poseTorsoLock.checked ? t('躯干锁定了：拖手、脚、肩膀、脖子时胯、腰、胸不跟着动，胯也不挪。') : t('躯干解锁了：拖手脚够不着时身子又会跟过去。'));
+});
+btnTorsoFreeze.addEventListener('click', () => {
+  // 正拖着姿势时不动
+  if (poseHandles?.busy) return;
+  const on = !spec.torsoFreeze;
+  history.seal();
+  // 冻结时躯干的样子照现在的记法记（以前的版本存下来的姿势先换算过来）
+  spec = setTorsoHold(spec, 'freeze', on, on ? posingNow() : undefined);
+  commit();
+  syncTorsoLock();
+  setStatus(
+    on
+      ? t('躯干冻结了：姿势和体型定成现在的样子，套现成姿势、还原、初始化都不改它；躯干的体型滑块、上半身和胸的数量先不能改。')
+      : t('躯干解冻了：姿势、体型又能改了。'),
+  );
+});
+
+/** 求解器、摆姿势的圆点跟上设定里的躯干锁定（开关、撤销、切角色以后）：变了就重做一遍圆点 */
+function syncTorsoLock() {
+  if (!kit) return;
+  const lock = torsoLocked(spec);
+  if (Boolean(kit.solver.lockTorso) === lock) return;
+  kit.solver.lockTorso = lock;
+  kit.handles = buildHandles(kit.solver);
+  poseHandles?.setHandles(kit.handles);
+  // 选着的是胯、腰、胸：圆点没了，放掉
+  if (joint && !kit.handles.some((h) => h.id === joint)) selectJoint(null);
+  markHandles();
+}
+
 const groupChecks = HANDLE_GROUPS.map((group) => {
   const input = el('input');
   input.type = 'checkbox';
@@ -5119,6 +5199,11 @@ function renderPosePanel() {
   syncPoseTool(poseTool, true);
   posePinFeet.checked = pinFeet;
   posePinHands.checked = pinHands;
+  // 冻结的也算锁定：冻结着时锁定那一格勾着、点不了
+  poseTorsoLock.checked = torsoLocked(spec);
+  poseTorsoLock.disabled = Boolean(spec.torsoFreeze);
+  poseTorsoLock.parentElement!.title = spec.torsoFreeze ? t('冻结的也锁定着：先点顶栏的「冻结躯干」解冻') : t(TORSO_LOCK_TIP);
+  syncTorsoLock();
   for (const { group, input, wrap } of groupChecks) {
     input.checked = shownGroups.has(group);
     // 阴茎那一组只在打开了「显示成人部件」、身上有阴茎时出现
@@ -5721,6 +5806,7 @@ function placeAll() {
   // 当前角色站在原点：它站在台子上的话，地面在它脚下那么多
   viewport?.setFloor(-placeY(here));
   sceneView.setActive(scene.current);
+  sceneView.setFixed(scene.figures.filter((f) => !canMoveFigure(f)).map((f) => f.id));
   sceneView.showRings(ringsOn && scene.figures.length > 1);
   propsPanel.follow();
   sceneBounds();
@@ -5735,7 +5821,8 @@ function placeAll() {
  */
 function movePlace(id: string, place: Place, live = false) {
   const f = figureOf(scene, id);
-  if (!f) return;
+  // 锁定、冻结了：站的地方不挪（拖不了底座圈、道具挪了不跟、撤销也不挪回去）
+  if (!f || !canMoveFigure(f)) return;
   const was = f.place;
   scene = updateFigure(scene, id, { place });
   const now = figureOf(scene, id)!.place;
@@ -5783,8 +5870,13 @@ function stashCurrent() {
 
 /** 换成另一个角色：存好当前的，读进那一个（和撤销恢复走同一条路），重建 */
 function switchFigure(id: string) {
-  if (id === scene.current || !figureOf(scene, id)) return;
+  const f = figureOf(scene, id);
+  if (id === scene.current || !f) return;
   if (poseHandles?.busy || placing) return;
+  if (f.frozen) {
+    setStatus(t('「{name}」冻结了，只能看、导出：在「场景」的角色清单里点 ❄ 解冻以后才能切过去改。', { name: figureLabel(f) }));
+    return;
+  }
   stashCurrent();
   loadFigure(id, true);
   void bakeOthers();
@@ -5923,7 +6015,13 @@ function undoRemove() {
   scene = setCurrent(restoreFigure(scene, gone.figure, gone.at), fromId);
   if (gone.history) histories.set(gone.figure.id, gone.history);
   sceneView.setGhost(gone.figure.id, [], new Box3());
-  loadFigure(gone.figure.id, true);
+  if (gone.figure.frozen) {
+    // 冻结的放回原处就行，不切过去（冻结的改不了）
+    placeAll();
+    save();
+    renderSceneBar();
+    syncScenePanel();
+  } else loadFigure(gone.figure.id, true);
   setStatus(t('「{name}」放回来了。', { name: gone.label }));
   void bakeOthers();
 }
@@ -6075,7 +6173,7 @@ if (viewport) {
       const ray = rayAt(e);
       const hit = ray && sceneView.hitRing(ray);
       const at = hit && groundAt(e, hit.id);
-      if (!hit || !at) return;
+      if (!hit || !at || !canMoveFigure(figureOf(scene, hit.id) ?? {})) return;
       e.stopImmediatePropagation();
       e.preventDefault();
       try {
@@ -6184,6 +6282,11 @@ const placeDials = PLACE_DIALS.map((d) => {
 });
 function syncPlaceDials() {
   for (const sync of placeDials) sync();
+  // 当前角色锁定了：位置、朝向、离地都改不了
+  const fixed = !canMoveFigure(currentOf(scene));
+  for (const d of PLACE_DIALS) $<HTMLInputElement>(d.id).disabled = fixed;
+  for (const id of ['btnPlaceReset', 'btnPlaceDrop']) $<HTMLButtonElement>(id).disabled = fixed;
+  $('placeField').title = fixed ? t('「{name}」锁定了：在角色清单里点锁解开以后才能挪', { name: figureLabel(currentOf(scene)) }) : '';
 }
 $('btnPlaceReset').addEventListener('click', () => {
   const p = currentOf(scene).place;
@@ -6203,6 +6306,35 @@ function iconButton(label: string, title: string, onClick: () => void, disabled 
   return btn;
 }
 
+/**
+ * 锁定、冻结一个角色（角色清单上的开关），不进撤销。冻结的是当前角色：先切到别的没冻结的那个；
+ * 场景里没有别的没冻结的就不冻结（总得有一个能改）
+ */
+function toggleFigureFlag(id: string, flag: 'locked' | 'frozen') {
+  const f = figureOf(scene, id);
+  if (!f || poseHandles?.busy || placing) return;
+  const on = !f[flag];
+  const name = figureLabel(f);
+  if (flag === 'frozen' && on && id === scene.current) {
+    const next = scene.figures.find((o) => o.id !== id && !o.frozen);
+    if (!next) {
+      setStatus(t('场景里至少要留一个没冻结的角色能改：先加一个角色，或者解冻别的。'), true);
+      return;
+    }
+    stashCurrent();
+    loadFigure(next.id, true);
+    void bakeOthers();
+  }
+  scene = setFigureFlag(scene, id, flag, on);
+  placeAll();
+  save();
+  renderSceneBar();
+  syncScenePanel();
+  if (flag === 'locked') setStatus(on ? t('「{name}」锁定了：站在哪、朝哪不能改了，道具挪了也不跟着走；造型、姿势照样能改。', { name }) : t('「{name}」解锁了。', { name }));
+  else if (on) setStatus(id === scene.current ? t('「{name}」冻结了。', { name }) : t('「{name}」冻结了：定成现在的样子，只能看、导出；点 ❄ 解冻。现在改的是「{now}」。', { name, now: figureLabel(currentOf(scene)) }));
+  else setStatus(t('「{name}」解冻了：点它就能切过去改。', { name }));
+}
+
 function renderFigureList() {
   const rows = scene.figures.map((f, i) => {
     const on = f.id === scene.current;
@@ -6213,15 +6345,22 @@ function renderFigureList() {
     pick.setAttribute('aria-pressed', String(on));
     pick.addEventListener('click', () => switchFigure(f.id));
     const waiting = !on && sceneView.waiting(f.id);
-    pick.append(el('span', 'figure-name', figureLabel(f)), el('span', 'figure-style', waiting ? t('正在算…') : BODY_LABEL[f.spec.bodyStyle]));
+    pick.append(el('span', 'figure-name', figureLabel(f)), el('span', 'figure-style', waiting ? t('正在算…') : f.frozen ? t('冻结了') : BODY_LABEL[f.spec.bodyStyle]));
+    if (f.frozen) pick.title = t('冻结了：解冻以后才能切过去改');
     const reorder = (step: -1 | 1) => () => {
       scene = moveFigure(scene, f.id, step);
       save();
       renderSceneBar();
       syncScenePanel();
     };
+    if (f.locked) row.classList.add('locked');
+    if (f.frozen) row.classList.add('frozen');
+    const lock = flagButton('lock', Boolean(f.locked || f.frozen), f.frozen ? t('冻结的也锁定着：先解冻') : f.locked ? t('解锁：又能挪它站的地方、朝向') : t('锁定：站在哪、朝哪不能改（底座圈拖不动，道具挪了也不跟着走）；造型、姿势照样能改'), () => toggleFigureFlag(f.id, 'locked'), Boolean(f.frozen));
+    const freeze = flagButton('freeze', Boolean(f.frozen), f.frozen ? t('解冻：又能切过去改它') : t('冻结：整个人定成现在的样子，切不过去改、也不跟着道具和双人动作变，只能看、导出'), () => toggleFigureFlag(f.id, 'frozen'));
     row.append(
       pick,
+      lock,
+      freeze,
       iconButton('↑', t('往前挪一格'), reorder(-1), i === 0),
       iconButton('↓', t('往后挪一格'), reorder(1), i === scene.figures.length - 1),
       iconButton('✕', t('删掉这个角色'), () => void deleteFigure(f.id), scene.figures.length <= 1),
@@ -6268,8 +6407,10 @@ function renderSceneBar() {
     const chip = el('button', 'scene-chip', figureLabel(f));
     chip.type = 'button';
     chip.setAttribute('aria-pressed', String(on));
+    if (f.frozen || f.locked) chip.append(flagIcon(f.frozen ? 'freeze' : 'lock'));
+    if (f.frozen) chip.classList.add('frozen');
     if (!on && sceneView.waiting(f.id)) chip.classList.add('waiting');
-    chip.title = on ? t('现在改的就是它') : t('切过去改它');
+    chip.title = f.frozen ? t('冻结了：解冻以后才能切过去改') : on ? t('现在改的就是它') : t('切过去改它');
     chip.addEventListener('click', () => switchFigure(f.id));
     return chip;
   });
@@ -6971,6 +7112,7 @@ function untangle(id: string) {
 
 /** 这只手、这只脚现在不能带着这件道具的原因；能带返回 null */
 function carryBlock(part: string, prop: SceneProp): string | null {
+  if (!canMoveProp(prop)) return t('「{name}」{why}，不能跟着手走：先在道具清单里{undo}', { name: propLabel(prop), why: prop.frozen ? t('冻结着') : t('锁定着'), undo: prop.frozen ? t('解冻') : t('解锁') });
   const me = currentOf(scene);
   const by = carrierIn(
     scene.figures.filter((f) => f.id !== me.id),
@@ -7195,7 +7337,7 @@ function followCurrent(dragging: boolean) {
   const me = currentOf(scene);
   const links = liveLinks(me.links, propsNow());
   if (!links.length) return carry(null);
-  const to = followPlace(me.place, links, propsNow());
+  const to = canMoveFigure(me) ? followPlace(me.place, links, propsNow()) : me.place;
   // 带着道具的手：手在哪道具就在哪，这里不用摆（刚被挪了的那几件除外，见 propLed）
   const targets = holdTargets(to, links, propsNow(), propLed).filter((h) => !h.carried);
   if (dragging) {
@@ -7246,11 +7388,21 @@ function followCurrent(dragging: boolean) {
   render();
 }
 
+/** 别的角色用的求解器：照它自己的设定锁不锁躯干（见 model/torsoHold.ts） */
+function otherSolver(f: SceneFigure): Solver {
+  const solver = makeSolver(skeletonFor(bakeSpec(f)));
+  solver.lockTorso = torsoLocked(f.spec);
+  return solver;
+}
+/** 别的角色换了姿势：躯干冻结着的照冻结时的写回去 */
+const heldPosing = (f: SceneFigure, posing: Posing): Posing => (f.spec.torsoFreeze ? holdTorso({ ...f.spec, posing }).posing : posing);
+
 /** 别的角色照连接摆好。返回：挪了没有、姿势变了没有（变了要重新算它定住的那张网格） */
 function followOther(f: SceneFigure, dragging: boolean): { moved: boolean; posed: boolean } {
   const links = liveLinks(f.links, propsNow());
-  if (!links.length) return { moved: false, posed: false };
-  const to = followPlace(f.place, links, propsNow());
+  // 冻结了：定成冻结时的样子，道具怎么动都不跟
+  if (!links.length || f.frozen) return { moved: false, posed: false };
+  const to = canMoveFigure(f) ? followPlace(f.place, links, propsNow()) : f.place;
   const moved = !samePlace(to, f.place);
   if (moved) scene = updateFigure(scene, f.id, { place: to });
   let posed = false;
@@ -7258,7 +7410,7 @@ function followOther(f: SceneFigure, dragging: boolean): { moved: boolean; posed
   const targets = dragging ? [] : holdTargets(to, links, propsNow(), propLed).filter((h) => !h.carried);
   if (targets.length) {
     try {
-      const posing = holdPosing(makeSolver(skeletonFor(bakeSpec(f))), f.spec.posing, targets, { grip: 'always' });
+      const posing = heldPosing(f, holdPosing(otherSolver(f), f.spec.posing, targets, { grip: 'always' }));
       if (posing !== f.spec.posing) {
         scene = updateFigure(scene, f.id, { spec: { ...f.spec, posing } });
         posed = true;
@@ -7334,8 +7486,9 @@ function resettle(id: string): boolean {
     spec = { ...spec, posing };
     return true;
   }
+  if (f.frozen) return false;
   try {
-    const posing = holdPosing(makeSolver(skeletonFor(bakeSpec(f))), f.spec.posing, targets);
+    const posing = heldPosing(f, holdPosing(otherSolver(f), f.spec.posing, targets));
     if (posing === f.spec.posing) return false;
     scene = updateFigure(scene, id, { spec: { ...f.spec, posing } });
     return true;
@@ -7391,6 +7544,7 @@ function rideProp(propId: string) {
   const prop = propOf(propsNow(), propId);
   if (!prop) return;
   const me = currentOf(scene);
+  if (!canMoveFigure(me)) return setStatus(t('「{name}」锁定了站的地方，不能跟着道具走：先在「场景」的角色清单里解锁。', { name: figureLabel(me) }), true);
   scene = updateFigure(scene, me.id, { links: setLink(me.links, rideLink(prop, me.place)) });
   // 人整个跟着它了：它不能又跟着这个人的手（原来拿着的改成抓着）
   untangle(me.id);
@@ -7669,7 +7823,8 @@ function propActionList(propId: string): { key: string; label: string; tip: stri
   const solver = ensureKit()?.solver;
   return PROP_ACTIONS.map((a) => {
     const block = prop && solver ? actionBlock(a.key, solver, prop) : tk('正在生成网格…');
-    return { key: a.key, label: t(a.name), tip: t(a.tip), block: block ? t(block) : null };
+    const fixed = !isPickAction(a.key) && !canMoveFigure(currentOf(scene)) ? t('「{name}」锁定了站的地方：先在「场景」的角色清单里解锁', { name: figureLabel(currentOf(scene)) }) : null;
+    return { key: a.key, label: t(a.name), tip: t(a.tip), block: fixed ?? (block ? t(block) : null) };
   });
 }
 
@@ -7683,8 +7838,12 @@ function applyPropAction(propId: string, action: PropAction): { ok: boolean; tex
   const solver = ensureKit()?.solver;
   if (!solver) return notNow;
   const me = currentOf(scene);
-  // 把道具拿到身上来的：别的角色正带着它，或者它正带着这个角色，拿不了
-  const block = isPickAction(action) ? carryBlock(action === 'hug' ? 'UpperChest' : 'Hand_R', prop) : null;
+  // 把道具拿到身上来的：别的角色正带着它，或者它正带着这个角色，拿不了；坐、躺、靠这些要挪角色的：角色锁定了做不了
+  const block = isPickAction(action)
+    ? carryBlock(action === 'hug' ? 'UpperChest' : 'Hand_R', prop)
+    : canMoveFigure(me)
+      ? null
+      : t('「{name}」锁定了站的地方：先在「场景」的角色清单里解锁', { name: figureLabel(me) });
   if (block) {
     setStatus(block, true);
     return { ok: false, text: block };
@@ -7874,6 +8033,11 @@ const keepFaces = (next: Posing, was: Posing): Posing => (next.faces || !was.fac
 async function applyPair(preset: PairPreset) {
   const partner = figureOf(scene, pairPartner);
   if (!partner || partner.id === scene.current || poseHandles?.busy || placing) return;
+  // 双人动作要把对方挪过来、换姿势：对方冻结、锁定了就摆不了
+  if (!canMoveFigure(partner)) {
+    setStatus(t('「{name}」{why}：双人动作要把它挪过来、换姿势，先在「场景」的角色清单里{undo}。', { name: figureLabel(partner), why: partner.frozen ? t('冻结着') : t('锁定着'), undo: partner.frozen ? t('解冻') : t('解锁') }), true);
+    return;
+  }
   if (pending) rebuild();
   endSlide();
   if (!figure && !character) return;
@@ -7889,7 +8053,7 @@ async function applyPair(preset: PairPreset) {
   );
   // B：设定、位置一起改，记进它自己的撤销历史
   const now = figureOf(scene, partner.id)!;
-  const nextB = { ...now.spec, posing: keepFaces(result.posing.B, now.spec.posing) };
+  const nextB = holdTorso({ ...now.spec, posing: keepFaces(result.posing.B, now.spec.posing) });
   const h = histories.get(now.id) ?? new History<Snapshot>(snapOf(now), HISTORY_OPTIONS);
   h.seal();
   // B 走过来、换了姿势：原来和道具的连接都解开；A 站着不动，只是手脚换了地方：钉着的手脚解开，整个人跟着的那一件留着

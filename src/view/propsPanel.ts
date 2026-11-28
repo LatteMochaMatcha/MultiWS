@@ -12,6 +12,7 @@ import {
   type PropKind,
   type SceneProp,
   addProp,
+  canMoveProp,
   clampProp,
   copyProp,
   isPropKind,
@@ -22,6 +23,7 @@ import {
   propOf,
   removeProp,
   sameProps,
+  setPropFlag,
   turnPole,
   updateProp,
 } from '../model/props';
@@ -34,6 +36,7 @@ import { IMPORT_BATCH, type ImportEntry, bundleFiles, bundleModels, importStarts
 import type { ImportFiles } from '../props/importMesh';
 import { IMPORT_ACCEPT } from '../props/importShape';
 import { loadUserAsset, loadUserAssets, loadUserIndex, regroupUserAsset, removeUserAsset, watchUserAssets } from '../props/userStore';
+import { flagButton } from './flagIcons';
 import { GIZMO_MODES, type GizmoMode } from './gizmo';
 import { PropGizmo } from './propGizmo';
 import { importPropFile } from './propImport';
@@ -85,6 +88,8 @@ export interface PropsHost {
   reveal(): void;
   /** 镜头退到能看全整个场景（新放的道具落在画面外面时） */
   refit(): void;
+  /** 这件道具正跟着谁的手（拿着、端着、抱着）：「谁的哪里」；没人带着是 null。带着的锁不了 */
+  carriedBy(prop: string): string | null;
   /** 一排单选按钮（main.ts 的 buildSeg） */
   seg<T extends string>(host: HTMLElement, options: readonly T[], label: (value: T) => string, onPick: (value: T) => void): (value: T, enabled: boolean) => void;
 }
@@ -143,6 +148,13 @@ export class PropsPanel {
   private readonly colorField = el('div', 'field');
   /** 写实款才有的一节：刷成灰色；这台设备上还没下载时，下载的按钮 */
   private readonly realBox = el('div', 'field prop-real');
+  /** 锁定、冻结时说一声哪些改不了 */
+  private readonly heldNote = el('p', 'note prop-held');
+  /** 「在场景里拖动」那一行：挪不了的时候收起来 */
+  private readonly modeField = el('div', 'field');
+  /** 挪位置、转方向的几个按钮（锁定时变灰）；改尺寸、删除的（冻结时变灰） */
+  private readonly moveBtns: HTMLButtonElement[] = [];
+  private readonly editBtns: HTMLButtonElement[] = [];
   /** 杆才有的「横过来 / 竖起来」 */
   private readonly turnBtn = button('', '', () => {
     const prop = this.selected;
@@ -210,7 +222,7 @@ export class PropsPanel {
     });
     nameField.append(el('span', '', t('名字')), this.nameBox);
 
-    const modeField = el('div', 'field');
+    const modeField = this.modeField;
     const seg = el('div', 'seg');
     seg.id = 'segPropGizmo';
     seg.setAttribute('role', 'radiogroup');
@@ -268,22 +280,21 @@ export class PropsPanel {
     colorField.append(el('span', '', t('颜色')), dye);
 
     const actions = el('div', 'actions');
-    actions.append(
-      button(t('落到下面'), t('竖直落下去：落到地面，或者正下方别的道具上（箱子叠箱子、东西放到台面上）'), () => this.drop()),
-      button(t('摆正'), t('倾斜归零，立正；朝哪边不变'), () => {
-        const prop = this.selected;
-        if (prop) this.edit({ rot: [0, prop.rot[1], 0] });
-      }),
-      this.turnBtn,
-      button(t('原来的尺寸'), t('宽、高、深都变回刚放下时的大小'), () => {
-        const prop = this.selected;
-        if (prop) this.edit({ size: propBaseSize(prop) });
-      }),
-      button(t('复制一份'), t('照选中的道具再做一个，放在它旁边'), () => this.copy()),
-      button(t('删除这件道具'), t('从场景里拿掉；点撤销能放回来'), () => this.remove()),
-      button(t('取消选择'), '', () => this.select(null)),
-    );
-    this.body.append(nameField, modeField, triples, this.realBox, colorField, this.actBox, this.linkBox, actions);
+    const dropBtn = button(t('落到下面'), t('竖直落下去：落到地面，或者正下方别的道具上（箱子叠箱子、东西放到台面上）'), () => this.drop());
+    const levelBtn = button(t('摆正'), t('倾斜归零，立正；朝哪边不变'), () => {
+      const prop = this.selected;
+      if (prop) this.edit({ rot: [0, prop.rot[1], 0] });
+    });
+    const sizeBtn = button(t('原来的尺寸'), t('宽、高、深都变回刚放下时的大小'), () => {
+      const prop = this.selected;
+      if (prop) this.edit({ size: propBaseSize(prop) });
+    });
+    const delBtn = button(t('删除这件道具'), t('从场景里拿掉；点撤销能放回来'), () => this.remove());
+    this.moveBtns.push(dropBtn, levelBtn, this.turnBtn);
+    this.editBtns.push(sizeBtn, delBtn);
+    actions.append(dropBtn, levelBtn, this.turnBtn, sizeBtn, button(t('复制一份'), t('照选中的道具再做一个，放在它旁边'), () => this.copy()), delBtn, button(t('取消选择'), '', () => this.select(null)));
+    this.heldNote.hidden = true;
+    this.body.append(nameField, this.heldNote, modeField, triples, this.realBox, colorField, this.actBox, this.linkBox, actions);
 
     const note = el(
       'p',
@@ -939,6 +950,7 @@ export class PropsPanel {
   private remove() {
     const prop = this.selected;
     if (!prop) return;
+    if (prop.frozen) return this.host.status(t('「{name}」冻结了，删不掉：先在道具清单里点 ❄ 解冻。', { name: propLabel(prop) }), true);
     this.history.seal();
     this.selectedId = null;
     this.commit(removeProp(this.host.read(), prop.id));
@@ -949,6 +961,7 @@ export class PropsPanel {
   private drop() {
     const prop = this.selected;
     if (!prop) return;
+    if (!canMoveProp(prop)) return this.host.status(t('「{name}」锁定了，挪不了：先在道具清单里解锁。', { name: propLabel(prop) }), true);
     const y = dropHeight(prop, this.host.read());
     if (Math.abs(y - prop.pos[1]) < 0.0005) return this.host.status(t('「{name}」已经落在下面的东西上了。', { name: propLabel(prop) }));
     this.history.seal();
@@ -961,9 +974,11 @@ export class PropsPanel {
     const props = this.host.read();
     const prop = this.selected ?? null;
     this.view.sync(props, this.selectedId);
-    this.gizmo?.sync(prop);
+    // 锁定、冻结了：操纵杆不出来（尺寸照样能在下面改数）
+    this.gizmo?.sync(prop && canMoveProp(prop) ? prop : null);
     this.body.hidden = !prop;
     if (!prop) return;
+    this.syncHeld(prop);
     if (force) {
       this.renderReal(prop);
       this.renderActions(prop);
@@ -979,6 +994,38 @@ export class PropsPanel {
         input.value = String(Math.round(prop[field.key][axis] * field.scale * k) / k);
       });
     }
+  }
+
+  /** 锁定、冻结了：哪几格、哪几个按钮改不了，变灰；上面一行字说一声 */
+  private syncHeld(prop: SceneProp) {
+    const fixed = !canMoveProp(prop);
+    const frozen = Boolean(prop.frozen);
+    this.modeField.hidden = fixed;
+    for (const { field, inputs } of this.rows) for (const input of inputs) input.disabled = field.key === 'size' ? frozen : fixed;
+    for (const btn of this.moveBtns) btn.disabled = fixed;
+    for (const btn of this.editBtns) btn.disabled = frozen;
+    this.nameBox.disabled = this.colorBox.disabled = frozen;
+    for (const btn of this.colorField.querySelectorAll('button')) btn.disabled = frozen;
+    this.heldNote.hidden = !fixed;
+    this.heldNote.textContent = frozen
+      ? t('冻结了：哪一项都改不了，也删不掉。在上面的清单里点 ❄ 解冻。')
+      : t('锁定了：位置、朝向、倾斜改不了，也不能被手拿着走；尺寸、颜色照样能改。在上面的清单里点锁解开。');
+  }
+
+  /** 锁定、冻结开关（清单上的），记一步撤销。正被手拿着的锁不了 */
+  private toggle(id: string, flag: 'locked' | 'frozen') {
+    const prop = propOf(this.host.read(), id);
+    if (!prop) return;
+    const on = !prop[flag];
+    const by = on ? this.host.carriedBy(id) : null;
+    if (by) return this.host.status(t('「{name}」正跟着{who}走，锁不了：先让那边放下。', { name: propLabel(prop), who: by }), true);
+    this.history.seal();
+    this.commit(setPropFlag(this.host.read(), id, flag, on));
+    this.history.seal();
+    this.show(true);
+    const name = propLabel(prop);
+    if (flag === 'locked') this.host.status(on ? t('「{name}」锁定了：位置、朝向改不了；尺寸、颜色照样能改。', { name }) : t('「{name}」解锁了。', { name }));
+    else this.host.status(on ? t('「{name}」冻结了：哪一项都改不了，也删不掉。', { name }) : t('「{name}」解冻了。', { name }));
   }
 
   /** 一键动作那一排按钮：做不了的是灰的，原因写在提示里。杆的「横过来 / 竖起来」也在这里跟着换 */
@@ -1038,7 +1085,11 @@ export class PropsPanel {
         this.remove();
       }, 'icon');
       del.setAttribute('aria-label', del.title);
-      row.append(pick, del);
+      del.disabled = Boolean(prop.frozen);
+      const lock = flagButton('lock', Boolean(prop.locked || prop.frozen), prop.frozen ? t('冻结的也锁定着：先解冻') : prop.locked ? t('解锁：又能挪它、转它') : t('锁定：位置、朝向、倾斜不能改，也不能被手拿着走；尺寸、颜色照样能改'), () => this.toggle(prop.id, 'locked'), Boolean(prop.frozen));
+      const freeze = flagButton('freeze', Boolean(prop.frozen), prop.frozen ? t('解冻：又能改它、删它') : t('冻结：哪一项都不能改，也删不掉'), () => this.toggle(prop.id, 'frozen'));
+      if (prop.frozen) row.classList.add('frozen');
+      row.append(pick, lock, freeze, del);
       return row;
     });
     this.list.replaceChildren(...rows);

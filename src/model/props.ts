@@ -33,7 +33,14 @@ export interface SceneProp {
   color: string;
   /** 写实款、导入的素材才有：刷成灰色——不用它自己的贴图，和别的道具一样一个颜色 */
   gray?: true;
+  /** 锁定：位置、朝向、倾斜不能改（操纵杆不出来，也不能被手拿着走）；尺寸、颜色照样能改。没锁就不写 */
+  locked?: true;
+  /** 冻结：哪一项都不能改，也删不掉；冻结的也算锁定了。没冻结就不写 */
+  frozen?: true;
 }
+
+/** 这件道具能不能挪（锁定、冻结的都不能） */
+export const canMoveProp = (p: Pick<SceneProp, 'locked' | 'frozen'>): boolean => !p.locked && !p.frozen;
 
 /** 白模的灰色（和 view/materials.ts 的 Clay 一样） */
 export const PROP_COLOR = '#e7eaeb';
@@ -102,6 +109,8 @@ export function clampProp(p: Omit<SceneProp, 'id'> & { id: string }): SceneProp 
     rot: [0, 1, 2].map((i) => wrapDeg(finite(rot[i], 0))) as Vec3,
     color: cleanColor(p.color),
     ...(p.kind === 'asset' && p.gray === true && skinnedAsset(p.asset) ? { gray: true as const } : {}),
+    ...(p.locked === true ? { locked: true as const } : {}),
+    ...(p.frozen === true ? { frozen: true as const } : {}),
   };
 }
 
@@ -135,20 +144,40 @@ export function makeAssetProp(props: readonly SceneProp[], asset: string, at: { 
 /** 加一个（排在最后） */
 export const addProp = (props: readonly SceneProp[], prop: SceneProp): readonly SceneProp[] => [...props, clampProp(prop)];
 
-/** 改一个道具的几项（编号、种类不能改） */
+/** 改一个道具的几项（编号、种类不能改）。冻结的不改；锁定的位置、旋转不改 */
 export function updateProp(props: readonly SceneProp[], id: string, patch: Partial<Omit<SceneProp, 'id' | 'kind' | 'asset'>>): readonly SceneProp[] {
-  if (!propOf(props, id)) return props;
-  return props.map((p) => (p.id === id ? clampProp({ ...p, ...patch }) : p));
+  const from = propOf(props, id);
+  if (!from || from.frozen) return props;
+  const clean = { ...patch };
+  if (from.locked) {
+    delete clean.pos;
+    delete clean.rot;
+  }
+  return props.map((p) => (p.id === id ? clampProp({ ...p, ...clean }) : p));
 }
 
+/** 锁定、冻结开关（不受上面那条限制） */
+export function setPropFlag(props: readonly SceneProp[], id: string, flag: 'locked' | 'frozen', on: boolean): readonly SceneProp[] {
+  const from = propOf(props, id);
+  if (!from || Boolean(from[flag]) === on) return props;
+  return props.map((p) => {
+    if (p.id !== id) return p;
+    const { [flag]: _, ...rest } = p;
+    return on ? { ...rest, [flag]: true as const } : rest;
+  });
+}
+
+/** 拿掉一个（冻结的拿不掉） */
 export const removeProp = (props: readonly SceneProp[], id: string): readonly SceneProp[] =>
-  propOf(props, id) ? props.filter((p) => p.id !== id) : props;
+  propOf(props, id) && !propOf(props, id)!.frozen ? props.filter((p) => p.id !== id) : props;
 
 /** 复制一个，挪开 offset（场景里的左右、前后，米）。返回新的清单和复制出来那个的编号 */
 export function copyProp(props: readonly SceneProp[], id: string, offset: { x: number; z: number }): { props: readonly SceneProp[]; id: string | null } {
   const from = propOf(props, id);
   if (!from) return { props, id: null };
-  const copy = clampProp({ ...from, id: nextPropId(props), pos: [from.pos[0] + offset.x, from.pos[1], from.pos[2] + offset.z] });
+  // 复制出来的是新的一件：不带锁定、冻结
+  const { locked: _l, frozen: _f, ...plain } = from;
+  const copy = clampProp({ ...plain, id: nextPropId(props), pos: [from.pos[0] + offset.x, from.pos[1], from.pos[2] + offset.z] });
   return { props: [...props, copy], id: copy.id };
 }
 
@@ -178,7 +207,7 @@ export function normalizeProps(raw: unknown): SceneProp[] {
       while (used.has(id) || raw.some((r) => (r as { id?: unknown } | null)?.id === id));
     }
     used.add(id);
-    out.push(clampProp({ id, name: p.name as string, kind, asset, assetName: p.assetName as string, size: p.size as Vec3, pos: p.pos as Vec3, rot: p.rot as Vec3, color: p.color as string, ...(p.gray === true ? { gray: true as const } : {}) }));
+    out.push(clampProp({ id, name: p.name as string, kind, asset, assetName: p.assetName as string, size: p.size as Vec3, pos: p.pos as Vec3, rot: p.rot as Vec3, color: p.color as string, ...(p.gray === true ? { gray: true as const } : {}), ...(p.locked === true ? { locked: true as const } : {}), ...(p.frozen === true ? { frozen: true as const } : {}) }));
   }
   return out;
 }
